@@ -696,7 +696,7 @@ async function sendMessage() {
   const profileContext = `\n\nSTUDENT PROFILE:\n- Attempt number: ${studentProfile.attemptNumber}\n- Months until CAT: ${studentProfile.monthsLeft}\n- Weakest section: ${studentProfile.weakestSection}\n- Daily study hours: ${studentProfile.dailyHours}\n- Current situation: ${studentProfile.situation}`;
 
   try {
-    const response = await fetch('https://marg.singhalgarv215.workers.dev/', {
+    const response = await fetch('marg.singhalgarv215.workers.dev', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
