@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta name="google-site-verification" content="GGfQeNtbQtiZDjxQA4eVgwDwKmHIz_YlehOFCWYnkKU" />
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Marg — Think clearer. Move better.</title>
@@ -599,12 +598,17 @@ function restoreConversation() {
   onboardingComplete = true;
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
-  conversationHistory.forEach(function(msg) {
-    const formatted = msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
-    addMessage(msg.role === 'user' ? 'user' : 'marg', formatted);
-  });
+  // Only show messages after onboarding — skip profile message and first assistant response
+  const displayMessages = conversationHistory.slice(2);
+  if (displayMessages.length > 0) {
+    displayMessages.forEach(function(msg) {
+      const formatted = msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+      addMessage(msg.role === 'user' ? 'user' : 'marg', formatted);
+    });
+  }
   const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
   addMessage('marg', 'Welcome back' + (name ? ', ' + name : '') + '! 👋 Ready to continue from where we left off?', true);
+  addSuggestionChips();
   document.getElementById('user-input').focus();
 }
 
