@@ -891,12 +891,25 @@ function renderStreakBar() {
   }
   if (checkedDates.has(todayStr)) streak++;
 
-  countEl.innerHTML = '<span>' + streak + ' day</span> streak 🔥';
+  let streakMsg = '';
+  if (streak === 0) streakMsg = 'Start your streak today';
+  else if (streak === 1) streakMsg = '<span>1 day</span> streak — keep going!';
+  else if (streak < 5) streakMsg = '<span>' + streak + ' day</span> streak 🔥';
+  else if (streak < 10) streakMsg = '<span>' + streak + ' day</span> streak 🔥 — you\'re building momentum!';
+  else streakMsg = '<span>' + streak + ' day</span> streak 🔥🔥 — don\'t break the chain!';
+  countEl.innerHTML = streakMsg;
 
   // Today's hours
   const todayCheckin = streakData.find(function(c) { return c.date === todayStr; });
   const totalHours = streakData.reduce(function(sum, c) { return sum + (c.hours || 0); }, 0);
-  hoursEl.textContent = 'Total: ' + totalHours.toFixed(1) + 'h studied';
+  // Weekly hours
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const weekStr = formatDate(weekAgo);
+  const weeklyHours = streakData
+    .filter(function(c) { return c.date >= weekStr; })
+    .reduce(function(sum, c) { return sum + (c.hours || 0); }, 0);
+  hoursEl.textContent = 'This week: ' + weeklyHours.toFixed(1) + 'h';
 }
 
 function selectCheckin(val) {
@@ -931,6 +944,31 @@ async function submitCheckin() {
   } catch(e) { console.error('submitCheckin error:', e); }
   hideCheckin();
   loadStreakData();
+  sendCheckinMessage();
+}
+
+function sendCheckinMessage() {
+  const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
+  const weak = studentProfile.weakestSection || 'your prep';
+  let msg = '';
+
+  if (checkinStudied === 'yes') {
+    if (checkinHours >= 5) {
+      msg = checkinHours + ' hours yesterday — that\'s a serious session' + (name ? ', ' + name : '') + '. Whatever you did, carry that energy into today. What section did you work on most?';
+    } else if (checkinHours >= 3) {
+      msg = checkinHours + ' hours yesterday — solid and consistent. That\'s exactly the kind of steady progress that compounds. What are we focusing on today?';
+    } else {
+      msg = checkinHours + ' hours yesterday. Every hour counts — especially when life is busy. What\'s your plan for today?';
+    }
+  } else if (checkinStudied === 'partial') {
+    msg = 'Partial prep is still prep' + (name ? ', ' + name : '') + '. Better than nothing. What got in the way yesterday — was it time, energy, or something else? Helps me understand what to adjust.';
+  } else {
+    msg = 'Missed yesterday — happens to everyone. The only day that matters now is today. What\'s the one thing you\'re opening first — ' + weak + '?';
+  }
+
+  setTimeout(function() {
+    addMessage('marg', msg, true);
+  }, 400);
 }
 
 function showCheckin(userName) {
