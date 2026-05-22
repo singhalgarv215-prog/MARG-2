@@ -974,7 +974,18 @@ async function initSession() {
     updateUserUI(user);
     showWelcome(async function() {
       const hasHistory = await loadUserData();
-      if (hasHistory) { restoreConversation(); } else { addMessage('marg', onboardingFlow[0].message); addOnboardingCard(0); }
+      if (hasHistory) {
+        restoreConversation();
+        loadStreakData();
+        const alreadyCheckedIn = await hasCheckedInToday();
+        if (!alreadyCheckedIn) {
+          const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
+          setTimeout(function() { showCheckin(name); }, 800);
+        }
+      } else {
+        addMessage('marg', onboardingFlow[0].message);
+        addOnboardingCard(0);
+      }
     });
   } catch(e) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); }
 }
