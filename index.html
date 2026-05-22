@@ -472,7 +472,7 @@ async function saveProfile() {
 
 async function loadUserData() {
   if (!currentUser) return false;
-  const { data: profile } = await db.from('profiles').select('*').eq('user_id', currentUser.id).single();
+  const { data: profile } = await db.from('profiles').select('*').eq('user_id', currentUser.id).maybeSingle();
   if (profile) {
     studentProfile = { attemptNumber: profile.attempt_number, monthsLeft: profile.months_left, weakestSection: profile.weakest_section, dailyHours: profile.daily_hours, situation: profile.situation };
     const { data: chats } = await db.from('chats').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: true });
