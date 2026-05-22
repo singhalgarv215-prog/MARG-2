@@ -191,6 +191,78 @@
     .pain-section,.how-section,.testimonial-section,.final-cta-section,.legal-section{padding:40px 20px}
     .footer{padding:16px 20px;flex-direction:column;align-items:flex-start}
   }
+
+  /* ─── CHECKIN OVERLAY ─── */
+  #checkin-overlay {
+    position: fixed; inset: 0;
+    background: rgba(13,13,13,0.95);
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 0; z-index: 300;
+    padding: 24px;
+  }
+  #checkin-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 100%; max-width: 380px;
+    display: flex; flex-direction: column; gap: 20px;
+    animation: fadeUp 0.4s ease;
+  }
+  #checkin-header { display: flex; align-items: center; gap: 10px; }
+  #checkin-logo { height: 24px; object-fit: contain; }
+  #checkin-greeting { font-size: 15px; font-weight: 500; color: var(--text); }
+  #checkin-date { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+  .checkin-q { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 10px; }
+  .checkin-opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ci-btn {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; padding: 8px 16px;
+    border: 1px solid var(--border2);
+    border-radius: 20px; background: transparent;
+    color: var(--text); cursor: pointer; transition: all 0.2s;
+  }
+  .ci-btn:hover { border-color: var(--gold); color: var(--gold); background: var(--gold-dim2); }
+  .ci-btn.selected { border-color: #4CAF7D; background: rgba(76,175,125,0.12); color: #4CAF7D; }
+  #checkin-hours { display: none; flex-direction: column; gap: 10px; }
+  #hours-slider { width: 100%; accent-color: #4CAF7D; }
+  #hours-display { font-size: 24px; font-weight: 500; color: var(--text); text-align: center; }
+  #hours-label { font-size: 12px; color: var(--text-muted); text-align: center; }
+  #checkin-submit {
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; border: none; border-radius: 10px;
+    padding: 12px; font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    width: 100%; transition: opacity 0.2s;
+    display: none;
+  }
+  #checkin-submit:hover { opacity: 0.85; }
+
+  /* ─── STREAK BAR ─── */
+  #streak-bar {
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: none;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  #streak-days { display: flex; gap: 4px; align-items: center; }
+  .s-day {
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 500;
+  }
+  .s-day.done { background: rgba(76,175,125,0.2); color: #4CAF7D; }
+  .s-day.today { background: rgba(76,175,125,0.1); color: #4CAF7D; border: 1px solid #4CAF7D; }
+  .s-day.miss { background: var(--surface2); color: var(--text-dim); }
+  .s-day.future { background: transparent; color: var(--text-dim); border: 1px solid var(--border); }
+  #streak-count { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
+  #streak-count span { color: var(--gold-light); font-weight: 500; }
+  #streak-hours { font-size: 11px; color: var(--text-dim); margin-left: auto; }
 </style>
 </head>
 <body>
@@ -344,6 +416,39 @@
   <div id="welcome-bar"><div id="welcome-bar-fill"></div></div>
 </div>
 
+
+<!-- Check-in Overlay -->
+<div id="checkin-overlay">
+  <div id="checkin-box">
+    <div id="checkin-header">
+      <img id="checkin-logo" src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg">
+      <div id="checkin-date"></div>
+    </div>
+    <div>
+      <div class="checkin-q" id="checkin-q1">Did you study yesterday?</div>
+      <div class="checkin-opts">
+        <button class="ci-btn" onclick="selectCheckin('yes')">Yes ✓</button>
+        <button class="ci-btn" onclick="selectCheckin('partial')">Partially</button>
+        <button class="ci-btn" onclick="selectCheckin('no')">No, missed it</button>
+      </div>
+    </div>
+    <div id="checkin-hours">
+      <div class="checkin-q">How many hours did you study?</div>
+      <div id="hours-display">2h</div>
+      <input type="range" id="hours-slider" min="0.5" max="10" step="0.5" value="2" oninput="updateHours(this.value)">
+      <div id="hours-label">Slide to set hours</div>
+    </div>
+    <button id="checkin-submit" onclick="submitCheckin()">Start today's session →</button>
+  </div>
+</div>
+
+<!-- Streak Bar (inside chat) -->
+<div id="streak-bar">
+  <div id="streak-days"></div>
+  <div id="streak-count">Loading streak...</div>
+  <div id="streak-hours"></div>
+</div>
+
 <!-- Chat -->
 <div id="chat-app">
   <div id="header">
@@ -356,6 +461,7 @@
       <button id="logout-btn" onclick="logout()">Sign out</button>
     </div>
   </div>
+  <div id="streak-bar"></div>
   <div id="messages"></div>
   <div id="input-area">
     <div id="input-row">
@@ -709,6 +815,136 @@ async function sendMessage() {
 
 document.getElementById('user-input').addEventListener('input', function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; });
 document.getElementById('user-input').addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+
+
+// ─── CHECKIN & STREAK ───
+let checkinStudied = null;
+let checkinHours = 2;
+let streakData = [];
+
+function formatDate(d) {
+  return d.toISOString().split('T')[0];
+}
+
+function getTodayDate() {
+  return formatDate(new Date());
+}
+
+function getYesterdayDate() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return formatDate(d);
+}
+
+async function hasCheckedInToday() {
+  if (!currentUser || !SUPABASE_TOKEN) return false;
+  try {
+    const today = getTodayDate();
+    const { data } = await sbFetch('checkins?select=*&user_id=eq.' + currentUser.id + '&date=eq.' + today, 'GET');
+    return data && data.length > 0;
+  } catch(e) { return false; }
+}
+
+async function loadStreakData() {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    const { data } = await sbFetch('checkins?select=*&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', 'GET');
+    streakData = data || [];
+    renderStreakBar();
+  } catch(e) { console.error('loadStreakData error:', e); }
+}
+
+function renderStreakBar() {
+  const bar = document.getElementById('streak-bar');
+  const daysEl = document.getElementById('streak-days');
+  const countEl = document.getElementById('streak-count');
+  const hoursEl = document.getElementById('streak-hours');
+
+  bar.style.display = 'flex';
+
+  const days = ['M','T','W','T','F','S','S'];
+  const today = new Date();
+  const todayStr = formatDate(today);
+  const checkedDates = new Set(streakData.map(function(c) { return c.date; }));
+
+  // Show last 7 days
+  let html = '';
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = formatDate(d);
+    const dayName = days[d.getDay() === 0 ? 6 : d.getDay() - 1];
+    let cls = 'future';
+    if (dateStr === todayStr) cls = 'today';
+    else if (dateStr < todayStr) cls = checkedDates.has(dateStr) ? 'done' : 'miss';
+    html += '<div class="s-day ' + cls + '">' + dayName + '</div>';
+  }
+  daysEl.innerHTML = html;
+
+  // Calculate streak
+  let streak = 0;
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  while (checkedDates.has(formatDate(d))) {
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  if (checkedDates.has(todayStr)) streak++;
+
+  countEl.innerHTML = '<span>' + streak + ' day</span> streak 🔥';
+
+  // Today's hours
+  const todayCheckin = streakData.find(function(c) { return c.date === todayStr; });
+  const totalHours = streakData.reduce(function(sum, c) { return sum + (c.hours || 0); }, 0);
+  hoursEl.textContent = 'Total: ' + totalHours.toFixed(1) + 'h studied';
+}
+
+function selectCheckin(val) {
+  checkinStudied = val;
+  document.querySelectorAll('.ci-btn').forEach(function(b) { b.classList.remove('selected'); });
+  event.target.classList.add('selected');
+
+  if (val === 'yes' || val === 'partial') {
+    document.getElementById('checkin-hours').style.display = 'flex';
+  } else {
+    document.getElementById('checkin-hours').style.display = 'none';
+    checkinHours = 0;
+  }
+  document.getElementById('checkin-submit').style.display = 'block';
+}
+
+function updateHours(val) {
+  checkinHours = parseFloat(val);
+  document.getElementById('hours-display').textContent = checkinHours + 'h';
+}
+
+async function submitCheckin() {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    const res = await sbFetch('checkins', 'POST', {
+      user_id: currentUser.id,
+      studied: checkinStudied !== 'no',
+      hours: checkinHours,
+      date: getTodayDate()
+    });
+    if (!res.ok) console.error('checkin save failed:', res.status);
+  } catch(e) { console.error('submitCheckin error:', e); }
+  hideCheckin();
+  loadStreakData();
+}
+
+function showCheckin(userName) {
+  const overlay = document.getElementById('checkin-overlay');
+  const today = new Date();
+  const options = { weekday: 'long', month: 'long', day: 'numeric' };
+  document.getElementById('checkin-date').textContent = today.toLocaleDateString('en-IN', options);
+  document.getElementById('checkin-q1').textContent = 'Good morning' + (userName ? ', ' + userName : '') + '! Did you study yesterday?';
+  overlay.style.display = 'flex';
+}
+
+function hideCheckin() {
+  document.getElementById('checkin-overlay').style.display = 'none';
+}
 
 async function initSession() {
   showRandomQuote();
