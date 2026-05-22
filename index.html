@@ -7,7 +7,7 @@
 <meta name="description" content="Marg is a free AI mentor for CAT aspirants. Not generic advice — a plan built around your specific situation.">
 <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
+
 <style>
   :root {
     --bg: #0D0D0D;
@@ -371,8 +371,23 @@ const SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkdXF0cnVtaHZldGV5amt5bHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNjc0MzMsImV4cCI6MjA5NDc0MzQzM30.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
 const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
 const LOGO_ICON = 'https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png';
-const { createClient } = supabase;
-const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let SUPABASE_TOKEN = null;
+
+async function sbFetch(path, method, body) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'apikey': SUPABASE_ANON_KEY,
+    'Prefer': 'return=minimal'
+  };
+  if (SUPABASE_TOKEN) headers['Authorization'] = 'Bearer ' + SUPABASE_TOKEN;
+  const opts = { method: method || 'GET', headers };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, opts);
+  if (method === 'POST' || method === 'PATCH') return { ok: res.ok, status: res.status };
+  if (!res.ok) return { data: null, error: res.status };
+  const data = await res.json();
+  return { data, error: null };
+}
 
 const CAT_QUOTES = [
   { quote: "The CAT is not a test of intelligence. It is a test of preparation.", author: "— Every IIM topper ever" },
@@ -455,36 +470,57 @@ function showLandingMain() {
 }
 
 function startLogin() {
-  db.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.href } });
+  const redirectTo = encodeURIComponent(window.location.href);
+  window.location.href = SUPABASE_URL + '/auth/v1/authorize?provider=google&redirect_to=' + redirectTo;
 }
 
-async function logout() { await db.auth.signOut(); location.reload(); }
+async function logout() {
+  if (SUPABASE_TOKEN) {
+    await fetch(SUPABASE_URL + '/auth/v1/logout', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN }
+    });
+  }
+  localStorage.removeItem('marg_token');
+  localStorage.removeItem('marg_user');
+  location.href = window.location.origin;
+}
 
 async function saveChatMessage(role, content) {
-  if (!currentUser) return;
+  if (!currentUser || !SUPABASE_TOKEN) return;
   try {
-    const { error } = await db.from('chats').insert({ user_id: currentUser.id, role: role, content: content });
-    if (error) console.error('saveChatMessage error:', error);
-  } catch(e) { console.error('saveChatMessage exception:', e); }
+    const res = await sbFetch('chats', 'POST', { user_id: currentUser.id, role: role, content: content });
+    if (!res.ok) console.error('saveChatMessage failed:', res.status);
+  } catch(e) { console.error('saveChatMessage error:', e); }
 }
 
 async function saveProfile() {
-  if (!currentUser) return;
+  if (!currentUser || !SUPABASE_TOKEN) return;
   try {
-    const { error } = await db.from('profiles').upsert({ user_id: currentUser.id, attempt_number: studentProfile.attemptNumber, months_left: studentProfile.monthsLeft, weakest_section: studentProfile.weakestSection, daily_hours: studentProfile.dailyHours, situation: studentProfile.situation });
-    if (error) console.error('saveProfile error:', error);
-  } catch(e) { console.error('saveProfile exception:', e); }
+    const headers = {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_TOKEN,
+      'Prefer': 'resolution=merge-duplicates'
+    };
+    const res = await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ user_id: currentUser.id, attempt_number: studentProfile.attemptNumber, months_left: studentProfile.monthsLeft, weakest_section: studentProfile.weakestSection, daily_hours: studentProfile.dailyHours, situation: studentProfile.situation })
+    });
+    if (!res.ok) console.error('saveProfile failed:', res.status, await res.text());
+  } catch(e) { console.error('saveProfile error:', e); }
 }
 
 async function loadUserData() {
-  if (!currentUser) return false;
+  if (!currentUser || !SUPABASE_TOKEN) return false;
   try {
-    const { data: profiles, error: pe } = await db.from('profiles').select('*').eq('user_id', currentUser.id);
-    if (pe || !profiles || profiles.length === 0) return false;
+    const { data: profiles } = await sbFetch('profiles?select=*&user_id=eq.' + currentUser.id, 'GET');
+    if (!profiles || profiles.length === 0) return false;
     const profile = profiles[0];
     studentProfile = { attemptNumber: profile.attempt_number, monthsLeft: profile.months_left, weakestSection: profile.weakest_section, dailyHours: profile.daily_hours, situation: profile.situation };
-    const { data: chats, error: ce } = await db.from('chats').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: true });
-    if (ce || !chats || chats.length === 0) return false;
+    const { data: chats } = await sbFetch('chats?select=*&user_id=eq.' + currentUser.id + '&order=created_at.asc', 'GET');
+    if (!chats || chats.length === 0) return false;
     conversationHistory = chats.map(function(c) { return { role: c.role, content: c.content }; });
     return true;
   } catch(e) { console.error('loadUserData error:', e); return false; }
@@ -674,30 +710,40 @@ async function sendMessage() {
 document.getElementById('user-input').addEventListener('input', function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; });
 document.getElementById('user-input').addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 
-window.onload = async function() {
+async function initSession() {
   showRandomQuote();
-  const { data: { session } } = await db.auth.getSession();
-  if (session) {
-    currentUser = session.user;
-    updateUserUI(currentUser);
+  // Check URL hash for token (after OAuth redirect)
+  const hash = window.location.hash;
+  if (hash && hash.includes('access_token')) {
+    const params = new URLSearchParams(hash.substring(1));
+    const token = params.get('access_token');
+    if (token) {
+      localStorage.setItem('marg_token', token);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+
+  const token = localStorage.getItem('marg_token');
+  if (!token) { setTimeout(showLanding, 3200); return; }
+
+  // Verify token and get user
+  try {
+    const res = await fetch(SUPABASE_URL + '/auth/v1/user', {
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token }
+    });
+    if (!res.ok) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); return; }
+    const user = await res.json();
+    SUPABASE_TOKEN = token;
+    currentUser = user;
+    updateUserUI(user);
     showWelcome(async function() {
       const hasHistory = await loadUserData();
       if (hasHistory) { restoreConversation(); } else { addMessage('marg', onboardingFlow[0].message); addOnboardingCard(0); }
     });
-  } else {
-    setTimeout(showLanding, 3200);
-  }
-  db.auth.onAuthStateChange(async function(event, session) {
-    if (event === 'SIGNED_IN' && session) {
-      currentUser = session.user;
-      updateUserUI(currentUser);
-      showWelcome(async function() {
-        const hasHistory = await loadUserData();
-        if (hasHistory) { restoreConversation(); } else { addMessage('marg', onboardingFlow[0].message); addOnboardingCard(0); }
-      });
-    }
-  });
-};
+  } catch(e) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); }
+}
+
+window.onload = initSession;
 </script>
 </body>
 </html>
