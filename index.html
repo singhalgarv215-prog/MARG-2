@@ -7,7 +7,7 @@
 <meta name="description" content="Marg is a free AI mentor for CAT aspirants. Not generic advice — a plan built around your specific situation.">
 <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
 <style>
   :root {
     --bg: #0D0D0D;
@@ -462,23 +462,32 @@ async function logout() { await db.auth.signOut(); location.reload(); }
 
 async function saveChatMessage(role, content) {
   if (!currentUser) return;
-  await db.from('chats').insert({ user_id: currentUser.id, role, content });
+  try {
+    const { error } = await db.from('chats').insert({ user_id: currentUser.id, role: role, content: content });
+    if (error) console.error('saveChatMessage error:', error);
+  } catch(e) { console.error('saveChatMessage exception:', e); }
 }
 
 async function saveProfile() {
   if (!currentUser) return;
-  await db.from('profiles').upsert({ user_id: currentUser.id, attempt_number: studentProfile.attemptNumber, months_left: studentProfile.monthsLeft, weakest_section: studentProfile.weakestSection, daily_hours: studentProfile.dailyHours, situation: studentProfile.situation });
+  try {
+    const { error } = await db.from('profiles').upsert({ user_id: currentUser.id, attempt_number: studentProfile.attemptNumber, months_left: studentProfile.monthsLeft, weakest_section: studentProfile.weakestSection, daily_hours: studentProfile.dailyHours, situation: studentProfile.situation });
+    if (error) console.error('saveProfile error:', error);
+  } catch(e) { console.error('saveProfile exception:', e); }
 }
 
 async function loadUserData() {
   if (!currentUser) return false;
-  const { data: profile } = await db.from('profiles').select('*').eq('user_id', currentUser.id).maybeSingle();
-  if (profile) {
+  try {
+    const { data: profiles, error: pe } = await db.from('profiles').select('*').eq('user_id', currentUser.id);
+    if (pe || !profiles || profiles.length === 0) return false;
+    const profile = profiles[0];
     studentProfile = { attemptNumber: profile.attempt_number, monthsLeft: profile.months_left, weakestSection: profile.weakest_section, dailyHours: profile.daily_hours, situation: profile.situation };
-    const { data: chats } = await db.from('chats').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: true });
-    if (chats && chats.length > 0) { conversationHistory = chats.map(function(c) { return { role: c.role, content: c.content }; }); return true; }
-  }
-  return false;
+    const { data: chats, error: ce } = await db.from('chats').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: true });
+    if (ce || !chats || chats.length === 0) return false;
+    conversationHistory = chats.map(function(c) { return { role: c.role, content: c.content }; });
+    return true;
+  } catch(e) { console.error('loadUserData error:', e); return false; }
 }
 
 function updateUserUI(user) {
