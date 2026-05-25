@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta name="google-site-verification" content="GGfQeNtbQtiZDjxQA4eVgwDwKmHIz_YlehOFCWYnkKU" />
+  <meta name="google-site-verification" content="GGfQeNtbQtiZDjxQA4eVgwDwKmHIz_YlehOFCWYnkKU" />
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Marg — Think clearer. Move better.</title>
@@ -264,6 +264,75 @@
   #streak-count { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
   #streak-count span { color: var(--gold-light); font-weight: 500; }
   #streak-hours { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+
+  /* ─── DAILY VARC ─── */
+  #varc-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-left: 3px solid #4CAF7D;
+    border-radius: var(--radius);
+    padding: 16px;
+    margin: 0 20px 0 20px;
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    animation: fadeUp 0.4s ease;
+    flex-shrink: 0;
+  }
+  #varc-card.visible { display: flex; }
+  .varc-header { display: flex; align-items: center; justify-content: space-between; }
+  .varc-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(76,175,125,0.1);
+    border: 1px solid rgba(76,175,125,0.2);
+    border-radius: 12px; padding: 3px 10px;
+    font-size: 11px; color: #4CAF7D; font-weight: 500;
+  }
+  .varc-close {
+    font-size: 11px; color: var(--text-dim);
+    background: none; border: none; cursor: pointer;
+    padding: 2px 6px;
+  }
+  .varc-close:hover { color: var(--text-muted); }
+  .varc-article-title {
+    font-size: 14px; font-weight: 500;
+    color: var(--text); line-height: 1.5;
+  }
+  .varc-article-meta { font-size: 11px; color: var(--text-dim); }
+  .varc-preview {
+    font-size: 13px; color: var(--text-muted);
+    line-height: 1.6;
+    display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .varc-topics { display: flex; flex-wrap: wrap; gap: 6px; }
+  .varc-topic {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 11px; padding: 4px 10px;
+    border: 1px solid var(--border2);
+    border-radius: 12px; background: transparent;
+    color: var(--text-muted); cursor: pointer; transition: all 0.18s;
+  }
+  .varc-topic:hover { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,125,0.06); }
+  .varc-topic.active { border-color: #4CAF7D; background: rgba(76,175,125,0.12); color: #4CAF7D; }
+  .varc-actions { display: flex; gap: 8px; }
+  .varc-btn-primary {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; padding: 8px 16px;
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; border: none; border-radius: 8px;
+    cursor: pointer; transition: opacity 0.2s; flex: 1;
+  }
+  .varc-btn-primary:hover { opacity: 0.85; }
+  .varc-btn-secondary {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; padding: 8px 16px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border2);
+    border-radius: 8px; cursor: pointer; transition: all 0.2s;
+  }
+  .varc-btn-secondary:hover { border-color: var(--gold); color: var(--gold); }
 </style>
 </head>
 <body>
@@ -463,6 +532,29 @@
     </div>
   </div>
   <div id="streak-bar"></div>
+  <div id="varc-card">
+    <div class="varc-header">
+      <div class="varc-badge">📖 Daily VARC</div>
+      <button class="varc-close" onclick="closeVarcCard()">Skip today ×</button>
+    </div>
+    <div class="varc-article-title" id="varc-title">Loading today's article...</div>
+    <div class="varc-article-meta" id="varc-meta"></div>
+    <div class="varc-preview" id="varc-preview"></div>
+    <div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;">Or choose a topic:</div>
+      <div class="varc-topics">
+        <button class="varc-topic active" onclick="selectVarcTopic('economy', this)">Economy & Business</button>
+        <button class="varc-topic" onclick="selectVarcTopic('environment', this)">Environment & Science</button>
+        <button class="varc-topic" onclick="selectVarcTopic('politics', this)">Politics & Society</button>
+        <button class="varc-topic" onclick="selectVarcTopic('technology', this)">Technology</button>
+        <button class="varc-topic" onclick="selectVarcTopic('philosophy', this)">Philosophy & Ethics</button>
+      </div>
+    </div>
+    <div class="varc-actions">
+      <button class="varc-btn-primary" onclick="createRCPassage()">Create CAT RC from this →</button>
+      <button class="varc-btn-secondary" id="varc-read-btn" onclick="readArticle()">Read article</button>
+    </div>
+  </div>
   <div id="messages"></div>
   <div id="input-area">
     <div id="input-row">
@@ -1119,6 +1211,192 @@ function hideCheckin() {
   document.getElementById('checkin-overlay').style.display = 'none';
 }
 
+
+// ─── DAILY VARC ───
+let currentArticle = null;
+let currentTopic = 'economy';
+let varcShownToday = false;
+
+const RSS_FEEDS = {
+  economy: 'https://api.rss2json.com/v1/api.json?rss_url=https://www.thehindu.com/business/feeder/default.rss&count=10',
+  environment: 'https://api.rss2json.com/v1/api.json?rss_url=https://www.thehindu.com/sci-tech/feeder/default.rss&count=10',
+  politics: 'https://api.rss2json.com/v1/api.json?rss_url=https://www.thehindu.com/opinion/editorial/feeder/default.rss&count=10',
+  technology: 'https://api.rss2json.com/v1/api.json?rss_url=https://www.thehindu.com/sci-tech/technology/feeder/default.rss&count=10',
+  philosophy: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/feed.rss&count=10'
+};
+
+// Fallback articles in case RSS fails
+const FALLBACK_ARTICLES = {
+  economy: {
+    title: "India's GDP growth moderates as global headwinds persist",
+    source: "The Hindu",
+    preview: "India's economic growth has shown signs of moderation amid global uncertainties, with the latest data suggesting a complex interplay of domestic demand and external pressures affecting the trajectory of the world's fastest-growing major economy.",
+    url: "https://www.thehindu.com/business/"
+  },
+  environment: {
+    title: "Climate change and its cascading effects on monsoon patterns",
+    source: "The Hindu",
+    preview: "Scientists have documented significant shifts in India's monsoon patterns over the past decade, with researchers pointing to climate change as a primary driver of the increasingly erratic rainfall distribution across the subcontinent.",
+    url: "https://www.thehindu.com/sci-tech/"
+  },
+  politics: {
+    title: "Federalism and the balance of power in modern democracies",
+    source: "The Hindu Editorial",
+    preview: "The relationship between central authority and state autonomy remains one of the most contested terrains in democratic governance, with recent developments raising fundamental questions about the distribution of power and resources.",
+    url: "https://www.thehindu.com/opinion/editorial/"
+  },
+  technology: {
+    title: "Artificial intelligence and the transformation of knowledge work",
+    source: "The Hindu",
+    preview: "The rapid advancement of artificial intelligence technologies is fundamentally altering the nature of cognitive work, raising profound questions about human expertise, creativity, and the future of professional employment.",
+    url: "https://www.thehindu.com/sci-tech/technology/"
+  },
+  philosophy: {
+    title: "The paradox of choice in an age of infinite options",
+    source: "Aeon",
+    preview: "Contemporary societies offer unprecedented freedom of choice, yet psychological research consistently shows that more options often lead to greater anxiety and less satisfaction — a phenomenon that challenges our most basic assumptions about autonomy and wellbeing.",
+    url: "https://aeon.co/"
+  }
+};
+
+async function fetchDailyArticle(topic) {
+  try {
+    const response = await fetch(RSS_FEEDS[topic]);
+    if (!response.ok) throw new Error('RSS fetch failed');
+    const data = await response.json();
+    if (data.status !== 'ok' || !data.items || data.items.length === 0) throw new Error('No items');
+    
+    // Pick article based on day of month for consistency
+    const dayOfMonth = new Date().getDate();
+    const article = data.items[dayOfMonth % data.items.length];
+    
+    // Strip HTML from description
+    const div = document.createElement('div');
+    div.innerHTML = article.description || '';
+    const cleanText = div.textContent || div.innerText || '';
+    
+    return {
+      title: article.title,
+      source: data.feed ? data.feed.title : 'The Hindu',
+      preview: cleanText.substring(0, 200) + '...',
+      url: article.link,
+      content: cleanText.substring(0, 1500)
+    };
+  } catch(e) {
+    console.log('RSS failed, using fallback:', e.message);
+    return FALLBACK_ARTICLES[topic];
+  }
+}
+
+async function loadVarcCard(topic) {
+  topic = topic || currentTopic;
+  const card = document.getElementById('varc-card');
+  const title = document.getElementById('varc-title');
+  const meta = document.getElementById('varc-meta');
+  const preview = document.getElementById('varc-preview');
+  
+  title.textContent = 'Loading article...';
+  meta.textContent = '';
+  preview.textContent = '';
+  
+  const article = await fetchDailyArticle(topic);
+  currentArticle = article;
+  
+  title.textContent = article.title;
+  meta.textContent = article.source + ' · Today';
+  preview.textContent = article.preview;
+  document.getElementById('varc-read-btn').onclick = function() { window.open(article.url, '_blank'); };
+  
+  card.classList.add('visible');
+}
+
+function selectVarcTopic(topic, btn) {
+  currentTopic = topic;
+  document.querySelectorAll('.varc-topic').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  loadVarcCard(topic);
+}
+
+function closeVarcCard() {
+  document.getElementById('varc-card').classList.remove('visible');
+  document.getElementById('varc-card').style.display = 'none';
+  varcShownToday = true;
+}
+
+function readArticle() {
+  if (currentArticle) window.open(currentArticle.url, '_blank');
+}
+
+async function createRCPassage() {
+  if (!currentArticle) return;
+  closeVarcCard();
+  
+  const articleText = currentArticle.content || currentArticle.preview;
+  const prompt = `Based on this article from ${currentArticle.source}:
+
+Title: "${currentArticle.title}"
+
+Content: ${articleText}
+
+Create a CAT exam style Reading Comprehension exercise:
+1. Write a proper RC passage of 250-300 words based on the key ideas from this article (rewrite it in proper CAT RC style — academic, dense, analytical)
+2. Create exactly 4 CAT style questions with 4 options each (A, B, C, D)
+3. Include one question each of: Main idea/purpose, Specific detail, Inference, Author's tone/attitude
+4. After the questions, provide answer key with detailed explanation for each answer — explain why correct option is right AND why each wrong option is wrong
+
+Format clearly with: PASSAGE, then QUESTIONS (numbered 1-4), then ANSWER KEY & EXPLANATIONS`;
+
+  addMessage('marg', '📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>"' + currentArticle.title + '"</strong>. Give me a moment...', true);
+  
+  showTyping();
+  
+  const profileContext = '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
+  
+  try {
+    const response = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: SYSTEM_PROMPT + profileContext,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    
+    const data = await response.json();
+    const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
+    
+    hideTyping();
+    
+    const formatted = reply
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+    
+    addMessage('marg', formatted, true);
+    saveChatMessage('assistant', reply);
+    
+    // Follow up message
+    setTimeout(function() {
+      addMessage('marg', 'Take your time with the passage and questions. Once you\'re done, tell me your answers and I\'ll explain each one in detail — including exactly why the wrong options are traps. 📝', true);
+    }, 1000);
+    
+  } catch(e) {
+    hideTyping();
+    addMessage('marg', 'Connection issue. Please try again in a moment.');
+  }
+}
+
+async function checkVarcShownToday() {
+  const lastVarcDate = localStorage.getItem('marg_varc_date');
+  const today = getTodayDate();
+  if (lastVarcDate === today) return true;
+  localStorage.setItem('marg_varc_date', today);
+  return false;
+}
+
 async function initSession() {
   showRandomQuote();
   // Check URL hash for token (after OAuth redirect)
@@ -1154,6 +1432,11 @@ async function initSession() {
         if (!alreadyCheckedIn) {
           const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
           setTimeout(function() { showCheckin(name); }, 800);
+        }
+        // Show VARC card if not shown today
+        const varcShown = await checkVarcShownToday();
+        if (!varcShown) {
+          setTimeout(function() { loadVarcCard('economy'); }, 1200);
         }
       } else {
         addMessage('marg', onboardingFlow[0].message);
