@@ -930,6 +930,9 @@ async function finishOnboarding() {
     document.getElementById('send-btn').disabled = false;
     document.getElementById('user-input').focus();
     addSuggestionChips();
+    // Show VARC button
+    const varcBtn = document.getElementById('varc-toggle-btn');
+    if (varcBtn) varcBtn.style.display = 'inline-flex';
     const profileMsg = 'My profile: Attempt number: ' + studentProfile.attemptNumber + ', Months until CAT: ' + studentProfile.monthsLeft + ', Weakest section: ' + studentProfile.weakestSection + ', Daily study hours: ' + studentProfile.dailyHours + ', Current situation: ' + studentProfile.situation;
     conversationHistory.push({ role: 'user', content: profileMsg });
     conversationHistory.push({ role: 'assistant', content: firstMsg });
@@ -1615,6 +1618,11 @@ async function initSession() {
       if (hasHistory) {
         restoreConversation();
         loadStreakData();
+        // Always show VARC button for returning users
+        setTimeout(function() {
+          const btn = document.getElementById('varc-toggle-btn');
+          if (btn) btn.style.display = 'inline-flex';
+        }, 500);
         const alreadyCheckedIn = await hasCheckedInToday();
         if (!alreadyCheckedIn) {
           const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
