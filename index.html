@@ -1533,9 +1533,26 @@ function startGuestMode() {
   // Hide user info, show guest label
   document.getElementById('user-info').innerHTML = '<span style="font-size:12px;color:var(--text-dim)">Guest mode</span><button style="font-size:11px;color:var(--gold);background:none;border:none;cursor:pointer;margin-left:8px;" onclick="startLogin()">Login to save →</button>';
 
-  // Start onboarding
-  addMessage('marg', onboardingFlow[0].message);
-  addOnboardingCard(0);
+  // Skip full onboarding for guests — go straight to chat with quick intro
+  onboardingComplete = true;
+  studentProfile = { attemptNumber: 'Guest', monthsLeft: 'Unknown', weakestSection: 'Unknown', dailyHours: 'Unknown', situation: 'Guest user' };
+
+  addMessage('marg', "Namaste! 🙏 I'm Marg — your personal CAT mentor. I'll give you personalised guidance based on your situation.\n\nWhat do you want help with today?", true);
+
+  // Show quick action chips
+  setTimeout(function() {
+    const container = document.getElementById('messages');
+    const chipsDiv = document.createElement('div');
+    chipsDiv.style.marginLeft = '38px';
+    chipsDiv.className = 'fade-in';
+    chipsDiv.innerHTML = '<div class="chips"><button class="chip" onclick="sendQuick(\'How do I start CAT prep from scratch?\')">Where to start</button><button class="chip" onclick="sendQuick(\'How to improve VARC for CAT?\')">Improve VARC</button><button class="chip" onclick="sendQuick(\'How to attempt DILR in exam?\')">DILR strategy</button><button class="chip" onclick="sendQuick(\'How to build consistency in CAT prep?\')">Consistency</button><button class="chip" onclick="sendQuick(\'Which mock test series is best for CAT?\')">Mock tests</button></div>';
+    container.appendChild(chipsDiv);
+    container.scrollTop = container.scrollHeight;
+  }, 600);
+
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('user-input').focus();
 }
 
 function updateGuestBanner() {
