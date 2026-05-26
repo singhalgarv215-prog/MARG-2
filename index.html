@@ -560,6 +560,7 @@
     <img id="header-logo" src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg">
     <div id="header-divider"></div>
     <div id="header-info"><p><span id="status-dot"></span>Your personal CAT mentor</p></div>
+  <button id="varc-toggle-btn" onclick="toggleVarcCard()" style="display:none;font-family:'DM Sans',sans-serif;font-size:11px;padding:5px 10px;border:1px solid rgba(76,175,125,0.3);border-radius:12px;background:rgba(76,175,125,0.08);color:#4CAF7D;cursor:pointer;margin-right:8px;">📖 Today's VARC</button>
     <div id="user-info">
       <div id="user-avatar">?</div>
       <span id="user-name"></span>
@@ -1352,6 +1353,9 @@ async function loadVarcCard(topic) {
   document.getElementById('varc-read-btn').onclick = function() { window.open(article.url, '_blank'); };
   
   card.classList.add('visible');
+  // Show toggle button in header
+  const toggleBtn = document.getElementById('varc-toggle-btn');
+  if (toggleBtn) toggleBtn.style.display = 'inline-flex';
 }
 
 function selectVarcTopic(topic, btn) {
@@ -1365,6 +1369,25 @@ function closeVarcCard() {
   document.getElementById('varc-card').classList.remove('visible');
   document.getElementById('varc-card').style.display = 'none';
   varcShownToday = true;
+  // Show the toggle button in header so user can come back
+  const btn = document.getElementById('varc-toggle-btn');
+  if (btn) btn.style.display = 'inline-flex';
+}
+
+function toggleVarcCard() {
+  const card = document.getElementById('varc-card');
+  const btn = document.getElementById('varc-toggle-btn');
+  if (card.classList.contains('visible')) {
+    card.classList.remove('visible');
+    card.style.display = 'none';
+    if (btn) btn.textContent = '📖 Today VARC';
+  } else {
+    card.style.display = '';
+    card.classList.add('visible');
+    if (btn) btn.textContent = '× Close VARC';
+    // Reload if no article yet
+    if (!currentArticle) loadVarcCard('economy');
+  }
 }
 
 let articleIndex = -1;
@@ -1501,9 +1524,7 @@ function startGuestMode() {
 
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('landing-page').style.display = 'none';
-  document.getElementById('header').style.display = 'flex';
-  document.getElementById('messages').style.display = 'flex';
-  document.getElementById('input-area').style.display = 'block';
+  document.getElementById('chat-app').style.display = 'flex';
 
   // Show guest banner
   document.getElementById('guest-limit-banner').classList.add('visible');
