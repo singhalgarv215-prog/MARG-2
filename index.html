@@ -333,6 +333,40 @@
     border-radius: 8px; cursor: pointer; transition: all 0.2s;
   }
   .varc-btn-secondary:hover { border-color: var(--gold); color: var(--gold); }
+
+  /* ─── GUEST MODE ─── */
+  .try-guest-btn {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; color: var(--text-muted);
+    background: none; border: none; cursor: pointer;
+    text-decoration: underline; padding: 4px;
+    transition: color 0.2s;
+  }
+  .try-guest-btn:hover { color: var(--text); }
+  #guest-limit-banner {
+    background: var(--gold-dim);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: var(--radius-sm);
+    padding: 10px 16px;
+    margin: 0 20px;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  #guest-limit-banner.visible { display: flex; }
+  #guest-limit-text { font-size: 13px; color: var(--gold-light); }
+  #guest-limit-text span { font-weight: 500; }
+  #guest-login-btn {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px; padding: 6px 14px;
+    background: linear-gradient(135deg, #C9A84C, #8B6914);
+    color: #0D0D0D; border: none; border-radius: 6px;
+    cursor: pointer; font-weight: 500; white-space: nowrap;
+    transition: opacity 0.2s;
+  }
+  #guest-login-btn:hover { opacity: 0.85; }
 </style>
 </head>
 <body>
@@ -363,6 +397,7 @@
       Continue with Google — it's free
     </button>
     <p class="hero-note">No credit card. No signup form. Just Google login.</p>
+    <button class="try-guest-btn" onclick="startGuestMode()">Or try without signing in →</button>
   </section>
 
   <section class="pain-section">
@@ -532,6 +567,10 @@
     </div>
   </div>
   <div id="streak-bar"></div>
+  <div id="guest-limit-banner">
+    <div id="guest-limit-text">You have <span id="guest-msgs-left">5</span> free messages left — login to save your progress and unlock unlimited access</div>
+    <button id="guest-login-btn" onclick="startLogin()">Save progress →</button>
+  </div>
   <div id="varc-card">
     <div class="varc-header">
       <div class="varc-badge">📖 Daily VARC</div>
@@ -553,6 +592,9 @@
     <div class="varc-actions">
       <button class="varc-btn-primary" onclick="createRCPassage()">Create CAT RC from this →</button>
       <button class="varc-btn-secondary" id="varc-read-btn" onclick="readArticle()">Read article</button>
+    </div>
+    <div style="text-align:center;">
+      <button onclick="refreshArticle()" style="font-family:'DM Sans',sans-serif;font-size:11px;color:var(--text-dim);background:none;border:none;cursor:pointer;padding:4px;">↻ Show another article</button>
     </div>
   </div>
   <div id="messages"></div>
@@ -1016,14 +1058,16 @@ function sendQuick(text) { if (isLoading || !onboardingComplete) return; documen
 
 async function sendMessage() {
   if (isLoading || !onboardingComplete) return;
+  if (!checkGuestLimit()) return;
   const input = document.getElementById('user-input');
   const text = input.value.trim();
   if (!text) return;
   input.value = ''; input.style.height = 'auto';
   isLoading = true; document.getElementById('send-btn').disabled = true;
+  if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
   addMessage('user', text);
   conversationHistory.push({ role: 'user', content: text });
-  saveChatMessage('user', text);
+  if (!isGuestMode) saveChatMessage('user', text);
   showTyping();
   const activitySummary = buildActivitySummary();
   const profileContext = '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation + activitySummary;
@@ -1033,7 +1077,7 @@ async function sendMessage() {
     const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
     hideTyping();
     conversationHistory.push({ role: 'assistant', content: reply });
-    saveChatMessage('assistant', reply);
+    if (!isGuestMode) saveChatMessage('assistant', reply);
     const formatted = reply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
     addMessage('marg', formatted);
   } catch (e) { hideTyping(); addMessage('marg', 'Yaar, connection issue. Please try again in a moment.'); }
@@ -1323,6 +1367,44 @@ function closeVarcCard() {
   varcShownToday = true;
 }
 
+let articleIndex = -1;
+async function refreshArticle() {
+  try {
+    const response = await fetch(RSS_FEEDS[currentTopic]);
+    if (!response.ok) throw new Error('RSS fetch failed');
+    const data = await response.json();
+    if (data.status !== 'ok' || !data.items || data.items.length === 0) throw new Error('No items');
+    
+    articleIndex = (articleIndex + 1) % data.items.length;
+    const article = data.items[articleIndex];
+    
+    const div = document.createElement('div');
+    div.innerHTML = article.description || '';
+    const cleanText = div.textContent || div.innerText || '';
+    
+    currentArticle = {
+      title: article.title,
+      source: data.feed ? data.feed.title : 'The Hindu',
+      preview: cleanText.substring(0, 200) + '...',
+      url: article.link,
+      content: cleanText.substring(0, 1500)
+    };
+    
+    document.getElementById('varc-title').textContent = currentArticle.title;
+    document.getElementById('varc-meta').textContent = currentArticle.source + ' · Today';
+    document.getElementById('varc-preview').textContent = currentArticle.preview;
+    document.getElementById('varc-read-btn').onclick = function() { window.open(currentArticle.url, '_blank'); };
+  } catch(e) {
+    // Cycle through fallbacks
+    const topics = Object.keys(FALLBACK_ARTICLES);
+    articleIndex = (articleIndex + 1) % topics.length;
+    currentArticle = FALLBACK_ARTICLES[topics[articleIndex]];
+    document.getElementById('varc-title').textContent = currentArticle.title;
+    document.getElementById('varc-meta').textContent = currentArticle.source + ' · Today';
+    document.getElementById('varc-preview').textContent = currentArticle.preview;
+  }
+}
+
 function readArticle() {
   if (currentArticle) window.open(currentArticle.url, '_blank');
 }
@@ -1338,13 +1420,16 @@ Title: "${currentArticle.title}"
 
 Content: ${articleText}
 
-Create a CAT exam style Reading Comprehension exercise:
-1. Write a proper RC passage of 250-300 words based on the key ideas from this article (rewrite it in proper CAT RC style — academic, dense, analytical)
+Create a CAT exam style Reading Comprehension exercise. IMPORTANT: Show ONLY the passage and questions. Do NOT show answers or explanations yet.
+
+1. Write a proper RC passage of 250-300 words based on the key ideas from this article (rewrite in proper CAT RC style — academic, dense, analytical)
 2. Create exactly 4 CAT style questions with 4 options each (A, B, C, D)
 3. Include one question each of: Main idea/purpose, Specific detail, Inference, Author's tone/attitude
-4. After the questions, provide answer key with detailed explanation for each answer — explain why correct option is right AND why each wrong option is wrong
 
-Format clearly with: PASSAGE, then QUESTIONS (numbered 1-4), then ANSWER KEY & EXPLANATIONS`;
+Format clearly with: PASSAGE heading, then QUESTIONS (numbered 1-4) with options A B C D
+
+End with exactly this line: "---
+Ready? Type your answers (e.g. 1-A, 2-C, 3-B, 4-D) and I'll explain each one in detail."`;
 
   addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
   
@@ -1378,10 +1463,12 @@ Format clearly with: PASSAGE, then QUESTIONS (numbered 1-4), then ANSWER KEY & E
     addMessage('marg', formatted, true);
     saveChatMessage('assistant', reply);
     
-    // Follow up message
-    setTimeout(function() {
-      addMessage('marg', "Take your time with the passage and questions. Once you're done, tell me your answers and I'll explain each one in detail — including exactly why the wrong options are traps. 📝", true);
-    }, 1000);
+    // Store article for answer explanation context
+    localStorage.setItem('marg_rc_article', JSON.stringify({
+      title: currentArticle.title,
+      source: currentArticle.source,
+      content: articleText
+    }));
     
   } catch(e) {
     hideTyping();
@@ -1395,6 +1482,68 @@ async function checkVarcShownToday() {
   if (lastVarcDate === today) return true;
   localStorage.setItem('marg_varc_date', today);
   return false;
+}
+
+
+// ─── GUEST MODE ───
+let isGuestMode = false;
+let guestMessageCount = 0;
+const GUEST_MESSAGE_LIMIT = 5;
+
+function startGuestMode() {
+  isGuestMode = true;
+  guestMessageCount = 0;
+  currentUser = null;
+  SUPABASE_TOKEN = null;
+
+  // Set guest profile defaults
+  studentProfile = { attemptNumber: null, monthsLeft: null, weakestSection: null, dailyHours: null, situation: null };
+
+  document.getElementById('loading-screen').style.display = 'none';
+  document.getElementById('landing-page').style.display = 'none';
+  document.getElementById('header').style.display = 'flex';
+  document.getElementById('messages').style.display = 'flex';
+  document.getElementById('input-area').style.display = 'block';
+
+  // Show guest banner
+  document.getElementById('guest-limit-banner').classList.add('visible');
+  updateGuestBanner();
+
+  // Hide user info, show guest label
+  document.getElementById('user-info').innerHTML = '<span style="font-size:12px;color:var(--text-dim)">Guest mode</span><button style="font-size:11px;color:var(--gold);background:none;border:none;cursor:pointer;margin-left:8px;" onclick="startLogin()">Login to save →</button>';
+
+  // Start onboarding
+  addMessage('marg', onboardingFlow[0].message);
+  addOnboardingCard(0);
+}
+
+function updateGuestBanner() {
+  const left = GUEST_MESSAGE_LIMIT - guestMessageCount;
+  const el = document.getElementById('guest-msgs-left');
+  if (el) el.textContent = Math.max(0, left);
+}
+
+function checkGuestLimit() {
+  if (!isGuestMode) return true;
+  if (guestMessageCount >= GUEST_MESSAGE_LIMIT) {
+    showGuestLimitModal();
+    return false;
+  }
+  return true;
+}
+
+function showGuestLimitModal() {
+  const inputArea = document.getElementById('input-area');
+  const googleIcon = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>';
+  inputArea.innerHTML = [
+    '<div style="padding:16px;text-align:center;border-top:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;gap:12px;align-items:center;">',
+    '<div style="font-size:14px;color:var(--text);font-weight:500;">You have used your 5 free messages</div>',
+    '<div style="font-size:13px;color:var(--text-muted);">Login to save your progress and continue with Marg — completely free.</div>',
+    '<button onclick="startLogin()" style="display:flex;align-items:center;gap:10px;background:#fff;color:#333;border:none;border-radius:10px;padding:12px 24px;font-family:DM Sans,sans-serif;font-size:14px;font-weight:500;cursor:pointer;">' + googleIcon + 'Continue with Google — free</button>',
+    '<div style="font-size:11px;color:var(--text-dim)">Your conversation will be saved automatically</div>',
+    '</div>'
+  ].join('');
+  addMessage('marg', "You have used your 5 free messages. Login with Google to save your progress and continue — completely free and your conversation will be saved.", true);
 }
 
 async function initSession() {
