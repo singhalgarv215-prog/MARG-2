@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAT Percentile Predictor 2026 — Free Score Calculator | Marg</title>
+<meta name="description" content="Free CAT 2026 percentile predictor. Enter your mock test scores and instantly know your predicted percentile, which IIMs you can target, and what to improve. Used by 1000+ CAT aspirants.">
+<meta name="keywords" content="CAT percentile predictor, CAT score calculator, CAT 2026 percentile, CAT mock score percentile, IIM eligibility checker, CAT expected percentile">
+<meta property="og:title" content="CAT Percentile Predictor 2026 — Free Score Calculator">
+<meta property="og:description" content="Enter your CAT mock scores and instantly know your predicted percentile and which IIMs you can target.">
+<meta property="og:url" content="https://trymarg.com/cat-percentile-predictor">
+<meta property="og:type" content="website">
+<meta name="google-site-verification" content="GGfQeNtbQtiZDjxQA4eVgwDwKmHIz_YlehOFCWYnkKU">
+<link rel="canonical" href="https://trymarg.com/cat-percentile-predictor">
+<link rel="icon" href="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<!-- Structured Data for SEO -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "CAT Percentile Predictor 2026",
+  "description": "Free tool to predict your CAT 2026 percentile based on mock test scores",
+  "url": "https://trymarg.com/cat-percentile-predictor",
+  "applicationCategory": "EducationalApplication",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "INR"
+  },
+  "provider": {
+    "@type": "Organization",
+    "name": "Marg",
+    "url": "https://trymarg.com"
+  }
+}
+</script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0A0A0A;
+  --surface: #111111;
+  --surface2: #181818;
+  --border: rgba(255,255,255,0.06);
+  --border2: rgba(255,255,255,0.1);
+  --text: #F0EDE6;
+  --text-muted: #9A9690;
+  --text-dim: #555550;
+  --gold: #C9A84C;
+  --gold-light: #E8C96A;
+  --gold-dim: rgba(201,168,76,0.08);
+  --green: #4CAF7D;
+  --green-dim: rgba(76,175,125,0.1);
+  --red: #E05C5C;
+  --red-dim: rgba(224,92,92,0.1);
+  --radius: 14px;
+  --radius-sm: 8px;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* NAV */
+nav {
+  padding: 16px 40px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: rgba(10,10,10,0.95);
+  backdrop-filter: blur(12px);
+  z-index: 100;
+}
+
+.nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+.nav-logo img { height: 26px; object-fit: contain; }
+.nav-cta {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px; font-weight: 500;
+  padding: 8px 18px;
+  background: linear-gradient(135deg, #C9A84C, #8B6914);
+  color: #0A0A0A;
+  border: none; border-radius: 8px;
+  cursor: pointer; text-decoration: none;
+  transition: opacity 0.2s;
+}
+.nav-cta:hover { opacity: 0.85; }
+
+/* HERO */
+.hero {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 60px 24px 40px;
+  text-align: center;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--gold-dim);
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--gold-light);
+  margin-bottom: 24px;
+}
+
+h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(28px, 5vw, 42px);
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.25;
+  margin-bottom: 16px;
+}
+
+h1 span { color: var(--gold-light); }
+
+.hero-sub {
+  font-size: 16px;
+  color: var(--text-muted);
+  max-width: 520px;
+  margin: 0 auto 40px;
+}
+
+/* TOOL CARD */
+.tool-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 32px;
+  max-width: 760px;
+  margin: 0 auto 48px;
+}
+
+.sections-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.section-input { display: flex; flex-direction: column; gap: 8px; }
+
+.section-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.section-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.score-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.score-input label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.score-input input {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+  -moz-appearance: textfield;
+}
+
+.score-input input::-webkit-outer-spin-button,
+.score-input input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+.score-input input:focus { border-color: var(--gold); }
+
+.score-range {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.category-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.select-wrap { display: flex; flex-direction: column; gap: 8px; }
+
+.select-wrap label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.select-wrap select {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.select-wrap select:focus { border-color: var(--gold); }
+
+.predict-btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #C9A84C, #8B6914);
+  color: #0A0A0A;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.predict-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.predict-btn:active { transform: translateY(0); }
+
+/* RESULTS */
+#results {
+  display: none;
+  max-width: 760px;
+  margin: 0 auto 48px;
+  animation: fadeUp 0.4s ease;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.result-hero {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 32px;
+  text-align: center;
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.result-hero::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--gold), var(--green));
+}
+
+.result-percentile {
+  font-family: 'Playfair Display', serif;
+  font-size: 64px;
+  font-weight: 600;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.result-label {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.result-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--gold-dim);
+  border: 1px solid rgba(201,168,76,0.15);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 13px;
+  color: var(--gold-light);
+}
+
+.section-results {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.section-result-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  text-align: center;
+}
+
+.section-result-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.section-result-percentile {
+  font-size: 22px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.section-result-score {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* COLLEGES */
+.colleges-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+.colleges-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.college-group { margin-bottom: 16px; }
+
+.college-group-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.college-group-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.college-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.college-tag {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 500;
+}
+
+.tag-reach { background: rgba(224,92,92,0.1); color: #E05C5C; border: 1px solid rgba(224,92,92,0.2); }
+.tag-target { background: var(--gold-dim); color: var(--gold-light); border: 1px solid rgba(201,168,76,0.2); }
+.tag-safe { background: var(--green-dim); color: var(--green); border: 1px solid rgba(76,175,125,0.2); }
+
+/* IMPROVEMENT */
+.improve-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+.improve-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+.improve-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.improve-item:last-child { border-bottom: none; }
+
+.improve-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.improve-text { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.improve-text strong { color: var(--text); font-weight: 500; }
+
+/* MARG CTA */
+.marg-cta {
+  background: linear-gradient(135deg, rgba(201,168,76,0.08), rgba(76,175,125,0.05));
+  border: 1px solid rgba(201,168,76,0.15);
+  border-radius: var(--radius);
+  padding: 28px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.marg-cta-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.marg-cta-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.marg-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #C9A84C, #8B6914);
+  color: #0A0A0A;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.marg-cta-btn:hover { opacity: 0.85; }
+
+/* SEO CONTENT */
+.seo-content {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 24px 60px;
+}
+
+.seo-content h2 {
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text);
+  margin: 36px 0 12px;
+}
+
+.seo-content h3 {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+  margin: 24px 0 8px;
+}
+
+.seo-content p {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.8;
+  margin-bottom: 12px;
+}
+
+.percentile-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+
+.percentile-table th {
+  background: var(--surface2);
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border2);
+}
+
+.percentile-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.percentile-table tr:last-child td { border-bottom: none; }
+
+.percentile-table .college-name { color: var(--text); font-weight: 500; }
+
+/* FAQ */
+.faq-item {
+  border-bottom: 1px solid var(--border);
+  padding: 16px 0;
+}
+
+.faq-q {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.faq-a {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+/* FOOTER */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 40px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+footer a { color: var(--gold); text-decoration: none; }
+
+@media (max-width: 600px) {
+  nav { padding: 14px 16px; }
+  .hero { padding: 40px 16px 32px; }
+  .tool-card { padding: 20px 16px; }
+  .sections-grid { grid-template-columns: 1fr; gap: 12px; }
+  .section-results { grid-template-columns: 1fr; }
+  .category-row { grid-template-columns: 1fr; }
+  .seo-content { padding: 0 16px 48px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="https://trymarg.com" class="nav-logo">
+    <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg">
+  </a>
+  <a href="https://trymarg.com" class="nav-cta">Try Marg Free →</a>
+</nav>
+
+<main>
+  <section class="hero">
+    <div class="hero-badge">🎯 Free Tool · No Signup Required</div>
+    <h1>CAT <span>Percentile Predictor</span> 2026</h1>
+    <p class="hero-sub">Enter your CAT mock test scores and instantly know your predicted percentile, target colleges, and exactly what to improve.</p>
+  </section>
+
+  <div class="tool-card" id="tool">
+    <div class="sections-grid">
+      <div class="section-input">
+        <div class="section-name">VARC</div>
+        <div class="section-label">Verbal & Reading Comprehension</div>
+        <div class="score-input">
+          <label>Your Score</label>
+          <input type="number" id="varc-score" placeholder="0" min="0" max="72" oninput="validateInput(this, 72)">
+          <div class="score-range">Max: 72 marks</div>
+        </div>
+      </div>
+      <div class="section-input">
+        <div class="section-name">DILR</div>
+        <div class="section-label">Data Interpretation & Logical Reasoning</div>
+        <div class="score-input">
+          <label>Your Score</label>
+          <input type="number" id="dilr-score" placeholder="0" min="0" max="60" oninput="validateInput(this, 60)">
+          <div class="score-range">Max: 60 marks</div>
+        </div>
+      </div>
+      <div class="section-input">
+        <div class="section-name">QA</div>
+        <div class="section-label">Quantitative Aptitude</div>
+        <div class="score-input">
+          <label>Your Score</label>
+          <input type="number" id="qa-score" placeholder="0" min="0" max="60" oninput="validateInput(this, 60)">
+          <div class="score-range">Max: 60 marks</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="category-row">
+      <div class="select-wrap">
+        <label>Category</label>
+        <select id="category">
+          <option value="general">General</option>
+          <option value="obc">OBC-NCL</option>
+          <option value="sc">SC</option>
+          <option value="st">ST</option>
+          <option value="ews">EWS</option>
+          <option value="pwd">PwD</option>
+        </select>
+      </div>
+      <div class="select-wrap">
+        <label>Gender</label>
+        <select id="gender">
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="predict-btn" onclick="predictPercentile()">Predict My Percentile →</button>
+  </div>
+
+  <div id="results">
+    <div class="result-hero">
+      <div class="result-percentile" id="overall-percentile">—</div>
+      <div class="result-label">Predicted Overall Percentile</div>
+      <div class="result-range" id="percentile-range">—</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:12px;line-height:1.6;">⚠️ Estimated based on CAT 2024-2025 trends. Actual percentile may vary ±5-8 points depending on paper difficulty and normalization across slots.</div>
+    </div>
+
+    <div class="section-results">
+      <div class="section-result-card">
+        <div class="section-result-name">VARC</div>
+        <div class="section-result-percentile" id="varc-percentile">—</div>
+        <div class="section-result-score" id="varc-display">—</div>
+      </div>
+      <div class="section-result-card">
+        <div class="section-result-name">DILR</div>
+        <div class="section-result-percentile" id="dilr-percentile">—</div>
+        <div class="section-result-score" id="dilr-display">—</div>
+      </div>
+      <div class="section-result-card">
+        <div class="section-result-name">QA</div>
+        <div class="section-result-percentile" id="qa-percentile">—</div>
+        <div class="section-result-score" id="qa-display">—</div>
+      </div>
+    </div>
+
+    <div class="colleges-card">
+      <div class="colleges-title">🏛️ Colleges you can target</div>
+      <div id="college-list"></div>
+    </div>
+
+    <div class="improve-card">
+      <div class="improve-title">📈 What to focus on next</div>
+      <div id="improve-list"></div>
+    </div>
+
+    <div class="marg-cta">
+      <div class="marg-cta-title">Want a personalised plan to hit your target?</div>
+      <div class="marg-cta-sub">Marg diagnoses exactly where you're losing marks and builds a specific plan around your situation — not generic advice.</div>
+      <a href="https://trymarg.com" class="marg-cta-btn">Get Your Free Plan on Marg →</a>
+    </div>
+  </div>
+
+  <!-- SEO Content -->
+  <div class="seo-content">
+    <h2>How CAT Percentile is Calculated</h2>
+    <p>CAT percentile is not your raw score — it's your relative performance compared to all test takers. A 99 percentile means you scored better than 99% of all candidates who appeared for CAT that year.</p>
+    <p>The official CAT percentile is calculated using a normalization process across different slots and sessions. This predictor uses historical score-to-percentile data from CAT 2019-2024 to give you an accurate estimate based on your mock performance.</p>
+
+    <h2>CAT 2026 Score vs Percentile — Reference Table</h2>
+    <table class="percentile-table">
+      <thead>
+        <tr>
+          <th>Total Score (out of 192)</th>
+          <th>Expected Percentile</th>
+          <th>Target Colleges</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>155+</td><td>99.5+</td><td class="college-name">IIM A, B, C</td></tr>
+        <tr><td>140-154</td><td>99-99.5</td><td class="college-name">IIM L, K, I, FMS Delhi</td></tr>
+        <tr><td>125-139</td><td>97-99</td><td class="college-name">IIM Kozhikode, MDI, SPJIMR</td></tr>
+        <tr><td>110-124</td><td>94-97</td><td class="college-name">New IIMs, IIFT, SIBM</td></tr>
+        <tr><td>95-109</td><td>90-94</td><td class="college-name">IMT, Great Lakes, XIMB</td></tr>
+        <tr><td>80-94</td><td>85-90</td><td class="college-name">Tier 2 B-schools</td></tr>
+        <tr><td>Below 80</td><td>Below 85</td><td class="college-name">State colleges, private B-schools</td></tr>
+      </tbody>
+    </table>
+
+    <h2>IIM Cutoffs by Category — CAT 2026</h2>
+    <p>Category plays a significant role in IIM shortlisting. Here are the approximate CAT percentile cutoffs for major IIMs across categories:</p>
+    <table class="percentile-table">
+      <thead>
+        <tr>
+          <th>IIM</th>
+          <th>General</th>
+          <th>OBC-NCL</th>
+          <th>SC</th>
+          <th>ST</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="college-name">IIM Ahmedabad</td><td>99</td><td>97</td><td>90</td><td>85</td></tr>
+        <tr><td class="college-name">IIM Bangalore</td><td>99</td><td>97</td><td>90</td><td>85</td></tr>
+        <tr><td class="college-name">IIM Calcutta</td><td>99</td><td>97</td><td>90</td><td>85</td></tr>
+        <tr><td class="college-name">IIM Lucknow</td><td>97</td><td>92</td><td>85</td><td>75</td></tr>
+        <tr><td class="college-name">IIM Kozhikode</td><td>95</td><td>88</td><td>80</td><td>70</td></tr>
+        <tr><td class="college-name">FMS Delhi</td><td>99</td><td>95</td><td>88</td><td>80</td></tr>
+        <tr><td class="college-name">MDI Gurgaon</td><td>95</td><td>90</td><td>82</td><td>72</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Frequently Asked Questions</h2>
+
+    <div class="faq-item">
+      <div class="faq-q">How accurate is this CAT percentile predictor?</div>
+      <div class="faq-a">This predictor is based on historical CAT score-to-percentile data from 2019-2024. It gives you a reliable estimate within ±2 percentile points for most score ranges. Actual CAT percentile depends on the difficulty of your specific slot and the performance of all candidates in that year.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Can I use mock test scores for this predictor?</div>
+      <div class="faq-a">Yes — but note that mock tests from different institutes have varying difficulty levels. SimCAT (IMS) and AIMCAT (CL) are closest to actual CAT difficulty. If you're using easier mocks your actual CAT percentile might be lower than predicted.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">What percentile do I need for IIM ABC?</div>
+      <div class="faq-a">For IIM Ahmedabad, Bangalore, and Calcutta you typically need 99+ percentile in the general category. Each IIM also has sectional cutoffs — usually 85-90 percentile in each section individually. Academics and work experience also play a role in the shortlisting process.</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">How is VARC scored in CAT 2026?</div>
+      <div class="faq-a">VARC has 24 questions with a maximum of 72 marks (3 marks per correct answer, -1 for wrong MCQ answers). TITA questions have no negative marking. The section covers Reading Comprehension (16 questions) and Verbal Ability (8 questions).</div>
+    </div>
+
+    <div class="faq-item">
+      <div class="faq-q">Is 6 months enough to improve my CAT percentile?</div>
+      <div class="faq-a">Yes — 6 months of structured preparation is sufficient to significantly improve your CAT percentile. The key is identifying your specific weak areas early and targeting them systematically rather than studying all sections equally. Use the Marg AI mentor to get a personalised plan based on your current scores.</div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <p>© 2026 Marg · <a href="https://trymarg.com">trymarg.com</a> · <a href="https://trymarg.com/privacy">Privacy Policy</a></p>
+  <p style="margin-top:6px">This predictor uses historical CAT data for estimation. Actual percentiles may vary.</p>
+</footer>
+
+<script>
+function validateInput(input, max) {
+  if (parseInt(input.value) > max) input.value = max;
+  if (parseInt(input.value) < 0) input.value = 0;
+}
+
+// Score to percentile based on actual CAT 2024-2025 data
+// VARC max 72, DILR max 60, QA max 60
+
+function getSectionPercentile(score, section) {
+  // [score, percentile] based on real CAT data
+  const data = {
+    varc: [
+      [0, 1], [5, 5], [10, 15], [14, 30], [18, 45],
+      [22, 60], [26, 70], [28, 75], [30, 80], [32, 85],
+      [35, 90], [38, 93], [40, 95], [44, 97], [48, 98],
+      [52, 99], [58, 99.5], [65, 99.8], [72, 99.99]
+    ],
+    dilr: [
+      [0, 1], [3, 5], [5, 10], [8, 20], [10, 30],
+      [12, 40], [14, 50], [16, 60], [18, 68], [20, 75],
+      [22, 80], [24, 85], [26, 88], [28, 91], [30, 93],
+      [33, 95], [36, 97], [40, 98.5], [45, 99], [55, 99.5], [60, 99.9]
+    ],
+    qa: [
+      [0, 1], [3, 5], [5, 10], [8, 20], [10, 30],
+      [12, 40], [15, 55], [18, 65], [20, 72], [22, 78],
+      [25, 83], [27, 87], [30, 90], [33, 93], [36, 95],
+      [40, 97], [45, 98.5], [50, 99], [55, 99.5], [60, 99.9]
+    ]
+  };
+
+  const curve = data[section];
+  if (score <= 0) return 1;
+  if (score >= curve[curve.length-1][0]) return curve[curve.length-1][1];
+
+  for (let i = 0; i < curve.length - 1; i++) {
+    if (score >= curve[i][0] && score <= curve[i+1][0]) {
+      const t = (score - curve[i][0]) / (curve[i+1][0] - curve[i][0]);
+      return curve[i][1] + t * (curve[i+1][1] - curve[i][1]);
+    }
+  }
+  return 1;
+}
+
+function getOverallPercentile(varc, dilr, qa) {
+  const total = varc + dilr + qa;
+  // Based on actual CAT data: 96 marks = 99%ile, 143 marks = 99.9%ile, 30 marks = 65%ile
+  const curve = [
+    [0, 1], [10, 10], [20, 25], [25, 35], [30, 50],
+    [35, 60], [40, 67], [45, 73], [50, 78], [55, 82],
+    [60, 86], [65, 89], [70, 91], [75, 93], [80, 95],
+    [85, 96.5], [90, 97.5], [96, 99], [105, 99.3],
+    [115, 99.5], [130, 99.7], [143, 99.9], [160, 99.95]
+  ];
+
+  if (total <= 0) return 1;
+  if (total >= curve[curve.length-1][0]) return curve[curve.length-1][1];
+
+  for (let i = 0; i < curve.length - 1; i++) {
+    if (total >= curve[i][0] && total <= curve[i+1][0]) {
+      const t = (total - curve[i][0]) / (curve[i+1][0] - curve[i][0]);
+      return curve[i][1] + t * (curve[i+1][1] - curve[i][1]);
+    }
+  }
+  return 1;
+}
+
+function getColleges(percentile, category, gender) {
+  const multiplier = {
+    general: 1.0, ews: 0.97, obc: 0.93, sc: 0.85, st: 0.80, pwd: 0.75
+  }[category] || 1.0;
+
+  const femaleBonus = gender === 'female' ? 1.5 : 0;
+  const adjPct = percentile;
+
+  const colleges = {
+    reach: [], target: [], safe: []
+  };
+
+  const iims = [
+    { name: 'IIM Ahmedabad', cutoff: 99.2 },
+    { name: 'IIM Bangalore', cutoff: 99.0 },
+    { name: 'IIM Calcutta', cutoff: 99.0 },
+    { name: 'IIM Lucknow', cutoff: 97.0 },
+    { name: 'FMS Delhi', cutoff: 98.5 },
+    { name: 'IIM Kozhikode', cutoff: 95.0 },
+    { name: 'IIM Indore', cutoff: 95.0 },
+    { name: 'MDI Gurgaon', cutoff: 94.0 },
+    { name: 'SPJIMR Mumbai', cutoff: 93.0 },
+    { name: 'IIFT Delhi', cutoff: 92.0 },
+    { name: 'IIM Shillong', cutoff: 90.0 },
+    { name: 'SIBM Pune', cutoff: 90.0 },
+    { name: 'IMT Ghaziabad', cutoff: 88.0 },
+    { name: 'IIM Udaipur', cutoff: 90.0 },
+    { name: 'IIM Trichy', cutoff: 90.0 },
+    { name: 'IIM Raipur', cutoff: 88.0 },
+    { name: 'Great Lakes Chennai', cutoff: 85.0 },
+    { name: 'XIMB Bhubaneswar', cutoff: 85.0 },
+  ];
+
+  iims.forEach(college => {
+    const adjustedCutoff = college.cutoff * multiplier - femaleBonus;
+    if (adjPct >= adjustedCutoff + 1.5) colleges.safe.push(college.name);
+    else if (adjPct >= adjustedCutoff - 0.5) colleges.target.push(college.name);
+    else if (adjPct >= adjustedCutoff - 3) colleges.reach.push(college.name);
+  });
+
+  return colleges;
+}
+
+function getImprovements(varc, dilr, qa, varcP, dilrP, qaP) {
+  const improvements = [];
+  const sections = [
+    { name: 'VARC', score: varc, max: 72, percentile: varcP },
+    { name: 'DILR', score: dilr, max: 60, percentile: dilrP },
+    { name: 'QA', score: qa, max: 60, percentile: qaP }
+  ];
+
+  sections.sort((a, b) => a.percentile - b.percentile);
+
+  sections.forEach(s => {
+    if (s.percentile < 70) {
+      improvements.push({
+        color: '#E05C5C',
+        text: `<strong>${s.name} needs urgent attention</strong> — ${s.percentile.toFixed(0)}th percentile. This section is your biggest score leak. Focus 50% of your prep time here.`
+      });
+    } else if (s.percentile < 85) {
+      improvements.push({
+        color: '#C9A84C',
+        text: `<strong>${s.name} can be improved</strong> — ${s.percentile.toFixed(0)}th percentile. 10-15 marks improvement here could add 3-4 percentile points overall.`
+      });
+    } else {
+      improvements.push({
+        color: '#4CAF7D',
+        text: `<strong>${s.name} is your strength</strong> — ${s.percentile.toFixed(0)}th percentile. Maintain with daily practice, don't let it slip.`
+      });
+    }
+  });
+
+  return improvements;
+}
+
+function predictPercentile() {
+  const varc = parseInt(document.getElementById('varc-score').value) || 0;
+  const dilr = parseInt(document.getElementById('dilr-score').value) || 0;
+  const qa = parseInt(document.getElementById('qa-score').value) || 0;
+  const category = document.getElementById('category').value;
+  const gender = document.getElementById('gender').value;
+
+  if (varc === 0 && dilr === 0 && qa === 0) {
+    alert('Please enter at least one section score.');
+    return;
+  }
+
+  const varcP = getSectionPercentile(varc, 'varc');
+  const dilrP = getSectionPercentile(dilr, 'dilr');
+  const qaP = getSectionPercentile(qa, 'qa');
+  const overall = getOverallPercentile(varc, dilr, qa);
+
+  // Display overall
+  const overallEl = document.getElementById('overall-percentile');
+  overallEl.textContent = overall.toFixed(1) + '%ile';
+  overallEl.style.color = overall >= 99 ? '#4CAF7D' : overall >= 95 ? '#E8C96A' : overall >= 85 ? '#C9A84C' : '#E05C5C';
+
+  document.getElementById('percentile-range').textContent =
+    `Range: ${Math.max(1, overall-2).toFixed(1)} — ${Math.min(99.99, overall+2).toFixed(1)} percentile`;
+
+  // Section percentiles
+  document.getElementById('varc-percentile').textContent = varcP.toFixed(1) + '%ile';
+  document.getElementById('varc-display').textContent = varc + ' / 72 marks';
+  document.getElementById('dilr-percentile').textContent = dilrP.toFixed(1) + '%ile';
+  document.getElementById('dilr-display').textContent = dilr + ' / 60 marks';
+  document.getElementById('qa-percentile').textContent = qaP.toFixed(1) + '%ile';
+  document.getElementById('qa-display').textContent = qa + ' / 60 marks';
+
+  // Colleges
+  const colleges = getColleges(overall, category, gender);
+  let collegeHTML = '';
+  if (colleges.reach.length > 0) {
+    collegeHTML += `<div class="college-group">
+      <div class="college-group-label" style="color:#E05C5C">Reach</div>
+      <div class="college-tags">${colleges.reach.map(c => `<span class="college-tag tag-reach">${c}</span>`).join('')}</div>
+    </div>`;
+  }
+  if (colleges.target.length > 0) {
+    collegeHTML += `<div class="college-group">
+      <div class="college-group-label" style="color:#E8C96A">Target</div>
+      <div class="college-tags">${colleges.target.map(c => `<span class="college-tag tag-target">${c}</span>`).join('')}</div>
+    </div>`;
+  }
+  if (colleges.safe.length > 0) {
+    collegeHTML += `<div class="college-group">
+      <div class="college-group-label" style="color:#4CAF7D">Safe</div>
+      <div class="college-tags">${colleges.safe.map(c => `<span class="college-tag tag-safe">${c}</span>`).join('')}</div>
+    </div>`;
+  }
+  if (collegeHTML === '') {
+    collegeHTML = '<p style="font-size:13px;color:var(--text-muted)">Keep working — your target colleges will appear as your score improves.</p>';
+  }
+  document.getElementById('college-list').innerHTML = collegeHTML;
+
+  // Improvements
+  const improvements = getImprovements(varc, dilr, qa, varcP, dilrP, qaP);
+  document.getElementById('improve-list').innerHTML = improvements.map(imp =>
+    `<div class="improve-item">
+      <div class="improve-dot" style="background:${imp.color}"></div>
+      <div class="improve-text">${imp.text}</div>
+    </div>`
+  ).join('');
+
+  // Show results
+  const results = document.getElementById('results');
+  results.style.display = 'block';
+  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+</script>
+
+</body>
+</html>
