@@ -1,5 +1,8 @@
 {
-  "rewrites": [
-    { "source": "/privacy", "destination": "/privacy.html" }
+  "version": 2,
+  "routes": [
+    { "src": "/privacy", "dest": "/privacy.html" },
+    { "src": "/cat-percentile-predictor", "dest": "/cat-percentile-predictor.html" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
