@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CAT Percentile Predictor 2026 — Free Score Calculator | Marg</title>
-<meta name="description" content="Free CAT 2026 percentile predictor. Enter your mock test scores and instantly know your predicted percentile, which IIMs you can target, and what to improve. Used by 1000+ CAT aspirants.">
+<title>CAT 2026 IIM Profile & Percentile Predictor — Free Tool | Marg</title>
+<meta name="description" content="Free CAT 2026 IIM Profile & Percentile Predictor. Enter your scores AND academic profile to see your exact IIM shortlist chances, required percentile, and personalized improvement plan.">
 <meta name="keywords" content="CAT percentile predictor, CAT score calculator, CAT 2026 percentile, CAT mock score percentile, IIM eligibility checker, CAT expected percentile">
 <meta property="og:title" content="CAT Percentile Predictor 2026 — Free Score Calculator">
 <meta property="og:description" content="Enter your CAT mock scores and instantly know your predicted percentile and which IIMs you can target.">
@@ -590,8 +590,8 @@ footer a { color: var(--gold); text-decoration: none; }
 <main>
   <section class="hero">
     <div class="hero-badge">🎯 Free Tool · No Signup Required</div>
-    <h1>CAT <span>Percentile Predictor</span> 2026</h1>
-    <p class="hero-sub">Enter your CAT mock test scores and instantly know your predicted percentile, target colleges, and exactly what to improve.</p>
+    <h1>CAT 2026 <span>IIM Profile & Percentile</span> Predictor</h1>
+    <p class="hero-sub">Enter your scores AND academic profile to see your exact IIM shortlist chances, required percentile for each IIM, and what to improve.</p>
   </section>
 
   <div class="tool-card" id="tool">
@@ -646,7 +646,43 @@ footer a { color: var(--gold); text-decoration: none; }
       </div>
     </div>
 
-    <button class="predict-btn" onclick="predictPercentile()">Predict My Percentile →</button>
+    <div style="margin-bottom:20px;">
+      <div style="font-size:12px;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:14px;">Academic Profile (for IIM Shortlist Chances)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="score-input">
+          <label>10th %</label>
+          <input type="number" id="tenth" placeholder="e.g. 85" min="0" max="100" oninput="validateInput(this,100)">
+        </div>
+        <div class="score-input">
+          <label>12th %</label>
+          <input type="number" id="twelfth" placeholder="e.g. 82" min="0" max="100" oninput="validateInput(this,100)">
+        </div>
+        <div class="score-input">
+          <label>Graduation %</label>
+          <input type="number" id="grad" placeholder="e.g. 75" min="0" max="100" oninput="validateInput(this,100)">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="select-wrap">
+          <label>Background</label>
+          <select id="background">
+            <option value="engineer">Engineering</option>
+            <option value="nonEngineer">Non-Engineering</option>
+          </select>
+        </div>
+        <div class="select-wrap">
+          <label>Work Experience</label>
+          <select id="workex">
+            <option value="0">Fresher</option>
+            <option value="1">Less than 1 year</option>
+            <option value="2">1-2 years</option>
+            <option value="3">2-3 years</option>
+            <option value="4">3+ years</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <button class="predict-btn" onclick="predictPercentile()">Predict My IIM Chances →</button>
   </div>
 
   <div id="results">
@@ -685,10 +721,14 @@ footer a { color: var(--gold); text-decoration: none; }
       <div id="improve-list"></div>
     </div>
 
+    <div class="colleges-card" id="iim-shortlist" style="display:none;">
+      <div class="colleges-title">🏛️ Your IIM Shortlist Analysis</div>
+      <div id="iim-shortlist-content"></div>
+    </div>
     <div class="marg-cta">
-      <div class="marg-cta-title">Want a personalised plan to hit your target?</div>
-      <div class="marg-cta-sub">Marg diagnoses exactly where you're losing marks and builds a specific plan around your situation — not generic advice.</div>
-      <a href="https://trymarg.com" class="marg-cta-btn">Get Your Free Plan on Marg →</a>
+      <div class="marg-cta-title" id="cta-title">Want a personalised plan to hit your target?</div>
+      <div class="marg-cta-sub" id="cta-sub">Marg diagnoses exactly where you're losing marks and builds a specific plan around your situation — not generic advice.</div>
+      <a href="https://trymarg.com" class="marg-cta-btn" id="cta-btn">Get Your Free Plan on Marg →</a>
     </div>
   </div>
 
@@ -918,6 +958,127 @@ function getImprovements(varc, dilr, qa, varcP, dilrP, qaP) {
   return improvements;
 }
 
+
+function getIIMShortlistAnalysis(percentile, tenth, twelfth, grad, background, workex, category, gender) {
+  const catMultiplier = { general: 1.0, ews: 0.97, obc: 0.93, sc: 0.82, st: 0.75, pwd: 0.70 }[category] || 1.0;
+  const femaleBonus = gender === 'female' ? 1.5 : 0;
+
+  // Academic score (normalized to 100)
+  const academicScore = (tenth * 0.3 + twelfth * 0.3 + grad * 0.4);
+  const nonEngBonus = background === 'nonEngineer' ? 3 : 0;
+  const workexBonus = Math.min(workex * 1.5, 6);
+
+  const iims = [
+    {
+      name: 'IIM Ahmedabad', cutoff: 99.0, acadMin: 80,
+      formula: 'CAT 70% + Acads 20% + Diversity 10%',
+      note: 'Strictest academic filter in India'
+    },
+    {
+      name: 'IIM Bangalore', cutoff: 99.0, acadMin: 78,
+      formula: 'CAT 25% + Acads 25% + WAT/PI 50%',
+      note: 'Heavy weightage on work experience'
+    },
+    {
+      name: 'IIM Calcutta', cutoff: 99.0, acadMin: 78,
+      formula: 'CAT 30% + Acads 28% + Gender/Diversity 12%',
+      note: 'Consistent academics across all levels important'
+    },
+    {
+      name: 'FMS Delhi', cutoff: 98.5, acadMin: 70,
+      formula: 'CAT 70% + Acads 20% + Diversity 10%',
+      note: 'Most CAT-score weighted among top schools'
+    },
+    {
+      name: 'IIM Lucknow', cutoff: 97.0, acadMin: 75,
+      formula: 'CAT 40% + Acads 30% + Diversity 30%',
+      note: 'Good for diverse profiles'
+    },
+    {
+      name: 'IIM Kozhikode', cutoff: 95.0, acadMin: 70,
+      formula: 'CAT 35% + Acads 25% + Diversity 40%',
+      note: 'Most diversity-friendly among old IIMs'
+    },
+    {
+      name: 'IIM Indore', cutoff: 95.0, acadMin: 72,
+      formula: 'CAT 40% + Acads 35% + Diversity 25%',
+      note: 'Strong focus on academics'
+    },
+    {
+      name: 'MDI Gurgaon', cutoff: 94.0, acadMin: 65,
+      formula: 'CAT 50% + Acads 25% + PI 25%',
+      note: 'Work experience valued highly'
+    },
+    {
+      name: 'IIM Shillong', cutoff: 90.0, acadMin: 60,
+      formula: 'CAT 45% + Acads 30% + Diversity 25%',
+      note: 'Good option for diverse backgrounds'
+    }
+  ];
+
+  const adjPercentile = percentile;
+  const adjCutoff = (cutoff) => cutoff * catMultiplier - femaleBonus;
+
+  let html = '';
+  let reachCount = 0, targetCount = 0, safeCount = 0;
+
+  iims.forEach(iim => {
+    const requiredPct = adjCutoff(iim.cutoff);
+    const acadOk = academicScore >= (iim.acadMin + nonEngBonus);
+    const gap = requiredPct - adjPercentile;
+    
+    let status, statusColor, statusBg, advice;
+    
+    if (adjPercentile >= requiredPct + 1 && acadOk) {
+      status = 'Safe Zone';
+      statusColor = '#4CAF7D';
+      statusBg = 'rgba(76,175,125,0.1)';
+      advice = 'Your profile meets shortlist criteria. Focus on PI/WAT prep.';
+      safeCount++;
+    } else if (adjPercentile >= requiredPct - 1 && acadOk) {
+      status = 'Borderline';
+      statusColor = '#E8C96A';
+      statusBg = 'rgba(232,201,106,0.1)';
+      advice = 'Very close — ' + Math.abs(gap).toFixed(1) + ' percentile point' + (Math.abs(gap) > 1 ? 's' : '') + ' away. Push hard this month.';
+      targetCount++;
+    } else if (adjPercentile >= requiredPct - 4 && acadOk) {
+      status = 'Reach';
+      statusColor = '#C9A84C';
+      statusBg = 'rgba(201,168,76,0.08)';
+      advice = 'Need ' + Math.abs(gap).toFixed(1) + ' more percentile points. Realistic with focused prep.';
+      reachCount++;
+    } else if (!acadOk) {
+      status = 'Acad. Gap';
+      statusColor = '#E05C5C';
+      statusBg = 'rgba(224,92,92,0.08)';
+      advice = 'Academic score (' + academicScore.toFixed(0) + '%) below their typical threshold (' + (iim.acadMin) + '%). CAT score alone may not overcome this.';
+    } else {
+      return; // Skip if too far
+    }
+
+    html += '<div style="border:1px solid var(--border2);border-radius:10px;padding:14px;margin-bottom:10px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">' +
+        '<div style="font-size:14px;font-weight:500;color:var(--text);">' + iim.name + '</div>' +
+        '<div style="font-size:11px;font-weight:500;padding:3px 10px;border-radius:12px;background:' + statusBg + ';color:' + statusColor + ';">' + status + '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;">Required: ' + requiredPct.toFixed(1) + '%ile · Your score: ' + adjPercentile.toFixed(1) + '%ile</div>' +
+      '<div style="font-size:12px;color:var(--text-muted);">' + advice + '</div>' +
+    '</div>';
+  });
+
+  if (html === '') {
+    html = '<p style="font-size:13px;color:var(--text-muted);text-align:center;padding:16px;">Keep working — enter higher scores to see your IIM shortlist chances.</p>';
+  }
+
+  const summary = '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:14px;display:flex;gap:16px;justify-content:center;">' +
+    '<div style="text-align:center;"><div style="font-size:20px;font-weight:500;color:#4CAF7D;">' + safeCount + '</div><div style="font-size:11px;color:var(--text-dim);">Safe</div></div>' +
+    '<div style="text-align:center;"><div style="font-size:20px;font-weight:500;color:#E8C96A;">' + targetCount + '</div><div style="font-size:11px;color:var(--text-dim);">Borderline</div></div>' +
+    '<div style="text-align:center;"><div style="font-size:20px;font-weight:500;color:#C9A84C;">' + reachCount + '</div><div style="font-size:11px;color:var(--text-dim);">Reach</div></div>' +
+  '</div>';
+
+  return summary + html;
+}
+
 function predictPercentile() {
   const varc = parseInt(document.getElementById('varc-score').value) || 0;
   const dilr = parseInt(document.getElementById('dilr-score').value) || 0;
@@ -934,6 +1095,30 @@ function predictPercentile() {
   const dilrP = getSectionPercentile(dilr, 'dilr');
   const qaP = getSectionPercentile(qa, 'qa');
   const overall = getOverallPercentile(varc, dilr, qa);
+
+  // Update dynamic CTA based on scores
+  const targetPercentile = overall.toFixed(1);
+  const ctaTitle = document.getElementById('cta-title');
+  const ctaSub = document.getElementById('cta-sub');
+  const ctaBtn = document.getElementById('cta-btn');
+  
+  if (overall < 90) {
+    ctaTitle.textContent = 'You need ' + targetPercentile + '%ile to reach your target colleges. Here is your path.';
+    ctaSub.textContent = 'Marg will diagnose exactly where you are losing marks and build a week by week plan to close that gap — specific to your situation, not generic advice.';
+    ctaBtn.textContent = 'Build my plan to hit ' + targetPercentile + '%ile — free →';
+  } else if (overall < 97) {
+    ctaTitle.textContent = 'You are at ' + targetPercentile + '%ile. The top colleges need 2-4 more points.';
+    ctaSub.textContent = 'That gap is closable in 8-10 weeks with the right focus. Marg will tell you exactly which section to fix first and how.';
+    ctaBtn.textContent = 'Get my personalised plan on Marg — free →';
+  } else if (overall < 99) {
+    ctaTitle.textContent = 'You are at ' + targetPercentile + '%ile. IIM ABC needs 99+.';
+    ctaSub.textContent = 'The final 1-2 percentile points are the hardest. Marg diagnoses exactly where you are leaking marks at this level.';
+    ctaBtn.textContent = 'Find my score leaks on Marg — free →';
+  } else {
+    ctaTitle.textContent = 'Excellent — ' + targetPercentile + '%ile puts you in BLACKI territory.';
+    ctaSub.textContent = 'Now the battle moves to PI and WAT. Marg can help you prepare your interview story and profile specifically.';
+    ctaBtn.textContent = 'Prepare my PI strategy on Marg — free →';
+  }
 
   // Display overall
   const overallEl = document.getElementById('overall-percentile');
@@ -985,6 +1170,19 @@ function predictPercentile() {
       <div class="improve-text">${imp.text}</div>
     </div>`
   ).join('');
+
+  // IIM Shortlist Analysis
+  const tenth = parseFloat(document.getElementById('tenth').value) || 0;
+  const twelfth = parseFloat(document.getElementById('twelfth').value) || 0;
+  const grad = parseFloat(document.getElementById('grad').value) || 0;
+  const background = document.getElementById('background').value;
+  const workex = parseInt(document.getElementById('workex').value) || 0;
+
+  if (tenth > 0 && twelfth > 0 && grad > 0) {
+    const iimAnalysis = getIIMShortlistAnalysis(overall, tenth, twelfth, grad, background, workex, category, gender);
+    document.getElementById('iim-shortlist-content').innerHTML = iimAnalysis;
+    document.getElementById('iim-shortlist').style.display = 'block';
+  }
 
   // Show results
   const results = document.getElementById('results');
