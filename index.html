@@ -1,15 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-VZ0N5RH912');
-</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Marg — Think clearer. Move better.</title>
@@ -377,6 +368,14 @@
   }
   #guest-login-btn:hover { opacity: 0.85; }
 </style>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-VZ0N5RH912');
+</script>
 </head>
 <body>
 
@@ -1455,15 +1454,35 @@ Title: "${currentArticle.title}"
 
 Content: ${articleText}
 
-Create a CAT exam style Reading Comprehension exercise. IMPORTANT: Show ONLY the passage and questions. Do NOT show answers or explanations yet.
+Create a HARD CAT exam style RC exercise. IMPORTANT: Show ONLY passage and questions, NO answers yet.
 
-1. Write a proper RC passage of 250-300 words based on the key ideas from this article (rewrite in proper CAT RC style — academic, dense, analytical)
-2. Create exactly 4 CAT style questions with 4 options each (A, B, C, D)
-3. Include one question each of: Main idea/purpose, Specific detail, Inference, Author's tone/attitude
+PASSAGE: 280-320 words, dense and abstract. Use complex sentence structures, nuanced arguments, at least one subtle shift in author's position. Must require careful reading — not skimmable.
 
-Format clearly with: PASSAGE heading, then QUESTIONS (numbered 1-4) with options A B C D
+QUESTIONS — 4 total, one each of: Primary purpose, Specific detail, Inference, Author's attitude.
 
-End with exactly this line: "---
+TRAP OPTIONS are mandatory for every question:
+- Wrong options must use exact words from passage but in wrong context
+- Two options per question should feel very close to correct
+- Options that are partially true but go beyond what passage actually states
+- Never make wrong options obviously wrong
+
+CRITICAL: Randomize correct answers across A B C D — do NOT default to B or C repeatedly. Mix it up naturally like real CAT papers.
+
+Difficulty: Hard enough that a student who skims will get it wrong.
+
+ANSWER KEY DISTRIBUTION — STRICTLY FOLLOW THIS:
+Before writing questions, randomly pick 4 different letters from A B C D for the correct answers — no two consecutive questions should have the same letter as correct answer. Actively avoid B,C,B,C or any repeating pattern. For example use patterns like A,D,B,C or D,A,C,B or C,B,D,A.
+
+Format:
+PASSAGE
+[text]
+
+QUESTIONS
+1. [question]
+A. B. C. D.
+[repeat for 4 questions]
+
+End with exactly: "---
 Ready? Type your answers (e.g. 1-A, 2-C, 3-B, 4-D) and I'll explain each one in detail."`;
 
   addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
