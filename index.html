@@ -659,6 +659,29 @@ async function saveChatMessage(role, content) {
   try { await sbFetch('chats', 'POST', { user_id: currentUser.id, role: role, content: content }); } catch(e) {}
 }
 
+
+async function saveUserEmail(email) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_TOKEN,
+      'Prefer': 'resolution=merge-duplicates'
+    };
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ 
+        user_id: currentUser.id, 
+        notification_email: email,
+        email_notifications: true
+      })
+    });
+    console.log('Email saved for notifications');
+  } catch(e) { console.error('saveUserEmail error:', e); }
+}
+
 async function saveProfile() {
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
@@ -1258,7 +1281,13 @@ function submitProfileSetup() {
   const mock = document.getElementById('ps-mock').value;
   const weak = document.getElementById('ps-weak').value;
 
-  newUserProfile = { category, tenth, twelfth, grad, mock, weak };
+  const email = document.getElementById('ps-email').value.trim();
+  newUserProfile = { category, tenth, twelfth, grad, mock, weak, email };
+  
+  // Save email to Supabase if user is logged in and email provided
+  if (email && currentUser && SUPABASE_TOKEN) {
+    saveUserEmail(email);
+  }
   hideProfileSetup();
   showDiagnosis(newUserProfile);
 }
@@ -1399,6 +1428,11 @@ window.onload = initSession;
         <option value="QA">QA (Quant)</option>
         <option value="All">All equally weak</option>
       </select>
+    </div>
+    <div class="ps-field">
+      <div class="ps-label">Email (for streak reminders)</div>
+      <input class="ps-input" id="ps-email" type="email" placeholder="your@email.com">
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">We'll remind you if you miss a day. No spam ever.</div>
     </div>
     <button class="ps-submit" onclick="submitProfileSetup()">Show me my diagnosis →</button>
     <button class="ps-skip" onclick="skipProfileSetup()">Skip for now</button>
