@@ -226,6 +226,128 @@
   #guest-limit-text span { font-weight: 500; }
   #guest-login-btn { font-family: 'DM Sans', sans-serif; font-size: 12px; padding: 6px 14px; background: linear-gradient(135deg, #C9A84C, #8B6914); color: #0D0D0D; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap; transition: opacity 0.2s; }
   #guest-login-btn:hover { opacity: 0.85; }
+
+  /* ─── PROFILE SETUP OVERLAY ─── */
+  #profile-setup-overlay {
+    position: fixed; inset: 0;
+    background: rgba(13,13,13,0.97);
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 400; padding: 24px;
+  }
+  #profile-setup-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 28px;
+    width: 100%; max-width: 420px;
+    display: flex; flex-direction: column; gap: 20px;
+    animation: fadeUp 0.4s ease;
+  }
+  .ps-header { display: flex; flex-direction: column; gap: 6px; }
+  .ps-title { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 500; color: var(--text); }
+  .ps-sub { font-size: 13px; color: var(--text-muted); }
+  .ps-field { display: flex; flex-direction: column; gap: 8px; }
+  .ps-label { font-size: 11px; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .ps-select, .ps-input {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px; color: var(--text);
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px; outline: none;
+    transition: border-color 0.2s; width: 100%;
+  }
+  .ps-select:focus, .ps-input:focus { border-color: var(--gold); }
+  .ps-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .ps-submit {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 500;
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; border: none; border-radius: 10px;
+    padding: 13px; cursor: pointer; width: 100%;
+    transition: opacity 0.2s;
+  }
+  .ps-submit:hover { opacity: 0.85; }
+  .ps-skip { font-size: 12px; color: var(--text-dim); text-align: center; cursor: pointer; background: none; border: none; font-family: 'DM Sans', sans-serif; }
+  .ps-skip:hover { color: var(--text-muted); }
+
+  /* ─── DIAGNOSIS OVERLAY ─── */
+  #diagnosis-overlay {
+    position: fixed; inset: 0;
+    background: rgba(13,13,13,0.97);
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 400; padding: 24px;
+  }
+  #diagnosis-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 28px;
+    width: 100%; max-width: 420px;
+    display: flex; flex-direction: column; gap: 18px;
+    animation: fadeUp 0.4s ease;
+  }
+  .diag-header { display: flex; flex-direction: column; gap: 4px; }
+  .diag-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(76,175,125,0.1);
+    border: 1px solid rgba(76,175,125,0.2);
+    border-radius: 12px; padding: 3px 10px;
+    font-size: 11px; color: #4CAF7D; font-weight: 500;
+    width: fit-content; margin-bottom: 6px;
+  }
+  .diag-title { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 500; color: var(--text); }
+  .diag-target { font-size: 13px; color: var(--text-muted); }
+  .diag-target span { color: var(--gold-light); font-weight: 500; }
+  .risk-grid { display: flex; flex-direction: column; gap: 8px; }
+  .risk-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+  }
+  .risk-label { font-size: 13px; color: var(--text-muted); }
+  .risk-badge {
+    font-size: 11px; font-weight: 500;
+    padding: 3px 10px; border-radius: 12px;
+  }
+  .risk-high { background: rgba(224,92,92,0.12); color: #E05C5C; }
+  .risk-mid { background: rgba(201,168,76,0.12); color: var(--gold-light); }
+  .risk-low { background: rgba(76,175,125,0.12); color: #4CAF7D; }
+  .diag-threat {
+    background: rgba(224,92,92,0.06);
+    border: 1px solid rgba(224,92,92,0.15);
+    border-left: 3px solid #E05C5C;
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+  }
+  .diag-threat-label { font-size: 10px; color: #E05C5C; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .diag-threat-text { font-size: 13px; color: var(--text); line-height: 1.5; }
+  .diag-actions { display: flex; flex-direction: column; gap: 8px; }
+  .diag-btn-primary {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 500;
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; border: none; border-radius: 10px;
+    padding: 13px; cursor: pointer; width: 100%;
+    transition: opacity 0.2s; text-align: center;
+  }
+  .diag-btn-primary:hover { opacity: 0.85; }
+  .diag-btn-secondary {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; font-weight: 500;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    padding: 11px; cursor: pointer; width: 100%;
+    transition: all 0.2s; text-align: center;
+  }
+  .diag-btn-secondary:hover { border-color: var(--gold); color: var(--gold); }
+
 </style>
 </head>
 <body>
@@ -1102,14 +1224,206 @@ async function initSession() {
         const varcShown = await checkVarcShownToday();
         if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 1200); }
       } else {
-        addMessage('marg', onboardingFlow[0].message);
-        addOnboardingCard(0);
+        // New user - show profile setup instead of old onboarding
+        showProfileSetup();
+        // Still run onboarding in background for profile saving
+        onboardingComplete = true;
       }
     });
   } catch(e) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); }
 }
 
+
+// ─── PROFILE SETUP & DIAGNOSIS ───
+let newUserProfile = {};
+
+function showProfileSetup() {
+  document.getElementById('profile-setup-overlay').style.display = 'flex';
+}
+
+function hideProfileSetup() {
+  document.getElementById('profile-setup-overlay').style.display = 'none';
+}
+
+function skipProfileSetup() {
+  hideProfileSetup();
+  startChat();
+}
+
+function submitProfileSetup() {
+  const category = document.getElementById('ps-category').value;
+  const tenth = parseFloat(document.getElementById('ps-tenth').value) || 0;
+  const twelfth = parseFloat(document.getElementById('ps-twelfth').value) || 0;
+  const grad = parseFloat(document.getElementById('ps-grad').value) || 0;
+  const mock = document.getElementById('ps-mock').value;
+  const weak = document.getElementById('ps-weak').value;
+
+  newUserProfile = { category, tenth, twelfth, grad, mock, weak };
+  hideProfileSetup();
+  showDiagnosis(newUserProfile);
+}
+
+function showDiagnosis(profile) {
+  const overlay = document.getElementById('diagnosis-overlay');
+  
+  // Calculate target percentile based on category
+  const targets = {
+    general: 99.0, obc: 96.0, sc: 88.0, st: 80.0, ews: 97.0
+  };
+  const target = targets[profile.category] || 99.0;
+  document.getElementById('diag-percentile').textContent = target + '+';
+
+  // Academic risk
+  const acadScore = (profile.tenth * 0.3 + profile.twelfth * 0.3 + profile.grad * 0.4);
+  let acadRisk = 'low';
+  if (acadScore < 65) acadRisk = 'high';
+  else if (acadScore < 75) acadRisk = 'mid';
+
+  // Mock risk
+  let mockRisk = 'high';
+  if (profile.mock === '99+') mockRisk = 'low';
+  else if (profile.mock === '95-99') mockRisk = 'low';
+  else if (profile.mock === '90-95') mockRisk = 'mid';
+  else if (profile.mock === '80-90') mockRisk = 'mid';
+
+  // Section risk
+  const sectionRisk = profile.weak === 'All' ? 'high' : 'high';
+
+  const riskLabels = { high: 'High risk', mid: 'Moderate risk', low: 'On track' };
+  const riskClasses = { high: 'risk-high', mid: 'risk-mid', low: 'risk-low' };
+
+  const mockLabel = profile.mock === 'none' ? 'No mock given yet' : 'Mock: ' + profile.mock + ' percentile';
+
+  document.getElementById('diag-risk-grid').innerHTML = 
+    '<div class="risk-item"><span class="risk-label">Academic score</span><span class="risk-badge ' + riskClasses[acadRisk] + '">' + riskLabels[acadRisk] + '</span></div>' +
+    '<div class="risk-item"><span class="risk-label">' + mockLabel + '</span><span class="risk-badge ' + riskClasses[mockRisk] + '">' + riskLabels[mockRisk] + '</span></div>' +
+    '<div class="risk-item"><span class="risk-label">Weakest: ' + profile.weak + '</span><span class="risk-badge risk-high">High risk</span></div>';
+
+  // Threat text
+  const threats = {
+    VARC: 'VARC inconsistency at ' + target + ' percentile costs more IIM shortlists than any other factor. Most students underestimate how long it takes to fix.',
+    DILR: 'DILR is the section most students improve latest — leaving it for October is the most common reason people miss their target percentile.',
+    QA: 'QA has the most predictable scoring — but only if concepts are solid. Right now your QA gap is your biggest risk.',
+    All: 'With all three sections needing work, unfocused preparation is your biggest enemy. You need a specific priority order, not equal time on everything.'
+  };
+  document.getElementById('diag-threat-text').textContent = threats[profile.weak] || threats['All'];
+
+  // Primary button text
+  document.getElementById('diag-btn-primary').textContent = 'Fix my ' + profile.weak + ' — start now →';
+
+  overlay.style.display = 'flex';
+}
+
+function startDiagnosisChat(type) {
+  document.getElementById('diagnosis-overlay').style.display = 'none';
+  
+  // Pre-fill conversation context based on diagnosis
+  const weak = newUserProfile.weak || 'VARC';
+  const mock = newUserProfile.mock || 'none';
+  
+  let firstMessage = '';
+  if (type === 'primary') {
+    firstMessage = 'I just completed my profile setup. My weakest section is ' + weak + ' and I want to fix it specifically. Based on my diagnosis, what should I do first?';
+  } else {
+    firstMessage = 'I want to analyze my last mock score. My current mock percentile is ' + mock + ' and my weakest section is ' + weak + '. Help me understand what to fix.';
+  }
+
+  // Store for after chat loads
+  localStorage.setItem('marg_first_message', firstMessage);
+  startChat();
+}
+
+function startChat() {
+  // This is called after profile setup - chat is already initialized
+  // Just make sure input is enabled
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  
+  // If there's a pre-set first message, send it
+  const firstMsg = localStorage.getItem('marg_first_message');
+  if (firstMsg) {
+    localStorage.removeItem('marg_first_message');
+    setTimeout(function() {
+      document.getElementById('user-input').value = firstMsg;
+      sendMessage();
+    }, 500);
+  }
+}
+
+
 window.onload = initSession;
 </script>
+
+<!-- Profile Setup Overlay -->
+<div id="profile-setup-overlay">
+  <div id="profile-setup-box">
+    <div class="ps-header">
+      <div class="ps-title">Let's set up your profile 🎯</div>
+      <div class="ps-sub">30 seconds. We'll show you exactly what's at risk.</div>
+    </div>
+    <div class="ps-field">
+      <div class="ps-label">Category</div>
+      <select class="ps-select" id="ps-category">
+        <option value="general">General</option>
+        <option value="obc">OBC-NCL</option>
+        <option value="sc">SC</option>
+        <option value="st">ST</option>
+        <option value="ews">EWS</option>
+      </select>
+    </div>
+    <div class="ps-field">
+      <div class="ps-label">Academic Profile (%)</div>
+      <div class="ps-row">
+        <input class="ps-input" id="ps-tenth" type="number" placeholder="10th" min="0" max="100">
+        <input class="ps-input" id="ps-twelfth" type="number" placeholder="12th" min="0" max="100">
+        <input class="ps-input" id="ps-grad" type="number" placeholder="Grad" min="0" max="100">
+      </div>
+    </div>
+    <div class="ps-field">
+      <div class="ps-label">Current Mock Percentile</div>
+      <select class="ps-select" id="ps-mock">
+        <option value="none">Haven't given one yet</option>
+        <option value="below70">Below 70</option>
+        <option value="70-80">70 - 80</option>
+        <option value="80-90">80 - 90</option>
+        <option value="90-95">90 - 95</option>
+        <option value="95-99">95 - 99</option>
+        <option value="99+">99+</option>
+      </select>
+    </div>
+    <div class="ps-field">
+      <div class="ps-label">Weakest Section</div>
+      <select class="ps-select" id="ps-weak">
+        <option value="VARC">VARC (Reading & Verbal)</option>
+        <option value="DILR">DILR (Data & Logic)</option>
+        <option value="QA">QA (Quant)</option>
+        <option value="All">All equally weak</option>
+      </select>
+    </div>
+    <button class="ps-submit" onclick="submitProfileSetup()">Show me my diagnosis →</button>
+    <button class="ps-skip" onclick="skipProfileSetup()">Skip for now</button>
+  </div>
+</div>
+
+<!-- Diagnosis Overlay -->
+<div id="diagnosis-overlay">
+  <div id="diagnosis-box">
+    <div class="diag-header">
+      <div class="diag-badge">✓ Profile analysed</div>
+      <div class="diag-title" id="diag-title">Your IIM Risk Profile</div>
+      <div class="diag-target" id="diag-target">Target percentile: <span id="diag-percentile">—</span></div>
+    </div>
+    <div class="risk-grid" id="diag-risk-grid"></div>
+    <div class="diag-threat">
+      <div class="diag-threat-label">⚠ Biggest threat to your IIM call</div>
+      <div class="diag-threat-text" id="diag-threat-text">—</div>
+    </div>
+    <div class="diag-actions">
+      <button class="diag-btn-primary" id="diag-btn-primary" onclick="startDiagnosisChat('primary')">Fix my biggest weakness — start now</button>
+      <button class="diag-btn-secondary" onclick="startDiagnosisChat('secondary')">Analyze my last mock score</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
