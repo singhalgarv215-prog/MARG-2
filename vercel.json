@@ -3,6 +3,7 @@
   "routes": [
     { "src": "/privacy", "dest": "/privacy.html" },
     { "src": "/cat-percentile-predictor", "dest": "/cat-percentile-predictor.html" },
+    { "src": "/mock-analysis", "dest": "/mock-analysis.html" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
