@@ -1239,13 +1239,19 @@ async function initSession() {
         restoreConversation();
         loadStreakData();
         setTimeout(function() { const btn = document.getElementById('varc-toggle-btn'); if (btn) btn.style.display = 'inline-flex'; }, 500);
+        
+        // Marg speaks first for returning users
+        setTimeout(async function() {
+          await sendReturningUserGreeting();
+        }, 600);
+
         const alreadyCheckedIn = await hasCheckedInToday();
         if (!alreadyCheckedIn) {
           const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
-          setTimeout(function() { showCheckin(name); }, 800);
+          setTimeout(function() { showCheckin(name); }, 2000);
         }
         const varcShown = await checkVarcShownToday();
-        if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 1200); }
+        if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 3000); }
       } else {
         // New user - show profile setup instead of old onboarding
         showProfileSetup();
@@ -1256,6 +1262,69 @@ async function initSession() {
   } catch(e) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); }
 }
 
+
+
+// ─── RETURNING USER GREETING ───
+async function sendReturningUserGreeting() {
+  // Don't add greeting if chat already has messages today
+  const todayStr = new Date().toISOString().split('T')[0];
+  const lastGreetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
+  const lastGreet = localStorage.getItem(lastGreetKey);
+  if (lastGreet === todayStr) return; // Already greeted today
+  localStorage.setItem(lastGreetKey, todayStr);
+
+  // Get streak count
+  let streak = 0;
+  try {
+    const streakData = await fetch(SUPABASE_URL + '/rest/v1/checkins?select=date&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', {
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN }
+    });
+    const checkins = await streakData.json();
+    if (checkins && checkins.length > 0) {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      const dates = new Set(checkins.map(c => c.date));
+      while (dates.has(d.toISOString().split('T')[0])) {
+        streak++;
+        d.setDate(d.getDate() - 1);
+      }
+    }
+  } catch(e) {}
+
+  const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name 
+    ? currentUser.user_metadata.full_name.split(' ')[0] 
+    : '';
+
+  const hour = new Date().getHours();
+  const timeGreet = hour < 12 ? 'Morning' : hour < 17 ? 'Hey' : 'Evening';
+
+  // Build personalised greeting
+  let greeting = '';
+  
+  if (streak >= 5) {
+    greeting = `${timeGreet} ${name}! 🔥 You're on a ${streak}-day streak — don't break it today.
+
+What did you work on yesterday? Tell me in one line and let's figure out today's focus.`;
+  } else if (streak >= 2) {
+    greeting = `${timeGreet} ${name}! ${streak} days in a row — good momentum.
+
+What are you working on today — VARC, DILR, or QA? Tell me where you left off and we'll build from there.`;
+  } else {
+    greeting = `${timeGreet} ${name}! Good to have you back.
+
+What's on your mind today? If you're not sure where to start — tell me your weakest section and your last mock score and I'll tell you exactly what to do first.`;
+  }
+
+  // Add streak warning if streak exists
+  if (streak > 0) {
+    greeting += `
+
+_(Your ${streak}-day streak resets at midnight — check in before then to keep it going)_`;
+  }
+
+  // Display as Marg message
+  addMessage('marg', greeting);
+}
 
 // ─── PROFILE SETUP & DIAGNOSIS ───
 let newUserProfile = {};
