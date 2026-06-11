@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mock Analysis — Marg</title>
+<meta name="description" content="Diagnose exactly why your CAT mock score isn't improving. Not generic advice — a specific plan built around your actual errors.">
+<link rel="canonical" href="https://trymarg.com/mock-analysis">
+<link rel="icon" type="image/png" href="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-VZ0N5RH912');
+</script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0A0A0A;
+  --surface: #111111;
+  --surface2: #181818;
+  --border: rgba(255,255,255,0.06);
+  --border2: rgba(255,255,255,0.1);
+  --text: #F0EDE6;
+  --text-muted: #9A9690;
+  --text-dim: #555550;
+  --gold: #C9A84C;
+  --gold-light: #E8C96A;
+  --gold-dim: rgba(201,168,76,0.08);
+  --green: #4CAF7D;
+  --green-dim: rgba(76,175,125,0.1);
+  --red: #E05C5C;
+  --red-dim: rgba(224,92,92,0.08);
+  --radius: 14px;
+  --radius-sm: 8px;
+}
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+nav {
+  padding: 14px 40px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; background: rgba(10,10,10,0.95);
+  backdrop-filter: blur(12px); z-index: 100;
+}
+.nav-logo img { height: 26px; object-fit: contain; }
+.nav-cta {
+  font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500;
+  padding: 8px 18px; background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+  color: #fff; border: none; border-radius: 8px; cursor: pointer;
+  text-decoration: none; transition: opacity 0.2s;
+}
+.nav-cta:hover { opacity: 0.85; }
+
+.page-wrap { max-width: 680px; margin: 0 auto; padding: 40px 24px 80px; }
+
+.hero { text-align: center; margin-bottom: 40px; }
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--green-dim); border: 1px solid rgba(76,175,125,0.2);
+  border-radius: 20px; padding: 5px 14px; font-size: 12px;
+  color: var(--green); margin-bottom: 16px;
+}
+.hero h1 { font-family: 'Playfair Display', serif; font-size: clamp(24px, 4vw, 36px); font-weight: 500; color: var(--text); line-height: 1.25; margin-bottom: 12px; }
+.hero h1 span { color: var(--gold-light); }
+.hero p { font-size: 15px; color: var(--text-muted); line-height: 1.7; max-width: 480px; margin: 0 auto; }
+
+/* STEP INDICATOR */
+.steps-indicator { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 32px; }
+.step-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; transition: all 0.3s; }
+.step-dot.active { background: var(--green); color: #fff; }
+.step-dot.done { background: rgba(76,175,125,0.2); color: var(--green); }
+.step-dot.inactive { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+.step-line { width: 40px; height: 2px; background: var(--border); border-radius: 1px; }
+.step-line.done { background: var(--green); opacity: 0.4; }
+
+/* CARDS */
+.card { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius); padding: 28px; margin-bottom: 20px; display: none; }
+.card.active { display: block; animation: fadeUp 0.35s ease; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+.card-label { font-size: 11px; font-weight: 500; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+.card-title { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 500; color: var(--text); margin-bottom: 6px; }
+.card-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.6; }
+
+/* SCORE INPUTS */
+.sections-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+.section-block { display: flex; flex-direction: column; gap: 10px; }
+.section-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.section-tag { font-size: 11px; color: var(--text-dim); }
+.score-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.score-field { display: flex; flex-direction: column; gap: 4px; }
+.score-field label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.score-field input {
+  font-family: 'DM Sans', sans-serif; font-size: 18px; font-weight: 500;
+  color: var(--text); background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius-sm); padding: 10px 12px; outline: none;
+  transition: border-color 0.2s; width: 100%;
+  -moz-appearance: textfield;
+}
+.score-field input::-webkit-outer-spin-button,
+.score-field input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.score-field input:focus { border-color: var(--gold); }
+.score-max { font-size: 10px; color: var(--text-dim); text-align: right; }
+
+/* ERROR TYPE GRID */
+.error-section { margin-bottom: 24px; }
+.error-section-title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.error-section-title span { font-size: 11px; color: var(--text-dim); font-weight: 400; }
+.error-types { display: flex; flex-wrap: wrap; gap: 8px; }
+.error-btn {
+  font-family: 'DM Sans', sans-serif; font-size: 12px; padding: 7px 14px;
+  border: 1px solid var(--border2); border-radius: 20px;
+  background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+}
+.error-btn:hover { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+.error-btn.selected { border-color: var(--red); background: var(--red-dim); color: var(--red); }
+.error-btn.selected-concept { border-color: #E05C5C; background: rgba(224,92,92,0.1); color: #E05C5C; }
+.error-btn.selected-speed { border-color: #C9A84C; background: rgba(201,168,76,0.1); color: #E8C96A; }
+.error-btn.selected-careless { border-color: #4CAF7D; background: rgba(76,175,125,0.1); color: #4CAF7D; }
+
+.bucket-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.bucket-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.bucket-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+/* CONTEXT */
+.context-field { margin-bottom: 16px; }
+.context-field label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px; }
+.context-field textarea, .context-field select, .context-field input {
+  font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--text);
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius-sm); padding: 10px 14px; width: 100%; outline: none;
+  transition: border-color 0.2s; resize: none;
+}
+.context-field textarea:focus, .context-field select:focus, .context-field input:focus { border-color: var(--gold); }
+.context-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* BUTTONS */
+.btn-primary {
+  font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+  width: 100%; padding: 14px; background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+  color: #fff; border: none; border-radius: var(--radius-sm); cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.btn-secondary {
+  font-family: 'DM Sans', sans-serif; font-size: 13px;
+  background: transparent; color: var(--text-muted); border: 1px solid var(--border2);
+  border-radius: var(--radius-sm); padding: 10px; cursor: pointer; width: 100%;
+  transition: all 0.2s; margin-top: 8px;
+}
+.btn-secondary:hover { border-color: var(--gold); color: var(--gold); }
+
+/* RESULTS */
+#results-card { display: none; }
+#results-card.visible { display: block; animation: fadeUp 0.4s ease; }
+
+.result-header { margin-bottom: 24px; }
+.result-score-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.result-score-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; text-align: center; }
+.result-score-box .label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+.result-score-box .value { font-size: 22px; font-weight: 500; }
+.result-score-box .sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+.diagnosis-section { margin-bottom: 20px; }
+.diagnosis-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.diagnosis-item {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px; margin-bottom: 8px;
+}
+.diagnosis-item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.diagnosis-item-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.diagnosis-badge { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 12px; }
+.badge-concept { background: rgba(224,92,92,0.12); color: #E05C5C; }
+.badge-speed { background: rgba(201,168,76,0.12); color: #E8C96A; }
+.badge-careless { background: rgba(76,175,125,0.12); color: #4CAF7D; }
+.diagnosis-item-text { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+
+.plan-section { background: var(--gold-dim); border: 1px solid rgba(201,168,76,0.15); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+.plan-title { font-size: 13px; font-weight: 500; color: var(--gold-light); margin-bottom: 16px; }
+.plan-week { margin-bottom: 16px; }
+.plan-week-title { font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+.plan-item { font-size: 13px; color: var(--text-muted); padding: 6px 0; border-bottom: 1px solid var(--border); line-height: 1.5; }
+.plan-item:last-child { border-bottom: none; }
+.plan-item strong { color: var(--text); }
+
+.loading-state { text-align: center; padding: 40px 20px; }
+.loading-dots { display: flex; gap: 6px; justify-content: center; margin-bottom: 16px; }
+.loading-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: loadBounce 1.3s infinite; }
+.loading-dot:nth-child(2) { animation-delay: 0.18s; }
+.loading-dot:nth-child(3) { animation-delay: 0.36s; }
+@keyframes loadBounce { 0%,60%,100%{transform:translateY(0);opacity:0.5} 30%{transform:translateY(-8px);opacity:1} }
+.loading-text { font-size: 14px; color: var(--text-muted); }
+
+.marg-cta-box { background: linear-gradient(135deg, rgba(76,175,125,0.08), rgba(201,168,76,0.05)); border: 1px solid rgba(76,175,125,0.15); border-radius: var(--radius); padding: 24px; text-align: center; margin-top: 20px; }
+.marg-cta-box h3 { font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 500; color: var(--text); margin-bottom: 8px; }
+.marg-cta-box p { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; line-height: 1.6; }
+.marg-cta-btn { display: inline-flex; align-items: center; gap: 8px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; padding: 12px 24px; background: linear-gradient(135deg, #4CAF7D, #2D7A55); color: #fff; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; transition: opacity 0.2s; }
+.marg-cta-btn:hover { opacity: 0.85; }
+
+footer { border-top: 1px solid var(--border); padding: 20px 40px; text-align: center; font-size: 12px; color: var(--text-dim); }
+footer a { color: var(--gold); text-decoration: none; }
+
+@media(max-width:600px){
+  nav { padding: 14px 16px; }
+  .page-wrap { padding: 28px 16px 60px; }
+  .sections-grid { grid-template-columns: 1fr; }
+  .result-score-row { grid-template-columns: repeat(2, 1fr); }
+  .context-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="https://trymarg.com" class="nav-logo">
+    <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg">
+  </a>
+  <a href="https://trymarg.com" class="nav-cta">Chat with Marg →</a>
+</nav>
+
+<main class="page-wrap">
+
+  <div class="hero">
+    <div class="hero-badge">🎯 Free · No signup required</div>
+    <h1>Mock Analysis that actually <span>tells you what to fix</span></h1>
+    <p>Not your percentile. Not which section is weak. Exactly why it's weak — and what to do about it tomorrow.</p>
+  </div>
+
+  <div class="steps-indicator">
+    <div class="step-dot active" id="dot-1">1</div>
+    <div class="step-line" id="line-1"></div>
+    <div class="step-dot inactive" id="dot-2">2</div>
+    <div class="step-line" id="line-2"></div>
+    <div class="step-dot inactive" id="dot-3">3</div>
+    <div class="step-line" id="line-3"></div>
+    <div class="step-dot inactive" id="dot-4">4</div>
+  </div>
+
+  <!-- STEP 1: SCORES -->
+  <div class="card active" id="step-1">
+    <div class="card-label">Step 1 of 3</div>
+    <div class="card-title">Enter your mock scores</div>
+    <div class="card-sub">Your raw scores — not percentile. We'll calculate the rest.</div>
+
+    <div class="sections-grid">
+      <div class="section-block">
+        <div class="section-name">VARC</div>
+        <div class="section-tag">Verbal & RC</div>
+        <div class="score-row">
+          <div class="score-field">
+            <label>Score</label>
+            <input type="number" id="varc-score" placeholder="0" min="-24" max="72">
+            <div class="score-max">Max 72</div>
+          </div>
+          <div class="score-field">
+            <label>Attempted</label>
+            <input type="number" id="varc-attempted" placeholder="0" min="0" max="24">
+            <div class="score-max">of 24</div>
+          </div>
+        </div>
+      </div>
+      <div class="section-block">
+        <div class="section-name">DILR</div>
+        <div class="section-tag">Data & Logic</div>
+        <div class="score-row">
+          <div class="score-field">
+            <label>Score</label>
+            <input type="number" id="dilr-score" placeholder="0" min="-20" max="60">
+            <div class="score-max">Max 60</div>
+          </div>
+          <div class="score-field">
+            <label>Attempted</label>
+            <input type="number" id="dilr-attempted" placeholder="0" min="0" max="20">
+            <div class="score-max">of 20</div>
+          </div>
+        </div>
+      </div>
+      <div class="section-block">
+        <div class="section-name">QA</div>
+        <div class="section-tag">Quantitative</div>
+        <div class="score-row">
+          <div class="score-field">
+            <label>Score</label>
+            <input type="number" id="qa-score" placeholder="0" min="-22" max="66">
+            <div class="score-max">Max 66</div>
+          </div>
+          <div class="score-field">
+            <label>Attempted</label>
+            <input type="number" id="qa-attempted" placeholder="0" min="0" max="22">
+            <div class="score-max">of 22</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="context-grid" style="margin-bottom:20px;">
+      <div class="context-field">
+        <label>Which mock series?</label>
+        <select id="mock-series">
+          <option value="SimCAT">SimCAT (IMS)</option>
+          <option value="AIMCAT">AIMCAT (CL)</option>
+          <option value="TIME">TIME Mock</option>
+          <option value="AA">Arambh Academy</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="context-field">
+        <label>Mock number</label>
+        <input type="number" id="mock-number" placeholder="e.g. 3" min="1" max="50">
+      </div>
+    </div>
+
+    <button class="btn-primary" onclick="goToStep2()">Next — Tag your errors →</button>
+  </div>
+
+  <!-- STEP 2: WHAT HAPPENED -->
+  <div class="card" id="step-2">
+    <div class="card-label">Step 2 of 3</div>
+    <div class="card-title">What happened in the exam?</div>
+    <div class="card-sub">Don't diagnose yourself — just tell us what you experienced. Marg will figure out why.</div>
+
+    <div style="font-size:12px;color:var(--text-dim);background:var(--surface2);border-radius:8px;padding:10px 14px;margin-bottom:20px;line-height:1.6;">
+      For each question type — select what actually happened when you saw it. You can select multiple experiences per type.
+    </div>
+
+    <!-- VARC -->
+    <div class="error-section">
+      <div class="error-section-title">VARC Questions</div>
+      <div id="varc-questions"></div>
+    </div>
+
+    <!-- DILR -->
+    <div class="error-section">
+      <div class="error-section-title">DILR Questions</div>
+      <div id="dilr-questions"></div>
+    </div>
+
+    <!-- QA -->
+    <div class="error-section">
+      <div class="error-section-title">QA Questions</div>
+      <div id="qa-questions"></div>
+    </div>
+
+    <button class="btn-primary" onclick="goToStep3()">Next — Add context →</button>
+    <button class="btn-secondary" onclick="goToStep(1)">← Back</button>
+  </div>
+
+  <!-- STEP 3: CONTEXT -->
+  <div class="card" id="step-3">
+    <div class="card-label">Step 3 of 3</div>
+    <div class="card-title">A little context</div>
+    <div class="card-sub">This is what makes the diagnosis personal — not generic advice.</div>
+
+    <div class="context-field">
+      <label>How many months until CAT?</label>
+      <select id="ctx-months">
+        <option value="Less than 2 months">Less than 2 months</option>
+        <option value="2-4 months">2-4 months</option>
+        <option value="4-6 months" selected>4-6 months</option>
+        <option value="6+ months">6+ months</option>
+      </select>
+    </div>
+
+    <div class="context-field">
+      <label>How many hours do you study daily?</label>
+      <select id="ctx-hours">
+        <option value="1-2 hours">1-2 hours</option>
+        <option value="3-4 hours" selected>3-4 hours</option>
+        <option value="5-6 hours">5-6 hours</option>
+        <option value="7+ hours">7+ hours</option>
+      </select>
+    </div>
+
+    <div class="context-field">
+      <label>What changed between your last mock and this one? (optional)</label>
+      <textarea id="ctx-change" rows="2" placeholder="e.g. I focused more on DILR this week, or I was tired during the mock..."></textarea>
+    </div>
+
+    <div class="context-field">
+      <label>One thing you want the analysis to specifically address (optional)</label>
+      <textarea id="ctx-focus" rows="2" placeholder="e.g. Why my VARC score dropped even though I've been reading daily..."></textarea>
+    </div>
+
+    <button class="btn-primary" id="analyze-btn" onclick="runAnalysis()">Diagnose my mock →</button>
+    <button class="btn-secondary" onclick="goToStep(2)">← Back</button>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results-card">
+    <!-- Loading -->
+    <div id="loading-state" class="card active" style="display:none;">
+      <div class="loading-state">
+        <div class="loading-dots">
+          <div class="loading-dot"></div>
+          <div class="loading-dot"></div>
+          <div class="loading-dot"></div>
+        </div>
+        <div class="loading-text" id="loading-text">Analysing your mock patterns...</div>
+      </div>
+    </div>
+
+    <!-- Results content -->
+    <div id="analysis-output"></div>
+  </div>
+
+</main>
+
+<footer>
+  <p>© 2026 Marg · <a href="https://trymarg.com">trymarg.com</a> · <a href="https://trymarg.com/privacy">Privacy Policy</a></p>
+  <p style="margin-top:6px;font-size:11px;">Analysis based on your specific error patterns. Actual improvement depends on consistent implementation.</p>
+</footer>
+
+<script>
+const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
+
+document.addEventListener('DOMContentLoaded', renderQuestions);
+
+// What happened tracking
+const whatHappened = {};
+
+const QUESTIONS = {
+  varc: [
+    { id: 'varc_rc_main', label: 'RC — Main idea / purpose' },
+    { id: 'varc_rc_inference', label: 'RC — Inference questions' },
+    { id: 'varc_rc_tone', label: 'RC — Author tone / attitude' },
+    { id: 'varc_rc_detail', label: 'RC — Specific detail' },
+    { id: 'varc_parajumble', label: 'Para jumbles' },
+    { id: 'varc_parasummary', label: 'Para summary' },
+    { id: 'varc_oddone', label: 'Odd sentence out' },
+  ],
+  dilr: [
+    { id: 'dilr_tables', label: 'Tables & Charts' },
+    { id: 'dilr_arrangements', label: 'Arrangements & Sequences' },
+    { id: 'dilr_networks', label: 'Networks & Routes' },
+    { id: 'dilr_caselets', label: 'Caselets' },
+    { id: 'dilr_venn', label: 'Venn Diagrams' },
+    { id: 'dilr_selection', label: 'Set selection — which sets to attempt' },
+  ],
+  qa: [
+    { id: 'qa_arithmetic', label: 'Arithmetic (%, ratio, profit/loss)' },
+    { id: 'qa_algebra', label: 'Algebra (equations, inequalities)' },
+    { id: 'qa_geometry', label: 'Geometry (triangles, circles)' },
+    { id: 'qa_numbers', label: 'Number Systems' },
+    { id: 'qa_modernmath', label: 'Modern Math (PnC, probability)' },
+    { id: 'qa_tsd', label: 'Time Speed Distance' },
+    { id: 'qa_worktime', label: 'Work & Time' },
+  ]
+};
+
+const EXPERIENCES = [
+  { id: 'blank', label: "Went completely blank — didn't know where to start" },
+  { id: 'approach_stuck', label: "Knew the topic but couldn't figure out the approach for this question" },
+  { id: 'error_solving', label: "Had the right approach but made an error while solving" },
+  { id: 'too_slow', label: "Solved it correctly but it took too long" },
+  { id: 'second_guess', label: "Changed a correct answer at the last moment" },
+  { id: 'skipped', label: "Skipped without trying — felt too hard" },
+  { id: 'trap', label: "Picked an option that seemed right but was a trap" },
+  { id: 'time_pressure', label: "Knew it but panicked under time pressure" },
+];
+
+function renderQuestions() {
+  ['varc', 'dilr', 'qa'].forEach(section => {
+    const container = document.getElementById(section + '-questions');
+    if (!container) return;
+    
+    let html = '';
+    QUESTIONS[section].forEach(q => {
+      html += `<div style="margin-bottom:16px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;">
+        <div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:10px;">${q.label}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">What happened when you saw this? (select all that apply, or skip if no issues)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">`;
+      
+      EXPERIENCES.forEach(exp => {
+        html += `<button class="exp-btn" data-qid="${q.id}" data-exp="${exp.id}" onclick="toggleExp(this)"
+          style="font-family:'DM Sans',sans-serif;font-size:11px;padding:5px 10px;border:1px solid var(--border2);border-radius:16px;background:transparent;color:var(--text-muted);cursor:pointer;transition:all 0.2s;"
+          onmouseover="this.style.borderColor='var(--gold)';this.style.color='var(--gold-light)'"
+          onmouseout="if(!this.classList.contains('exp-selected')){this.style.borderColor='var(--border2)';this.style.color='var(--text-muted)'}"
+        >${exp.label}</button>`;
+      });
+      
+      html += `</div></div>`;
+    });
+    
+    container.innerHTML = html;
+  });
+}
+
+function toggleExp(btn) {
+  const qid = btn.dataset.qid;
+  const exp = btn.dataset.exp;
+  const key = qid + '__' + exp;
+  
+  if (btn.classList.contains('exp-selected')) {
+    btn.classList.remove('exp-selected');
+    btn.style.borderColor = 'var(--border2)';
+    btn.style.color = 'var(--text-muted)';
+    btn.style.background = 'transparent';
+    delete whatHappened[key];
+  } else {
+    btn.classList.add('exp-selected');
+    btn.style.borderColor = 'var(--gold)';
+    btn.style.color = 'var(--gold-light)';
+    btn.style.background = 'rgba(201,168,76,0.08)';
+    whatHappened[key] = { qid, exp };
+  }
+}
+
+function updateStepIndicator(step) {
+  for (let i = 1; i <= 4; i++) {
+    const dot = document.getElementById('dot-' + i);
+    if (i < step) { dot.className = 'step-dot done'; dot.textContent = '✓'; }
+    else if (i === step) { dot.className = 'step-dot active'; dot.textContent = i; }
+    else { dot.className = 'step-dot inactive'; dot.textContent = i; }
+  }
+  for (let i = 1; i <= 3; i++) {
+    const line = document.getElementById('line-' + i);
+    line.className = 'step-line' + (i < step ? ' done' : '');
+  }
+}
+
+function goToStep(n) {
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+  const card = document.getElementById('step-' + n);
+  if (card) card.classList.add('active');
+  updateStepIndicator(n);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goToStep2() {
+  const varc = parseInt(document.getElementById('varc-score').value) || 0;
+  const dilr = parseInt(document.getElementById('dilr-score').value) || 0;
+  const qa = parseInt(document.getElementById('qa-score').value) || 0;
+  if (varc === 0 && dilr === 0 && qa === 0) {
+    alert('Please enter at least one section score.');
+    return;
+  }
+  goToStep(2);
+}
+
+function goToStep3() {
+  goToStep(3);
+}
+
+async function runAnalysis() {
+  const btn = document.getElementById('analyze-btn');
+  btn.disabled = true;
+  btn.textContent = 'Analysing...';
+
+  // Collect all data
+  const varcScore = parseInt(document.getElementById('varc-score').value) || 0;
+  const dilrScore = parseInt(document.getElementById('dilr-score').value) || 0;
+  const qaScore = parseInt(document.getElementById('qa-score').value) || 0;
+  const varcAttempted = parseInt(document.getElementById('varc-attempted').value) || 0;
+  const dilrAttempted = parseInt(document.getElementById('dilr-attempted').value) || 0;
+  const qaAttempted = parseInt(document.getElementById('qa-attempted').value) || 0;
+  const mockSeries = document.getElementById('mock-series').value;
+  const mockNumber = document.getElementById('mock-number').value || '?';
+  const months = document.getElementById('ctx-months').value;
+  const hours = document.getElementById('ctx-hours').value;
+  const change = document.getElementById('ctx-change').value;
+  const focus = document.getElementById('ctx-focus').value;
+
+  // Collect tagged errors
+  const taggedErrors = [];
+  for (const [key, bucket] of Object.entries(errorMap)) {
+    const [section, ...typeParts] = key.split('_');
+    taggedErrors.push({ section, type: typeParts.join('_'), bucket });
+  }
+
+  const total = varcScore + dilrScore + qaScore;
+
+  // Show loading
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+  updateStepIndicator(4);
+  document.getElementById('results-card').style.display = 'block';
+  document.getElementById('loading-state').style.display = 'block';
+
+  const loadingMessages = [
+    'Analysing your mock patterns...',
+    'Diagnosing your error types...',
+    'Building your specific plan...',
+    'Almost ready...'
+  ];
+  let msgIdx = 0;
+  const msgInterval = setInterval(() => {
+    msgIdx = (msgIdx + 1) % loadingMessages.length;
+    const el = document.getElementById('loading-text');
+    if (el) el.textContent = loadingMessages[msgIdx];
+  }, 2000);
+
+  // Build what happened summary
+  const expLabels = {};
+  EXPERIENCES.forEach(e => { expLabels[e.id] = e.label; });
+  const qLabels = {};
+  [...QUESTIONS.varc, ...QUESTIONS.dilr, ...QUESTIONS.qa].forEach(q => { qLabels[q.id] = q.label; });
+  
+  const whatHappenedEntries = Object.values(whatHappened);
+  const errorSummary = whatHappenedEntries.length > 0
+    ? whatHappenedEntries.map(e => `${qLabels[e.qid] || e.qid}: "${expLabels[e.exp] || e.exp}"`).join('\n')
+    : 'Student did not tag specific question experiences.';
+  
+  const taggedErrors = whatHappenedEntries; // for count display
+
+  const accuracy = (attempted, score) => {
+    if (!attempted) return 'unknown';
+    const correct = Math.round((score + attempted) / 4);
+    return Math.round((correct / attempted) * 100) + '%';
+  };
+
+  const prompt = `You are Marg, a CAT exam mentor. Analyse this mock test result and give a specific, personalised diagnosis.
+
+MOCK DATA:
+Series: ${mockSeries} Mock #${mockNumber}
+VARC: ${varcScore}/72 (attempted ${varcAttempted}/24, accuracy ~${accuracy(varcAttempted, varcScore)})
+DILR: ${dilrScore}/60 (attempted ${dilrAttempted}/20)  
+QA: ${qaScore}/66 (attempted ${qaAttempted}/22)
+Total: ${total}/198
+
+TAGGED ERRORS BY STUDENT:
+${errorSummary}
+
+STUDENT CONTEXT:
+- Months until CAT: ${months}
+- Daily study hours: ${hours}
+- What changed this mock: ${change || 'Not specified'}
+- Specific concern: ${focus || 'Not specified'}
+
+ANALYSIS REQUIREMENTS — BE BRUTALLY SPECIFIC:
+
+1. SCORE DIAGNOSIS (2-3 lines): What the numbers actually reveal — not just "VARC is weak" but specifically what pattern the scores show.
+
+2. ERROR BUCKET ANALYSIS: For each tagged error, explain specifically:
+   - WHY this is a concept/speed/careless problem (not just label it)
+   - The exact fix for this specific error type
+   - How long it will take to fix realistically
+
+3. THE REAL PROBLEM: One paragraph identifying the single biggest pattern across all their errors. This should feel like someone who actually looked at their paper, not a generic diagnosis.
+
+4. 2-WEEK SPECIFIC PLAN:
+   Week 1 (Days 1-7): Day by day — specific topics, specific resources, specific question targets
+   Week 2 (Days 8-14): Building on week 1 — what to test and how to measure improvement
+
+5. ONE THING TO DO TOMORROW: The single most important action for tomorrow morning. Not a plan — one specific action.
+
+FORMAT RULES:
+- Write like a mentor talking directly to the student, not a report
+- Use "you" not "the student"  
+- Be honest even if uncomfortable — don't sugarcoat
+- No generic advice — every sentence must be specific to their data
+- Keep total response under 600 words
+- Use ## for section headers`;
+
+  try {
+    const response = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1200,
+        system: 'You are Marg, a CAT exam mentor known for brutally specific, honest mock analysis. You never give generic advice. Every sentence references the student\'s actual data.',
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    const data = await response.json();
+    const reply = (data.content && data.content.map(b => b.text || '').join('')) || 'Analysis failed. Please try again.';
+
+    clearInterval(msgInterval);
+    document.getElementById('loading-state').style.display = 'none';
+
+    // Format and display
+    const formatted = reply
+      .replace(/## (.*)/g, '<h3 style="font-size:15px;font-weight:500;color:var(--text);margin:20px 0 10px;">$1</h3>')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+
+    document.getElementById('analysis-output').innerHTML = `
+      <div class="card active">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+          <div>
+            <div class="card-label">Analysis complete</div>
+            <div class="card-title">${mockSeries} Mock #${mockNumber} — Diagnosis</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:24px;font-weight:500;color:${total >= 90 ? '#4CAF7D' : total >= 60 ? '#E8C96A' : '#E05C5C'}">${total}</div>
+            <div style="font-size:11px;color:var(--text-dim)">Total / 198</div>
+          </div>
+        </div>
+        
+        <div class="result-score-row">
+          <div class="result-score-box">
+            <div class="label">VARC</div>
+            <div class="value" style="color:${varcScore >= 30 ? '#4CAF7D' : '#E05C5C'}">${varcScore}</div>
+            <div class="sub">of 72</div>
+          </div>
+          <div class="result-score-box">
+            <div class="label">DILR</div>
+            <div class="value" style="color:${dilrScore >= 24 ? '#4CAF7D' : '#E05C5C'}">${dilrScore}</div>
+            <div class="sub">of 60</div>
+          </div>
+          <div class="result-score-box">
+            <div class="label">QA</div>
+            <div class="value" style="color:${qaScore >= 27 ? '#4CAF7D' : '#E05C5C'}">${qaScore}</div>
+            <div class="sub">of 66</div>
+          </div>
+          <div class="result-score-box">
+            <div class="label">Errors tagged</div>
+            <div class="value" style="color:var(--gold-light)">${taggedErrors.length}</div>
+            <div class="sub">question types</div>
+          </div>
+        </div>
+
+        <div style="font-size:14px;color:var(--text-muted);line-height:1.75;border-top:1px solid var(--border);padding-top:20px;">
+          ${formatted}
+        </div>
+
+        <div class="marg-cta-box" style="margin-top:24px;">
+          <h3>Want Marg to build on this analysis daily?</h3>
+          <p>Chat with Marg to implement this plan — it remembers your weak areas and adjusts guidance as you improve.</p>
+          <a href="https://trymarg.com" class="marg-cta-btn">Continue with Marg — free →</a>
+        </div>
+
+        <div style="text-align:center;margin-top:16px;">
+          <button onclick="location.reload()" style="font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-dim);background:none;border:none;cursor:pointer;">↻ Analyse another mock</button>
+        </div>
+      </div>
+    `;
+
+  } catch(e) {
+    clearInterval(msgInterval);
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('analysis-output').innerHTML = `
+      <div class="card active" style="text-align:center;padding:40px;">
+        <div style="font-size:14px;color:var(--text-muted);">Connection issue. Please try again.</div>
+        <button onclick="location.reload()" style="margin-top:16px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--gold);background:none;border:none;cursor:pointer;">Try again</button>
+      </div>
+    `;
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Diagnose my mock →';
+}
+</script>
+</body>
+</html>
