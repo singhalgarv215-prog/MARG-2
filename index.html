@@ -348,6 +348,45 @@
   }
   .diag-btn-secondary:hover { border-color: var(--gold); color: var(--gold); }
 
+
+  #quick-actions {
+    display: flex; gap: 8px; padding: 8px 12px 0;
+    overflow-x: auto; scrollbar-width: none;
+    border-top: 1px solid var(--border);
+  }
+  #quick-actions::-webkit-scrollbar { display: none; }
+  .quick-action-btn {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px; font-weight: 500;
+    padding: 6px 12px; border-radius: 16px;
+    border: 1px solid var(--border2);
+    background: var(--surface2); color: var(--text-muted);
+    cursor: pointer; white-space: nowrap;
+    transition: all 0.2s; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .quick-action-btn:hover {
+    border-color: var(--gold); color: var(--gold-light);
+    background: rgba(201,168,76,0.08);
+  }
+
+  .mock-section { padding: 60px 40px; max-width: 860px; margin: 0 auto; width: 100%; }
+  .mock-inner { background: linear-gradient(135deg, rgba(76,175,125,0.06), rgba(201,168,76,0.04)); border: 1px solid rgba(76,175,125,0.15); border-radius: 20px; padding: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+  .mock-content h2 { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 500; color: var(--text); margin-bottom: 12px; line-height: 1.35; }
+  .mock-content p { font-size: 13px; color: var(--text-muted); line-height: 1.7; margin-bottom: 20px; }
+  .mock-steps { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+  .mock-step { display: flex; align-items: flex-start; gap: 10px; }
+  .mock-step-num { width: 22px; height: 22px; border-radius: 50%; background: var(--green-dim); border: 1px solid rgba(76,175,125,0.2); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--green); font-weight: 500; flex-shrink: 0; margin-top: 1px; }
+  .mock-step-text { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  .mock-step-text strong { color: var(--text); }
+  .mock-cta-btn { display: inline-flex; align-items: center; gap: 8px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; padding: 12px 22px; background: linear-gradient(135deg, #4CAF7D, #2D7A55); color: #fff; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; transition: opacity 0.2s; }
+  .mock-cta-btn:hover { opacity: 0.85; }
+  .mock-preview { display: flex; flex-direction: column; gap: 10px; }
+  .mock-preview-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; padding: 14px; }
+  .mock-preview-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .mock-preview-text { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  .mock-preview-text strong { color: var(--text); }
+  @media(max-width:600px){ .mock-inner { grid-template-columns: 1fr; gap: 24px; } .mock-section { padding: 40px 16px; } }
 </style>
 </head>
 <body>
@@ -400,6 +439,45 @@
       </div>
     </div>
   </section>
+  <section class="mock-section">
+    <div class="mock-inner">
+      <div class="mock-content">
+        <p class="section-label">Free tool</p>
+        <h2>Your mock score tells you what. Marg tells you why.</h2>
+        <p>Every other mock analysis tool shows you which section is weak. Marg diagnoses exactly why — and gives you a specific 2-week plan to fix it.</p>
+        <div class="mock-steps">
+          <div class="mock-step">
+            <div class="mock-step-num">1</div>
+            <div class="mock-step-text"><strong>Enter your scores</strong> — section wise, attempted vs correct</div>
+          </div>
+          <div class="mock-step">
+            <div class="mock-step-num">2</div>
+            <div class="mock-step-text"><strong>Tell us what happened</strong> — not what you think went wrong, just what you experienced in the exam</div>
+          </div>
+          <div class="mock-step">
+            <div class="mock-step-num">3</div>
+            <div class="mock-step-text"><strong>Get your diagnosis</strong> — Marg identifies the real pattern and gives you a day-by-day plan</div>
+          </div>
+        </div>
+        <a href="https://trymarg.com/mock-analysis" class="mock-cta-btn">Analyse my last mock — free →</a>
+      </div>
+      <div class="mock-preview">
+        <div class="mock-preview-card">
+          <div class="mock-preview-label">⚠ Real diagnosis example</div>
+          <div class="mock-preview-text">"Your DILR isn't a concept problem. You attempted 3 sets and finished 2 — the issue is <strong>set selection under time pressure</strong>. You're spending 8 minutes on hard sets instead of moving on."</div>
+        </div>
+        <div class="mock-preview-card">
+          <div class="mock-preview-label">📋 What you get</div>
+          <div class="mock-preview-text">Error bucket analysis · 2-week day-by-day plan · <strong>One specific thing to do tomorrow</strong></div>
+        </div>
+        <div class="mock-preview-card">
+          <div class="mock-preview-label">✓ Different from everything else</div>
+          <div class="mock-preview-text">You don't diagnose yourself. You tell Marg <strong>what happened</strong>. Marg figures out why.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="testimonial-section">
     <p class="section-label">Early feedback</p>
     <h2 class="section-title" style="margin-bottom:24px">What aspirants are saying</h2>
@@ -537,6 +615,17 @@
     </div>
   </div>
   <div id="messages"></div>
+  <div id="quick-actions">
+    <a href="https://trymarg.com/mock-analysis" target="_blank" class="quick-action-btn">
+      📊 Analyze my mock
+    </a>
+    <button class="quick-action-btn" onclick="prefillMessage('Help me with my VARC — I want to improve my RC score')">
+      📖 Fix my VARC
+    </button>
+    <button class="quick-action-btn" onclick="prefillMessage('I just gave a mock. Help me figure out what to fix.')">
+      🎯 Post-mock plan
+    </button>
+  </div>
   <div id="input-area">
     <div id="input-row">
       <textarea id="user-input" rows="1" placeholder="Ask Marg anything about CAT..." disabled></textarea>
@@ -597,6 +686,8 @@ Consistency: Ask — on days you don't study, what specifically happens?
 QUESTION SOLVING: Solve step by step, explain thinking pattern, connect to weak area.
 
 SPECIFICITY: Never say "practice more" — say what, how much, in what order.
+
+MOCK ANALYSIS TOOL: When student mentions their mock score, mock analysis, wants to analyze a mock, or asks about improving their score — always mention: "Use the free mock analysis tool at trymarg.com/mock-analysis — it diagnoses exactly what went wrong. Share the results with me here and we'll build a plan."
 
 FREE RESOURCES: QA: Arun Sharma, MBA Pathshala YouTube. DILR: Rodha YouTube, CAT PYQs. VARC: Aeon.co, Hindu editorials, Cracku PYQs. Mocks: SimCAT or AIMCAT.
 
@@ -1429,6 +1520,15 @@ function startDiagnosisChat(type) {
   // Store for after chat loads
   localStorage.setItem('marg_first_message', firstMessage);
   startChat();
+}
+
+function prefillMessage(text) {
+  const input = document.getElementById('user-input');
+  if (input && !input.disabled) {
+    input.value = text;
+    input.focus();
+    input.dispatchEvent(new Event('input'));
+  }
 }
 
 function startChat() {
