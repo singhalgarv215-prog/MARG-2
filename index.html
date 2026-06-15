@@ -314,17 +314,17 @@
     font-size: 11px; font-weight: 500;
     padding: 3px 10px; border-radius: 12px;
   }
-  .risk-high { background: rgba(224,92,92,0.12); color: #E05C5C; }
-  .risk-mid { background: rgba(201,168,76,0.12); color: var(--gold-light); }
+  .risk-high { background: rgba(201,168,76,0.12); color: var(--gold-light); }
+  .risk-mid { background: rgba(76,175,125,0.12); color: #4CAF7D; }
   .risk-low { background: rgba(76,175,125,0.12); color: #4CAF7D; }
   .diag-threat {
-    background: rgba(224,92,92,0.06);
-    border: 1px solid rgba(224,92,92,0.15);
-    border-left: 3px solid #E05C5C;
+    background: rgba(201,168,76,0.06);
+    border: 1px solid rgba(201,168,76,0.15);
+    border-left: 3px solid #C9A84C;
     border-radius: var(--radius-sm);
     padding: 12px 14px;
   }
-  .diag-threat-label { font-size: 10px; color: #E05C5C; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .diag-threat-label { font-size: 10px; color: var(--gold-light); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
   .diag-threat-text { font-size: 13px; color: var(--text); line-height: 1.5; }
   .diag-actions { display: flex; flex-direction: column; gap: 8px; }
   .diag-btn-primary {
@@ -668,7 +668,14 @@ const CAT_QUOTES = [
 const SYSTEM_PROMPT = `You are Marg, a personal CAT exam mentor for Indian students. Marg means path in Hindi.
 
 CORE RULE — DIAGNOSIS BEFORE PRESCRIPTION:
-Never give advice before understanding the student's specific problem. Ask 2-3 targeted questions first.
+Never give advice before understanding the student's specific problem. BUT ask only ONE question at a time — never multiple questions in one message. Conversation not interrogation.
+
+FIRST RESPONSE RULE — when a student comes from profile setup with a specific weak section:
+Lead with ONE insight based on what you already know, then ask ONE specific question.
+Example for VARC: "Most people with VARC as their weakest section fall into one of two camps — either they run out of time, or they finish but still get answers wrong. Which one is you?"
+Example for QA: "With QA as your weak section, the most common issue isn't missing concepts — it's freezing when the question looks unfamiliar. Does that sound right, or is it that the concepts themselves aren't clear?"
+Example for DILR: "DILR usually breaks at one specific point — either you can't crack the set structure in the first 2 minutes, or you understand the set but run out of time solving it. Which is happening to you?"
+This makes Marg feel like a mentor who already knows something, not a chatbot running through a checklist.
 
 PERSONALITY: Warm, direct, real — like a senior who genuinely cares. Use Hindi phrases naturally — bilkul, yaar, dekho — sparingly. Be honest even when uncomfortable.
 
@@ -1478,7 +1485,7 @@ function showDiagnosis(profile) {
   // Section risk
   const sectionRisk = profile.weak === 'All' ? 'high' : 'high';
 
-  const riskLabels = { high: 'High risk', mid: 'Moderate risk', low: 'On track' };
+  const riskLabels = { high: 'Focus area', mid: 'Looking good', low: 'Strong ✓' };
   const riskClasses = { high: 'risk-high', mid: 'risk-mid', low: 'risk-low' };
 
   const mockLabel = profile.mock === 'none' ? 'No mock given yet' : 'Mock: ' + profile.mock + ' percentile';
@@ -1490,10 +1497,10 @@ function showDiagnosis(profile) {
 
   // Threat text
   const threats = {
-    VARC: 'VARC inconsistency at ' + target + ' percentile costs more IIM shortlists than any other factor. Most students underestimate how long it takes to fix.',
-    DILR: 'DILR is the section most students improve latest — leaving it for October is the most common reason people miss their target percentile.',
-    QA: 'QA has the most predictable scoring — but only if concepts are solid. Right now your QA gap is your biggest risk.',
-    All: 'With all three sections needing work, unfocused preparation is your biggest enemy. You need a specific priority order, not equal time on everything.'
+    VARC: 'VARC is where the biggest score jumps happen fastest — one focused month on active reading technique can move your percentile more than 3 months of scattered prep.',
+    DILR: 'DILR is the highest-leverage section to improve right now — students who crack set selection strategy early see the fastest overall percentile improvement.',
+    QA: 'QA is the most predictable section to improve — it responds fastest to structured practice. Getting this right gives you a solid base to build from.',
+    All: 'Starting with a clear priority order rather than covering everything equally is what separates students who improve fast from those who plateau. Let Marg help you figure out where to start.'
   };
   document.getElementById('diag-threat-text').textContent = threats[profile.weak] || threats['All'];
 
@@ -1618,7 +1625,7 @@ window.onload = initSession;
     </div>
     <div class="risk-grid" id="diag-risk-grid"></div>
     <div class="diag-threat">
-      <div class="diag-threat-label">⚠ Biggest threat to your IIM call</div>
+      <div class="diag-threat-label">🎯 Your biggest opportunity</div>
       <div class="diag-threat-text" id="diag-threat-text">—</div>
     </div>
     <div class="diag-actions">
