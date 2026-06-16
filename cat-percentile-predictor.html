@@ -1140,30 +1140,10 @@ function predictPercentile() {
   const category = document.getElementById('category').value;
   const gender = document.getElementById('gender').value;
 
-  // If all scores are 0, show target percentile needed instead of current percentile
+  // If Yes selected but all scores still 0, show a gentle prompt
   const allZero = (varc === 0 && dilr === 0 && qa === 0);
-
-  if (allZero) {
-    // Show what percentile they NEED based on profile
-    const profileSection = document.getElementById('profile-results');
-    if (profileSection) profileSection.style.display = 'block';
-    
-    document.getElementById('results').innerHTML = `
-      <div style="background:#1A1A1A;border:1px solid rgba(201,168,76,0.2);border-radius:12px;padding:24px;margin-top:20px;text-align:center;">
-        <div style="font-size:12px;color:#C9A84C;letter-spacing:0.08em;margin-bottom:12px;">FIRST ATTEMPT? HERE'S YOUR TARGET</div>
-        <div style="font-size:15px;color:#F0EDE6;line-height:1.7;">
-          You haven't given a mock yet — that's fine.<br/>
-          Enter your scores after your first mock to see your current percentile.<br/><br/>
-          <strong style="color:#C9A84C;">For now, use the CAT Percentile Predictor above</strong><br/>
-          to see what percentile you need for your target colleges<br/>
-          based on your academic profile.
-        </div>
-        <div style="margin-top:16px;">
-          <a href="https://trymarg.com" style="display:inline-block;padding:10px 24px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500;">Get personalised guidance on Marg →</a>
-        </div>
-      </div>
-    `;
-    document.getElementById('results').style.display = 'block';
+  if (allZero && window._hasMock !== false) {
+    alert('Please enter at least one section score, or select "No, first attempt" above.');
     return;
   }
 
