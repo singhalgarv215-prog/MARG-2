@@ -387,6 +387,143 @@
   .mock-preview-text { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
   .mock-preview-text strong { color: var(--text); }
   @media(max-width:600px){ .mock-inner { grid-template-columns: 1fr; gap: 24px; } .mock-section { padding: 40px 16px; } }
+
+  /* ─── WELCOME OVERLAY ─── */
+  #welcome-marg-overlay {
+    position: fixed; inset: 0;
+    background: rgba(13,13,13,0.98);
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 500; padding: 24px;
+  }
+  #welcome-marg-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 32px 28px;
+    width: 100%; max-width: 420px;
+    display: flex; flex-direction: column; gap: 20px;
+    animation: fadeUp 0.4s ease;
+    text-align: center;
+  }
+  .wm-logo img { height: 28px; object-fit: contain; margin: 0 auto; display: block; }
+  .wm-title { font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 500; color: var(--text); }
+  .wm-tag { font-size: 13px; color: var(--gold-light); font-weight: 500; }
+  .wm-desc { font-size: 14px; color: var(--text-muted); line-height: 1.7; }
+  .wm-diff-box {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-left: 3px solid var(--gold);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    text-align: left;
+  }
+  .wm-diff-label { font-size: 10px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .wm-diff-item { font-size: 13px; color: var(--text-muted); padding: 3px 0; display: flex; align-items: flex-start; gap: 8px; }
+  .wm-diff-item span { color: var(--green); flex-shrink: 0; }
+  .wm-notice { font-size: 12px; color: var(--text-dim); }
+  .wm-notice strong { color: var(--text-muted); }
+  .wm-btn {
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; border: none; border-radius: 10px;
+    padding: 13px; cursor: pointer; width: 100%;
+    transition: opacity 0.2s;
+  }
+  .wm-btn:hover { opacity: 0.85; }
+
+  /* ─── PREVIEW OVERLAY ─── */
+  #preview-overlay {
+    position: fixed; inset: 0;
+    background: rgba(13,13,13,0.98);
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 500; padding: 24px;
+  }
+  #preview-box {
+    width: 100%; max-width: 420px;
+    display: flex; flex-direction: column; gap: 16px;
+    animation: fadeUp 0.4s ease;
+  }
+  .preview-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; text-align: center; }
+  .preview-title { font-family: 'Playfair Display', serif; font-size: 20px; color: var(--text); text-align: center; }
+  .preview-frame {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    overflow: hidden;
+    height: 340px;
+    position: relative;
+  }
+  .preview-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .preview-streak { font-size: 12px; color: var(--gold-light); font-weight: 500; }
+  .preview-section-btn {
+    font-size: 11px; padding: 4px 10px; border-radius: 12px;
+    background: rgba(76,175,125,0.12); color: var(--green);
+    border: 1px solid rgba(76,175,125,0.2);
+  }
+  .preview-messages { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .preview-msg-marg {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 10px 10px 10px 2px;
+    padding: 10px 12px; font-size: 12px; color: var(--text-muted);
+    line-height: 1.6; max-width: 85%;
+  }
+  .preview-msg-user {
+    background: linear-gradient(135deg, rgba(76,175,125,0.15), rgba(45,122,85,0.1));
+    border: 1px solid rgba(76,175,125,0.2);
+    border-radius: 10px 10px 2px 10px;
+    padding: 10px 12px; font-size: 12px; color: var(--text);
+    line-height: 1.6; max-width: 85%; align-self: flex-end;
+  }
+  .preview-input-bar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--surface2);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .preview-input-fake {
+    flex: 1; font-size: 12px; color: var(--text-dim);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px;
+  }
+  .preview-send-fake {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: rgba(76,175,125,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .preview-overlay-dim {
+    position: absolute; inset: 0;
+    background: rgba(13,13,13,0.15);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .preview-badge {
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 20px; padding: 6px 16px;
+    font-size: 11px; color: var(--text-muted);
+  }
+  .preview-actions { display: flex; gap: 10px; }
+  .preview-next-btn {
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; border: none; border-radius: 10px;
+    padding: 13px; cursor: pointer; flex: 1; transition: opacity 0.2s;
+  }
+  .preview-next-btn:hover { opacity: 0.85; }
+  .preview-skip-btn {
+    font-family: 'DM Sans', sans-serif; font-size: 13px;
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border2); border-radius: 10px;
+    padding: 13px 20px; cursor: pointer; transition: all 0.2s;
+  }
+  .preview-skip-btn:hover { border-color: var(--gold); color: var(--gold); }
 </style>
 </head>
 <body>
@@ -1367,8 +1504,8 @@ async function initSession() {
         const varcShown = await checkVarcShownToday();
         if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 3000); }
       } else {
-        // New user - show profile setup instead of old onboarding
-        showProfileSetup();
+        // New user - show welcome screen first, then profile setup
+        showWelcomeMarg();
         // Still run onboarding in background for profile saving
         onboardingComplete = true;
       }
@@ -1438,6 +1575,22 @@ _(Your ${streak}-day streak resets at midnight — check in before then to keep 
 
   // Display as Marg message
   addMessage('marg', greeting);
+}
+
+
+// ─── NEW ONBOARDING FLOW ───
+function showWelcomeMarg() {
+  document.getElementById('welcome-marg-overlay').style.display = 'flex';
+}
+
+function showPreviewScreen() {
+  document.getElementById('welcome-marg-overlay').style.display = 'none';
+  document.getElementById('preview-overlay').style.display = 'flex';
+}
+
+function skipToOnboarding() {
+  document.getElementById('preview-overlay').style.display = 'none';
+  showProfileSetup();
 }
 
 // ─── PROFILE SETUP & DIAGNOSIS ───
@@ -1575,12 +1728,66 @@ function startChat() {
 window.onload = initSession;
 </script>
 
+
+<!-- Welcome to Marg Overlay -->
+<div id="welcome-marg-overlay">
+  <div id="welcome-marg-box">
+    <div class="wm-logo">
+      <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg">
+    </div>
+    <div>
+      <div class="wm-title">Welcome to Marg 🎯</div>
+      <div class="wm-tag" style="margin-top:6px;">Marg is different.</div>
+    </div>
+    <div class="wm-diff-box">
+      <div class="wm-diff-label">Here's how</div>
+      <div class="wm-diff-item"><span>→</span> Most AI gives generic advice. Marg diagnoses first.</div>
+      <div class="wm-diff-item"><span>→</span> Like a doctor — understand your situation before prescribing.</div>
+      <div class="wm-diff-item"><span>→</span> Your conversations are saved. Marg remembers you.</div>
+    </div>
+    <div class="wm-desc">To give you specific guidance, Marg will ask you <strong style="color:var(--text);">5 quick questions</strong> upfront. This takes 60 seconds and makes every response personalised to you.</div>
+    <div class="wm-notice">Not generic advice. <strong>Your specific path.</strong></div>
+    <button class="wm-btn" onclick="showPreviewScreen()">Got it — show me Marg →</button>
+  </div>
+</div>
+
+<!-- Preview Overlay -->
+<div id="preview-overlay">
+  <div id="preview-box">
+    <div class="preview-label">Here's what Marg looks like</div>
+    <div class="preview-title">Your personal CAT mentor</div>
+    <div class="preview-frame">
+      <div class="preview-topbar">
+        <div class="preview-streak">🔥 Day 1 Streak</div>
+        <div class="preview-section-btn">📖 Daily VARC</div>
+      </div>
+      <div class="preview-messages">
+        <div class="preview-msg-marg">
+          Hey! Based on your profile, your biggest opportunity right now is VARC. Before I give you a plan — one question: when you attempt RC passages, do you run out of time or do you finish but still get answers wrong?
+        </div>
+        <div class="preview-msg-user">I finish but get a lot wrong 😔</div>
+        <div class="preview-msg-marg">
+          That's actually the easier fix — it means your speed is fine, it's your accuracy on inference questions. Here's exactly what to do this week...
+        </div>
+      </div>
+      <div class="preview-input-bar">
+        <div class="preview-input-fake">Complete setup to start chatting →</div>
+        <div class="preview-send-fake">→</div>
+      </div>
+    </div>
+    <div class="preview-actions">
+      <button class="preview-skip-btn" onclick="skipToOnboarding()">Skip</button>
+      <button class="preview-next-btn" onclick="skipToOnboarding()">Start my setup →</button>
+    </div>
+  </div>
+</div>
+
 <!-- Profile Setup Overlay -->
 <div id="profile-setup-overlay">
   <div id="profile-setup-box">
     <div class="ps-header">
-      <div class="ps-title">Let's set up your profile 🎯</div>
-      <div class="ps-sub">30 seconds. We'll show you exactly what's at risk.</div>
+      <div class="ps-title">Quick profile setup 🎯</div>
+      <div class="ps-sub">5 questions · 60 seconds · personalises everything</div>
     </div>
     <div class="ps-field">
       <div class="ps-label">Category</div>
