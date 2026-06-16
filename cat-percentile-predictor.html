@@ -1094,10 +1094,8 @@ function predictPercentile() {
   const category = document.getElementById('category').value;
   const gender = document.getElementById('gender').value;
 
-  if (varc === 0 && dilr === 0 && qa === 0) {
-    alert('Please enter at least one section score.');
-    return;
-  }
+  // Allow all zeros for first-time aspirants who haven't given a mock yet
+  // We'll show target percentile needed based on profile alone
 
   const varcP = getSectionPercentile(varc, 'varc');
   const dilrP = getSectionPercentile(dilr, 'dilr');
