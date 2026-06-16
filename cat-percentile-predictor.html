@@ -603,6 +603,12 @@ footer a { color: var(--gold); text-decoration: none; }
   </section>
 
   <div class="tool-card" id="tool">
+    <div class="mock-toggle">
+      <div class="mock-toggle-label">Have you given a CAT mock yet? <span>(Helps us give accurate results)</span></div>
+      <button class="toggle-btn active" id="btn-yes" onclick="setMockStatus(true)">Yes</button>
+      <button class="toggle-btn inactive" id="btn-no" onclick="setMockStatus(false)">No, first attempt</button>
+    </div>
+    <div id="scores-section">
     <div class="sections-grid">
       <div class="section-input">
         <div class="section-name">VARC</div>
@@ -689,6 +695,7 @@ footer a { color: var(--gold); text-decoration: none; }
           </select>
         </div>
       </div>
+    </div>
     </div>
     <button class="predict-btn" onclick="predictPercentile()">Predict My IIM Chances →</button>
   </div>
@@ -1087,15 +1094,78 @@ function getIIMShortlistAnalysis(percentile, tenth, twelfth, grad, background, w
   return summary + html;
 }
 
+function setMockStatus(hasMock) {
+  const scoresSection = document.getElementById('scores-section');
+  const btnYes = document.getElementById('btn-yes');
+  const btnNo = document.getElementById('btn-no');
+  
+  if (hasMock) {
+    scoresSection.style.display = 'block';
+    btnYes.className = 'toggle-btn active';
+    btnNo.className = 'toggle-btn inactive';
+    window._hasMock = true;
+  } else {
+    scoresSection.style.display = 'none';
+    btnYes.className = 'toggle-btn inactive';
+    btnNo.className = 'toggle-btn active';
+    window._hasMock = false;
+  }
+}
+
 function predictPercentile() {
+  // If no mock given, skip score calculation and show profile-based targets
+  if (window._hasMock === false) {
+    document.getElementById('results').innerHTML = `
+      <div style="background:#1A1A1A;border:1px solid rgba(201,168,76,0.2);border-radius:12px;padding:24px;margin-top:20px;text-align:center;">
+        <div style="font-size:12px;color:#C9A84C;letter-spacing:0.08em;margin-bottom:12px;">YOUR TARGET PERCENTILE</div>
+        <div style="font-size:15px;color:#F0EDE6;line-height:1.8;">
+          Since you haven't given a mock yet — give one this week to see your starting point.<br/><br/>
+          Come back after your first mock and enter your scores here to see your current percentile and which colleges you can target.<br/><br/>
+          <strong style="color:#C9A84C;">Meanwhile — get a personalised prep plan on Marg</strong><br/>
+          built around your profile and situation.
+        </div>
+        <div style="margin-top:20px;">
+          <a href="https://trymarg.com" style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500;">Get your personalised plan on Marg →</a>
+        </div>
+      </div>
+    `;
+    document.getElementById('results').style.display = 'block';
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+
   const varc = parseInt(document.getElementById('varc-score').value) || 0;
   const dilr = parseInt(document.getElementById('dilr-score').value) || 0;
   const qa = parseInt(document.getElementById('qa-score').value) || 0;
   const category = document.getElementById('category').value;
   const gender = document.getElementById('gender').value;
 
-  // Allow all zeros for first-time aspirants who haven't given a mock yet
-  // We'll show target percentile needed based on profile alone
+  // If all scores are 0, show target percentile needed instead of current percentile
+  const allZero = (varc === 0 && dilr === 0 && qa === 0);
+
+  if (allZero) {
+    // Show what percentile they NEED based on profile
+    const profileSection = document.getElementById('profile-results');
+    if (profileSection) profileSection.style.display = 'block';
+    
+    document.getElementById('results').innerHTML = `
+      <div style="background:#1A1A1A;border:1px solid rgba(201,168,76,0.2);border-radius:12px;padding:24px;margin-top:20px;text-align:center;">
+        <div style="font-size:12px;color:#C9A84C;letter-spacing:0.08em;margin-bottom:12px;">FIRST ATTEMPT? HERE'S YOUR TARGET</div>
+        <div style="font-size:15px;color:#F0EDE6;line-height:1.7;">
+          You haven't given a mock yet — that's fine.<br/>
+          Enter your scores after your first mock to see your current percentile.<br/><br/>
+          <strong style="color:#C9A84C;">For now, use the CAT Percentile Predictor above</strong><br/>
+          to see what percentile you need for your target colleges<br/>
+          based on your academic profile.
+        </div>
+        <div style="margin-top:16px;">
+          <a href="https://trymarg.com" style="display:inline-block;padding:10px 24px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500;">Get personalised guidance on Marg →</a>
+        </div>
+      </div>
+    `;
+    document.getElementById('results').style.display = 'block';
+    return;
+  }
 
   const varcP = getSectionPercentile(varc, 'varc');
   const dilrP = getSectionPercentile(dilr, 'dilr');
