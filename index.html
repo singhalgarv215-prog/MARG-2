@@ -1504,10 +1504,9 @@ async function initSession() {
         const varcShown = await checkVarcShownToday();
         if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 3000); }
       } else {
-        // New user - show welcome screen first, then profile setup
+        // New user - show welcome screen first, then profile setup, then 5 questions
         showWelcomeMarg();
-        // Still run onboarding in background for profile saving
-        onboardingComplete = true;
+        // Don't set onboardingComplete yet - 5 questions will run after profile setup
       }
     });
   } catch(e) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); }
@@ -1708,19 +1707,26 @@ function prefillMessage(text) {
 }
 
 function startChat() {
-  // This is called after profile setup - chat is already initialized
-  // Just make sure input is enabled
+  // Called after profile setup - now run the 5-question onboarding
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
   
-  // If there's a pre-set first message, send it
+  // Check if there's a pre-set first message (from diagnosis buttons)
   const firstMsg = localStorage.getItem('marg_first_message');
   if (firstMsg) {
     localStorage.removeItem('marg_first_message');
+    // Store profile context but run 5 questions first
     setTimeout(function() {
-      document.getElementById('user-input').value = firstMsg;
-      sendMessage();
-    }, 500);
+      // Run 5 question onboarding
+      addMessage('marg', onboardingFlow[0].message);
+      addOnboardingCard(0);
+    }, 400);
+  } else {
+    // Normal flow - run 5 questions
+    setTimeout(function() {
+      addMessage('marg', onboardingFlow[0].message);
+      addOnboardingCard(0);
+    }, 400);
   }
 }
 
