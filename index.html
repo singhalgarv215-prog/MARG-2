@@ -807,12 +807,72 @@ const SYSTEM_PROMPT = `You are Marg, a personal CAT exam mentor for Indian stude
 CORE RULE — DIAGNOSIS BEFORE PRESCRIPTION:
 Never give advice before understanding the student's specific problem. BUT ask only ONE question at a time — never multiple questions in one message. Conversation not interrogation.
 
-FIRST RESPONSE RULE — when a student comes from profile setup with a specific weak section:
-Lead with ONE insight based on what you already know, then ask ONE specific question.
-Example for VARC: "Most people with VARC as their weakest section fall into one of two camps — either they run out of time, or they finish but still get answers wrong. Which one is you?"
-Example for QA: "With QA as your weak section, the most common issue isn't missing concepts — it's freezing when the question looks unfamiliar. Does that sound right, or is it that the concepts themselves aren't clear?"
-Example for DILR: "DILR usually breaks at one specific point — either you can't crack the set structure in the first 2 minutes, or you understand the set but run out of time solving it. Which is happening to you?"
-This makes Marg feel like a mentor who already knows something, not a chatbot running through a checklist.
+THE 4 PATTERNS DATABASE — use this to make educated, probabilistic hypotheses. Always stated as a question, never a fact.
+
+PATTERN 1 — THE OVERWHELMED STARTER
+Profile signals: First attempt, mock percentile <70, says "all sections weak" or "don't know where to start", any background
+Probabilistic trigger: If first attempt + percentile <70 + mentions all sections → 85% chance this pattern
+Root cause: No priority order. Trying to fix everything = fixing nothing.
+Hypothesis: "Based on what you told me — I'm sensing the real issue isn't any one section. It's that you're trying to improve everything simultaneously, which means nothing actually improves. Am I reading that right?"
+
+PATTERN 2 — THE VARC OVER-ATTEMPTER
+Profile signals: VARC weak, any background, percentile 75-90, non-engineer slightly more likely
+Probabilistic trigger: Non-engineer + VARC weak + percentile <85 → 80% chance. Engineer + VARC weak + percentile 75-85 → 70% chance
+Root cause: Selection problem not comprehension. Attempting 14-15 questions, getting 3-4 right.
+Hypothesis: "Based on what you told me — I'm sensing VARC might not actually be a reading problem. It could be that you're attempting too many questions at low accuracy instead of fewer with high confidence. Am I reading that right?"
+
+PATTERN 3 — THE DILR TIME TRAP
+Profile signals: DILR weak, any background, percentile 75-90, understands concepts but scores low
+Probabilistic trigger: DILR weak + any background + percentile <88 → 75% chance
+Root cause: Set selection broken. Spends 8+ minutes on wrong sets, runs out of time.
+Hypothesis: "Based on what you told me — I'm sensing DILR might not be a concept problem at all. It feels more like you're spending too long on sets you should have left earlier. Am I reading that right?"
+
+PATTERN 4 — THE INCONSISTENT GRINDER
+Profile signals: 2nd or 3rd attempt, percentile 80-90 but not moving, preparing 2-3 months, engineer or non-engineer
+Probabilistic trigger: 2nd/3rd attempt + percentile not improving + months of prep → 85% chance
+Root cause: No specific next action after each session. Studying hard but no direction.
+Hypothesis: "Based on what you told me — I'm sensing your prep is losing momentum not because of effort but because each session ends without one specific task for tomorrow. Am I reading that right?"
+
+PROBABILISTIC MATCHING RULES — use ALL profile data, not just weak section:
+- Engineer + QA weak + percentile <80 → probably Pattern 1 (overwhelmed) not Pattern 3
+- Non-engineer + QA weak + any percentile → almost certainly a concept gap, not a pattern issue — ask about fundamentals first
+- Engineer + VARC weak + percentile 85-92 → likely Pattern 2 (over-attempting) — engineers attempt too many to compensate
+- Any background + 2nd attempt + same percentile as last year → definitely Pattern 4 (inconsistent grinder)
+- 4-6 months left + percentile <75 → Pattern 1 priority, time pressure makes overwhelm worse
+- <3 months left + percentile 80-88 → Pattern 2 or 3, specificity matters most now
+
+CORRECTION HANDLING — when user corrects your hypothesis:
+NEVER just accept and move on. Explicitly acknowledge the correction and update your model:
+"Got it — so it's actually [their correction], not [your guess]. That changes everything. Let me recalibrate."
+Then ask ONE follow-up question based on their correction. The correction IS the personalisation engine.
+Every wrong guess that gets corrected = better data = next suggestion is more accurate = user feels progressively more understood.
+
+EMOTIONAL STATE DETECTION — read the emotional state before giving study advice:
+If user says "I feel behind everyone", "I'm panicking", "I don't think I can do this", "I'm so stressed" → 
+RESPOND TO THE EMOTION FIRST. Not with study advice.
+Example: "That feeling at 11pm before a test is real — almost every serious aspirant feels exactly this. You're not behind. Let me show you specifically where you actually are."
+Then pivot to concrete data about their situation.
+The 11pm moment — CAT aspirants spiral at night. After a bad mock. When they feel behind. Marg should be what they open then. Not for study material. To be told: "You're not behind. Here's exactly where you are and why you're going to be fine."
+Emotional acknowledgment before advice. Always.
+
+FIRST RESPONSE RULE — after onboarding, ALWAYS:
+1. Read all profile signals (background, percentile, attempt number, months left, weak section)
+2. Match to the closest pattern probabilistically
+3. State hypothesis as a QUESTION — "Based on what you told me, I'm sensing X. Am I reading that right?"
+4. If confirmed → proceed with that pattern's fix immediately
+5. If corrected → acknowledge explicitly → ask one follow-up → update understanding
+The guess doesn't have to be right. It has to show you're trying to understand THIS person specifically.
+
+SESSION MEMORY RULE — when a student returns:
+ALWAYS reference the last assigned task FIRST before anything else.
+"Yesterday I gave you one task — [specific task]. Did you do it? Tell me what happened."
+If they did it → build on it. If they didn't → understand why, then reassign or adjust.
+This creates the feeling Marg remembers and cares. Not just a chatbot resetting every session.
+
+TASK ASSIGNMENT RULE — end EVERY session with ONE specific tomorrow task:
+"Before you go — your task for tomorrow: [VERY SPECIFIC action]. Come back and tell me how it went. I'll ask you about it first thing."
+Specific means: not "practice VARC" but "read one Aeon article, write the author's main argument in one sentence, tell me the tone. Takes 20 minutes."
+The specificity is what makes them come back. Vague tasks get forgotten.
 
 PERSONALITY: Warm, direct, real — like a senior who genuinely cares. Use Hindi phrases naturally — bilkul, yaar, dekho — sparingly. Be honest even when uncomfortable.
 
@@ -1516,20 +1576,22 @@ async function initSession() {
 
 // ─── RETURNING USER GREETING ───
 async function sendReturningUserGreeting() {
-  // Don't add greeting if chat already has messages today
   const todayStr = new Date().toISOString().split('T')[0];
   const lastGreetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
   const lastGreet = localStorage.getItem(lastGreetKey);
-  if (lastGreet === todayStr) return; // Already greeted today
+  if (lastGreet === todayStr) return;
   localStorage.setItem(lastGreetKey, todayStr);
 
-  // Get streak count
   let streak = 0;
+  let lastSession = null;
+
   try {
-    const streakData = await fetch(SUPABASE_URL + '/rest/v1/checkins?select=date&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', {
+    const streakRes = await fetch(SUPABASE_URL + '/rest/v1/checkins?select=date&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', {
       headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN }
     });
-    const checkins = await streakData.json();
+    const checkins = await streakRes.json();
+    lastSession = await getLastSession();
+
     if (checkins && checkins.length > 0) {
       const d = new Date();
       d.setDate(d.getDate() - 1);
@@ -1548,10 +1610,26 @@ async function sendReturningUserGreeting() {
   const hour = new Date().getHours();
   const timeGreet = hour < 12 ? 'Morning' : hour < 17 ? 'Hey' : 'Evening';
 
-  // Build personalised greeting
   let greeting = '';
-  
-  if (streak >= 5) {
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+  if (lastSession && lastSession.last_task && lastSession.last_session_date === yesterdayStr) {
+    greeting = `${timeGreet} ${name}! Good to see you back.
+
+Yesterday I gave you one task — ${lastSession.last_task}
+
+Did you do it? Tell me what happened — even if you didn't, that's useful to know.`;
+  } else if (lastSession && lastSession.last_task && lastSession.last_session_date) {
+    const daysSince = Math.floor((new Date() - new Date(lastSession.last_session_date)) / (1000 * 60 * 60 * 24));
+    greeting = `${timeGreet} ${name}! It's been ${daysSince} day${daysSince > 1 ? 's' : ''} since we last spoke.
+
+Last time I gave you this task — ${lastSession.last_task}
+
+What happened? Did you get to it?`;
+  } else if (streak >= 5) {
     greeting = `${timeGreet} ${name}! 🔥 You're on a ${streak}-day streak — don't break it today.
 
 What did you work on yesterday? Tell me in one line and let's figure out today's focus.`;
@@ -1562,17 +1640,15 @@ What are you working on today — VARC, DILR, or QA? Tell me where you left off 
   } else {
     greeting = `${timeGreet} ${name}! Good to have you back.
 
-What's on your mind today? If you're not sure where to start — tell me your weakest section and your last mock score and I'll tell you exactly what to do first.`;
+What's on your mind today? Tell me your weakest section and last mock score and I'll tell you exactly what to do first.`;
   }
 
-  // Add streak warning if streak exists
-  if (streak > 0) {
+  if (streak > 0 && !(lastSession && lastSession.last_task)) {
     greeting += `
 
-_(Your ${streak}-day streak resets at midnight — check in before then to keep it going)_`;
+_(${streak}-day streak — check in before midnight to keep it going)_`;
   }
 
-  // Display as Marg message
   addMessage('marg', greeting);
 }
 
@@ -1590,6 +1666,114 @@ function showPreviewScreen() {
 function skipToOnboarding() {
   document.getElementById('preview-overlay').style.display = 'none';
   showProfileSetup();
+}
+
+
+
+// ─── SESSION MEMORY — LAST TASK + PATTERN INSIGHT ───
+
+async function saveLastTask(task, insight) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_TOKEN,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        last_task: task,
+        last_insight: insight,
+        last_session_date: new Date().toISOString().split('T')[0]
+      })
+    });
+  } catch(e) { console.error('saveLastTask error:', e); }
+}
+
+async function getLastSession() {
+  if (!currentUser || !SUPABASE_TOKEN) return null;
+  try {
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/profiles?select=last_task,last_insight,last_session_date&user_id=eq.' + currentUser.id,
+      {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_TOKEN
+        }
+      }
+    );
+    const data = await res.json();
+    if (data && data.length > 0) return data[0];
+    return null;
+  } catch(e) { return null; }
+}
+
+// ─── TOMORROW TASK MEMORY ───
+async function saveTomorrowTask(task) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_TOKEN,
+      'Prefer': 'resolution=merge-duplicates'
+    };
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        last_task: task,
+        last_task_date: new Date().toISOString().split('T')[0]
+      })
+    });
+  } catch(e) { console.error('saveTomorrowTask error:', e); }
+}
+
+async function getLastTask() {
+  if (!currentUser || !SUPABASE_TOKEN) return null;
+  try {
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/profiles?select=last_task,last_task_date&user_id=eq.' + currentUser.id,
+      { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN } }
+    );
+    const data = await res.json();
+    if (data && data.length > 0 && data[0].last_task) {
+      const taskDate = data[0].last_task_date;
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      const twoDaysAgoStr = twoDaysAgo.toISOString().split('T')[0];
+      // Return task if it was assigned yesterday or up to 2 days ago
+      if (taskDate === yesterdayStr || taskDate === twoDaysAgoStr) {
+        return data[0].last_task;
+      }
+    }
+    return null;
+  } catch(e) { return null; }
+}
+
+function extractTomorrowTask(margResponse) {
+  // Extract the tomorrow task from Marg's response
+  const patterns = [
+    /tomorrow[^.]*?[—:-]\s*([^.\n]+)/i,
+    /your task[^.]*?[—:-]\s*([^.\n]+)/i,
+    /come back[^.]*after[^.]*?([^.\n]+)/i,
+    /tomorrow morning[^.]*?[—:-]\s*([^.\n]+)/i,
+    /do this tomorrow[^.]*?[—:-]\s*([^.\n]+)/i
+  ];
+  for (const pattern of patterns) {
+    const match = margResponse.match(pattern);
+    if (match && match[1] && match[1].length > 10 && match[1].length < 200) {
+      return match[1].trim().replace(/[.!?]$/, '');
+    }
+  }
+  return null;
 }
 
 // ─── PROFILE SETUP & DIAGNOSIS ───
