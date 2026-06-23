@@ -524,6 +524,54 @@
     padding: 13px 20px; cursor: pointer; transition: all 0.2s;
   }
   .preview-skip-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+  /* ─── IN-CHAT MOCK ANALYSIS ─── */
+  .mock-analysis-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-left: 3px solid var(--gold);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin: 8px 0;
+    animation: fadeUp 0.3s ease;
+  }
+  .mac-header { margin-bottom: 16px; }
+  .mac-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .mac-sub { font-size: 12px; color: var(--text-dim); }
+  .mac-label { font-size: 11px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+  .mac-inputs { display: flex; gap: 12px; margin-bottom: 16px; }
+  .mac-input-group { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .mac-input-group label { font-size: 11px; color: var(--text-muted); }
+  .mac-input-group input {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: 'DM Sans', sans-serif;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .mac-input-group input:focus {
+    outline: none;
+    border-color: var(--gold);
+  }
+  .mac-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .mac-btn:hover { opacity: 0.85; }
 </style>
 </head>
 <body>
@@ -753,9 +801,9 @@
   </div>
   <div id="messages"></div>
   <div id="quick-actions">
-    <a href="https://trymarg.com/mock-analysis" target="_blank" class="quick-action-btn">
+    <button class="quick-action-btn" onclick="startMockAnalysis()">
       📊 Analyze my mock
-    </a>
+    </button>
     <button class="quick-action-btn" onclick="prefillMessage('Help me with my VARC — I want to improve my RC score')">
       📖 Fix my VARC
     </button>
@@ -898,6 +946,15 @@ FREE RESOURCES: QA: Arun Sharma, MBA Pathshala YouTube. DILR: Rodha YouTube, CAT
 FOR 2ND/3RD ATTEMPT: Ask what specifically failed last time.
 
 RESPONSE STYLE: Conversational, 3-5 sentences. No bullet points unless necessary.
+
+MOCK ANALYSIS IN CHAT — when user shares mock scores directly in chat:
+Identify the weakest section by score. Then diagnose the ROOT CAUSE using the 3 buckets:
+- CONCEPT GAP: "I didn't know how to solve this" — Fix: study theory for that topic
+- EXECUTION LAG: "I knew it but took too long" — Fix: timed sectional drills  
+- CARELESS MISTAKE: "I knew it but made a silly error" — Fix: 5-second checkpoint before submitting
+
+Give the diagnosis as: "Based on your scores — your [section] looks like a [bucket] problem. Here's why: [specific reason]. Your one task before next mock: [very specific action]."
+Never give generic advice. Always end with ONE specific task.
 
 SESSION ENDING RULE — MOST IMPORTANT:
 Every single conversation must end with TWO things:
@@ -1774,6 +1831,81 @@ function extractTomorrowTask(margResponse) {
     }
   }
   return null;
+}
+
+
+// ─── IN-CHAT MOCK ANALYSIS FLOW ───
+function startMockAnalysis() {
+  if (!onboardingComplete) return;
+  
+  // Show mock analysis card in chat
+  const card = document.createElement('div');
+  card.className = 'mock-analysis-card';
+  card.id = 'mock-analysis-card';
+  card.innerHTML = `
+    <div class="mac-header">
+      <div class="mac-title">📊 Mock Analysis</div>
+      <div class="mac-sub">Let's find exactly where your marks are leaking</div>
+    </div>
+    <div class="mac-body">
+      <div class="mac-step" id="mac-step-1">
+        <div class="mac-label">Step 1 — Your scores</div>
+        <div class="mac-inputs">
+          <div class="mac-input-group">
+            <label>VARC</label>
+            <input type="number" id="mac-varc" placeholder="e.g. 28" min="0" max="72"/>
+          </div>
+          <div class="mac-input-group">
+            <label>DILR</label>
+            <input type="number" id="mac-dilr" placeholder="e.g. 18" min="0" max="60"/>
+          </div>
+          <div class="mac-input-group">
+            <label>QA</label>
+            <input type="number" id="mac-qa" placeholder="e.g. 22" min="0" max="60"/>
+          </div>
+        </div>
+        <button class="mac-btn" onclick="submitMockScores()">Analyse my mock →</button>
+      </div>
+    </div>
+  `;
+  
+  const messages = document.getElementById('messages');
+  messages.appendChild(card);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+async function submitMockScores() {
+  const varc = parseInt(document.getElementById('mac-varc').value) || 0;
+  const dilr = parseInt(document.getElementById('mac-dilr').value) || 0;
+  const qa = parseInt(document.getElementById('mac-qa').value) || 0;
+
+  if (varc === 0 && dilr === 0 && qa === 0) {
+    alert('Please enter at least one section score.');
+    return;
+  }
+
+  // Remove the card
+  const card = document.getElementById('mock-analysis-card');
+  if (card) card.remove();
+
+  // Send to Marg as a structured message
+  const mockMsg = `I just completed a mock. My scores are: VARC: ${varc}, DILR: ${dilr}, QA: ${qa}. Please analyse my mock and tell me exactly which bucket is costing me marks — concept gap, execution lag, or careless mistake. Give me one specific task to fix before my next mock.`;
+  
+  addMessage('user', `📊 Mock scores — VARC: ${varc} | DILR: ${dilr} | QA: ${qa}`);
+  
+  // Send to Marg API
+  conversationHistory.push({ role: 'user', content: mockMsg });
+  showTyping();
+  
+  try {
+    const response = await callMargAPI(conversationHistory);
+    hideTyping();
+    addMessage('marg', response);
+    conversationHistory.push({ role: 'assistant', content: response });
+  } catch(e) {
+    hideTyping();
+    addMessage('marg', 'Something went wrong — please try again.');
+  }
 }
 
 // ─── PROFILE SETUP & DIAGNOSIS ───
