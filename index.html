@@ -1836,9 +1836,14 @@ function extractTomorrowTask(margResponse) {
 
 // ─── IN-CHAT MOCK ANALYSIS FLOW ───
 function startMockAnalysis() {
-  if (!onboardingComplete) return;
+  // If not logged in or onboarding not complete, still show the card
+  // Don't silently block - always show the mock analysis interface
   
   // Show mock analysis card in chat
+  // Remove existing card if present
+  const existingCard = document.getElementById('mock-analysis-card');
+  if (existingCard) existingCard.remove();
+  
   const card = document.createElement('div');
   card.className = 'mock-analysis-card';
   card.id = 'mock-analysis-card';
