@@ -1393,7 +1393,11 @@ function buildActivitySummary() {
 function sendQuick(text) { if (isLoading || !onboardingComplete) return; document.getElementById('user-input').value = text; sendMessage(); }
 
 async function sendMessage() {
-  if (isLoading || !onboardingComplete) return;
+  if (isLoading) return;
+  // Allow chat if onboarding is complete OR if mock onboarding overlay is shown
+  const mockOverlay = document.getElementById('mock-onboarding-overlay');
+  const mockVisible = mockOverlay && mockOverlay.style.display === 'flex';
+  if (!onboardingComplete && !mockVisible) return;
   if (!checkGuestLimit()) return;
   const input = document.getElementById('user-input');
   const text = input.value.trim();
@@ -1868,6 +1872,8 @@ function startMockOnboardingLogin() {
 }
 
 function showMockOnboarding() {
+  // Ensure chat is always enabled when mock onboarding shows
+  onboardingComplete = true;
   document.getElementById('mock-onboarding-overlay').style.display = 'flex';
   mobSetStep(1);
 }
