@@ -707,11 +707,11 @@
     <h1 class="hero-title">Just gave a mock and don't know what to fix?</h1>
     <div class="hero-tagline">Marg diagnoses exactly which problem is costing you marks.</div>
     <p class="hero-sub">Not generic advice. Marg asks about your specific mock scores, your weak sections, and your prep situation — then tells you the one thing to fix before your next mock. Free. Takes 5 minutes.</p>
-    <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:320px;">
-    <button class="hero-cta" onclick="startMockOnboardingLogin()" style="background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;justify-content:center;font-size:15px;">
+    <button class="hero-cta" onclick="startMockOnboardingLogin()" style="background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;justify-content:center;font-size:15px;padding:16px 32px;max-width:320px;">
       📊 Diagnose my mock — free
     </button>
-    <button class="hero-cta" onclick="startLogin()" style="background:var(--surface2);color:var(--text-muted);border:1px solid var(--border2);justify-content:center;font-size:13px;">
+    <div style="display:none;">
+    <button style="display:none;" onclick="startLogin()">
       <svg viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
       Continue with Google — it's free
     </button>
@@ -1854,6 +1854,15 @@ let mobData = { varc: 0, dilr: 0, qa: 0, attempt: '', weak: '' };
 let mobLoginForMock = false;
 
 function startMockOnboardingLogin() {
+  // If already logged in, show mock onboarding directly
+  if (currentUser) {
+    showMockOnboarding();
+    // Hide landing, show app
+    document.getElementById('landing').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    return;
+  }
+  // Not logged in - set flag and login
   mobLoginForMock = true;
   startLogin();
 }
@@ -1921,18 +1930,20 @@ async function submitMockOnboarding() {
 
 Based on these scores, give a mentor-style diagnosis in 2-3 sentences. Sound like a real mentor who has seen this pattern before — not a tool. Make an educated hypothesis about WHY the weakest section (${weakSection}) is struggling — is it a concept gap, execution/speed issue, or careless mistakes? State it as a hypothesis not a fact. End with one specific question to confirm your reading. Be warm and direct.`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 150,
+        system: 'You are Marg, a warm and direct CAT mentor. Give a 2-3 sentence mentor-style diagnosis based on mock scores. State hypothesis as question not fact. Be specific and personal.',
         messages: [{ role: 'user', content: prompt }]
       })
     });
 
     const data = await response.json();
-    const diagnosis = data.content[0].text;
+    const diagnosis = data.content && data.content[0] ? data.content[0].text : null;
+    if (!diagnosis) throw new Error('No response');
     
     diagnosisEl.className = 'mob-diagnosis';
     diagnosisEl.textContent = diagnosis;
@@ -1982,13 +1993,28 @@ async function finishMockOnboarding() {
   showTyping();
   
   try {
-    const response = await callMargAPI(conversationHistory);
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        system: SYSTEM_PROMPT,
+        messages: conversationHistory
+      })
+    });
+    const data = await res.json();
+    const response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
-    addMessage('marg', response);
-    conversationHistory.push({ role: 'assistant', content: response });
+    if (response) {
+      addMessage('marg', response);
+      conversationHistory.push({ role: 'assistant', content: response });
+    } else {
+      addMessage('marg', 'Based on your mock scores — let me ask you one thing. When you got questions wrong in your weakest section, did you know how to solve them but ran out of time, or did you genuinely not know how to approach them?');
+    }
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'Hey! Based on your mock scores, let me give you a specific diagnosis. Which section felt most frustrating today — VARC, DILR, or QA?');
+    addMessage('marg', 'Based on your mock scores — let me ask you one thing. When you got questions wrong in your weakest section, did you know how to solve them but ran out of time, or did you genuinely not know how to approach them?');
   }
 }
 
@@ -2185,13 +2211,28 @@ async function submitMockScores() {
   showTyping();
   
   try {
-    const response = await callMargAPI(conversationHistory);
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system: SYSTEM_PROMPT,
+        messages: conversationHistory
+      })
+    });
+    const data = await res.json();
+    const response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
-    addMessage('marg', response);
-    conversationHistory.push({ role: 'assistant', content: response });
+    if (response) {
+      addMessage('marg', response);
+      conversationHistory.push({ role: 'assistant', content: response });
+    } else {
+      addMessage('marg', 'Based on your scores — which section felt most frustrating today? Tell me what was happening when you attempted those questions.');
+    }
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'Something went wrong — please try again.');
+    addMessage('marg', 'Based on your scores — which section felt most frustrating today? Tell me what was happening when you attempted those questions.');
   }
 }
 
