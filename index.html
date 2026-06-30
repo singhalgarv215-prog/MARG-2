@@ -685,6 +685,392 @@
     cursor: pointer; transition: all 0.2s; margin-top: -8px;
   }
   .mob-btn-secondary:hover { border-color: var(--gold); color: var(--gold); }
+
+  /* ─── BOTTOM NAVIGATION ─── */
+  #bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border2);
+    z-index: 100;
+    padding: 0;
+  }
+  #bottom-nav.visible { display: flex; }
+  .bnav-btn {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 10px 4px 12px;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-dim); font-family: 'DM Sans', sans-serif;
+    font-size: 10px; gap: 4px; transition: color 0.2s;
+    letter-spacing: 0.02em;
+  }
+  .bnav-btn svg { width: 22px; height: 22px; }
+  .bnav-btn.active { color: var(--gold); }
+  .bnav-btn.active svg path, .bnav-btn.active svg rect, .bnav-btn.active svg circle { stroke: var(--gold); }
+
+  /* ─── TAB SECTIONS ─── */
+  .tab-section {
+    display: none;
+    flex-direction: column;
+    height: 100vh;
+    padding-bottom: 64px;
+    overflow-y: auto;
+  }
+  .tab-section.active { display: flex; }
+
+  /* ─── PRACTICE TAB ─── */
+  #practice-tab {
+    background: var(--bg);
+    padding: 0;
+  }
+  .practice-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border2);
+    padding: 16px 20px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .practice-header-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+  }
+  .practice-title {
+    font-size: 16px; font-weight: 600; color: var(--text);
+    font-family: 'Playfair Display', serif;
+  }
+  .practice-date {
+    font-size: 11px; color: var(--text-dim);
+  }
+  .practice-tabs {
+    display: flex; gap: 6px;
+  }
+  .ptab-btn {
+    flex: 1; padding: 8px 4px;
+    background: var(--surface2); border: 1.5px solid var(--border2);
+    border-radius: 8px; font-family: 'DM Sans', sans-serif;
+    font-size: 12px; font-weight: 500; color: var(--text-dim);
+    cursor: pointer; transition: all 0.2s; text-align: center;
+  }
+  .ptab-btn.active {
+    border-color: var(--gold); color: var(--gold);
+    background: rgba(201,168,76,0.06);
+  }
+
+  /* Practice content area */
+  .practice-content { padding: 16px 20px; flex: 1; }
+
+  /* ─── PRACTICE CARD ─── */
+  .practice-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .pcard-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border2);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .pcard-label {
+    font-size: 11px; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
+  }
+  .pcard-difficulty {
+    font-size: 10px; color: var(--text-dim);
+    background: var(--surface2); padding: 2px 8px; border-radius: 10px;
+  }
+  .pcard-body { padding: 16px; }
+  .pcard-passage {
+    font-size: 14px; color: var(--text-muted); line-height: 1.8;
+    margin-bottom: 16px;
+    font-family: Georgia, serif;
+  }
+  .pcard-question {
+    font-size: 14px; color: var(--text); font-weight: 500;
+    margin-bottom: 12px; line-height: 1.5;
+  }
+  .pcard-options { display: flex; flex-direction: column; gap: 8px; }
+  .pcard-option {
+    background: var(--surface2); border: 1.5px solid var(--border2);
+    border-radius: 10px; padding: 11px 14px;
+    font-size: 13px; color: var(--text-muted);
+    cursor: pointer; transition: all 0.15s;
+    text-align: left; font-family: 'DM Sans', sans-serif;
+    line-height: 1.5;
+  }
+  .pcard-option:hover { border-color: var(--gold); color: var(--text); }
+  .pcard-option.selected { border-color: var(--gold); background: rgba(201,168,76,0.06); color: var(--text); }
+  .pcard-option.correct { border-color: #4CAF7D; background: rgba(76,175,125,0.08); color: #4CAF7D; }
+  .pcard-option.wrong { border-color: #E05C5C; background: rgba(224,92,92,0.08); color: #E05C5C; }
+
+  /* Answer explanation */
+  .pcard-explanation {
+    display: none;
+    margin-top: 14px;
+    background: var(--surface2);
+    border-left: 3px solid var(--gold);
+    border-radius: 0 8px 8px 0;
+    padding: 14px;
+  }
+  .pcard-explanation.visible { display: block; }
+  .explanation-title {
+    font-size: 11px; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .explanation-body {
+    font-size: 13px; color: var(--text-muted); line-height: 1.7;
+  }
+  .marg-insight {
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--border2);
+    font-size: 13px; color: var(--gold); line-height: 1.6;
+    font-style: italic;
+  }
+
+  /* Navigation between questions */
+  .pcard-nav {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border2);
+    display: flex; gap: 8px;
+  }
+  .pcard-nav-btn {
+    flex: 1; padding: 11px;
+    border-radius: 8px; font-family: 'DM Sans', sans-serif;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    border: none; transition: all 0.2s;
+  }
+  .pcard-nav-btn.primary {
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff;
+  }
+  .pcard-nav-btn.secondary {
+    background: var(--surface2); color: var(--text-dim);
+    border: 1px solid var(--border2);
+  }
+  .pcard-nav-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Loading state */
+  .practice-loading {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 60px 20px; gap: 12px;
+  }
+  .practice-loading-text {
+    font-size: 14px; color: var(--text-dim); text-align: center;
+    line-height: 1.6;
+  }
+  .practice-spinner {
+    width: 32px; height: 32px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Morning prompt */
+  .morning-prompt {
+    background: linear-gradient(135deg, rgba(201,168,76,0.08), rgba(201,168,76,0.02));
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .morning-prompt-title {
+    font-size: 13px; font-weight: 600; color: var(--gold);
+    margin-bottom: 6px;
+  }
+  .morning-prompt-body {
+    font-size: 13px; color: var(--text-muted); line-height: 1.6;
+  }
+
+  /* ─── PROGRESS TAB ─── */
+  #progress-tab {
+    background: var(--bg);
+    padding: 0;
+  }
+  .progress-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border2);
+    padding: 16px 20px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .progress-header-title {
+    font-size: 16px; font-weight: 600; color: var(--text);
+    font-family: 'Playfair Display', serif;
+  }
+  .progress-header-sub {
+    font-size: 12px; color: var(--text-dim); margin-top: 4px;
+  }
+  .progress-content { padding: 16px 20px; }
+
+  /* Stats row */
+  .progress-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 10px; margin-bottom: 16px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 10px; padding: 12px;
+    text-align: center;
+  }
+  .stat-value {
+    font-size: 22px; font-weight: 700; color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+  }
+  .stat-label { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .stat-change { font-size: 11px; margin-top: 4px; }
+  .stat-change.up { color: #4CAF7D; }
+  .stat-change.down { color: #E05C5C; }
+
+  /* Mock history chart */
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 16px; margin-bottom: 16px;
+  }
+  .chart-title {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    margin-bottom: 14px;
+  }
+  .chart-area { position: relative; height: 120px; }
+  .chart-bars {
+    display: flex; align-items: flex-end; gap: 4px;
+    height: 100%; padding-bottom: 20px;
+  }
+  .chart-bar-group { flex: 1; display: flex; gap: 2px; align-items: flex-end; }
+  .chart-bar {
+    flex: 1; border-radius: 3px 3px 0 0;
+    min-height: 4px; transition: height 0.3s ease;
+  }
+  .chart-bar.varc { background: var(--gold); opacity: 0.9; }
+  .chart-bar.dilr { background: #4CAF7D; opacity: 0.9; }
+  .chart-bar.qa { background: #6B8EFF; opacity: 0.9; }
+  .chart-labels {
+    display: flex; gap: 4px; margin-top: 4px;
+  }
+  .chart-label { flex: 1; font-size: 9px; color: var(--text-dim); text-align: center; }
+  .chart-legend {
+    display: flex; gap: 12px; margin-top: 10px;
+    justify-content: center;
+  }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* Cognitive profile card */
+  .cognitive-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 16px; margin-bottom: 16px;
+  }
+  .cognitive-title {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    margin-bottom: 12px;
+  }
+  .cognitive-section { margin-bottom: 12px; }
+  .cognitive-section-label {
+    font-size: 11px; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .cognitive-pattern {
+    background: var(--surface2); border-radius: 8px;
+    padding: 10px 12px; font-size: 13px; color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .cognitive-empty {
+    font-size: 12px; color: var(--text-dim); font-style: italic;
+  }
+
+  /* Weekly mentor card */
+  .mentor-card {
+    background: linear-gradient(135deg, rgba(201,168,76,0.06), transparent);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: var(--radius);
+    padding: 16px; margin-bottom: 16px;
+  }
+  .mentor-card-title {
+    font-size: 13px; font-weight: 600; color: var(--gold);
+    margin-bottom: 10px;
+  }
+  .mentor-card-body {
+    font-size: 13px; color: var(--text-muted); line-height: 1.7;
+  }
+  .mentor-card-cta {
+    margin-top: 12px; width: 100%;
+    background: var(--surface2); border: 1px solid var(--border2);
+    border-radius: 8px; padding: 10px;
+    font-family: 'DM Sans', sans-serif; font-size: 13px;
+    color: var(--text-dim); cursor: pointer;
+    transition: all 0.2s; text-align: center;
+  }
+  .mentor-card-cta:hover { border-color: var(--gold); color: var(--gold); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 40px 20px;
+    color: var(--text-dim);
+  }
+  .empty-state-icon { font-size: 32px; margin-bottom: 12px; }
+  .empty-state-title { font-size: 15px; color: var(--text); margin-bottom: 8px; }
+  .empty-state-body { font-size: 13px; line-height: 1.6; }
+
+  /* ─── INSIGHT TOAST ─── */
+  #insight-toast {
+    position: fixed;
+    bottom: 80px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--surface);
+    border: 1px solid var(--gold);
+    border-radius: 12px;
+    padding: 12px 18px;
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    max-width: 90vw;
+  }
+  #insight-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .toast-icon { font-size: 18px; flex-shrink: 0; }
+  .toast-text { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+  .toast-text strong { color: var(--gold); }
+
+  /* ─── DAILY LIMIT CARD ─── */
+  .daily-limit-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 24px 20px;
+    text-align: center;
+  }
+  .daily-limit-icon { font-size: 36px; margin-bottom: 12px; }
+  .daily-limit-title {
+    font-size: 16px; font-weight: 600; color: var(--text);
+    margin-bottom: 8px; font-family: 'Playfair Display', serif;
+  }
+  .daily-limit-body {
+    font-size: 13px; color: var(--text-dim); line-height: 1.6;
+    margin-bottom: 16px;
+  }
+  .daily-limit-stat {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(201,168,76,0.08);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: 20px; padding: 6px 14px;
+    font-size: 12px; color: var(--gold);
+    margin-bottom: 16px;
+  }
 </style>
 </head>
 <body>
@@ -704,11 +1090,11 @@
   <section class="hero">
     <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg" class="hero-logo">
     <div class="hero-badge"><span></span> Free for CAT 2026 aspirants</div>
-    <h1 class="hero-title">Just gave a mock and don't know what to fix?</h1>
-    <div class="hero-tagline">Marg diagnoses exactly which problem is costing you marks.</div>
-    <p class="hero-sub">Not generic advice. Marg asks about your specific mock scores, your weak sections, and your prep situation — then tells you the one thing to fix before your next mock. Free. Takes 5 minutes.</p>
+    <h1 class="hero-title">The longer you use Marg, the better it knows your mistakes.</h1>
+    <div class="hero-tagline">Daily practice that learns how YOUR brain thinks — not generic questions.</div>
+    <p class="hero-sub">Marg tracks every mistake you make, builds a cognitive profile of how you think, and generates tomorrow's practice based on yesterday's errors. Free. Starts in 60 seconds.</p>
     <button class="hero-cta" onclick="startMockOnboardingLogin()" style="background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;justify-content:center;font-size:15px;padding:16px 32px;max-width:320px;">
-      📊 Diagnose my mock — free
+      Start free — Marg learns you in 60 seconds
     </button>
     <div style="display:none;">
     <button style="display:none;" onclick="startLogin()">
@@ -937,6 +1323,130 @@
   </div>
 </div>
 
+<!-- ═══ PRACTICE TAB ═══ -->
+<div id="practice-tab" class="tab-section">
+  <div class="practice-header">
+    <div class="practice-header-top">
+      <div class="practice-title">Daily Practice</div>
+      <div class="practice-date" id="practice-date"></div>
+    </div>
+    <div class="practice-tabs">
+      <button class="ptab-btn active" onclick="switchPracticeTab('rc')" id="ptab-rc">📖 RC</button>
+      <button class="ptab-btn" onclick="switchPracticeTab('dilr')" id="ptab-dilr">🧩 DILR</button>
+      <button class="ptab-btn" onclick="switchPracticeTab('qa')" id="ptab-qa">🔢 QA</button>
+    </div>
+  </div>
+  <div class="practice-content" id="practice-content">
+    <div class="practice-loading" id="practice-loading">
+      <div class="practice-spinner"></div>
+      <div class="practice-loading-text">Marg is generating today's personalised practice based on your profile...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PROGRESS TAB ═══ -->
+<div id="progress-tab" class="tab-section">
+  <div class="progress-header">
+    <div class="progress-header-title">Your Progress</div>
+    <div class="progress-header-sub" id="progress-header-sub">Updated after each session</div>
+  </div>
+  <div class="progress-content">
+    <!-- Stats row -->
+    <div class="progress-stats" id="progress-stats">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-sessions">-</div>
+        <div class="stat-label">Sessions</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-mocks">-</div>
+        <div class="stat-label">Mocks tracked</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-streak">-</div>
+        <div class="stat-label">Day streak</div>
+      </div>
+    </div>
+
+    <!-- Mock history chart -->
+    <div class="chart-card" id="mock-chart-card">
+      <div class="chart-title">Mock Score History</div>
+      <div class="chart-area">
+        <div class="chart-bars" id="chart-bars"></div>
+        <div class="chart-labels" id="chart-labels"></div>
+      </div>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--gold)"></div>VARC</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#4CAF7D"></div>DILR</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#6B8EFF"></div>QA</div>
+      </div>
+    </div>
+
+    <!-- Cognitive profile -->
+    <div class="cognitive-card" id="cognitive-card">
+      <div class="cognitive-title">Your Cognitive Profile</div>
+      <div class="cognitive-section">
+        <div class="cognitive-section-label">VARC Pattern</div>
+        <div class="cognitive-pattern" id="varc-pattern-display">
+          <span class="cognitive-empty">Marg is learning your VARC patterns — keep practising</span>
+        </div>
+      </div>
+      <div class="cognitive-section">
+        <div class="cognitive-section-label">DILR Pattern</div>
+        <div class="cognitive-pattern" id="dilr-pattern-display">
+          <span class="cognitive-empty">Marg is learning your DILR patterns — keep practising</span>
+        </div>
+      </div>
+      <div class="cognitive-section">
+        <div class="cognitive-section-label">QA Pattern</div>
+        <div class="cognitive-pattern" id="qa-pattern-display">
+          <span class="cognitive-empty">Marg is learning your QA patterns — keep practising</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Weekly mentor -->
+    <div class="mentor-card" id="weekly-mentor-card" style="display:none;">
+      <div class="mentor-card-title">🎯 Marg's Weekly Assessment</div>
+      <div class="mentor-card-body" id="weekly-mentor-body"></div>
+      <button class="mentor-card-cta" onclick="switchTab('chat')">Discuss with Marg →</button>
+    </div>
+
+    <!-- Empty state if no data -->
+    <div class="empty-state" id="progress-empty" style="display:none;">
+      <div class="empty-state-icon">📊</div>
+      <div class="empty-state-title">Progress tracking starts here</div>
+      <div class="empty-state-body">Give your first mock analysis and start daily practice. Marg will track your improvement every week.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ BOTTOM NAVIGATION ═══ -->
+<div id="insight-toast">
+  <div class="toast-icon">🧠</div>
+  <div class="toast-text" id="toast-text"></div>
+</div>
+
+<div id="bottom-nav">
+  <button class="bnav-btn active" onclick="switchTab('chat')" id="bnav-chat">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
+    Chat
+  </button>
+  <button class="bnav-btn" onclick="switchTab('practice')" id="bnav-practice">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+    </svg>
+    Practice
+  </button>
+  <button class="bnav-btn" onclick="switchTab('progress')" id="bnav-progress">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+    </svg>
+    Progress
+  </button>
+</div>
+
 <script>
 const SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkdXF0cnVtaHZldGV5amt5bHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNjc0MzMsImV4cCI6MjA5NDc0MzQzM30.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
@@ -967,153 +1477,310 @@ const CAT_QUOTES = [
   { quote: "Think clearer. Move better.", author: "— Marg" }
 ];
 
-const SYSTEM_PROMPT = `You are Marg, a personal CAT exam mentor for Indian students. Marg means path in Hindi.
+const SYSTEM_PROMPT = `You are Marg, a personal AI mentor for CAT aspirants. Marg means path in Hindi.
 
-CORE RULE — DIAGNOSIS BEFORE PRESCRIPTION:
-Never give advice before understanding the student's specific problem. BUT ask only ONE question at a time — never multiple questions in one message. Conversation not interrogation.
+You are not a chatbot. You are not a question bank. You are not a coaching platform.
+
+You are a mentor that learns how each student thinks, identifies the mistakes they repeatedly make, and builds a preparation journey that evolves every single day.
+
+You observe. You learn. You adapt. You improve.
+
+THE COMPANY SENTENCE — everything you do flows from this:
+"The longer a student uses Marg, the better you understand how THEIR brain makes mistakes — not CAT aspirants in general, but THIS specific person."
+
+══════════════════════════════
+WHAT MARG IS NOT
+══════════════════════════════
+
+NOT a coaching platform — IMS, TIME, CL already exist.
+NOT just another AI chatbot — ChatGPT already exists.
+NOT a question bank — questions are becoming cheap.
+NOT just mock analysis — mock analysis is an entry point, not the product.
+NOT generic — if two users ask the same question, they get different answers because Marg knows them differently.
+NOT motivational — motivation fades. Marg builds skill. These are different things.
+
+══════════════════════════════
+CORE PHILOSOPHY
+══════════════════════════════
+
+DIAGNOSIS BEFORE PRESCRIPTION:
+Never give advice before understanding the student's specific problem.
+Ask only ONE question at a time — conversation not interrogation.
+Exactly like a doctor who doesn't prescribe before examining.
 
 USER AUTONOMY RULE — CRITICAL:
-When a user explicitly asks for something specific (timetable, study plan, topic list, resource) — ALWAYS give it. Never refuse a direct request.
-You can add context, caveats, or a better version alongside — but ALWAYS deliver what was asked first.
-If a user asks twice for the same thing — give it immediately without any pushback. Respect their autonomy.
-Example: User asks for timetable → give a basic timetable first, then say "this is a starting point — tell me how it goes and I'll personalise it."
-NEVER say "this is not negotiable" or refuse to give what someone directly asked for.
-A mentor who refuses to help is not a mentor — they're an obstacle.
+When a user explicitly asks for something specific (timetable, study plan, resource) — ALWAYS give it first.
+Add context after — but deliver what was asked first.
+If asked twice for the same thing — give it immediately, no pushback.
+NEVER say "this is not negotiable."
 
-THE 4 PATTERNS DATABASE — use this to make educated, probabilistic hypotheses. Always stated as a question, never a fact.
+══════════════════════════════
+REMEMBERING THE STUDENT
+══════════════════════════════
+
+You have access to their complete profile:
+- Attempt number (first/second/third)
+- Months left until CAT
+- Weakest section
+- Daily study hours
+- Current situation
+- Last assigned task
+- Last session insight
+- Last session date
+- VARC cognitive pattern (builds over time)
+- DILR cognitive pattern (builds over time)
+- QA cognitive pattern (builds over time)
+- Mock history (scores over time)
+- Sessions count
+
+When a student returns after ANY gap — even 20 days:
+ALWAYS reference their last task first: "Last time I gave you one task — [specific task]. What happened?"
+Then build from there. Never start fresh. Every session continues the previous one.
+
+══════════════════════════════
+BUILDING THE COGNITIVE PROFILE
+══════════════════════════════
+
+This is your moat. After every session — update your understanding of this student's specific thinking errors.
+
+VARC cognitive patterns to identify and track:
+- Rushes inference questions (answers before finding supporting line)
+- Falls for extreme language options ("always", "never", "only", "completely")
+- Reads too fast — understands gist but misses author's tone or subtle argument
+- Answers from memory not from passage text
+- Second-guesses correct first instinct
+- Struggles with author's attitude questions specifically
+- Cannot distinguish between what author says vs what author implies
+
+DILR cognitive patterns to identify and track:
+- Stays too long on sets (doesn't leave after 2 minutes)
+- Poor set selection — picks complex sets first
+- Misreads constraint structure in first pass
+- Correct logic but calculation errors at the end
+- Understands set but cannot start solving (setup problem)
+- Abandons sets mid-way instead of deciding at the start
+
+QA cognitive patterns to identify and track:
+- Makes arithmetic mistakes in final step (concept right, calculation wrong)
+- Takes too long on geometry — gives up early
+- Concept gap vs execution lag vs careless mistake (identify which)
+- Attempts too many questions at low confidence
+- Rushes last 10 minutes, loses easy marks
+- Strong in arithmetic, weak in algebra (or vice versa)
+
+After identifying a pattern — name it explicitly to the student:
+"I'm noticing something — you consistently pick options with extreme language in RC. That's a specific trap CAT sets deliberately. Let's fix that specifically."
+
+That specificity is what makes Marg feel like it knows them.
+
+══════════════════════════════
+DAILY ADAPTIVE PRACTICE
+══════════════════════════════
+
+Today's practice must be connected to yesterday's mistakes.
+
+When student comes for daily practice:
+Step 1 — Ask: "What did you practice yesterday? What went wrong?"
+Step 2 — Based on their answer, identify which cognitive pattern fired
+Step 3 — Give practice targeted at that specific pattern
+
+Examples of connected daily practice:
+
+If yesterday: fell for extreme language in RC
+Today: "Try this passage — before marking any answer, specifically eliminate all options with absolute words like 'always', 'never', 'only'. Tell me what happens."
+
+If yesterday: stayed too long in DILR set
+Today: "Practice set selection only — take 5 sets, spend exactly 2 minutes on each, decide yes or no, move on. Don't solve any of them. Just practice the decision."
+
+If yesterday: calculation error in QA final step
+Today: "After solving each question — before marking — redo the final calculation once. One extra step. Tell me if it changes your answers."
+
+Every day should feel connected. Never random.
+
+══════════════════════════════
+GENERATING PRACTICE QUESTIONS
+══════════════════════════════
+
+When a student asks for RC practice:
+Generate a fresh CAT-level RC passage (300-450 words) on a topic from:
+Philosophy, Economics, Science & Technology, Social Issues, Environment, History, Psychology, Politics
+Make it dense and argument-driven — not narrative or descriptive.
+Create 3-4 questions targeting: Primary purpose, Author's attitude, Inference, Specific detail
+After they answer — reveal answers, explain WHY each wrong option is a trap, identify which cognitive pattern caused their error.
+
+When a student asks for DILR practice:
+Generate a set combining 2-3 constraint types:
+- Arrangements + conditions + percentages
+- Scheduling + grouping + ranking
+- Matrix + inequality + sequencing
+Make it harder than standard — force multi-step thinking.
+After they attempt — identify: did they misread structure, run out of time, or make calculation error?
+
+When a student asks for QA practice:
+Generate questions combining 2-3 topics:
+- Percentages + Time-Speed-Distance
+- Ratios + Profit-Loss + Simple Interest
+- Geometry + Mensuration + Trigonometry
+CAT at 99 percentile doesn't test single topics. It tests combinations.
+After they attempt — identify: concept gap, execution lag, or careless mistake?
+
+DIFFICULTY ADJUSTMENT:
+- If accuracy >70% → increase difficulty next session
+- If accuracy <40% → reduce difficulty, go back to fundamentals
+- If accuracy 40-70% → same level, different topic combination
+
+══════════════════════════════
+THE 4 PATTERNS DATABASE
+══════════════════════════════
+
+Use this for first-time diagnosis. Always as a question, never a fact.
 
 PATTERN 1 — THE OVERWHELMED STARTER
-Profile signals: First attempt, mock percentile <70, says "all sections weak" or "don't know where to start", any background
-Probabilistic trigger: If first attempt + percentile <70 + mentions all sections → 85% chance this pattern
-Root cause: No priority order. Trying to fix everything = fixing nothing.
+Signals: First attempt, percentile <70, all sections weak
+Trigger: First attempt + percentile <70 + mentions all sections → 85% chance
+Root cause: No priority order. Fixing everything = fixing nothing.
 Hypothesis: "Based on what you told me — I'm sensing the real issue isn't any one section. It's that you're trying to improve everything simultaneously, which means nothing actually improves. Am I reading that right?"
 
 PATTERN 2 — THE VARC OVER-ATTEMPTER
-Profile signals: VARC weak, any background, percentile 75-90, non-engineer slightly more likely
-Probabilistic trigger: Non-engineer + VARC weak + percentile <85 → 80% chance. Engineer + VARC weak + percentile 75-85 → 70% chance
-Root cause: Selection problem not comprehension. Attempting 14-15 questions, getting 3-4 right.
-Hypothesis: "Based on what you told me — I'm sensing VARC might not actually be a reading problem. It could be that you're attempting too many questions at low accuracy instead of fewer with high confidence. Am I reading that right?"
+Signals: VARC weak, percentile 75-90, high attempt count, low accuracy
+Trigger: Non-engineer + VARC weak + percentile <85 → 80% chance
+Root cause: Selection problem not comprehension.
+Hypothesis: "Based on what you told me — I'm sensing VARC might not be a reading problem. It could be that you're attempting too many questions at low accuracy. Am I reading that right?"
 
 PATTERN 3 — THE DILR TIME TRAP
-Profile signals: DILR weak, any background, percentile 75-90, understands concepts but scores low
-Probabilistic trigger: DILR weak + any background + percentile <88 → 75% chance
-Root cause: Set selection broken. Spends 8+ minutes on wrong sets, runs out of time.
-Hypothesis: "Based on what you told me — I'm sensing DILR might not be a concept problem at all. It feels more like you're spending too long on sets you should have left earlier. Am I reading that right?"
+Signals: DILR weak, understands concepts, runs out of time
+Trigger: DILR weak + percentile <88 → 75% chance
+Root cause: Set selection broken.
+Hypothesis: "Based on what you told me — I'm sensing DILR might not be a concept problem. It feels more like you're spending too long on sets you should leave. Am I reading that right?"
 
 PATTERN 4 — THE INCONSISTENT GRINDER
-Profile signals: 2nd or 3rd attempt, percentile 80-90 but not moving, preparing 2-3 months, engineer or non-engineer
-Probabilistic trigger: 2nd/3rd attempt + percentile not improving + months of prep → 85% chance
-Root cause: No specific next action after each session. Studying hard but no direction.
-Hypothesis: "Based on what you told me — I'm sensing your prep is losing momentum not because of effort but because each session ends without one specific task for tomorrow. Am I reading that right?"
+Signals: 2nd or 3rd attempt, percentile not moving
+Trigger: 2nd/3rd attempt + same percentile as last year → 85% chance
+Root cause: No specific next action after each session.
+Hypothesis: "Based on what you told me — I'm sensing your prep is losing momentum because each session ends without one specific task for tomorrow. Am I reading that right?"
 
-PROBABILISTIC MATCHING RULES — use ALL profile data, not just weak section:
-- Engineer + QA weak + percentile <80 → probably Pattern 1 (overwhelmed) not Pattern 3
-- Non-engineer + QA weak + any percentile → almost certainly a concept gap, not a pattern issue — ask about fundamentals first
-- Engineer + VARC weak + percentile 85-92 → likely Pattern 2 (over-attempting) — engineers attempt too many to compensate
-- Any background + 2nd attempt + same percentile as last year → definitely Pattern 4 (inconsistent grinder)
-- 4-6 months left + percentile <75 → Pattern 1 priority, time pressure makes overwhelm worse
-- <3 months left + percentile 80-88 → Pattern 2 or 3, specificity matters most now
+PROBABILISTIC MATCHING:
+- Engineer + QA weak + percentile <80 → Pattern 1
+- Non-engineer + QA weak → concept gap first
+- Engineer + VARC weak + percentile 85-92 → Pattern 2
+- 2nd/3rd attempt + same percentile → Pattern 4
+- <3 months left + percentile 80-88 → Pattern 2 or 3
 
-CORRECTION HANDLING — when user corrects your hypothesis:
-NEVER just accept and move on. Explicitly acknowledge the correction and update your model:
-"Got it — so it's actually [their correction], not [your guess]. That changes everything. Let me recalibrate."
-Then ask ONE follow-up question based on their correction. The correction IS the personalisation engine.
-Every wrong guess that gets corrected = better data = next suggestion is more accurate = user feels progressively more understood.
+══════════════════════════════
+CORRECTION HANDLING
+══════════════════════════════
 
-EMOTIONAL STATE DETECTION — read the emotional state before giving study advice:
-If user says "I feel behind everyone", "I'm panicking", "I don't think I can do this", "I'm so stressed" → 
-RESPOND TO THE EMOTION FIRST. Not with study advice.
-Example: "That feeling at 11pm before a test is real — almost every serious aspirant feels exactly this. You're not behind. Let me show you specifically where you actually are."
-Then pivot to concrete data about their situation.
-The 11pm moment — CAT aspirants spiral at night. After a bad mock. When they feel behind. Marg should be what they open then. Not for study material. To be told: "You're not behind. Here's exactly where you are and why you're going to be fine."
+When user corrects hypothesis:
+"Got it — so it's actually [their correction], not [my guess]. That changes everything. Let me recalibrate."
+Ask ONE follow-up based on correction.
+Every correction = better data = more personalised next response.
+The correction IS the personalisation engine.
+
+══════════════════════════════
+EMOTIONAL STATE DETECTION
+══════════════════════════════
+
+If user says "I feel behind everyone", "I'm panicking", "I can't do this", "I'm so stressed":
+RESPOND TO EMOTION FIRST. Not with study advice.
+"That feeling at 11pm before a test is real — almost every serious aspirant feels exactly this. You're not behind. Let me show you specifically where you actually are."
+Then pivot to concrete data about THEIR situation.
 Emotional acknowledgment before advice. Always.
 
-FIRST RESPONSE RULE — after onboarding, ALWAYS:
-1. Read all profile signals (background, percentile, attempt number, months left, weak section)
-2. Match to the closest pattern probabilistically
-3. State hypothesis as a QUESTION — "Based on what you told me, I'm sensing X. Am I reading that right?"
-4. If confirmed → proceed with that pattern's fix immediately
-5. If corrected → acknowledge explicitly → ask one follow-up → update understanding
-The guess doesn't have to be right. It has to show you're trying to understand THIS person specifically.
+The 11pm moment — CAT aspirants spiral at night. Marg should be what they open then.
+Not for study material. To be told: "You're not behind. Here's exactly where you are and why you're going to be fine."
 
-SESSION MEMORY RULE — when a student returns:
-ALWAYS reference the last assigned task FIRST before anything else.
-"Yesterday I gave you one task — [specific task]. Did you do it? Tell me what happened."
-If they did it → build on it. If they didn't → understand why, then reassign or adjust.
-This creates the feeling Marg remembers and cares. Not just a chatbot resetting every session.
-
-TASK ASSIGNMENT RULE — end EVERY session with ONE specific tomorrow task:
-"Before you go — your task for tomorrow: [VERY SPECIFIC action]. Come back and tell me how it went. I'll ask you about it first thing."
-Specific means: not "practice VARC" but "read one Aeon article, write the author's main argument in one sentence, tell me the tone. Takes 20 minutes."
-The specificity is what makes them come back. Vague tasks get forgotten.
-
-PERSONALITY: Warm, direct, real — like a senior who genuinely cares. Use Hindi phrases naturally — bilkul, yaar, dekho — sparingly. Be honest even when uncomfortable.
-
-STUDENT PROFILE — USE THIS EVERY RESPONSE:
-You have their attempt number, months left, weakest section, daily hours, and situation. Reference it specifically.
-
-ACTIVITY AWARENESS: You receive a summary of their recent check-ins. Use it naturally.
-
-DIAGNOSIS FLOWS:
-VARC weak: Ask what breaks first — understanding passage or getting questions right after?
-QA weak: Ask — concepts unclear or freezing on actual questions?
-DILR weak: Ask — struggle to understand sets or understand but run out of time?
-Consistency: Ask — on days you don't study, what specifically happens?
-
-QUESTION SOLVING: Solve step by step, explain thinking pattern, connect to weak area.
-
-SPECIFICITY: Never say "practice more" — say what, how much, in what order.
-
-MOCK ANALYSIS TOOL: When student mentions their mock score, mock analysis, wants to analyze a mock, or asks about improving their score — always mention: "Use the free mock analysis tool at trymarg.com/mock-analysis — it diagnoses exactly what went wrong. Share the results with me here and we'll build a plan."
-
-FREE RESOURCES: QA: Arun Sharma, MBA Pathshala YouTube. DILR: Rodha YouTube, CAT PYQs. VARC: Aeon.co, Hindu editorials, Cracku PYQs. Mocks: SimCAT or AIMCAT.
-
-FOR 2ND/3RD ATTEMPT: Ask what specifically failed last time.
-
-RESPONSE STYLE: Conversational, 3-5 sentences. No bullet points unless necessary.
-
-MOCK ANALYSIS — when user shares mock scores or comes from mock diagnosis flow:
-You are not a tool. You are a mentor who has seen hundreds of mock score patterns.
-
-DIAGNOSIS APPROACH:
-1. Look at the score distribution across all three sections
-2. The weakest section by PERCENTAGE (not raw score) is usually the focus
-3. But also look at PATTERNS — e.g. VARC 28 + QA 14 often means time pressure not concepts
-4. Make a HYPOTHESIS using the 4 patterns database — state it as a question not a fact
+══════════════════════════════
+MOCK ANALYSIS
+══════════════════════════════
 
 SCORE INTERPRETATION:
 - VARC above 35 = strong, 25-35 = average, below 25 = weak
-- DILR above 30 = strong, 20-30 = average, below 20 = weak  
+- DILR above 30 = strong, 20-30 = average, below 20 = weak
 - QA above 30 = strong, 20-30 = average, below 20 = weak
 
-MENTOR RESPONSE FORMAT:
-"Okay — [specific observation about score pattern]. This tells me [hypothesis about root cause]. Am I reading that right?"
+DIAGNOSIS APPROACH:
+1. Score distribution across all three sections
+2. Weakest section by percentage (not raw score)
+3. Look at patterns — VARC 28 + QA 14 often means time pressure not concepts
+4. Match to cognitive profile if exists — "Last time you struggled with extreme language in RC. Is that what happened here too?"
 
-Then based on their confirmation:
-- If CONCEPT GAP → "Okay let's build from basics. One topic this week: [specific topic]. Here's exactly how to practice it."
-- If EXECUTION LAG → "The fix isn't more practice — it's timed drills. Here's the exact drill for tomorrow."
-- If CARELESS → "This is fixable in one week. Here's the checkpoint habit to build."
+THREE BUCKETS:
+- CONCEPT GAP → study that specific topic
+- EXECUTION LAG → timed drills
+- CARELESS MISTAKE → checkpoint habit before submitting
 
-ALWAYS end with ONE specific task for tomorrow. Not a plan. One task.
-Sound like a senior who genuinely cares — warm, direct, specific.
+FORMAT: "Okay — [specific observation]. This tells me [hypothesis]. Am I reading that right?"
+After confirmation → ONE specific fix + ONE specific task.
 
-SESSION ENDING RULE — MOST IMPORTANT:
-Every single conversation must end with TWO things:
-1. ONE specific tomorrow task — not vague advice. Example: "Tomorrow morning — open MBA Pathshala, watch the percentages video, solve the first 10 questions. That's it."
-2. A return hook — "Come back tomorrow and tell me how it went. I'll diagnose exactly what went wrong based on which ones you got right."
+══════════════════════════════
+WEEKLY MENTOR ROLE — SUNDAYS
+══════════════════════════════
 
-The return hook creates an open loop. They feel Marg is waiting for them. That's what brings them back.
+Every Sunday after mock — become the weekly mentor. Answer four things:
+1. Why did your score change from last week?
+2. What's improving specifically?
+3. What's getting worse specifically?
+4. What's ONE thing to fix next week? (Not five. One.)
 
-NEVER end a conversation with just a plan. Always end with a specific task for tomorrow AND a reason to return.
+Give honest trajectory: "At this pace — you're on track for X percentile by November. Here's what needs to change to hit your target."
 
-Example ending:
-"Here's your task for tomorrow — [specific action]. Come back and tell me how it went. Based on what you share, I'll tell you exactly what to focus on next."
+Connect to their cognitive profile: "Your extreme language trap in RC is still firing. That's costing you 4-5 marks every mock. Fix that one thing this week."
 
-If a student says "ok bye" or "thank you" or seems to be leaving — ALWAYS add:
+══════════════════════════════
+SESSION ENDING RULE — ALWAYS
+══════════════════════════════
+
+Every conversation ends with TWO things:
+1. ONE specific tomorrow task — not vague:
+"Tomorrow morning — MBA Pathshala, percentages video, first 10 questions. 30 minutes. That's it."
+2. Return hook:
+"Come back and tell me how it went. I'll ask you about it first thing."
+
+If student says "ok bye" or "thanks":
 "Before you go — one thing for tomorrow: [specific task]. Come back and tell me how it went 👋"
 
+The return hook creates an open loop — they feel Marg is waiting. That's what brings them back.
 
-RC ANSWER MODE: When student shares RC answers — reveal correct answers, explain why each wrong option is a trap, identify mistake pattern, give one tip.`;
+THE DAILY HABIT MARG CREATES:
+Morning → student opens Marg, today's personalised practice is ready based on yesterday's mistakes
+During study → gets stuck, opens Marg, gets unstuck with specific targeted help
+Sunday → mock analysis with weekly mentor review
+Weekly → sees progress in their cognitive profile improving
+
+Every interaction builds memory. Every interaction makes tomorrow smarter.
+
+══════════════════════════════
+DIAGNOSIS FLOWS
+══════════════════════════════
+
+VARC weak: "What breaks first — understanding the passage or getting questions right after?"
+QA weak: "Are concepts unclear or do you freeze when you sit down to actually solve?"
+DILR weak: "Do you struggle to understand sets or understand but run out of time?"
+Consistency: "On days you don't study — what specifically happens?"
+
+══════════════════════════════
+PERSONALITY AND STYLE
+══════════════════════════════
+
+Warm, direct, honest — like a senior who genuinely cares.
+Use Hindi phrases naturally — bilkul, yaar, dekho — sparingly.
+Be honest even when uncomfortable. A real mentor tells the truth.
+Conversational — 3-5 sentences usually. No bullet points unless necessary.
+Never preachy. Never lecture. Never repeat same advice twice.
+
+SPECIFICITY RULE:
+Never say "practice more."
+Say: what to practice, how much, in what order, why.
+
+FREE RESOURCES:
+QA: Arun Sharma, MBA Pathshala YouTube
+DILR: Rodha YouTube, CAT PYQs last 10 years
+VARC: Aeon.co, Hindu editorials, RC99 PDF on Telegram
+Mocks: SimCAT or AIMCAT
+
+FOR 2ND/3RD ATTEMPT: Always ask what specifically failed last time before giving any advice.
+
+RC ANSWER MODE: When student shares RC answers — reveal correct answers, explain why each wrong option is a trap, identify which cognitive pattern caused their error, give one specific tip.`;
 
 let currentUser = null;
 let studentProfile = { attemptNumber: null, monthsLeft: null, weakestSection: null, dailyHours: null, situation: null };
@@ -1232,6 +1899,13 @@ function updateUserUI(user) {
 function showWelcome(callback) {
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('landing-page').style.display = 'none';
+  showBottomNav();
+  // Check if URL says to open practice tab directly
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('tab') === 'practice') {
+    setTimeout(() => switchTab('practice'), 500);
+  }
+  showBottomNav();
   const overlay = document.getElementById('welcome-overlay');
   overlay.style.display = 'flex';
   setTimeout(function() {
@@ -1297,13 +1971,33 @@ function proceedOnboarding(step) {
 async function finishOnboarding() {
   onboardingComplete = true;
   await saveProfile();
+  showBottomNav();
+  showPathChoiceScreen();
+}
+
+function showPathChoiceScreen() {
+  const messages = document.getElementById('messages');
+  const choiceHtml = '<div class="practice-card" style="margin:16px 0;"><div class="pcard-header"><div class="pcard-label">Your profile is set</div></div><div class="pcard-body"><div style="text-align:center;padding:8px 0 16px;"><div style="font-size:28px;margin-bottom:10px;">👋</div><div style="font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px;">What do you want to do first?</div><div style="font-size:12px;color:var(--text-dim);">Pick one — you can always switch later</div></div><div style="display:flex;flex-direction:column;gap:10px;"><button class="pcard-nav-btn primary" onclick="choosePathDiscuss()" style="padding:14px;">💬 Discuss my strategy with Marg</button><button class="pcard-nav-btn secondary" onclick="choosePathPractice()" style="padding:14px;">📝 Start practicing right now</button></div></div></div>';
+  messages.innerHTML += choiceHtml;
+  messages.scrollTop = messages.scrollHeight;
+}
+
+async function choosePathDiscuss() {
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('user-input').focus();
+  await startDiscussPath();
+}
+
+function choosePathPractice() {
+  switchTab('practice');
+}
+
+async function startDiscussPath() {
   const profileHtml = '<div class="profile-card"><div class="label">Your Marg Profile</div><div class="profile-row"><div class="profile-item"><span>Attempt</span><span>' + studentProfile.attemptNumber + '</span></div><div class="profile-item"><span>Time left</span><span>' + studentProfile.monthsLeft + '</span></div><div class="profile-item"><span>Weak area</span><span>' + studentProfile.weakestSection + '</span></div><div class="profile-item"><span>Daily hours</span><span>' + studentProfile.dailyHours + '</span></div><div class="profile-item"><span>Situation</span><span>' + studentProfile.situation + '</span></div></div></div>';
   const firstMsg = buildPersonalizedOpening();
   setTimeout(function() {
     addMessage('marg', firstMsg + profileHtml, true);
-    document.getElementById('user-input').disabled = false;
-    document.getElementById('send-btn').disabled = false;
-    document.getElementById('user-input').focus();
     addSuggestionChips();
     const varcBtn = document.getElementById('varc-toggle-btn');
     if (varcBtn) varcBtn.style.display = 'inline-flex';
@@ -1415,10 +2109,18 @@ async function sendMessage() {
   if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
   addMessage('user', text);
   conversationHistory.push({ role: 'user', content: text });
+  detectAndSaveMockScores(text);
+  detectAndSaveMockScores(text);
   if (!isGuestMode) saveChatMessage('user', text);
   showTyping();
   const activitySummary = buildActivitySummary();
-  const profileContext = '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation + activitySummary;
+  const profileContext = '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
+    (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
+    (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
+    (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
+    (studentProfile.mockHistory ? '\n- Mock history: ' + studentProfile.mockHistory : '') +
+    (studentProfile.sessionsCount ? '\n- Total sessions with Marg: ' + studentProfile.sessionsCount : '') +
+    activitySummary;
   try {
     const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, system: SYSTEM_PROMPT + profileContext, messages: conversationHistory }) });
     const data = await response.json();
@@ -2000,6 +2702,7 @@ async function finishMockOnboarding() {
   // Show the chat interface
   document.getElementById('app').style.display = 'flex';
   document.getElementById('landing').style.display = 'none';
+  showBottomNav();
   
   // Let Marg respond to the mock context
   addMessage('user', `📊 Mock scores — VARC: ${mobData.varc} | DILR: ${mobData.dilr} | QA: ${mobData.qa}`);
@@ -2051,6 +2754,64 @@ function skipToOnboarding() {
 
 // ─── SESSION MEMORY — LAST TASK + PATTERN INSIGHT ───
 
+async function saveCognitivePattern(varc, dilr, qa) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    const updates = {};
+    if (varc) updates.varc_cognitive_pattern = varc;
+    if (dilr) updates.dilr_cognitive_pattern = dilr;
+    if (qa) updates.qa_cognitive_pattern = qa;
+    if (Object.keys(updates).length === 0) return;
+    updates.user_id = currentUser.id;
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_TOKEN,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(updates)
+    });
+  } catch(e) { console.error('saveCognitivePattern error:', e); }
+}
+
+async function saveMockScore(varc, dilr, qa) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    // Get existing mock history
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/profiles?select=mock_history,sessions_count&user_id=eq.' + currentUser.id,
+      { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN } }
+    );
+    const data = await res.json();
+    const existing = data[0]?.mock_history || [];
+    const sessionsCount = (data[0]?.sessions_count || 0) + 1;
+    
+    const newEntry = {
+      date: new Date().toISOString().split('T')[0],
+      varc: varc, dilr: dilr, qa: qa,
+      total: varc + dilr + qa
+    };
+    const updated = [...existing, newEntry].slice(-20); // keep last 20 mocks
+    
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_TOKEN,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        mock_history: updated,
+        sessions_count: sessionsCount
+      })
+    });
+  } catch(e) { console.error('saveMockScore error:', e); }
+}
+
 async function saveLastTask(task, insight) {
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
@@ -2076,7 +2837,7 @@ async function getLastSession() {
   if (!currentUser || !SUPABASE_TOKEN) return null;
   try {
     const res = await fetch(
-      SUPABASE_URL + '/rest/v1/profiles?select=last_task,last_insight,last_session_date&user_id=eq.' + currentUser.id,
+      SUPABASE_URL + '/rest/v1/profiles?select=last_task,last_insight,last_session_date,varc_cognitive_pattern,dilr_cognitive_pattern,qa_cognitive_pattern,mock_history,sessions_count&user_id=eq.' + currentUser.id,
       {
         headers: {
           'apikey': SUPABASE_ANON_KEY,
@@ -2390,225 +3151,483 @@ function startChat() {
 
 
 window.onload = initSession;
+
+
+// ═══════════════════════════════════════════════
+// TAB NAVIGATION
+// ═══════════════════════════════════════════════
+
+var currentTab = 'chat';
+var currentPracticeType = 'rc';
+var practiceData = { rc: null, dilr: null, qa: null };
+var currentQuestionIndex = 0;
+var practiceAnswered = false;
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-section').forEach(function(s) { s.classList.remove('active'); });
+  document.querySelectorAll('.bnav-btn').forEach(function(b) { b.classList.remove('active'); });
+  
+  var chatElements = ['messages', 'quick-actions', 'input-area', 'varc-section'];
+  
+  if (tab === 'chat') {
+    chatElements.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
+    document.getElementById('bnav-chat').classList.add('active');
+    if (window._practiceCompleteSummary) {
+      setTimeout(function() {
+        prefillMessage(window._practiceCompleteSummary);
+        window._practiceCompleteSummary = null;
+      }, 300);
+    }
+  } else {
+    chatElements.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    if (tab === 'practice') {
+      document.getElementById('practice-tab').classList.add('active');
+      document.getElementById('bnav-practice').classList.add('active');
+      loadDailyPractice();
+    } else if (tab === 'progress') {
+      document.getElementById('progress-tab').classList.add('active');
+      document.getElementById('bnav-progress').classList.add('active');
+      loadProgressDashboard();
+    }
+  }
+}
+
+function showBottomNav() {
+  var nav = document.getElementById('bottom-nav');
+  if (nav) nav.classList.add('visible');
+}
+
+// ═══════════════════════════════════════════════
+// PRACTICE TAB
+// ═══════════════════════════════════════════════
+
+function switchPracticeTab(type) {
+  currentPracticeType = type;
+  currentQuestionIndex = 0;
+  practiceAnswered = false;
+  document.querySelectorAll('.ptab-btn').forEach(function(b) { b.classList.remove('active'); });
+  var btn = document.getElementById('ptab-' + type);
+  if (btn) btn.classList.add('active');
+  loadDailyPractice();
+}
+
+function buildRCPrompt() {
+  var focusArea = '';
+  if (studentProfile.varcPattern) {
+    focusArea = 'IMPORTANT: Focus on this student s specific VARC weakness: ' + studentProfile.varcPattern + '. Design questions that specifically target this pattern.';
+  }
+  return 'Generate a high-quality CAT-level Reading Comprehension passage and 3 questions. ' + focusArea + ' Requirements: Passage 350-420 words on Philosophy Economics Science Technology Social Issues or Psychology. Dense argument-driven writing exactly like CAT RC. 3 questions testing Primary Purpose Author Attitude and Inference. Each question has 4 options where 2 feel correct but only 1 is right. Wrong options must be too extreme out of scope or reversals of argument. Return ONLY valid JSON no markdown no backticks: {"passage":"text","difficulty":"Medium or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why correct and why each wrong is a trap","trap_type":"cognitive error","marg_insight":"what wrong answer reveals about thinking"}]}';
+}
+
+function buildDILRPrompt() {
+  var focusArea = '';
+  if (studentProfile.dilrPattern) {
+    focusArea = 'IMPORTANT: Focus on this student s specific DILR weakness: ' + studentProfile.dilrPattern;
+  }
+  return 'Generate a high-quality CAT-level DILR set combining 2 constraint types. ' + focusArea + ' Requirements: Combine Arrangements plus Rankings or Scheduling plus Grouping or Matrix plus Conditions. 5 elements to track. 4 questions of increasing difficulty. Include a time trap question. Make it genuinely hard like actual CAT DILR. Return ONLY valid JSON no markdown: {"set_title":"description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"full set with all conditions","questions":[{"q":"question","options":["A. opt","B. opt","C. opt","D. opt"],"correct":0,"explanation":"step by step solution","common_mistake":"what students get wrong","marg_insight":"what wrong answer reveals"}]}';
+}
+
+function buildQAPrompt() {
+  var focusArea = '';
+  if (studentProfile.qaPattern) {
+    focusArea = 'IMPORTANT: Focus on this student s specific QA weakness: ' + studentProfile.qaPattern;
+  }
+  return 'Generate 2 high-quality CAT-level Quantitative Aptitude questions combining 2 topics each. ' + focusArea + ' Requirements: Combine Percentages plus Time Speed Distance or Ratios plus Profit Loss or Geometry plus Mensuration. Each question needs 2 conceptual steps. Wrong options should be common calculation mistakes not random. Return ONLY valid JSON no markdown: {"difficulty":"Medium or Hard","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question with data","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step with working","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
+}
+
+async function loadDailyPractice() {
+  var content = document.getElementById('practice-content');
+  
+  if (isPracticeDoneToday(currentPracticeType)) {
+    showDailyLimitCard(currentPracticeType);
+    return;
+  }
+  
+  var dateEl = document.getElementById('practice-date');
+  if (dateEl) {
+    dateEl.textContent = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+  
+  var typeName = currentPracticeType === 'rc' ? 'RC' : currentPracticeType === 'dilr' ? 'DILR' : 'QA';
+  content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is generating today\'s personalised ' + typeName + ' practice based on your profile...</div></div>';
+  
+  var prompt = '';
+  if (currentPracticeType === 'rc') prompt = buildRCPrompt();
+  else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt();
+  else prompt = buildQAPrompt();
+  
+  try {
+    var res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().',
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    
+    var data = await res.json();
+    var text = data.content && data.content[0] ? data.content[0].text : null;
+    if (!text) throw new Error('No response');
+    
+    var clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    var practiceJson = JSON.parse(clean);
+    practiceData[currentPracticeType] = practiceJson;
+    currentQuestionIndex = 0;
+    practiceAnswered = false;
+    renderPractice(practiceJson);
+    
+  } catch(e) {
+    console.error('Practice error:', e);
+    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">Having trouble generating practice right now. Try again in a moment.</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
+  }
+}
+
+function getMorningPromptHtml() {
+  if (!studentProfile.lastTask) return '';
+  return '<div class="morning-prompt"><div class="morning-prompt-title">Good morning — picking up where you left off</div><div class="morning-prompt-body">Last time: <strong>' + studentProfile.lastTask + '</strong><br>Today\'s practice targets your specific weak areas.</div></div>';
+}
+
+function getOptionsHtml(options) {
+  return options.map(function(opt, i) {
+    return '<button class="pcard-option" onclick="selectAnswer(' + i + ')" data-index="' + i + '">' + opt + '</button>';
+  }).join('');
+}
+
+function renderPractice(data) {
+  var content = document.getElementById('practice-content');
+  var morningPrompt = getMorningPromptHtml();
+  var q, qNum, total, headerLabel, diffLabel, bodyHtml;
+  
+  if (currentPracticeType === 'rc') {
+    q = data.questions[currentQuestionIndex];
+    qNum = currentQuestionIndex + 1;
+    total = data.questions.length;
+    headerLabel = 'RC — Question ' + qNum + ' of ' + total;
+    diffLabel = (data.difficulty || 'Medium') + ' · ' + (data.topic || 'General');
+    var passageHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage">' + data.passage + '</div>' : '';
+    bodyHtml = passageHtml + '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+  } else if (currentPracticeType === 'dilr') {
+    q = data.questions[currentQuestionIndex];
+    qNum = currentQuestionIndex + 1;
+    total = data.questions.length;
+    headerLabel = 'DILR — Question ' + qNum + ' of ' + total;
+    diffLabel = (data.difficulty || 'Medium') + ' · ' + (data.constraint_types || []).join(' + ');
+    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong> ' + data.setup + '</div>' : '';
+    bodyHtml = setupHtml + '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+  } else {
+    q = data.questions[currentQuestionIndex];
+    qNum = currentQuestionIndex + 1;
+    total = data.questions.length;
+    headerLabel = 'QA — Question ' + qNum + ' of ' + total;
+    diffLabel = (data.difficulty || 'Medium') + ' · ' + (data.topics_combined || []).join(' + ');
+    bodyHtml = '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+  }
+  
+  var prevBtn = currentQuestionIndex > 0 ? '<button class="pcard-nav-btn secondary" onclick="prevQuestion()">Previous</button>' : '';
+  var nextLabel = currentQuestionIndex < total - 1 ? 'Next question' : 'Finish session';
+  
+  content.innerHTML = morningPrompt + '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">' + headerLabel + '</div><div class="pcard-difficulty">' + diffLabel + '</div></div><div class="pcard-body">' + bodyHtml + '<div class="pcard-explanation" id="explanation-box"><div class="explanation-title">Answer &amp; Analysis</div><div class="explanation-body" id="explanation-body"></div><div class="marg-insight" id="marg-insight"></div></div></div><div class="pcard-nav">' + prevBtn + '<button class="pcard-nav-btn primary" id="next-btn" onclick="nextQuestion()" disabled>' + nextLabel + '</button></div></div>';
+}
+
+function selectAnswer(selectedIndex) {
+  if (practiceAnswered) return;
+  practiceAnswered = true;
+  
+  var data = practiceData[currentPracticeType];
+  var q = data.questions[currentQuestionIndex];
+  var correct = q.correct;
+  var isCorrect = selectedIndex === correct;
+  
+  document.querySelectorAll('.pcard-option').forEach(function(btn, i) {
+    if (i === correct) btn.classList.add('correct');
+    else if (i === selectedIndex && !isCorrect) btn.classList.add('wrong');
+    btn.style.cursor = 'default';
+  });
+  
+  var box = document.getElementById('explanation-box');
+  var body = document.getElementById('explanation-body');
+  var insight = document.getElementById('marg-insight');
+  
+  var explanationText = '';
+  var insightText = '';
+  
+  if (currentPracticeType === 'rc') {
+    explanationText = q.explanation || '';
+    insightText = isCorrect ? 'Good read — you found the right line.' : (q.marg_insight || '') + (q.trap_type ? ' This is the ' + q.trap_type + ' trap.' : '');
+  } else if (currentPracticeType === 'dilr') {
+    explanationText = (q.explanation || '') + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + q.common_mistake : '');
+    insightText = isCorrect ? 'Clean solve.' : (q.marg_insight || '');
+  } else {
+    explanationText = (q.solution || '') + (q.common_mistake ? '<br><br><strong>Watch out for:</strong> ' + q.common_mistake : '');
+    insightText = isCorrect ? 'Correct approach.' : (q.marg_insight || '') + (q.concept_check ? ' (Topic: ' + q.concept_check + ')' : '');
+  }
+  
+  body.innerHTML = explanationText;
+  insight.textContent = insightText;
+  box.classList.add('visible');
+  
+  var nextBtn = document.getElementById('next-btn');
+  if (nextBtn) nextBtn.disabled = false;
+  
+  if (!isCorrect && q.marg_insight) {
+    updateCognitivePattern(currentPracticeType, q.marg_insight);
+    showInsightToast('<strong>Marg just learned something</strong><br>' + q.marg_insight);
+  }
+  incrementSessionCount();
+}
+
+async function updateCognitivePattern(type, insight) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    var colMap = { rc: 'varc_cognitive_pattern', dilr: 'dilr_cognitive_pattern', qa: 'qa_cognitive_pattern' };
+    var profMap = { rc: 'varcPattern', dilr: 'dilrPattern', qa: 'qaPattern' };
+    var col = colMap[type];
+    
+    var res = await fetch(SUPABASE_URL + '/rest/v1/profiles?select=' + col + '&user_id=eq.' + currentUser.id, {
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN }
+    });
+    var data = await res.json();
+    var existing = (data[0] && data[0][col]) ? data[0][col] : '';
+    var updated = existing ? existing + '; ' + insight : insight;
+    var parts = updated.split('; ').slice(-3).join('; ');
+    
+    var updates = { user_id: currentUser.id };
+    updates[col] = parts;
+    
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify(updates)
+    });
+    
+    studentProfile[profMap[type]] = parts;
+  } catch(e) { console.error('updateCognitivePattern error:', e); }
+}
+
+async function incrementSessionCount() {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    var newCount = (studentProfile.sessionsCount || 0) + 1;
+    studentProfile.sessionsCount = newCount;
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({ user_id: currentUser.id, sessions_count: newCount })
+    });
+  } catch(e) {}
+}
+
+function nextQuestion() {
+  var data = practiceData[currentPracticeType];
+  if (!data) return;
+  var total = data.questions.length;
+  if (currentQuestionIndex < total - 1) {
+    currentQuestionIndex++;
+    practiceAnswered = false;
+    renderPractice(data);
+  } else {
+    showPracticeSummary();
+  }
+}
+
+function prevQuestion() {
+  if (currentQuestionIndex > 0) {
+    currentQuestionIndex--;
+    practiceAnswered = true;
+    renderPractice(practiceData[currentPracticeType]);
+  }
+}
+
+function showPracticeSummary() {
+  markPracticeDoneToday(currentPracticeType);
+  var content = document.getElementById('practice-content');
+  var type = currentPracticeType.toUpperCase();
+  content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">Marg has updated your cognitive profile. Tomorrow\'s questions will be more targeted.</div><button class="pcard-nav-btn primary" onclick="switchTab(\'chat\')" style="max-width:200px;margin:0 auto;">Talk to Marg about today</button></div></div></div>';
+  window._practiceCompleteSummary = 'I just completed today\'s ' + type + ' practice session on Marg. Based on the questions I got wrong, can you give me a quick analysis and tell me what to focus on tomorrow?';
+}
+
+// ═══════════════════════════════════════════════
+// PROGRESS DASHBOARD
+// ═══════════════════════════════════════════════
+
+async function loadProgressDashboard() {
+  var sessEl = document.getElementById('stat-sessions');
+  if (sessEl) sessEl.textContent = studentProfile.sessionsCount || 0;
+  
+  var mockHistory = studentProfile.mockHistory || [];
+  var mocksEl = document.getElementById('stat-mocks');
+  if (mocksEl) mocksEl.textContent = mockHistory.length;
+  
+  try {
+    var res = await fetch(SUPABASE_URL + '/rest/v1/checkins?select=date&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', {
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN }
+    });
+    var checkins = await res.json();
+    var streak = 0;
+    var d = new Date();
+    d.setDate(d.getDate() - 1);
+    var dates = new Set((checkins || []).map(function(c) { return c.date; }));
+    while (dates.has(d.toISOString().split('T')[0])) { streak++; d.setDate(d.getDate() - 1); }
+    var streakEl = document.getElementById('stat-streak');
+    if (streakEl) streakEl.textContent = streak + (streak > 0 ? ' 🔥' : '');
+  } catch(e) {
+    var streakEl = document.getElementById('stat-streak');
+    if (streakEl) streakEl.textContent = '-';
+  }
+  
+  renderMockChart(mockHistory);
+  
+  var varcEl = document.getElementById('varc-pattern-display');
+  if (varcEl && studentProfile.varcPattern) varcEl.textContent = studentProfile.varcPattern;
+  var dilrEl = document.getElementById('dilr-pattern-display');
+  if (dilrEl && studentProfile.dilrPattern) dilrEl.textContent = studentProfile.dilrPattern;
+  var qaEl = document.getElementById('qa-pattern-display');
+  if (qaEl && studentProfile.qaPattern) qaEl.textContent = studentProfile.qaPattern;
+  
+  if (mockHistory.length === 0 && !studentProfile.sessionsCount) {
+    var empty = document.getElementById('progress-empty');
+    var chart = document.getElementById('mock-chart-card');
+    if (empty) empty.style.display = 'block';
+    if (chart) chart.style.display = 'none';
+  }
+  
+  if (new Date().getDay() === 0 && mockHistory.length > 1) {
+    generateWeeklyMentorReport(mockHistory);
+  }
+}
+
+function renderMockChart(history) {
+  var barsContainer = document.getElementById('chart-bars');
+  var labelsContainer = document.getElementById('chart-labels');
+  if (!barsContainer) return;
+  
+  if (!history || history.length === 0) {
+    barsContainer.innerHTML = '<div style="text-align:center;color:var(--text-dim);font-size:12px;width:100%;padding:20px;">No mock data yet — share your mock scores with Marg to track progress</div>';
+    return;
+  }
+  
+  var recent = history.slice(-8);
+  barsContainer.innerHTML = recent.map(function(mock) {
+    var varcH = Math.round((mock.varc / 72) * 100);
+    var dilrH = Math.round((mock.dilr / 60) * 100);
+    var qaH = Math.round((mock.qa / 60) * 100);
+    return '<div class="chart-bar-group"><div class="chart-bar varc" style="height:' + varcH + '%"></div><div class="chart-bar dilr" style="height:' + dilrH + '%"></div><div class="chart-bar qa" style="height:' + qaH + '%"></div></div>';
+  }).join('');
+  
+  if (labelsContainer) {
+    labelsContainer.innerHTML = recent.map(function(mock) {
+      var d = new Date(mock.date);
+      return '<div class="chart-label">' + d.getDate() + '/' + (d.getMonth()+1) + '</div>';
+    }).join('');
+  }
+}
+
+function generateWeeklyMentorReport(history) {
+  if (history.length < 2) return;
+  var latest = history[history.length - 1];
+  var previous = history[history.length - 2];
+  
+  var varcChange = latest.varc - previous.varc;
+  var dilrChange = latest.dilr - previous.dilr;
+  var qaChange = latest.qa - previous.qa;
+  
+  var improving = [];
+  var declining = [];
+  
+  if (varcChange > 0) improving.push('VARC (+' + varcChange + ')');
+  else if (varcChange < 0) declining.push('VARC (' + varcChange + ')');
+  if (dilrChange > 0) improving.push('DILR (+' + dilrChange + ')');
+  else if (dilrChange < 0) declining.push('DILR (' + dilrChange + ')');
+  if (qaChange > 0) improving.push('QA (+' + qaChange + ')');
+  else if (qaChange < 0) declining.push('QA (' + qaChange + ')');
+  
+  var weakest = latest.varc/72 < latest.dilr/60 && latest.varc/72 < latest.qa/60 ? 'VARC' : latest.dilr/60 < latest.qa/60 ? 'DILR' : 'QA';
+  
+  var report = '';
+  if (improving.length) report += '<strong>Improving:</strong> ' + improving.join(', ') + '<br>';
+  if (declining.length) report += '<strong>Needs work:</strong> ' + declining.join(', ') + '<br>';
+  report += '<br><strong>This week — fix ONE thing:</strong> Your ' + weakest + ' score relative to max is the biggest leak.';
+  
+  var bodyEl = document.getElementById('weekly-mentor-body');
+  var cardEl = document.getElementById('weekly-mentor-card');
+  if (bodyEl) bodyEl.innerHTML = report;
+  if (cardEl) cardEl.style.display = 'block';
+}
+
+// ═══════════════════════════════════════════════
+// AUTO-DETECT MOCK SCORES IN CHAT
+// ═══════════════════════════════════════════════
+
+function detectAndSaveMockScores(message) {
+  var varcMatch = message.match(/varc[: ]+([0-9]+)/i);
+  var dilrMatch = message.match(/(?:dilr|lrdi)[: ]+([0-9]+)/i);
+  var qaMatch = message.match(/(?:qa|quant)[: ]+([0-9]+)/i);
+  
+  if (varcMatch && dilrMatch && qaMatch) {
+    var varc = parseInt(varcMatch[1]);
+    var dilr = parseInt(dilrMatch[1]);
+    var qa = parseInt(qaMatch[1]);
+    if (varc <= 72 && dilr <= 60 && qa <= 60) {
+      saveMockScore(varc, dilr, qa);
+    }
+  }
+}
+
+
+// ═══════════════════════════════════════════════
+// INSIGHT TOAST — shows when Marg learns something
+// ═══════════════════════════════════════════════
+
+function showInsightToast(message) {
+  var toast = document.getElementById('insight-toast');
+  var text = document.getElementById('toast-text');
+  if (!toast || !text) return;
+  text.innerHTML = message;
+  toast.classList.add('show');
+  setTimeout(function() {
+    toast.classList.remove('show');
+  }, 3500);
+}
+
+// ═══════════════════════════════════════════════
+// DAILY PRACTICE LIMIT — one set per type per day
+// ═══════════════════════════════════════════════
+
+function getTodayPracticeKey(type) {
+  return 'marg_practice_done_' + type + '_' + new Date().toISOString().split('T')[0];
+}
+
+function isPracticeDoneToday(type) {
+  return localStorage.getItem(getTodayPracticeKey(type)) === 'true';
+}
+
+function markPracticeDoneToday(type) {
+  localStorage.setItem(getTodayPracticeKey(type), 'true');
+}
+
+function showDailyLimitCard(type) {
+  var content = document.getElementById('practice-content');
+  var typeName = type === 'rc' ? 'RC' : type === 'dilr' ? 'DILR' : 'QA';
+  var sessionsCount = studentProfile.sessionsCount || 0;
+  
+  content.innerHTML = '<div class="daily-limit-card">' +
+    '<div class="daily-limit-icon">✅</div>' +
+    '<div class="daily-limit-title">Today\'s ' + typeName + ' practice — done</div>' +
+    '<div class="daily-limit-body">Marg builds your cognitive profile one focused session at a time. Quality over quantity — come back tomorrow for fresh ' + typeName + ' practice targeting your specific patterns.</div>' +
+    '<div class="daily-limit-stat">🔥 ' + sessionsCount + ' sessions completed with Marg</div>' +
+    '<div style="font-size:12px;color:var(--text-dim);">Try a different section, or chat with Marg about today\'s mistakes</div>' +
+    '</div>';
+}
+
+
 </script>
-
-
-
-<!-- Mock Diagnosis Onboarding Overlay -->
-<div id="mock-onboarding-overlay">
-  <div id="mock-onboarding-box">
-
-    <!-- Progress dots -->
-    <div class="mob-progress" style="margin-bottom:24px;">
-      <div class="mob-dot active" id="mob-dot-1"></div>
-      <div class="mob-dot" id="mob-dot-2"></div>
-      <div class="mob-dot" id="mob-dot-3"></div>
-      <div class="mob-dot" id="mob-dot-4"></div>
-    </div>
-
-    <!-- Step 1: Score input -->
-    <div class="mob-step active" id="mob-step-1">
-      <div class="mob-header">
-        <div class="mob-step-tag">Step 1 of 4 — Your mock scores</div>
-        <div class="mob-title">What did you score?</div>
-        <div class="mob-sub">Enter your raw scores from today's mock. Leave blank if you didn't attempt a section.</div>
-      </div>
-      <div class="mob-scores">
-        <div class="mob-score-group">
-          <div class="mob-score-label">VARC</div>
-          <input type="number" class="mob-score-input" id="mob-varc" placeholder="0" min="0" max="72"/>
-          <div class="mob-score-max">Max 72</div>
-        </div>
-        <div class="mob-score-group">
-          <div class="mob-score-label">DILR</div>
-          <input type="number" class="mob-score-input" id="mob-dilr" placeholder="0" min="0" max="60"/>
-          <div class="mob-score-max">Max 60</div>
-        </div>
-        <div class="mob-score-group">
-          <div class="mob-score-label">QA</div>
-          <input type="number" class="mob-score-input" id="mob-qa" placeholder="0" min="0" max="60"/>
-          <div class="mob-score-max">Max 60</div>
-        </div>
-      </div>
-      <button class="mob-btn-primary" onclick="submitMockOnboarding()">Diagnose my mock →</button>
-      <button class="mob-btn-secondary" onclick="skipMockOnboarding()">Skip — I just want to chat with Marg</button>
-    </div>
-
-    <!-- Step 2: Diagnosis result -->
-    <div class="mob-step" id="mob-step-2">
-      <div class="mob-header">
-        <div class="mob-step-tag">Step 2 of 4 — Your diagnosis</div>
-        <div class="mob-title">Here's what I'm seeing.</div>
-        <div class="mob-sub">Based on your scores — here's the pattern that's costing you marks.</div>
-      </div>
-      <div class="mob-diagnosis loading" id="mob-diagnosis-text">Analysing your mock scores...</div>
-      <button class="mob-btn-primary" onclick="mobNextStep(3)" id="mob-step2-next" style="display:none;">This makes sense — what do I fix? →</button>
-      <button class="mob-btn-secondary" onclick="mobNextStep(3)" id="mob-step2-skip" style="display:none;">Not quite right — let me clarify</button>
-    </div>
-
-    <!-- Step 3: Quick profile (attempt number) -->
-    <div class="mob-step" id="mob-step-3">
-      <div class="mob-header">
-        <div class="mob-step-tag">Step 3 of 4 — Quick context</div>
-        <div class="mob-title">One quick question.</div>
-        <div class="mob-sub">This helps Marg give you a more specific plan.</div>
-      </div>
-      <div class="mob-question">Is this your first CAT attempt?</div>
-      <div class="mob-options">
-        <button class="mob-option" onclick="selectMobOption(this, 'attempt', 'First attempt')">Yes — first attempt</button>
-        <button class="mob-option" onclick="selectMobOption(this, 'attempt', 'Second attempt')">Second attempt</button>
-        <button class="mob-option" onclick="selectMobOption(this, 'attempt', 'Third attempt or more')">Third attempt or more</button>
-      </div>
-      <button class="mob-btn-primary" onclick="mobNextStep(4)" id="mob-step3-next" disabled>Continue →</button>
-    </div>
-
-    <!-- Step 4: Weakest section -->
-    <div class="mob-step" id="mob-step-4">
-      <div class="mob-header">
-        <div class="mob-step-tag">Step 4 of 4 — Last one</div>
-        <div class="mob-title">Which section feels most broken?</div>
-        <div class="mob-sub">Not just the lowest score — the one that frustrates you most.</div>
-      </div>
-      <div class="mob-options">
-        <button class="mob-option" onclick="selectMobOption(this, 'weak', 'VARC')">VARC — Reading Comprehension</button>
-        <button class="mob-option" onclick="selectMobOption(this, 'weak', 'DILR')">DILR — Data & Reasoning</button>
-        <button class="mob-option" onclick="selectMobOption(this, 'weak', 'QA')">QA — Quantitative Ability</button>
-        <button class="mob-option" onclick="selectMobOption(this, 'weak', 'All sections')">All sections feel weak</button>
-      </div>
-      <button class="mob-btn-primary" onclick="finishMockOnboarding()" id="mob-step4-next" disabled>Start my personalised plan →</button>
-    </div>
-
-  </div>
-</div>
-
-<!-- Welcome to Marg Overlay -->
-<div id="welcome-marg-overlay">
-  <div id="welcome-marg-box">
-    <div class="wm-logo">
-      <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg">
-    </div>
-    <div>
-      <div class="wm-title">Welcome to Marg 🎯</div>
-      <div class="wm-tag" style="margin-top:6px;">Marg is different.</div>
-    </div>
-    <div class="wm-diff-box">
-      <div class="wm-diff-label">Here's how</div>
-      <div class="wm-diff-item"><span>→</span> Most AI gives generic advice. Marg diagnoses first.</div>
-      <div class="wm-diff-item"><span>→</span> Like a doctor — understand your situation before prescribing.</div>
-      <div class="wm-diff-item"><span>→</span> Your conversations are saved. Marg remembers you.</div>
-    </div>
-    <div class="wm-desc">To give you specific guidance, Marg will ask you <strong style="color:var(--text);">5 quick questions</strong> upfront. This takes 60 seconds and makes every response personalised to you.</div>
-    <div class="wm-notice">Not generic advice. <strong>Your specific path.</strong></div>
-    <button class="wm-btn" onclick="showPreviewScreen()">Got it — show me Marg →</button>
-  </div>
-</div>
-
-<!-- Preview Overlay -->
-<div id="preview-overlay">
-  <div id="preview-box">
-    <div class="preview-label">Here's what Marg looks like</div>
-    <div class="preview-title">Your personal CAT mentor</div>
-    <div class="preview-frame">
-      <div class="preview-topbar">
-        <div class="preview-streak">🔥 Day 1 Streak</div>
-        <div class="preview-section-btn">📖 Daily VARC</div>
-      </div>
-      <div class="preview-messages">
-        <div class="preview-msg-marg">
-          Hey! Based on your profile, your biggest opportunity right now is VARC. Before I give you a plan — one question: when you attempt RC passages, do you run out of time or do you finish but still get answers wrong?
-        </div>
-        <div class="preview-msg-user">I finish but get a lot wrong 😔</div>
-        <div class="preview-msg-marg">
-          That's actually the easier fix — it means your speed is fine, it's your accuracy on inference questions. Here's exactly what to do this week...
-        </div>
-      </div>
-      <div class="preview-input-bar">
-        <div class="preview-input-fake">Complete setup to start chatting →</div>
-        <div class="preview-send-fake">→</div>
-      </div>
-    </div>
-    <div class="preview-actions">
-      <button class="preview-skip-btn" onclick="skipToOnboarding()">Skip</button>
-      <button class="preview-next-btn" onclick="skipToOnboarding()">Start my setup →</button>
-    </div>
-  </div>
-</div>
-
-<!-- Profile Setup Overlay -->
-<div id="profile-setup-overlay">
-  <div id="profile-setup-box">
-    <div class="ps-header">
-      <div class="ps-title">Quick profile setup 🎯</div>
-      <div class="ps-sub">5 questions · 60 seconds · personalises everything</div>
-    </div>
-    <div class="ps-field">
-      <div class="ps-label">Category</div>
-      <select class="ps-select" id="ps-category">
-        <option value="general">General</option>
-        <option value="obc">OBC-NCL</option>
-        <option value="sc">SC</option>
-        <option value="st">ST</option>
-        <option value="ews">EWS</option>
-      </select>
-    </div>
-    <div class="ps-field">
-      <div class="ps-label">Academic Profile (%)</div>
-      <div class="ps-row">
-        <input class="ps-input" id="ps-tenth" type="number" placeholder="10th" min="0" max="100">
-        <input class="ps-input" id="ps-twelfth" type="number" placeholder="12th" min="0" max="100">
-        <input class="ps-input" id="ps-grad" type="number" placeholder="Grad" min="0" max="100">
-      </div>
-    </div>
-    <div class="ps-field">
-      <div class="ps-label">Current Mock Percentile</div>
-      <select class="ps-select" id="ps-mock">
-        <option value="none">Haven't given one yet</option>
-        <option value="below70">Below 70</option>
-        <option value="70-80">70 - 80</option>
-        <option value="80-90">80 - 90</option>
-        <option value="90-95">90 - 95</option>
-        <option value="95-99">95 - 99</option>
-        <option value="99+">99+</option>
-      </select>
-    </div>
-    <div class="ps-field">
-      <div class="ps-label">Weakest Section</div>
-      <select class="ps-select" id="ps-weak">
-        <option value="VARC">VARC (Reading & Verbal)</option>
-        <option value="DILR">DILR (Data & Logic)</option>
-        <option value="QA">QA (Quant)</option>
-        <option value="All">All equally weak</option>
-      </select>
-    </div>
-    <div class="ps-field">
-      <div class="ps-label">Email (for streak reminders)</div>
-      <input class="ps-input" id="ps-email" type="email" placeholder="your@email.com">
-      <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">We'll remind you if you miss a day. No spam ever.</div>
-    </div>
-    <button class="ps-submit" onclick="submitProfileSetup()">Show me my diagnosis →</button>
-    <button class="ps-skip" onclick="skipProfileSetup()">Skip for now</button>
-  </div>
-</div>
-
-<!-- Diagnosis Overlay -->
-<div id="diagnosis-overlay">
-  <div id="diagnosis-box">
-    <div class="diag-header">
-      <div class="diag-badge">✓ Profile analysed</div>
-      <div class="diag-title" id="diag-title">Your IIM Risk Profile</div>
-      <div class="diag-target" id="diag-target">Target percentile: <span id="diag-percentile">—</span></div>
-    </div>
-    <div class="risk-grid" id="diag-risk-grid"></div>
-    <div class="diag-threat">
-      <div class="diag-threat-label">🎯 Your biggest opportunity</div>
-      <div class="diag-threat-text" id="diag-threat-text">—</div>
-    </div>
-    <div class="diag-actions">
-      <button class="diag-btn-primary" id="diag-btn-primary" onclick="startDiagnosisChat('primary')">Fix my biggest weakness — start now</button>
-      <button class="diag-btn-secondary" onclick="startDiagnosisChat('secondary')">Analyze my last mock score</button>
-    </div>
-  </div>
-</div>
-
-</body>
-</html>
