@@ -151,7 +151,7 @@
   .typing-bubble span:nth-child(2){animation-delay:0.18s}
   .typing-bubble span:nth-child(3){animation-delay:0.36s}
   @keyframes bounce{0%,60%,100%{transform:translateY(0);background:var(--text-dim)}30%{transform:translateY(-5px);background:var(--gold)}}
-  #input-area{padding:12px 16px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
+  #input-area{padding:12px 16px 76px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0;position:sticky;bottom:0;z-index:40}
   #input-row{display:flex;gap:10px;align-items:flex-end}
   #user-input{flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:22px;padding:10px 16px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);resize:none;outline:none;max-height:120px;overflow-y:auto;transition:border-color 0.2s;line-height:1.5}
   #user-input:focus{border-color:rgba(201,168,76,0.4)}
@@ -714,9 +714,11 @@
   .tab-section {
     display: none;
     flex-direction: column;
-    height: 100vh;
-    padding-bottom: 64px;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 64px;
     overflow-y: auto;
+    background: var(--bg);
+    z-index: 50;
   }
   .tab-section.active { display: flex; }
 
@@ -1093,6 +1095,11 @@
     <h1 class="hero-title">The longer you use Marg, the better it knows your mistakes.</h1>
     <div class="hero-tagline">Daily practice that learns how YOUR brain thinks — not generic questions.</div>
     <p class="hero-sub">Marg tracks every mistake you make, builds a cognitive profile of how you think, and generates tomorrow's practice based on yesterday's errors. Free. Starts in 60 seconds.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:8px;">
+      <a href="/daily-rc" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">📖 Try today's RC free</a>
+      <a href="/daily-dilr" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">🧩 Try today's DILR free</a>
+      <a href="/daily-qa" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">🔢 Try today's QA free</a>
+    </div>
     <button class="hero-cta" onclick="startMockOnboardingLogin()" style="background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;justify-content:center;font-size:15px;padding:16px 32px;max-width:320px;">
       Start free — Marg learns you in 60 seconds
     </button>
@@ -2538,8 +2545,13 @@ async function initSession() {
         }
         const varcShown = await checkVarcShownToday();
         if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 3000); }
+        document.getElementById('landing-page').style.display = 'none';
+        showBottomNav();
       } else {
-        // New user - check if they came from mock diagnosis CTA
+        // New user — hide landing first
+        document.getElementById('landing-page').style.display = 'none';
+        showBottomNav();
+        // Check if they came from mock diagnosis CTA
         if (mobLoginForMock) {
           mobLoginForMock = false;
           showMockOnboarding();
