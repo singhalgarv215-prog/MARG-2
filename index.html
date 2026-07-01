@@ -1976,10 +1976,81 @@ async function finishOnboarding() {
 }
 
 function showPathChoiceScreen() {
+  // If user came from a daily practice page - skip choice, start with attempt context
+  if (window._pendingAttempt) {
+    startFromAttemptContext(window._pendingAttempt);
+    window._pendingAttempt = null;
+    return;
+  }
+  
   const messages = document.getElementById('messages');
   const choiceHtml = '<div class="practice-card" style="margin:16px 0;"><div class="pcard-header"><div class="pcard-label">Your profile is set</div></div><div class="pcard-body"><div style="text-align:center;padding:8px 0 16px;"><div style="font-size:28px;margin-bottom:10px;">👋</div><div style="font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px;">What do you want to do first?</div><div style="font-size:12px;color:var(--text-dim);">Pick one — you can always switch later</div></div><div style="display:flex;flex-direction:column;gap:10px;"><button class="pcard-nav-btn primary" onclick="choosePathDiscuss()" style="padding:14px;">💬 Discuss my strategy with Marg</button><button class="pcard-nav-btn secondary" onclick="choosePathPractice()" style="padding:14px;">📝 Start practicing right now</button></div></div></div>';
   messages.innerHTML += choiceHtml;
   messages.scrollTop = messages.scrollHeight;
+}
+
+async function startFromAttemptContext(attempt) {
+  // Save attempt to Supabase
+  await savePracticeAttempt(attempt);
+  
+  // Enable chat
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  
+  // Build context message for Marg
+  var contextMsg = '';
+  if (attempt.type === 'rc') {
+    contextMsg = 'I just attempted today\'s RC on Marg\'s daily practice page. I ' + (attempt.correct ? 'got it right' : 'got it wrong — I picked option ' + attempt.selectedOption) + '. The question was about: ' + attempt.topic + '. The trap type was: ' + (attempt.trapType || 'not identified') + '. Based on this, can you start my preparation with a quick analysis of what this tells you about my VARC approach?';
+  } else if (attempt.type === 'dilr') {
+    contextMsg = 'I just attempted a DILR set on Marg\'s daily practice page. I ' + (attempt.correct ? 'got it right' : 'got it wrong') + '. The set type was: ' + attempt.setType + '. Based on this, can you start my preparation with what this tells you about my DILR approach?';
+  } else if (attempt.type === 'qa') {
+    contextMsg = 'I just attempted a QA question on Marg\'s daily practice page. I ' + (attempt.correct ? 'got it right' : 'got it wrong') + '. Topics: ' + attempt.topics + '. Common mistake: ' + (attempt.commonMistake || 'not identified') + '. Based on this, can you start my preparation with what this tells you about my QA approach?';
+  }
+  
+  // Add to conversation history
+  conversationHistory.push({ role: 'user', content: contextMsg });
+  showTyping();
+  
+  try {
+    var res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system: SYSTEM_PROMPT + '\n\nIMPORTANT: This user just signed up after attempting a practice question on the daily practice page. Start by acknowledging what their attempt reveals about their thinking pattern. Then after 2-3 exchanges, naturally ask them to complete their profile setup saying something like "To make tomorrow\'s practice even more targeted — tell me quickly: is this your first CAT attempt or have you given it before?"',
+        messages: conversationHistory
+      })
+    });
+    var data = await res.json();
+    var response = data.content && data.content[0] ? data.content[0].text : null;
+    hideTyping();
+    if (response) {
+      addMessage('marg', response);
+      conversationHistory.push({ role: 'assistant', content: response });
+    }
+  } catch(e) {
+    hideTyping();
+    addMessage('marg', 'Hey! I saw you just attempted today\'s practice. Tell me — was that question type familiar or did the approach feel new?');
+  }
+}
+
+async function savePracticeAttempt(attempt) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    // Save to varc/dilr/qa cognitive pattern based on attempt
+    if (!attempt.correct && attempt.trapType) {
+      var col = attempt.type === 'rc' ? 'varc_cognitive_pattern' : 
+                attempt.type === 'dilr' ? 'dilr_cognitive_pattern' : 'qa_cognitive_pattern';
+      var updates = { user_id: currentUser.id };
+      updates[col] = attempt.trapType;
+      await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
+        body: JSON.stringify(updates)
+      });
+    }
+  } catch(e) { console.error('savePracticeAttempt error:', e); }
 }
 
 async function choosePathDiscuss() {
