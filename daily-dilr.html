@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAT Daily DILR Practice — Free Data Interpretation & Logical Reasoning | Marg</title>
+<meta name="description" content="Practice one fresh CAT-level DILR set every day. AI-generated sets combining multiple constraint types. Track your decision-making and improve set selection. Free.">
+<meta name="keywords" content="CAT DILR practice, CAT logical reasoning, CAT data interpretation, free CAT DILR questions, CAT 2026 DILR, LRDI practice CAT">
+<meta property="og:title" content="CAT Daily DILR Practice — Free | Marg">
+<meta property="og:description" content="One fresh CAT-level DILR set every day. Attempt it, see where your decision-making broke, improve set selection.">
+<meta property="og:url" content="https://trymarg.com/daily-dilr">
+<link rel="canonical" href="https://trymarg.com/daily-dilr">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0D0D0D; --surface: #141414; --surface2: #1A1A1A;
+    --border: #2A2A2A; --text: #F0EDE6; --text-muted: #C8C4BC;
+    --text-dim: #888880; --gold: #C9A84C; --green: #4CAF7D;
+    --red: #E05C5C; --radius: 12px;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; line-height: 1.6; }
+  nav { padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 10; }
+  .nav-logo { font-family: 'Playfair Display', serif; font-size: 20px; color: var(--text); text-decoration: none; }
+  .nav-logo span { color: var(--gold); }
+  .nav-links { display: flex; gap: 8px; }
+  .nav-link { padding: 8px 14px; border-radius: 8px; font-size: 13px; text-decoration: none; color: var(--text-dim); transition: all 0.2s; }
+  .nav-link.active { background: rgba(201,168,76,0.1); color: var(--gold); border: 1px solid rgba(201,168,76,0.2); }
+  .nav-cta { background: linear-gradient(135deg, #4CAF7D, #2D7A55); color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; text-decoration: none; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 20px 80px; }
+  .page-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.2); border-radius: 20px; padding: 5px 12px; font-size: 11px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
+  .page-title { font-family: 'Playfair Display', serif; font-size: 32px; color: var(--text); line-height: 1.25; margin-bottom: 10px; }
+  .page-sub { font-size: 15px; color: var(--text-dim); line-height: 1.6; }
+  .day-counter { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--text-dim); }
+  .section-nav { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
+  .section-nav-btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; text-decoration: none; background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); transition: all 0.2s; }
+  .section-nav-btn.active { background: rgba(201,168,76,0.08); border-color: rgba(201,168,76,0.3); color: var(--gold); }
+  .practice-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
+  .card-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .card-label { font-size: 11px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
+  .card-meta { font-size: 11px; color: var(--text-dim); }
+  .card-body { padding: 20px; }
+  .set-text { font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--text-muted); line-height: 1.9; margin-bottom: 24px; padding: 16px; background: var(--surface2); border-radius: 8px; border-left: 3px solid var(--gold); }
+  .two-min-tip { background: rgba(201,168,76,0.06); border: 1px solid rgba(201,168,76,0.15); border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; font-size: 13px; color: var(--gold); }
+  .question-block { margin-bottom: 28px; }
+  .question-number { font-size: 11px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .question-text { font-size: 15px; color: var(--text); font-weight: 500; line-height: 1.5; margin-bottom: 14px; }
+  .options { display: flex; flex-direction: column; gap: 8px; }
+  .option { background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 12px 16px; font-size: 14px; color: var(--text-muted); cursor: pointer; transition: all 0.15s; text-align: left; font-family: 'DM Sans', sans-serif; line-height: 1.5; width: 100%; }
+  .option:hover { border-color: var(--gold); color: var(--text); }
+  .option.correct { border-color: var(--green); background: rgba(76,175,125,0.08); color: var(--green); }
+  .option.wrong { border-color: var(--red); background: rgba(224,92,92,0.08); color: var(--red); }
+  .explanation { display: none; margin-top: 12px; background: var(--surface2); border-left: 3px solid var(--gold); border-radius: 0 8px 8px 0; padding: 14px 16px; }
+  .explanation.show { display: block; }
+  .explanation-label { font-size: 11px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .explanation-text { font-size: 13px; color: var(--text-muted); line-height: 1.7; }
+  .question-divider { height: 1px; background: var(--border); margin: 24px 0; }
+  .cta-card { background: linear-gradient(135deg, rgba(201,168,76,0.06), transparent); border: 1px solid rgba(201,168,76,0.2); border-radius: var(--radius); padding: 24px 20px; text-align: center; margin-bottom: 20px; }
+  .cta-title { font-family: 'Playfair Display', serif; font-size: 20px; color: var(--text); margin-bottom: 8px; }
+  .cta-body { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 18px; }
+  .cta-btn { display: inline-block; background: linear-gradient(135deg, #4CAF7D, #2D7A55); color: #fff; padding: 14px 28px; border-radius: 10px; font-size: 15px; font-weight: 500; text-decoration: none; }
+  .cta-note { font-size: 12px; color: var(--text-dim); margin-top: 10px; }
+  .loading { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+  .spinner { width: 32px; height: 32px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  footer { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 12px; border-top: 1px solid var(--border); }
+  footer a { color: var(--gold); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="https://trymarg.com" class="nav-logo">M<span>arg</span></a>
+  <div class="nav-links">
+    <a href="/daily-rc" class="nav-link">RC</a>
+    <a href="/daily-dilr" class="nav-link active">DILR</a>
+    <a href="/daily-qa" class="nav-link">QA</a>
+  </div>
+  <a href="https://trymarg.com" class="nav-cta">Try Marg free →</a>
+</nav>
+
+<main>
+  <div class="page-header" style="margin-bottom:28px;">
+    <div class="page-badge">🧩 Daily Practice · Free</div>
+    <h1 class="page-title">CAT Daily DILR Practice</h1>
+    <p class="page-sub">One fresh CAT-level DILR set every day — combining multiple constraint types just like actual CAT. Attempt it solo first, then see the solution.</p>
+    <div class="day-counter">
+      <span id="today-date"></span>
+      <span>·</span>
+      <span id="dilr-number"></span>
+    </div>
+  </div>
+
+  <div class="section-nav">
+    <a href="/daily-rc" class="section-nav-btn">📖 Reading Comprehension</a>
+    <a href="/daily-dilr" class="section-nav-btn active">🧩 DILR</a>
+    <a href="/daily-qa" class="section-nav-btn">🔢 Quantitative</a>
+  </div>
+
+  <div id="practice-container">
+    <div class="loading">
+      <div class="spinner"></div>
+      <div>Generating today's DILR set...</div>
+    </div>
+  </div>
+
+  <div class="cta-card">
+    <div class="cta-title">Marg tracks your DILR decisions.</div>
+    <div class="cta-body">When you sign up, Marg learns whether you stay too long on hard sets, leave too early on easy ones, or misread constraints. Tomorrow's practice targets your specific decision-making pattern — not generic DILR.</div>
+    <a href="https://trymarg.com" class="cta-btn">Start personalised practice — free →</a>
+    <div class="cta-note">No credit card. Takes 60 seconds.</div>
+  </div>
+</main>
+
+<footer>
+  <p>Built by <a href="https://trymarg.com">Marg</a> — AI mentor for CAT aspirants · <a href="/daily-rc">Daily RC</a> · <a href="/daily-qa">Daily QA</a></p>
+</footer>
+
+<script>
+const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
+const today = new Date();
+document.getElementById('today-date').textContent = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const launch = new Date('2026-06-01');
+const dayNum = Math.floor((today - launch) / (1000 * 60 * 60 * 24)) + 1;
+document.getElementById('dilr-number').textContent = 'DILR #' + dayNum;
+
+var answered = {};
+
+async function generateDILR() {
+  const container = document.getElementById('practice-container');
+  const cacheKey = 'marg_daily_dilr_' + today.toISOString().split('T')[0];
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) { try { renderDILR(JSON.parse(cached)); return; } catch(e) {} }
+  
+  const prompt = 'Generate a high-quality CAT-level DILR set combining 2 constraint types. Requirements: Combine 2 of these: Linear Arrangements plus Rankings, Circular Arrangements plus Conditions, Scheduling plus Grouping, Matrix plus Inequality, Blood Relations plus Ordering. Use exactly 5-6 elements. Create 4 questions of increasing difficulty. Include one question that looks easy but has a hidden constraint trap. Make it genuinely hard — like actual CAT DILR not coaching material. Return ONLY valid JSON no markdown: {"set_title":"brief set type description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"complete set description with all conditions and constraints clearly stated","questions":[{"q":"question text","options":["A. answer","B. answer","C. answer","D. answer"],"correct":0,"explanation":"step by step solution approach","common_mistake":"what most students get wrong here"}]}';
+  
+  try {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2000,
+        system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown.',
+        messages: [{ role: 'user', content: prompt }] })
+    });
+    const data = await res.json();
+    const text = data.content && data.content[0] ? data.content[0].text : null;
+    if (!text) throw new Error('No response');
+    const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const dilrData = JSON.parse(clean);
+    localStorage.setItem(cacheKey, JSON.stringify(dilrData));
+    renderDILR(dilrData);
+  } catch(e) {
+    container.innerHTML = '<div class="loading"><div>Having trouble loading today\'s set. Please refresh.</div></div>';
+  }
+}
+
+function renderDILR(data) {
+  const container = document.getElementById('practice-container');
+  var questionsHtml = data.questions.map(function(q, qi) {
+    var optionsHtml = q.options.map(function(opt, oi) {
+      return '<button class="option" onclick="selectOption(' + qi + ',' + oi + ',' + q.correct + ',this)" id="opt-' + qi + '-' + oi + '">' + opt + '</button>';
+    }).join('');
+    var divider = qi < data.questions.length - 1 ? '<div class="question-divider"></div>' : '';
+    return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="question-text">' + q.q + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Solution & Analysis</div><div class="explanation-text">' + q.explanation + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + q.common_mistake : '') + '</div></div></div>' + divider;
+  }).join('');
+  
+  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">🧩 DILR Set · #' + dayNum + '</div><div class="card-meta">' + (data.difficulty || 'Medium') + ' · ' + (data.constraint_types || []).join(' + ') + '</div></div><div class="card-body"><div class="two-min-tip">⏱ <strong>2-minute rule:</strong> Spend the first 2 minutes understanding the set structure only. If you can\'t see how to begin after 2 minutes — leave it. That\'s the CAT DILR skill.</div><div class="set-text"><strong>The Set:</strong><br><br>' + data.setup + '</div>' + questionsHtml + '</div></div>';
+}
+
+function selectOption(qIndex, optIndex, correct, btn) {
+  if (answered[qIndex]) return;
+  answered[qIndex] = true;
+  var isCorrect = optIndex === correct;
+  var cached = localStorage.getItem('marg_daily_dilr_' + today.toISOString().split('T')[0]);
+  var dilrData = cached ? JSON.parse(cached) : null;
+  var q = dilrData ? dilrData.questions[qIndex] : null;
+  localStorage.setItem('marg_pending_attempt', JSON.stringify({
+    type: 'dilr', correct: isCorrect,
+    setType: dilrData ? (dilrData.constraint_types || []).join(' + ') : 'DILR set',
+    commonMistake: q ? q.common_mistake : null,
+    dayNum: dayNum
+  }));
+  for (var i = 0; i < 4; i++) {
+    var optEl = document.getElementById('opt-' + qIndex + '-' + i);
+    if (optEl) { optEl.disabled = true; optEl.style.cursor = 'default'; if (i === correct) optEl.classList.add('correct'); else if (i === optIndex && !isCorrect) optEl.classList.add('wrong'); }
+  }
+  var exp = document.getElementById('exp-' + qIndex);
+  if (exp) exp.classList.add('show');
+}
+
+generateDILR();
+</script>
+</body>
+</html>
