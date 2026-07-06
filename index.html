@@ -1236,6 +1236,152 @@
   <div id="welcome-bar"><div id="welcome-bar-fill"></div></div>
 </div>
 
+<!-- ═══ WELCOME MARG OVERLAY ═══ -->
+<div id="welcome-marg-overlay" style="display:none;">
+  <div style="text-align:center;padding:40px 32px;max-width:380px;margin:0 auto;">
+    <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg" style="height:48px;margin-bottom:32px;">
+    <h2 style="font-family:'Playfair Display',serif;font-size:26px;color:var(--text);margin-bottom:12px;line-height:1.3;">The longer you use Marg, the better it knows your mistakes.</h2>
+    <p style="font-size:14px;color:var(--text-dim);line-height:1.7;margin-bottom:32px;">Marg is a free AI mentor that builds a cognitive profile of how YOU specifically think — and generates daily practice targeting your exact weak patterns.</p>
+    <button onclick="showPreviewScreen()" style="width:100%;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:12px;padding:16px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;margin-bottom:12px;">See how it works →</button>
+    <button onclick="skipToOnboarding()" style="width:100%;background:none;border:1px solid var(--border2);border-radius:12px;padding:14px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text-dim);cursor:pointer;">Skip — set up my profile directly</button>
+  </div>
+</div>
+
+<!-- ═══ PREVIEW OVERLAY ═══ -->
+<div id="preview-overlay" style="display:none;">
+  <div style="text-align:center;padding:32px 24px;max-width:400px;margin:0 auto;width:100%;">
+    <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:20px;">How Marg works</div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:32px;text-align:left;">
+      <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:12px;color:var(--gold);margin-bottom:4px;">DAY 1</div>
+        <div style="font-size:14px;color:var(--text);">You tell Marg your mock scores and weak areas</div>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:12px;color:#4CAF7D;margin-bottom:4px;">EVERY DAY</div>
+        <div style="font-size:14px;color:var(--text);">Marg generates practice targeting your specific mistake patterns</div>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:12px;color:#6B8EFF;margin-bottom:4px;">EVERY WEEK</div>
+        <div style="font-size:14px;color:var(--text);">Marg shows exactly what improved and what to fix next</div>
+      </div>
+    </div>
+    <button onclick="skipToOnboarding()" style="width:100%;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:12px;padding:16px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;">Set up my profile — 60 seconds →</button>
+  </div>
+</div>
+
+<!-- ═══ PROFILE SETUP OVERLAY (5 onboarding questions) ═══ -->
+<div id="profile-setup-overlay" style="display:none;">
+  <div style="width:100%;max-width:420px;padding:32px 24px;margin:0 auto;">
+    <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Setting up your profile</div>
+    <div style="font-size:20px;color:var(--text);font-family:'Playfair Display',serif;margin-bottom:24px;">Tell Marg about your prep</div>
+    
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">Which attempt is this?</label>
+        <select id="ps-attempt" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+          <option value="">Select...</option>
+          <option value="1st attempt">1st attempt</option>
+          <option value="2nd attempt">2nd attempt</option>
+          <option value="3rd attempt">3rd attempt</option>
+          <option value="4th attempt or more">4th attempt or more</option>
+        </select>
+      </div>
+      
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">Months until CAT 2026</label>
+        <select id="ps-months" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+          <option value="">Select...</option>
+          <option value="1-2 months">1-2 months</option>
+          <option value="3-4 months">3-4 months</option>
+          <option value="5-6 months">5-6 months</option>
+          <option value="6+ months">6+ months</option>
+        </select>
+      </div>
+      
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">Weakest section</label>
+        <select id="ps-weak" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+          <option value="">Select...</option>
+          <option value="VARC">VARC</option>
+          <option value="DILR">DILR</option>
+          <option value="QA">QA</option>
+          <option value="All equally weak">All equally weak</option>
+        </select>
+      </div>
+      
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">Daily study hours</label>
+        <select id="ps-hours" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+          <option value="">Select...</option>
+          <option value="1-2 hours">1-2 hours</option>
+          <option value="2-4 hours">2-4 hours</option>
+          <option value="4-6 hours">4-6 hours</option>
+          <option value="6+ hours">6+ hours</option>
+        </select>
+      </div>
+      
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">Current situation</label>
+        <select id="ps-situation" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+          <option value="">Select...</option>
+          <option value="Full-time CAT prep">Full-time CAT prep</option>
+          <option value="Working + CAT prep">Working + CAT prep</option>
+          <option value="College + CAT prep">College + CAT prep</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      
+      <button onclick="submitProfileSetup()" style="width:100%;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:12px;padding:16px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;margin-top:8px;">Start with Marg →</button>
+      <button onclick="skipProfileSetup()" style="width:100%;background:none;border:none;padding:8px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-dim);cursor:pointer;">Skip for now</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MOCK ONBOARDING OVERLAY ═══ -->
+<div id="mock-onboarding-overlay" style="display:none;">
+  <div style="width:100%;max-width:420px;padding:32px 24px;margin:0 auto;">
+    <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Mock Analysis</div>
+    <div style="font-size:20px;color:var(--text);font-family:'Playfair Display',serif;margin-bottom:8px;">Tell Marg about your mock</div>
+    <div style="font-size:13px;color:var(--text-dim);margin-bottom:24px;">Enter your scores and Marg will diagnose exactly what to fix</div>
+    
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">VARC Score (out of 72)</label>
+        <input type="number" id="mob-varc" min="0" max="72" placeholder="e.g. 28" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">DILR Score (out of 60)</label>
+        <input type="number" id="mob-dilr" min="0" max="60" placeholder="e.g. 18" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">QA Score (out of 60)</label>
+        <input type="number" id="mob-qa" min="0" max="60" placeholder="e.g. 22" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">Attempt number</label>
+        <select id="mob-attempt-select" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+          <option value="">Select...</option>
+          <option value="1st attempt">1st attempt</option>
+          <option value="2nd attempt">2nd attempt</option>
+          <option value="3rd attempt">3rd attempt</option>
+          <option value="4th attempt or more">4th attempt or more</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:block;">Weakest section</label>
+        <select id="mob-weak-select" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+          <option value="">Select...</option>
+          <option value="VARC">VARC</option>
+          <option value="DILR">DILR</option>
+          <option value="QA">QA</option>
+        </select>
+      </div>
+      <button onclick="finishMockOnboarding()" style="width:100%;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:12px;padding:16px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:500;cursor:pointer;margin-top:8px;">Analyse my mock →</button>
+      <button onclick="skipMockOnboarding()" style="width:100%;background:none;border:none;padding:8px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-dim);cursor:pointer;">Skip — I want to set up my profile first</button>
+    </div>
+  </div>
+</div>
+
 <div id="checkin-overlay">
   <div id="checkin-box">
     <div id="checkin-header">
@@ -1924,14 +2070,19 @@ function updateUserUI(user) {
 
 function showWelcome(callback) {
   document.getElementById('loading-screen').style.display = 'none';
-  document.getElementById('landing-page').style.display = 'none';
-  showBottomNav();
+  // Don't hide landing page yet - wait for new/returning check
   // Check if URL says to open practice tab directly
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('tab') === 'practice') {
     setTimeout(() => switchTab('practice'), 500);
   }
-  showBottomNav();
+  
+  // Check for pending practice attempt
+  const pendingAttempt = localStorage.getItem('marg_pending_attempt');
+  if (pendingAttempt) {
+    try { window._pendingAttempt = JSON.parse(pendingAttempt); localStorage.removeItem('marg_pending_attempt'); } catch(e) {}
+  }
+  
   const overlay = document.getElementById('welcome-overlay');
   overlay.style.display = 'flex';
   setTimeout(function() {
@@ -2078,6 +2229,48 @@ async function savePracticeAttempt(attempt) {
     }
   } catch(e) { console.error('savePracticeAttempt error:', e); }
 }
+
+function showWelcomeMarg() {
+  var overlay = document.getElementById('welcome-marg-overlay');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+function showPreviewScreen() {
+  var welcome = document.getElementById('welcome-marg-overlay');
+  if (welcome) welcome.style.display = 'none';
+  var preview = document.getElementById('preview-overlay');
+  if (preview) preview.style.display = 'flex';
+}
+
+function skipToOnboarding() {
+  var welcome = document.getElementById('welcome-marg-overlay');
+  if (welcome) welcome.style.display = 'none';
+  var preview = document.getElementById('preview-overlay');
+  if (preview) preview.style.display = 'none';
+  showProfileSetup();
+}
+
+function showProfileSetup() {
+  var overlay = document.getElementById('profile-setup-overlay');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+function hideProfileSetup() {
+  var overlay = document.getElementById('profile-setup-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function skipProfileSetup() {
+  hideProfileSetup();
+  // Set default profile values
+  studentProfile.attemptNumber = studentProfile.attemptNumber || '1st attempt';
+  studentProfile.monthsLeft = studentProfile.monthsLeft || '4-5 months';
+  studentProfile.weakestSection = studentProfile.weakestSection || 'VARC';
+  studentProfile.dailyHours = studentProfile.dailyHours || '2-4 hours';
+  studentProfile.situation = studentProfile.situation || 'Full-time CAT prep';
+  finishOnboarding();
+}
+
 
 async function choosePathDiscuss() {
   document.getElementById('user-input').disabled = false;
@@ -2565,10 +2758,12 @@ async function initSession() {
         const varcShown = await checkVarcShownToday();
         if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 3000); }
         document.getElementById('landing-page').style.display = 'none';
+        document.getElementById('chat-app').style.display = 'flex';
         showBottomNav();
       } else {
-        // New user — hide landing first
+        // New user
         document.getElementById('landing-page').style.display = 'none';
+        document.getElementById('chat-app').style.display = 'flex';
         showBottomNav();
         // Check if they came from mock diagnosis CTA
         if (mobLoginForMock) {
@@ -2793,36 +2988,43 @@ function skipMockOnboarding() {
 }
 
 async function finishMockOnboarding() {
+  const varc = parseFloat(document.getElementById('mob-varc').value) || 0;
+  const dilr = parseFloat(document.getElementById('mob-dilr').value) || 0;
+  const qa = parseFloat(document.getElementById('mob-qa').value) || 0;
+  const attempt = document.getElementById('mob-attempt-select').value || '1st attempt';
+  const weak = document.getElementById('mob-weak-select').value || 'VARC';
+
   document.getElementById('mock-onboarding-overlay').style.display = 'none';
-  
-  // Save profile data
-  newUserProfile.attempt_number = mobData.attempt || '1';
-  newUserProfile.weakest_section = mobData.weak || 'All';
-  
-  // Start chat with mock context
-  const firstMsg = `I just gave a mock. Scores: VARC ${mobData.varc}, DILR ${mobData.dilr}, QA ${mobData.qa}. Attempt: ${mobData.attempt}. My weakest section feels like ${mobData.weak}. Based on my diagnosis: "${mobData.diagnosis || 'scores entered above'}". What should I focus on before my next mock?`;
-  
-  localStorage.setItem('marg_first_message', firstMsg);
+
+  studentProfile.attemptNumber = attempt;
+  studentProfile.monthsLeft = '4-5 months';
+  studentProfile.weakestSection = weak;
+  studentProfile.dailyHours = '3-4 hours';
+  studentProfile.situation = 'Full-time CAT prep';
+
   onboardingComplete = true;
   await saveProfile();
-  
-  // Show the chat interface
-  document.getElementById('app').style.display = 'flex';
-  document.getElementById('landing').style.display = 'none';
   showBottomNav();
-  
-  // Let Marg respond to the mock context
-  addMessage('user', `📊 Mock scores — VARC: ${mobData.varc} | DILR: ${mobData.dilr} | QA: ${mobData.qa}`);
-  conversationHistory.push({ role: 'user', content: firstMsg });
+
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+
+  // Save mock scores
+  await saveMockScore(varc, dilr, qa);
+
+  // Build context message
+  const total = varc + dilr + qa;
+  const contextMsg = 'I just gave a mock. My scores: VARC ' + varc + ', DILR ' + dilr + ', QA ' + qa + '. Total: ' + total + '. It is my ' + attempt + ' and my weakest section is ' + weak + '. Please analyse this and tell me what to fix first.';
+  conversationHistory.push({ role: 'user', content: contextMsg });
   showTyping();
-  
+
   try {
     const res = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
+        max_tokens: 600,
         system: SYSTEM_PROMPT,
         messages: conversationHistory
       })
@@ -2833,33 +3035,13 @@ async function finishMockOnboarding() {
     if (response) {
       addMessage('marg', response);
       conversationHistory.push({ role: 'assistant', content: response });
-    } else {
-      addMessage('marg', 'Based on your mock scores — let me ask you one thing. When you got questions wrong in your weakest section, did you know how to solve them but ran out of time, or did you genuinely not know how to approach them?');
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'Based on your mock scores — let me ask you one thing. When you got questions wrong in your weakest section, did you know how to solve them but ran out of time, or did you genuinely not know how to approach them?');
+    addMessage('marg', 'Got your scores — VARC ' + varc + ', DILR ' + dilr + ', QA ' + qa + '. Let me analyse what this tells us. Which section do you feel went worst?');
   }
 }
 
-// ─── NEW ONBOARDING FLOW ───
-function showWelcomeMarg() {
-  document.getElementById('welcome-marg-overlay').style.display = 'flex';
-}
-
-function showPreviewScreen() {
-  document.getElementById('welcome-marg-overlay').style.display = 'none';
-  document.getElementById('preview-overlay').style.display = 'flex';
-}
-
-function skipToOnboarding() {
-  document.getElementById('preview-overlay').style.display = 'none';
-  showProfileSetup();
-}
-
-
-
-// ─── SESSION MEMORY — LAST TASK + PATTERN INSIGHT ───
 
 async function saveCognitivePattern(varc, dilr, qa) {
   if (!currentUser || !SUPABASE_TOKEN) return;
@@ -3135,23 +3317,27 @@ function skipProfileSetup() {
 }
 
 function submitProfileSetup() {
-  const category = document.getElementById('ps-category').value;
-  const tenth = parseFloat(document.getElementById('ps-tenth').value) || 0;
-  const twelfth = parseFloat(document.getElementById('ps-twelfth').value) || 0;
-  const grad = parseFloat(document.getElementById('ps-grad').value) || 0;
-  const mock = document.getElementById('ps-mock').value;
+  const attempt = document.getElementById('ps-attempt').value;
+  const months = document.getElementById('ps-months').value;
   const weak = document.getElementById('ps-weak').value;
+  const hours = document.getElementById('ps-hours').value;
+  const situation = document.getElementById('ps-situation').value;
 
-  const email = document.getElementById('ps-email').value.trim();
-  newUserProfile = { category, tenth, twelfth, grad, mock, weak, email };
-  
-  // Save email to Supabase if user is logged in and email provided
-  if (email && currentUser && SUPABASE_TOKEN) {
-    saveUserEmail(email);
+  if (!attempt || !months || !weak || !hours || !situation) {
+    alert('Please fill in all fields');
+    return;
   }
+
+  studentProfile.attemptNumber = attempt;
+  studentProfile.monthsLeft = months;
+  studentProfile.weakestSection = weak;
+  studentProfile.dailyHours = hours;
+  studentProfile.situation = situation;
+
   hideProfileSetup();
-  showDiagnosis(newUserProfile);
+  finishOnboarding();
 }
+
 
 function showDiagnosis(profile) {
   const overlay = document.getElementById('diagnosis-overlay');
