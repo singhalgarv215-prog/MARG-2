@@ -234,6 +234,7 @@
     display: none; flex-direction: column;
     align-items: center; justify-content: center;
     z-index: 400; padding: 24px;
+    overflow-y: auto;
   }
   #profile-setup-box {
     background: var(--surface);
@@ -395,6 +396,7 @@
     display: none; flex-direction: column;
     align-items: center; justify-content: center;
     z-index: 500; padding: 24px;
+    overflow-y: auto;
   }
   #welcome-marg-box {
     background: var(--surface);
@@ -1073,6 +1075,73 @@
     font-size: 12px; color: var(--gold);
     margin-bottom: 16px;
   }
+
+  /* ─── DIAGNOSIS OVERLAY ─── */
+  #diagnosis-overlay {
+    position: fixed; inset: 0;
+    background: rgba(13,13,13,0.97);
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 400; padding: 24px;
+    overflow-y: auto;
+  }
+  #diagnosis-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 28px;
+    width: 100%; max-width: 420px;
+    display: flex; flex-direction: column; gap: 20px;
+    animation: fadeUp 0.4s ease;
+  }
+  .diag-header { display: flex; flex-direction: column; gap: 6px; }
+  .diag-badge {
+    display: inline-flex; align-items: center;
+    background: rgba(76,175,125,0.1);
+    color: #4CAF7D; border-radius: 20px;
+    padding: 4px 12px; font-size: 11px;
+    font-weight: 500; width: fit-content;
+  }
+  .diag-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px; color: var(--text); line-height: 1.3;
+  }
+  .diag-target { font-size: 13px; color: var(--text-dim); }
+  .diag-target span { color: var(--gold); font-weight: 600; }
+  .risk-grid { display: flex; flex-direction: column; gap: 8px; }
+  .risk-item {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--surface2); border-radius: 8px; padding: 10px 12px;
+  }
+  .risk-label { font-size: 13px; color: var(--text-muted); }
+  .risk-badge {
+    font-size: 11px; font-weight: 500; padding: 3px 10px;
+    border-radius: 20px;
+  }
+  .risk-high { background: rgba(224,92,92,0.12); color: #E05C5C; }
+  .risk-mid { background: rgba(201,168,76,0.12); color: var(--gold); }
+  .risk-low { background: rgba(76,175,125,0.12); color: #4CAF7D; }
+  .diag-threat {
+    background: rgba(224,92,92,0.06);
+    border: 1px solid rgba(224,92,92,0.15);
+    border-radius: 10px; padding: 14px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .diag-threat-label { font-size: 11px; color: #E05C5C; font-weight: 500; }
+  .diag-threat-text { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  .diag-actions { display: flex; flex-direction: column; gap: 10px; }
+  .diag-btn-primary {
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; border: none; border-radius: 10px;
+    padding: 14px; font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+  }
+  .diag-btn-secondary {
+    background: none; border: 1px solid var(--border2);
+    border-radius: 10px; padding: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; color: var(--text-dim); cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -1326,7 +1395,7 @@
       <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">We'll remind you if you miss a day. No spam ever.</div>
     </div>
 
-    <button class="ps-submit" onclick="submitProfileSetup()">Show me my diagnosis →</button>
+    <button class="ps-submit" onclick="submitProfileSetup()">Next →</button>
     <button class="ps-skip" onclick="skipProfileSetup()">Skip for now</button>
   </div>
 </div>
@@ -1414,6 +1483,26 @@
       <button class="mob-btn-primary" onclick="finishMockOnboarding()" id="mob-step4-next" disabled>Start my personalised plan →</button>
     </div>
 
+  </div>
+</div>
+
+<!-- ═══ DIAGNOSIS OVERLAY ═══ -->
+<div id="diagnosis-overlay" style="display:none;">
+  <div id="diagnosis-box">
+    <div class="diag-header">
+      <div class="diag-badge">✓ Profile analysed</div>
+      <div class="diag-title" id="diag-title">Your IIM Risk Profile</div>
+      <div class="diag-target" id="diag-target">Target percentile: <span id="diag-percentile">—</span></div>
+    </div>
+    <div class="risk-grid" id="diag-risk-grid"></div>
+    <div class="diag-threat">
+      <div class="diag-threat-label">⚠ Biggest threat to your IIM call</div>
+      <div class="diag-threat-text" id="diag-threat-text">—</div>
+    </div>
+    <div class="diag-actions">
+      <button class="diag-btn-primary" onclick="startOnboardingQuestions()">Complete your profile →</button>
+      <button class="diag-btn-secondary" onclick="skipToChat()">Skip — start chatting</button>
+    </div>
   </div>
 </div>
 
@@ -3352,15 +3441,15 @@ function skipProfileSetup() {
 }
 
 function submitProfileSetup() {
-  const category = document.getElementById('ps-category').value;
-  const tenth = parseFloat(document.getElementById('ps-tenth').value) || 0;
-  const twelfth = parseFloat(document.getElementById('ps-twelfth').value) || 0;
-  const grad = parseFloat(document.getElementById('ps-grad').value) || 0;
-  const mock = document.getElementById('ps-mock').value;
-  const weak = document.getElementById('ps-weak').value;
-  const email = document.getElementById('ps-email').value.trim();
+  var category = document.getElementById('ps-category').value;
+  var tenth = parseFloat(document.getElementById('ps-tenth').value) || 0;
+  var twelfth = parseFloat(document.getElementById('ps-twelfth').value) || 0;
+  var grad = parseFloat(document.getElementById('ps-grad').value) || 0;
+  var mock = document.getElementById('ps-mock').value;
+  var weak = document.getElementById('ps-weak').value;
+  var email = document.getElementById('ps-email').value.trim();
 
-  newUserProfile = { category, tenth, twelfth, grad, mock, weak, email };
+  newUserProfile = { category: category, tenth: tenth, twelfth: twelfth, grad: grad, mock: mock, weak: weak, email: email };
 
   // Save notification email if provided
   if (email && currentUser) {
@@ -3368,17 +3457,73 @@ function submitProfileSetup() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
       body: JSON.stringify({ user_id: currentUser.id, notification_email: email })
-    }).catch(() => {});
+    }).catch(function() {});
   }
 
-  // Map to studentProfile
-  studentProfile.weakestSection = weak === 'All' ? 'All sections' : weak;
-  studentProfile.situation = 'CAT ' + (mock === 'none' ? 'first mock coming' : mock + ' percentile');
+  hideProfileSetup();
+  showDiagnosis(newUserProfile);
+}
+
+function showDiagnosis(profile) {
+  var overlay = document.getElementById('diagnosis-overlay');
+  overlay.style.display = 'flex';
+
+  // Target percentile by category
+  var targets = { general: 99.0, obc: 96.0, sc: 88.0, st: 80.0, ews: 97.0 };
+  var target = targets[profile.category] || 99.0;
+  document.getElementById('diag-percentile').textContent = target + '+';
+
+  // Academic risk
+  var acadScore = (profile.tenth * 0.3 + profile.twelfth * 0.3 + profile.grad * 0.4);
+  var acadRisk = 'low';
+  if (acadScore < 65) acadRisk = 'high';
+  else if (acadScore < 75) acadRisk = 'mid';
+
+  // Mock risk
+  var mockRisk = 'high';
+  if (profile.mock === '99+' || profile.mock === '95-99') mockRisk = 'low';
+  else if (profile.mock === '90-95' || profile.mock === '80-90') mockRisk = 'mid';
+
+  var riskLabels = { high: 'High risk', mid: 'Moderate risk', low: 'On track' };
+  var riskClasses = { high: 'risk-high', mid: 'risk-mid', low: 'risk-low' };
+  var mockLabel = profile.mock === 'none' ? 'No mock given yet' : 'Mock: ' + profile.mock + ' percentile';
+
+  // IIM tier targeting
+  var tier = 'Tier 1 IIMs (IIM A/B/C)';
+  if (target < 95) tier = 'Tier 2 IIMs (IIM K/L/I)';
+  if (target < 90) tier = 'Tier 3 IIMs + New IIMs';
+  document.getElementById('diag-title').textContent = 'Your IIM Profile — ' + tier;
+
+  document.getElementById('diag-risk-grid').innerHTML =
+    '<div class="risk-item"><span class="risk-label">Academic score</span><span class="risk-badge ' + riskClasses[acadRisk] + '">' + riskLabels[acadRisk] + '</span></div>' +
+    '<div class="risk-item"><span class="risk-label">' + mockLabel + '</span><span class="risk-badge ' + riskClasses[mockRisk] + '">' + riskLabels[mockRisk] + '</span></div>' +
+    '<div class="risk-item"><span class="risk-label">Weakest: ' + profile.weak + '</span><span class="risk-badge risk-high">Needs work</span></div>';
+
+  // Threat text
+  var threats = {
+    VARC: 'VARC inconsistency at ' + target + '+ is the biggest reason aspirants miss IIM calls despite strong QA.',
+    DILR: 'DILR is the most unpredictable section — one bad set selection decision can drop your percentile by 5+.',
+    QA: 'At ' + target + '+ percentile, even 2-3 careless QA mistakes cost an IIM call.',
+    All: 'Trying to fix all three sections simultaneously is the most common reason scores stagnate. One section at a time.'
+  };
+  document.getElementById('diag-threat-text').textContent = threats[profile.weak] || threats['All'];
+}
+
+function startOnboardingQuestions() {
+  document.getElementById('diagnosis-overlay').style.display = 'none';
+  // Start the 5-question onboarding through chat
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  startOnboardingChat();
+}
+
+function skipToChat() {
+  document.getElementById('diagnosis-overlay').style.display = 'none';
+  studentProfile.weakestSection = newUserProfile.weak === 'All' ? 'All sections' : newUserProfile.weak;
+  studentProfile.situation = 'CAT aspirant';
   studentProfile.dailyHours = '3-4 hours';
   studentProfile.monthsLeft = '4-5 months';
   studentProfile.attemptNumber = '1st attempt';
-
-  hideProfileSetup();
   finishOnboarding();
 }
 
@@ -3966,5 +4111,100 @@ function showDailyLimitCard(type) {
     '</div>';
 }
 
+
+
+// ═══════════════════════════════════════════════
+// 5-QUESTION ONBOARDING CHAT FLOW
+// ═══════════════════════════════════════════════
+
+
+function startOnboardingChat() {
+  onboardingStep = 0;
+  askOnboardingQuestion();
+}
+
+function askOnboardingQuestion() {
+  var step = onboardingFlow[onboardingStep];
+  if (!step) {
+    completeOnboarding();
+    return;
+  }
+
+  // Show Marg's question
+  addMessage('marg', step.message.replace(/\n/g, '<br>'));
+
+  // Show option chips
+  setTimeout(function() {
+    showOnboardingOptions(step.options);
+  }, 400);
+}
+
+function showOnboardingOptions(options) {
+  var chipsDiv = document.createElement('div');
+  chipsDiv.id = 'onboarding-chips';
+  chipsDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;padding:4px 12px 8px;';
+
+  options.forEach(function(opt) {
+    var btn = document.createElement('button');
+    btn.textContent = opt;
+    btn.style.cssText = 'background:var(--surface2);border:1.5px solid var(--border2);border-radius:20px;padding:8px 14px;font-family:\'DM Sans\',sans-serif;font-size:13px;color:var(--text-muted);cursor:pointer;transition:all 0.2s;';
+    btn.onmouseover = function() { this.style.borderColor = 'var(--gold)'; this.style.color = 'var(--gold)'; };
+    btn.onmouseout = function() { if (!this.classList.contains('selected')) { this.style.borderColor = 'var(--border2)'; this.style.color = 'var(--text-muted)'; } };
+    btn.onclick = function() { selectOnboardingOption(opt); };
+    chipsDiv.appendChild(btn);
+  });
+
+  var messages = document.getElementById('messages');
+  messages.appendChild(chipsDiv);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function selectOnboardingOption(value) {
+  var step = onboardingFlow[onboardingStep];
+
+  // Remove chips
+  var chips = document.getElementById('onboarding-chips');
+  if (chips) chips.remove();
+
+  // Show user's answer
+  addMessage('user', value);
+
+  // Save to profile
+  studentProfile[step.key] = value;
+
+  // Show follow-up if exists
+  var followUp = step.followUp && step.followUp[value];
+  if (followUp) {
+    setTimeout(function() {
+      addMessage('marg', followUp);
+      onboardingStep++;
+      setTimeout(askOnboardingQuestion, 800);
+    }, 400);
+  } else {
+    onboardingStep++;
+    setTimeout(askOnboardingQuestion, 600);
+  }
+}
+
+async function completeOnboarding() {
+  await saveProfile();
+  showBottomNav();
+
+  // Final message from Marg
+  var name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name
+    ? currentUser.user_metadata.full_name.split(' ')[0] : '';
+
+  var weakSection = studentProfile.weakestSection || 'VARC';
+  var attempt = studentProfile.attemptNumber || '1st attempt';
+
+  var finalMsg = 'Perfect' + (name ? ', ' + name : '') + ' — I have everything I need.\n\nBased on what you\'ve told me: ' + attempt + ', weakest in ' + weakSection + ', ' + (studentProfile.monthsLeft || '4-6 months') + ' left.\n\nI already have a hypothesis about what\'s actually holding you back. But before I tell you — what do you want to do first?';
+
+  addMessage('marg', finalMsg.replace(/\n/g, '<br>'));
+
+  // Show path choice
+  setTimeout(function() {
+    showPathChoiceScreen();
+  }, 600);
+}
 
 </script>
