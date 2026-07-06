@@ -1879,10 +1879,29 @@ async function loadUserData() {
     const { data: profiles } = await sbFetch('profiles?select=*&user_id=eq.' + currentUser.id, 'GET');
     if (!profiles || profiles.length === 0) return false;
     const profile = profiles[0];
-    studentProfile = { attemptNumber: profile.attempt_number, monthsLeft: profile.months_left, weakestSection: profile.weakest_section, dailyHours: profile.daily_hours, situation: profile.situation };
+    
+    // Check if onboarding was actually completed - need attempt_number to be set
+    if (!profile.attempt_number || !profile.weakest_section) return false;
+    
+    studentProfile = { 
+      attemptNumber: profile.attempt_number, 
+      monthsLeft: profile.months_left, 
+      weakestSection: profile.weakest_section, 
+      dailyHours: profile.daily_hours, 
+      situation: profile.situation,
+      varcPattern: profile.varc_cognitive_pattern || null,
+      dilrPattern: profile.dilr_cognitive_pattern || null,
+      qaPattern: profile.qa_cognitive_pattern || null,
+      mockHistory: profile.mock_history || null,
+      sessionsCount: profile.sessions_count || 0,
+      lastTask: profile.last_task || null,
+      lastInsight: profile.last_insight || null,
+      lastSessionDate: profile.last_session_date || null
+    };
     const { data: chats } = await sbFetch('chats?select=*&user_id=eq.' + currentUser.id + '&order=created_at.asc', 'GET');
-    if (!chats || chats.length === 0) return false;
-    conversationHistory = chats.map(function(c) { return { role: c.role, content: c.content }; });
+    if (chats && chats.length > 0) {
+      conversationHistory = chats.map(function(c) { return { role: c.role, content: c.content }; });
+    }
     return true;
   } catch(e) { return false; }
 }
