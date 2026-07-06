@@ -1273,67 +1273,61 @@
 <div id="profile-setup-overlay">
   <div id="profile-setup-box">
     <div class="ps-header">
-      <div class="mob-step-tag">Setting up your profile</div>
-      <div class="ps-title">Tell Marg about your prep</div>
-      <div class="ps-sub">Takes 60 seconds. Marg uses this to personalise everything.</div>
+      <div class="ps-title">Let's set up your profile 🎯</div>
+      <div class="ps-sub">30 seconds. Marg uses this to personalise everything.</div>
     </div>
 
     <div class="ps-field">
-      <div class="ps-label">Which attempt is this?</div>
-      <select class="ps-select" id="ps-attempt">
-        <option value="">Select...</option>
-        <option value="1st attempt">1st attempt</option>
-        <option value="2nd attempt">2nd attempt</option>
-        <option value="3rd attempt">3rd attempt</option>
-        <option value="4th attempt or more">4th attempt or more</option>
+      <div class="ps-label">Category</div>
+      <select class="ps-select" id="ps-category">
+        <option value="general">General</option>
+        <option value="obc">OBC-NCL</option>
+        <option value="sc">SC</option>
+        <option value="st">ST</option>
+        <option value="ews">EWS</option>
       </select>
     </div>
 
     <div class="ps-field">
-      <div class="ps-label">Months until CAT 2026</div>
-      <select class="ps-select" id="ps-months">
-        <option value="">Select...</option>
-        <option value="1-2 months">1-2 months</option>
-        <option value="3-4 months">3-4 months</option>
-        <option value="4-5 months">4-5 months</option>
-        <option value="5+ months">5+ months</option>
+      <div class="ps-label">Academic Profile (%)</div>
+      <div class="ps-row">
+        <input class="ps-input" id="ps-tenth" type="number" placeholder="10th" min="0" max="100">
+        <input class="ps-input" id="ps-twelfth" type="number" placeholder="12th" min="0" max="100">
+        <input class="ps-input" id="ps-grad" type="number" placeholder="Grad" min="0" max="100">
+      </div>
+    </div>
+
+    <div class="ps-field">
+      <div class="ps-label">Current Mock Percentile</div>
+      <select class="ps-select" id="ps-mock">
+        <option value="none">Haven't given one yet</option>
+        <option value="below70">Below 70</option>
+        <option value="70-80">70 - 80</option>
+        <option value="80-90">80 - 90</option>
+        <option value="90-95">90 - 95</option>
+        <option value="95-99">95 - 99</option>
+        <option value="99+">99+</option>
       </select>
     </div>
 
     <div class="ps-field">
-      <div class="ps-label">Weakest section</div>
+      <div class="ps-label">Weakest Section</div>
       <select class="ps-select" id="ps-weak">
-        <option value="">Select...</option>
-        <option value="VARC">VARC</option>
-        <option value="DILR">DILR</option>
-        <option value="QA">QA</option>
-        <option value="All equally weak">All equally weak</option>
+        <option value="VARC">VARC (Reading &amp; Verbal)</option>
+        <option value="DILR">DILR (Data &amp; Logic)</option>
+        <option value="QA">QA (Quant)</option>
+        <option value="All">All equally weak</option>
       </select>
     </div>
 
     <div class="ps-field">
-      <div class="ps-label">Daily study hours available</div>
-      <select class="ps-select" id="ps-hours">
-        <option value="">Select...</option>
-        <option value="1-2 hours">1-2 hours</option>
-        <option value="2-4 hours">2-4 hours</option>
-        <option value="4-6 hours">4-6 hours</option>
-        <option value="6+ hours">6+ hours</option>
-      </select>
+      <div class="ps-label">Email (for streak reminders)</div>
+      <input class="ps-input" id="ps-email" type="email" placeholder="your@email.com">
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">We'll remind you if you miss a day. No spam ever.</div>
     </div>
 
-    <div class="ps-field">
-      <div class="ps-label">Current situation</div>
-      <select class="ps-select" id="ps-situation">
-        <option value="">Select...</option>
-        <option value="Full-time CAT prep">Full-time CAT prep</option>
-        <option value="Working + CAT prep">Working + CAT prep</option>
-        <option value="College + CAT prep">College + CAT prep</option>
-      </select>
-    </div>
-
-    <button class="ps-submit" onclick="submitProfileSetup()">Start with Marg →</button>
-    <div class="ps-skip" onclick="skipProfileSetup()">Skip for now</div>
+    <button class="ps-submit" onclick="submitProfileSetup()">Show me my diagnosis →</button>
+    <button class="ps-skip" onclick="skipProfileSetup()">Skip for now</button>
   </div>
 </div>
 
@@ -3358,22 +3352,31 @@ function skipProfileSetup() {
 }
 
 function submitProfileSetup() {
-  const attempt = document.getElementById('ps-attempt').value;
-  const months = document.getElementById('ps-months').value;
+  const category = document.getElementById('ps-category').value;
+  const tenth = parseFloat(document.getElementById('ps-tenth').value) || 0;
+  const twelfth = parseFloat(document.getElementById('ps-twelfth').value) || 0;
+  const grad = parseFloat(document.getElementById('ps-grad').value) || 0;
+  const mock = document.getElementById('ps-mock').value;
   const weak = document.getElementById('ps-weak').value;
-  const hours = document.getElementById('ps-hours').value;
-  const situation = document.getElementById('ps-situation').value;
+  const email = document.getElementById('ps-email').value.trim();
 
-  if (!attempt || !months || !weak || !hours || !situation) {
-    alert('Please fill in all fields');
-    return;
+  newUserProfile = { category, tenth, twelfth, grad, mock, weak, email };
+
+  // Save notification email if provided
+  if (email && currentUser) {
+    fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({ user_id: currentUser.id, notification_email: email })
+    }).catch(() => {});
   }
 
-  studentProfile.attemptNumber = attempt;
-  studentProfile.monthsLeft = months;
-  studentProfile.weakestSection = weak;
-  studentProfile.dailyHours = hours;
-  studentProfile.situation = situation;
+  // Map to studentProfile
+  studentProfile.weakestSection = weak === 'All' ? 'All sections' : weak;
+  studentProfile.situation = 'CAT ' + (mock === 'none' ? 'first mock coming' : mock + ' percentile');
+  studentProfile.dailyHours = '3-4 hours';
+  studentProfile.monthsLeft = '4-5 months';
+  studentProfile.attemptNumber = '1st attempt';
 
   hideProfileSetup();
   finishOnboarding();
