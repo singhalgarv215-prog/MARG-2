@@ -398,13 +398,13 @@
     z-index: 500; padding: 24px;
     overflow-y: auto;
   }
-  #welcome-marg-box {
+  #welcome-marg-box, #preview-box {
     background: var(--surface);
     border: 1px solid var(--border2);
     border-radius: var(--radius);
     padding: 32px 28px;
     width: 100%; max-width: 420px;
-    display: flex; flex-direction: column; gap: 20px;
+    display: flex; flex-direction: column; gap: 16px;
     animation: fadeUp 0.4s ease;
     text-align: center;
   }
@@ -1308,9 +1308,10 @@
 <!-- ═══ WELCOME MARG OVERLAY ═══ -->
 <div id="welcome-marg-overlay">
   <div id="welcome-marg-box">
-    <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg" style="height:36px;margin-bottom:4px;">
-    <div style="font-family:'Playfair Display',serif;font-size:22px;color:var(--text);line-height:1.35;margin-bottom:8px;">The longer you use Marg,<br>the better it knows your mistakes.</div>
-    <div style="font-size:13px;color:var(--text-dim);line-height:1.7;margin-bottom:20px;">Marg builds a cognitive profile of how YOU specifically think — and generates daily practice targeting your exact weak patterns.</div>
+    <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg" style="height:52px;width:auto;object-fit:contain;margin-bottom:8px;">
+    <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">Welcome to Marg</div>
+    <div style="font-family:'Playfair Display',serif;font-size:21px;color:var(--text);line-height:1.4;margin-bottom:10px;">The longer you use Marg,<br>the better it knows your mistakes.</div>
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.7;margin-bottom:24px;">Marg is your free AI mentor for CAT — it builds a cognitive profile of how YOU specifically think and generates daily practice targeting your exact weak patterns.</div>
     <button onclick="showPreviewScreen()" style="width:100%;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:10px;padding:14px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;margin-bottom:10px;">See how it works →</button>
     <button onclick="skipToOnboarding()" style="width:100%;background:none;border:1px solid var(--border2);border-radius:10px;padding:12px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-dim);cursor:pointer;">Set up my profile directly</button>
   </div>
@@ -1318,7 +1319,7 @@
 
 <!-- ═══ PREVIEW OVERLAY ═══ -->
 <div id="preview-overlay">
-  <div id="welcome-marg-box">
+  <div id="preview-box">
     <div style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:16px;">How Marg works</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px;text-align:left;">
       <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;">
@@ -3441,32 +3442,45 @@ function skipProfileSetup() {
 }
 
 function submitProfileSetup() {
-  var category = document.getElementById('ps-category').value;
-  var tenth = parseFloat(document.getElementById('ps-tenth').value) || 0;
-  var twelfth = parseFloat(document.getElementById('ps-twelfth').value) || 0;
-  var grad = parseFloat(document.getElementById('ps-grad').value) || 0;
-  var mock = document.getElementById('ps-mock').value;
-  var weak = document.getElementById('ps-weak').value;
-  var email = document.getElementById('ps-email').value.trim();
+  try {
+    var category = (document.getElementById('ps-category') || {}).value || 'general';
+    var tenth = parseFloat((document.getElementById('ps-tenth') || {}).value) || 0;
+    var twelfth = parseFloat((document.getElementById('ps-twelfth') || {}).value) || 0;
+    var grad = parseFloat((document.getElementById('ps-grad') || {}).value) || 0;
+    var mock = (document.getElementById('ps-mock') || {}).value || 'none';
+    var weak = (document.getElementById('ps-weak') || {}).value || 'VARC';
+    var email = ((document.getElementById('ps-email') || {}).value || '').trim();
 
-  newUserProfile = { category: category, tenth: tenth, twelfth: twelfth, grad: grad, mock: mock, weak: weak, email: email };
+    newUserProfile = { category: category, tenth: tenth, twelfth: twelfth, grad: grad, mock: mock, weak: weak, email: email };
 
-  // Save notification email if provided
-  if (email && currentUser) {
-    fetch(SUPABASE_URL + '/rest/v1/profiles', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
-      body: JSON.stringify({ user_id: currentUser.id, notification_email: email })
-    }).catch(function() {});
+    if (email && currentUser) {
+      fetch(SUPABASE_URL + '/rest/v1/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
+        body: JSON.stringify({ user_id: currentUser.id, notification_email: email })
+      }).catch(function() {});
+    }
+
+    // Hide profile setup
+    var psOverlay = document.getElementById('profile-setup-overlay');
+    if (psOverlay) psOverlay.style.display = 'none';
+
+    // Show diagnosis
+    showDiagnosis(newUserProfile);
+  } catch(err) {
+    console.error('submitProfileSetup error:', err);
+    // Fallback - skip to onboarding questions
+    var psOverlay = document.getElementById('profile-setup-overlay');
+    if (psOverlay) psOverlay.style.display = 'none';
+    startOnboardingQuestions();
   }
-
-  hideProfileSetup();
-  showDiagnosis(newUserProfile);
 }
 
 function showDiagnosis(profile) {
   var overlay = document.getElementById('diagnosis-overlay');
+  if (!overlay) { startOnboardingQuestions(); return; }
   overlay.style.display = 'flex';
+  overlay.style.flexDirection = 'column';
 
   // Target percentile by category
   var targets = { general: 99.0, obc: 96.0, sc: 88.0, st: 80.0, ews: 97.0 };
