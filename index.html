@@ -2286,7 +2286,7 @@ function showPathChoiceScreen() {
   }
   
   const messages = document.getElementById('messages');
-  const choiceHtml = '<div class="practice-card" style="margin:16px 0;"><div class="pcard-header"><div class="pcard-label">Your profile is set</div></div><div class="pcard-body"><div style="text-align:center;padding:8px 0 16px;"><div style="font-size:28px;margin-bottom:10px;">👋</div><div style="font-size:15px;color:var(--text);font-weight:500;margin-bottom:6px;">What do you want to do first?</div><div style="font-size:12px;color:var(--text-dim);">Pick one — you can always switch later</div></div><div style="display:flex;flex-direction:column;gap:10px;"><button class="pcard-nav-btn primary" onclick="choosePathDiscuss()" style="padding:14px;">💬 Discuss my strategy with Marg</button><button class="pcard-nav-btn secondary" onclick="choosePathPractice()" style="padding:14px;">📝 Start practicing right now</button></div></div></div>';
+  const choiceHtml = '<div style="margin:8px 0;display:flex;flex-direction:column;gap:8px;"><button onclick="choosePathDiscuss()" style="background:var(--surface2);border:1.5px solid var(--border2);border-radius:12px;padding:14px 16px;font-family:DM Sans,sans-serif;font-size:14px;color:var(--text);cursor:pointer;text-align:left;transition:border-color 0.2s;">💬 Discuss my strategy with Marg</button><button onclick="choosePathPractice()" style="background:var(--surface2);border:1.5px solid var(--border2);border-radius:12px;padding:14px 16px;font-family:DM Sans,sans-serif;font-size:14px;color:var(--text);cursor:pointer;text-align:left;transition:border-color 0.2s;">📝 Start with today\'s practice</button></div>';
   messages.innerHTML += choiceHtml;
   messages.scrollTop = messages.scrollHeight;
 }
@@ -2525,7 +2525,6 @@ async function sendMessage() {
   addMessage('user', text);
   conversationHistory.push({ role: 'user', content: text });
   detectAndSaveMockScores(text);
-  detectAndSaveMockScores(text);
   if (!isGuestMode) saveChatMessage('user', text);
   showTyping();
   const activitySummary = buildActivitySummary();
@@ -2537,7 +2536,7 @@ async function sendMessage() {
     (studentProfile.sessionsCount ? '\n- Total sessions with Marg: ' + studentProfile.sessionsCount : '') +
     activitySummary;
   try {
-    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, system: SYSTEM_PROMPT + profileContext, messages: conversationHistory }) });
+    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, system: SYSTEM_PROMPT + profileContext, messages: conversationHistory }) });
     const data = await response.json();
     const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
     hideTyping();
@@ -4203,22 +4202,49 @@ function selectOnboardingOption(value) {
 async function completeOnboarding() {
   await saveProfile();
   showBottomNav();
+  onboardingComplete = true;
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
 
-  // Final message from Marg
-  var name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name
-    ? currentUser.user_metadata.full_name.split(' ')[0] : '';
+  // Build profile context for Marg's opening message
+  var profileContext = 'New student profile: ' +
+    'Attempt: ' + (studentProfile.attemptNumber || '1st attempt') + '. ' +
+    'Weakest section: ' + (studentProfile.weakestSection || 'VARC') + '. ' +
+    'Months left: ' + (studentProfile.monthsLeft || '4-6 months') + '. ' +
+    'Daily hours: ' + (studentProfile.dailyHours || '3-4 hours') + '. ' +
+    'Situation: ' + (studentProfile.situation || 'CAT prep') + '.';
 
-  var weakSection = studentProfile.weakestSection || 'VARC';
-  var attempt = studentProfile.attemptNumber || '1st attempt';
+  conversationHistory.push({ role: 'user', content: profileContext });
+  showTyping();
 
-  var finalMsg = 'Perfect' + (name ? ', ' + name : '') + ' — I have everything I need.\n\nBased on what you\'ve told me: ' + attempt + ', weakest in ' + weakSection + ', ' + (studentProfile.monthsLeft || '4-6 months') + ' left.\n\nI already have a hypothesis about what\'s actually holding you back. But before I tell you — what do you want to do first?';
+  try {
+    var res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        system: SYSTEM_PROMPT + '\n\nIMPORTANT: A new student just completed their profile. Give a warm 2-3 sentence opening that: 1) acknowledges ONE specific thing from their profile (attempt number or weak section), 2) shares your hypothesis in one line, 3) asks what they want to do first — discuss strategy or start practicing. Keep it conversational and warm, not robotic. Do NOT list all their profile details back at them.',
+        messages: conversationHistory
+      })
+    });
+    var data = await res.json();
+    var response = data.content && data.content[0] ? data.content[0].text : null;
+    hideTyping();
+    if (response) {
+      addMessage('marg', response);
+      conversationHistory.push({ role: 'assistant', content: response });
+    }
+  } catch(e) {
+    hideTyping();
+    var name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name
+      ? currentUser.user_metadata.full_name.split(' ')[0] : '';
+    addMessage('marg', 'Good' + (name ? ', ' + name : '') + ' — I have everything I need. What do you want to do first — should we talk through your strategy, or do you want to jump straight into practice?');
+  }
 
-  addMessage('marg', finalMsg.replace(/\n/g, '<br>'));
-
-  // Show path choice
   setTimeout(function() {
     showPathChoiceScreen();
-  }, 600);
+  }, 800);
 }
 
 </script>
