@@ -1142,6 +1142,140 @@
     font-family: 'DM Sans', sans-serif;
     font-size: 13px; color: var(--text-dim); cursor: pointer;
   }
+
+  /* ─── GLOBAL SMOOTH TRANSITIONS ─── */
+  * { box-sizing: border-box; }
+  button { transition: all 0.2s ease; }
+  button:hover { opacity: 0.88; transform: translateY(-1px); }
+  button:active { transform: translateY(0); opacity: 1; }
+  input, select, textarea { transition: border-color 0.2s ease; }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--gold) !important;
+    box-shadow: 0 0 0 3px rgba(201,168,76,0.1);
+  }
+
+  /* ─── OVERLAY TRANSITIONS ─── */
+  #welcome-marg-overlay, #preview-overlay,
+  #profile-setup-overlay, #diagnosis-overlay,
+  #mock-onboarding-overlay {
+    transition: opacity 0.3s ease;
+  }
+
+  /* ─── WELCOME BOX IMPROVEMENTS ─── */
+  #welcome-marg-box {
+    overflow-y: auto;
+    max-height: 90vh;
+  }
+  #welcome-marg-box img {
+    display: block;
+    margin: 0 auto 4px;
+    max-width: 160px;
+    height: auto !important;
+  }
+
+  /* ─── PROFILE SETUP IMPROVEMENTS ─── */
+  #profile-setup-box {
+    overflow-y: auto;
+    max-height: 90vh;
+  }
+  .ps-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px; color: var(--text);
+    line-height: 1.3; text-align: center;
+  }
+  .ps-sub {
+    font-size: 13px; color: var(--text-dim);
+    text-align: center; line-height: 1.6;
+  }
+  .ps-field { display: flex; flex-direction: column; gap: 6px; }
+  .ps-label {
+    font-size: 12px; color: var(--text-dim);
+    font-weight: 500; letter-spacing: 0.02em;
+  }
+  .ps-select {
+    background: var(--surface2);
+    border: 1.5px solid var(--border2);
+    border-radius: 8px; padding: 11px 12px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px; width: 100%;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888880' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    cursor: pointer;
+  }
+  .ps-input {
+    background: var(--surface2);
+    border: 1.5px solid var(--border2);
+    border-radius: 8px; padding: 11px 12px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px; width: 100%;
+  }
+  .ps-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+  }
+  .ps-submit {
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; border: none; border-radius: 10px;
+    padding: 14px; font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    width: 100%; margin-top: 4px;
+    letter-spacing: 0.02em;
+  }
+  .ps-skip {
+    text-align: center; font-size: 12px;
+    color: var(--text-dim); cursor: pointer;
+    padding: 8px; transition: color 0.2s;
+  }
+  .ps-skip:hover { color: var(--text); }
+
+  /* ─── ONBOARDING CHAT OPTIONS ─── */
+  #onboarding-chips button:hover {
+    border-color: var(--gold) !important;
+    color: var(--gold) !important;
+    background: rgba(201,168,76,0.06) !important;
+  }
+
+  /* ─── MOB STEP IMPROVEMENTS ─── */
+  .mob-score-group { text-align: center; }
+  .mob-score-label {
+    font-size: 11px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+  .mob-score-input {
+    width: 100%; text-align: center;
+    font-size: 22px; font-weight: 600;
+    color: var(--text); caret-color: var(--gold);
+  }
+  .mob-score-max {
+    font-size: 10px; color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  /* ─── MESSAGE IMPROVEMENTS ─── */
+  .message {
+    animation: msgFadeIn 0.25s ease;
+    max-width: 85%;
+  }
+  @keyframes msgFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── BOTTOM NAV IMPROVEMENT ─── */
+  .bnav-btn { transition: color 0.2s ease; }
+
+  /* ─── OPTION BUTTON HOVER ─── */
+  .pcard-option:hover:not(:disabled) {
+    border-color: var(--gold);
+    color: var(--text);
+    background: rgba(201,168,76,0.04);
+    transform: none;
+  }
 </style>
 </head>
 <body>
@@ -2069,7 +2203,7 @@ let isLoading = false;
 
 const onboardingFlow = [
   { message: "Namaste! 🙏 I'm Marg — your personal CAT mentor.\n\nBefore I give you advice that actually fits your situation, I need to understand you first. Generic CAT tips are everywhere — I want to give you something specific to you.\n\nLet's start: is this your first attempt at CAT, or have you been here before?", key: 'attemptNumber', options: ['1st attempt', '2nd attempt', '3rd attempt or more'], followUp: { '2nd attempt': "Respect for coming back. Second attempt takes real courage — most people give up. I want to make sure this time is different for you.", '3rd attempt or more': "That persistence is rare. Seriously. Let's make sure we understand exactly what hasn't been working, so this attempt is genuinely different." } },
-  { message: "How many months do you have until CAT this year?", key: 'monthsLeft', options: ['Less than 2 months', '2-4 months', '4-6 months', '6+ months'] },
+
   { message: "Which section gives you the most trouble right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'All equally weak 😅'] },
   { message: "Realistically, how many hours can you study every day?", key: 'dailyHours', options: ['1-2 hours', '3-4 hours', '5-6 hours', '7+ hours'] },
   { message: "And your current situation — this helps me understand your constraints:", key: 'situation', options: ['Final year college student', 'Working professional', 'Dropped everything for CAT prep', 'Preparing alongside other exams'] }
@@ -3121,7 +3255,7 @@ async function finishMockOnboarding() {
   document.getElementById('mock-onboarding-overlay').style.display = 'none';
 
   studentProfile.attemptNumber = attempt;
-  studentProfile.monthsLeft = '4-5 months';
+  studentProfile.monthsLeft = calculateMonthsLeftForCAT();
   studentProfile.weakestSection = weak;
   studentProfile.dailyHours = '3-4 hours';
   studentProfile.situation = 'Full-time CAT prep';
@@ -3535,7 +3669,7 @@ function skipToChat() {
   studentProfile.weakestSection = newUserProfile.weak === 'All' ? 'All sections' : newUserProfile.weak;
   studentProfile.situation = 'CAT aspirant';
   studentProfile.dailyHours = '3-4 hours';
-  studentProfile.monthsLeft = '4-5 months';
+  studentProfile.monthsLeft = calculateMonthsLeftForCAT();
   studentProfile.attemptNumber = '1st attempt';
   finishOnboarding();
 }
@@ -4199,7 +4333,23 @@ function selectOnboardingOption(value) {
   }
 }
 
+function calculateMonthsLeftForCAT() {
+  var catDate = new Date('2026-11-29'); // CAT 2026 expected date
+  var today = new Date();
+  var diffMs = catDate - today;
+  var diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  var diffMonths = Math.round(diffDays / 30);
+  if (diffDays < 30) return 'Less than 1 month (' + diffDays + ' days)';
+  if (diffDays < 60) return '1-2 months (' + diffDays + ' days)';
+  if (diffDays < 90) return '2-3 months (' + diffDays + ' days)';
+  if (diffDays < 120) return '3-4 months (' + diffDays + ' days)';
+  if (diffDays < 150) return '4-5 months (' + diffDays + ' days)';
+  if (diffDays < 180) return '5-6 months (' + diffDays + ' days)';
+  return diffMonths + ' months (' + diffDays + ' days until CAT 2026)';
+}
+
 async function completeOnboarding() {
+  studentProfile.monthsLeft = calculateMonthsLeftForCAT();
   await saveProfile();
   showBottomNav();
   onboardingComplete = true;
