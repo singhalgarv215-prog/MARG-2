@@ -4289,14 +4289,38 @@ function askOnboardingQuestion() {
 function showOnboardingOptions(options) {
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'onboarding-chips';
-  chipsDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;padding:4px 12px 8px;';
+  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:8px 12px 12px;max-width:480px;';
 
   options.forEach(function(opt) {
     var btn = document.createElement('button');
     btn.textContent = opt;
-    btn.style.cssText = 'background:var(--surface2);border:1.5px solid var(--border2);border-radius:20px;padding:8px 14px;font-family:\'DM Sans\',sans-serif;font-size:13px;color:var(--text-muted);cursor:pointer;transition:all 0.2s;';
-    btn.onmouseover = function() { this.style.borderColor = 'var(--gold)'; this.style.color = 'var(--gold)'; };
-    btn.onmouseout = function() { if (!this.classList.contains('selected')) { this.style.borderColor = 'var(--border2)'; this.style.color = 'var(--text-muted)'; } };
+    btn.style.cssText = [
+      'background:#1A1A1A',
+      'border:1.5px solid #2A2A2A',
+      'border-radius:10px',
+      'padding:13px 18px',
+      'font-family:\'DM Sans\',sans-serif',
+      'font-size:14px',
+      'color:#C8C4BC',
+      'cursor:pointer',
+      'transition:all 0.18s ease',
+      'text-align:left',
+      'width:100%',
+      'letter-spacing:0.01em',
+      'line-height:1.4'
+    ].join(';');
+    btn.onmouseover = function() {
+      this.style.borderColor = '#C9A84C';
+      this.style.color = '#F0EDE6';
+      this.style.background = 'rgba(201,168,76,0.06)';
+    };
+    btn.onmouseout = function() {
+      if (!this.classList.contains('selected')) {
+        this.style.borderColor = '#2A2A2A';
+        this.style.color = '#C8C4BC';
+        this.style.background = '#1A1A1A';
+      }
+    };
     btn.onclick = function() { selectOnboardingOption(opt); };
     chipsDiv.appendChild(btn);
   });
