@@ -156,7 +156,9 @@ async function generateDILR() {
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown.',
         messages: [{ role: 'user', content: prompt }] })
     });
-    const data = await res.json();
+    const rawText = await res.text();
+    console.log('Worker response:', rawText);
+    const data = JSON.parse(rawText);
     const text = data.content && data.content[0] ? data.content[0].text : null;
     if (!text) throw new Error('No response');
     // Robust JSON extraction
