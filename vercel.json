@@ -4,9 +4,9 @@
     { "src": "/privacy", "dest": "/privacy.html" },
     { "src": "/cat-percentile-predictor", "dest": "/cat-percentile-predictor.html" },
     { "src": "/mock-analysis", "dest": "/mock-analysis.html" },
-    { "src": "/daily-rc", "dest": "/daily-rc/index.html" },
-    { "src": "/daily-dilr", "dest": "/daily-dilr/index.html" },
-    { "src": "/daily-qa", "dest": "/daily-qa/index.html" },
+    { "src": "/daily-rc/?", "dest": "/daily-rc/index.html" },
+    { "src": "/daily-dilr/?", "dest": "/daily-dilr/index.html" },
+    { "src": "/daily-qa/?", "dest": "/daily-qa/index.html" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
