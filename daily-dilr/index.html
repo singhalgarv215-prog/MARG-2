@@ -137,7 +137,11 @@ document.getElementById('dilr-number').textContent = 'DILR #' + dayNum;
 
 var answered = {};
 
+var isGenerating = false;
+
 async function generateDILR() {
+  if (isGenerating) return;
+  isGenerating = true;
   const container = document.getElementById('practice-container');
   const cacheKey = 'marg_daily_dilr_' + today.toISOString().split('T')[0];
   const cached = localStorage.getItem(cacheKey);
@@ -148,7 +152,7 @@ async function generateDILR() {
   try {
     const res = await fetch(WORKER_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2000,
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200,
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown.',
         messages: [{ role: 'user', content: prompt }] })
     });
