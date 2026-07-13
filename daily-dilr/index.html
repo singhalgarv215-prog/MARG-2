@@ -147,7 +147,7 @@ async function generateDILR() {
   const cached = localStorage.getItem(cacheKey);
   if (cached) { try { renderDILR(JSON.parse(cached)); return; } catch(e) { localStorage.removeItem(cacheKey); } }
   
-  const prompt = 'Generate a high-quality CAT-level DILR set combining 2 constraint types. Requirements: Combine 2 of these: Linear Arrangements plus Rankings, Circular Arrangements plus Conditions, Scheduling plus Grouping, Matrix plus Inequality, Blood Relations plus Ordering. Use exactly 5-6 elements. Create 4 questions of increasing difficulty. Include one question that looks easy but has a hidden constraint trap. Make it genuinely hard — like actual CAT DILR not coaching material. Return ONLY valid JSON no markdown: {"set_title":"brief set type description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"complete set description with all conditions and constraints clearly stated","questions":[{"q":"question text","options":["A. answer","B. answer","C. answer","D. answer"],"correct":0,"explanation":"step by step solution approach","common_mistake":"what most students get wrong here"}]}';
+  const prompt = `Generate a high-quality CAT-level DILR set combining 2 constraint types. Requirements: Combine 2 of these: Linear Arrangements plus Rankings, Circular Arrangements plus Conditions, Scheduling plus Grouping, Matrix plus Inequality, Blood Relations plus Ordering. Use exactly 5-6 elements. Create 4 questions of increasing difficulty. Include one question that looks easy but has a hidden constraint trap. Make it genuinely hard like actual CAT DILR not coaching material. Return ONLY valid JSON no markdown: {"set_title":"brief set type description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"complete set description with all conditions and constraints clearly stated","questions":[{"q":"question text","options":["A. answer","B. answer","C. answer","D. answer"],"correct":0,"explanation":"step by step solution approach","common_mistake":"what most students get wrong here"}]}`;
   
   try {
     const res = await fetch(WORKER_URL, {
@@ -219,8 +219,8 @@ function selectOption(qIndex, optIndex, correct, btn) {
   }
 }
 
-function showSignupPrompt(answered, total) {
-  var correct = Object.values(answered).filter(function(v) { return v; }).length;
+function showSignupPrompt(answeredObj, total) {
+  var correct = Object.values(answeredObj).filter(function(v) { return v; }).length;
   var existing = document.getElementById('marg-signup-prompt');
   if (existing) return;
 
@@ -228,19 +228,41 @@ function showSignupPrompt(answered, total) {
     ? 'You got all ' + total + ' right. Marg noticed something about how you approached this set.'
     : 'You got ' + correct + ' out of ' + total + '. Marg has identified the pattern behind your mistakes.';
 
-  var prompt = document.createElement('div');
-  prompt.id = 'marg-signup-prompt';
-  prompt.style.cssText = 'margin:24px 0;background:#141414;border:1.5px solid #C9A84C;border-radius:14px;padding:24px;text-align:center;';
-  prompt.innerHTML = '<div style="font-size:13px;color:#C9A84C;font-weight:500;margin-bottom:8px;">🧠 MARG NOTICED SOMETHING</div>' +
-    '<div style="font-size:16px;color:#F0EDE6;font-family:Georgia,serif;margin-bottom:8px;line-height:1.4;">' + msg + '</div>' +
-    '<div style="font-size:13px;color:#888880;margin-bottom:20px;line-height:1.6;">Sign up free — Marg will build tomorrow\'s DILR practice specifically around your mistake pattern. The longer you use Marg, the better it understands how your brain thinks.</div>' +
-    '<a href="https://trymarg.com" style="display:block;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;text-decoration:none;border-radius:10px;padding:14px;font-size:14px;font-weight:500;margin-bottom:10px;">See what Marg found → Free</a>' +
-    '<div style="font-size:11px;color:#555550;">No credit card. Takes 60 seconds.</div>';
-
+  var div = document.createElement('div');
+  div.id = 'marg-signup-prompt';
+  div.style.cssText = 'margin:24px 0;background:#141414;border:1.5px solid #C9A84C;border-radius:14px;padding:24px;text-align:center;';
+  
+  var inner = document.createElement('div');
+  inner.innerHTML = '<div style="font-size:13px;color:#C9A84C;font-weight:500;margin-bottom:8px;">MARG NOTICED SOMETHING</div>';
+  
+  var msgDiv = document.createElement('div');
+  msgDiv.style.cssText = 'font-size:16px;color:#F0EDE6;font-family:Georgia,serif;margin-bottom:8px;line-height:1.4;';
+  msgDiv.textContent = msg;
+  
+  var subDiv = document.createElement('div');
+  subDiv.style.cssText = 'font-size:13px;color:#888880;margin-bottom:20px;line-height:1.6;';
+  subDiv.textContent = 'Sign up free — Marg builds tomorrow s DILR practice around your specific mistake pattern. The longer you use Marg, the better it knows your brain.';
+  
+  var link = document.createElement('a');
+  link.href = 'https://trymarg.com';
+  link.style.cssText = 'display:block;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;text-decoration:none;border-radius:10px;padding:14px;font-size:14px;font-weight:500;margin-bottom:10px;';
+  link.textContent = 'See what Marg found - Free';
+  
+  var note = document.createElement('div');
+  note.style.cssText = 'font-size:11px;color:#555550;';
+  note.textContent = 'No credit card. Takes 60 seconds.';
+  
+  div.appendChild(inner);
+  div.appendChild(msgDiv);
+  div.appendChild(subDiv);
+  div.appendChild(link);
+  div.appendChild(note);
+  
   var container = document.getElementById('practice-container');
-  if (container) container.appendChild(prompt);
-  prompt.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (container) container.appendChild(div);
+  div.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
+
 
 generateDILR();
 </script>
