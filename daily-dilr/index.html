@@ -159,7 +159,14 @@ async function generateDILR() {
     const data = await res.json();
     const text = data.content && data.content[0] ? data.content[0].text : null;
     if (!text) throw new Error('No response');
-    const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    // Robust JSON extraction
+    let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    // Find JSON object in response
+    const jsonStart = clean.indexOf('{');
+    const jsonEnd = clean.lastIndexOf('}');
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      clean = clean.substring(jsonStart, jsonEnd + 1);
+    }
     const dilrData = JSON.parse(clean);
     localStorage.setItem(cacheKey, JSON.stringify(dilrData));
     isGenerating = false;
