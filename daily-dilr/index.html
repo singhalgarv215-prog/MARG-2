@@ -141,7 +141,7 @@ async function generateDILR() {
   const container = document.getElementById('practice-container');
   const cacheKey = 'marg_daily_dilr_' + today.toISOString().split('T')[0];
   const cached = localStorage.getItem(cacheKey);
-  if (cached) { try { renderDILR(JSON.parse(cached)); return; } catch(e) {} }
+  if (cached) { try { renderDILR(JSON.parse(cached)); return; } catch(e) { localStorage.removeItem(cacheKey); } }
   
   const prompt = 'Generate a high-quality CAT-level DILR set combining 2 constraint types. Requirements: Combine 2 of these: Linear Arrangements plus Rankings, Circular Arrangements plus Conditions, Scheduling plus Grouping, Matrix plus Inequality, Blood Relations plus Ordering. Use exactly 5-6 elements. Create 4 questions of increasing difficulty. Include one question that looks easy but has a hidden constraint trap. Make it genuinely hard — like actual CAT DILR not coaching material. Return ONLY valid JSON no markdown: {"set_title":"brief set type description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"complete set description with all conditions and constraints clearly stated","questions":[{"q":"question text","options":["A. answer","B. answer","C. answer","D. answer"],"correct":0,"explanation":"step by step solution approach","common_mistake":"what most students get wrong here"}]}';
   
@@ -160,7 +160,8 @@ async function generateDILR() {
     localStorage.setItem(cacheKey, JSON.stringify(dilrData));
     renderDILR(dilrData);
   } catch(e) {
-    container.innerHTML = '<div class="loading"><div>Having trouble loading today\'s set. Please refresh.</div></div>';
+    localStorage.removeItem(cacheKey);
+    container.innerHTML = '<div class="loading"><div>Having trouble generating. <span onclick="generateDILR()" style="color:#C9A84C;cursor:pointer;text-decoration:underline;">Click to retry</span></div></div>';
   }
 }
 
