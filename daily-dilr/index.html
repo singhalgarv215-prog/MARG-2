@@ -147,7 +147,7 @@ async function generateDILR() {
   const cached = localStorage.getItem(cacheKey);
   if (cached) { try { renderDILR(JSON.parse(cached)); return; } catch(e) { localStorage.removeItem(cacheKey); } }
   
-  const prompt = `Generate a high-quality CAT-level DILR set combining 2 constraint types. Requirements: Combine 2 of these: Linear Arrangements plus Rankings, Circular Arrangements plus Conditions, Scheduling plus Grouping, Matrix plus Inequality, Blood Relations plus Ordering. Use exactly 5-6 elements. Create 4 questions of increasing difficulty. Include one question that looks easy but has a hidden constraint trap. Make it genuinely hard like actual CAT DILR not coaching material. Return ONLY valid JSON no markdown: {"set_title":"brief set type description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"complete set description with all conditions and constraints clearly stated","questions":[{"q":"question text","options":["A. answer","B. answer","C. answer","D. answer"],"correct":0,"explanation":"step by step solution approach","common_mistake":"what most students get wrong here"}]}`;
+  const prompt = 'Generate a CAT-level DILR set. Return ONLY valid JSON: {"set_title":"title","difficulty":"Medium","constraint_types":["Type1","Type2"],"setup":"set description with all conditions","questions":[{"q":"question","options":["A. opt","B. opt","C. opt","D. opt"],"correct":0,"explanation":"solution","common_mistake":"mistake"}]} Make 4 questions. No markdown, no backticks, only JSON.';
   
   try {
     const res = await fetch(WORKER_URL, {
@@ -156,9 +156,7 @@ async function generateDILR() {
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown.',
         messages: [{ role: 'user', content: prompt }] })
     });
-    const rawText = await res.text();
-    console.log('Worker response:', rawText);
-    const data = JSON.parse(rawText);
+    const data = await res.json();
     const text = data.content && data.content[0] ? data.content[0].text : null;
     if (!text) throw new Error('No response');
     // Robust JSON extraction
