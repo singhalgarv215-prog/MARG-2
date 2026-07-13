@@ -162,9 +162,11 @@ async function generateDILR() {
     const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const dilrData = JSON.parse(clean);
     localStorage.setItem(cacheKey, JSON.stringify(dilrData));
+    isGenerating = false;
     renderDILR(dilrData);
   } catch(e) {
     localStorage.removeItem(cacheKey);
+    isGenerating = false;
     container.innerHTML = '<div class="loading"><div>Having trouble generating. <span onclick="generateDILR()" style="color:#C9A84C;cursor:pointer;text-decoration:underline;">Click to retry</span></div></div>';
   }
 }
