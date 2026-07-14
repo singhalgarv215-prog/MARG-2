@@ -144,7 +144,7 @@ async function generateDILR() {
   isGenerating = true;
   const container = document.getElementById('practice-container');
   
-  const cacheKey = 'marg_daily_dilr_' + today.toISOString().split('T')[0];
+  const cacheKey = 'marg_daily_dilr_v2_' + today.toISOString().split('T')[0];
   const cached = localStorage.getItem(cacheKey);
   
   if (cached) {
