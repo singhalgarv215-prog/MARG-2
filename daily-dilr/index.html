@@ -212,8 +212,8 @@ function renderDILR(data) {
 
 function selectOption(qIndex, optIndex, correct, btn) {
   if (answered[qIndex]) return;
-  answered[qIndex] = true;
   var isCorrect = optIndex === correct;
+  answered[qIndex] = isCorrect;
   var cached = localStorage.getItem('marg_daily_dilr_' + today.toISOString().split('T')[0]);
   var dilrData = cached ? JSON.parse(cached) : null;
   var q = dilrData ? dilrData.questions[qIndex] : null;
@@ -260,7 +260,7 @@ function showSignupPrompt(answeredObj, total) {
   
   var subDiv = document.createElement('div');
   subDiv.style.cssText = 'font-size:13px;color:#888880;margin-bottom:20px;line-height:1.6;';
-  subDiv.textContent = 'Sign up free — Marg builds tomorrow s DILR practice around your specific mistake pattern. The longer you use Marg, the better it knows your brain.';
+  subDiv.textContent = 'Sign up free — Marg builds practice around your specific mistake pattern. The longer you use Marg, the better it knows your brain.';
   
   var link = document.createElement('a');
   link.href = 'https://trymarg.com';
