@@ -2406,7 +2406,8 @@ async function loadUserData() {
       sessionsCount: profile.sessions_count || 0,
       lastTask: profile.last_task || null,
       lastInsight: profile.last_insight || null,
-      lastSessionDate: profile.last_session_date || null
+      lastSessionDate: profile.last_session_date || null,
+      sessionSummary: profile.session_summary || null
     };
     const { data: chats } = await sbFetch('chats?select=*&user_id=eq.' + currentUser.id + '&order=created_at.asc', 'GET');
     if (chats && chats.length > 0) {
@@ -2769,7 +2770,7 @@ async function sendMessage() {
   const activitySummary = buildActivitySummary();
   var currentDate = new Date();
   var dateString = currentDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  profileContext = '\n\nCURRENT DATE: ' + dateString + ' (year is 2026, CAT 2026 is on November 29 2026)\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
+  profileContext = '\n\nCURRENT DATE: ' + dateString + ' (year is 2026, CAT 2026 is on November 29 2026)\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
     (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
     (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
@@ -3019,7 +3020,7 @@ async function createRCPassage() {
   showTyping();
   var currentDate = new Date();
   var dateString = currentDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  profileContext = '\n\nCURRENT DATE: ' + dateString + ' (year is 2026, CAT 2026 is on November 29 2026)\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
+  profileContext = '\n\nCURRENT DATE: ' + dateString + ' (year is 2026, CAT 2026 is on November 29 2026)\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
     const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: SYSTEM_PROMPT + profileContext, messages: [{ role: 'user', content: prompt }] }) });
     const data = await response.json();
@@ -3466,6 +3467,51 @@ async function saveMockScore(varc, dilr, qa) {
       })
     });
   } catch(e) { console.error('saveMockScore error:', e); }
+}
+
+async function saveSessionSummary(summary) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_TOKEN,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        session_summary: summary
+      })
+    });
+    studentProfile.sessionSummary = summary;
+  } catch(e) { console.error('saveSessionSummary error:', e); }
+}
+
+async function generateAndSaveSessionSummary() {
+  if (!currentUser || conversationHistory.length < 4) return;
+  try {
+    // Build a summary of this session using the last 20 messages
+    const recentHistory = conversationHistory.slice(-20);
+    const summaryPrompt = 'Summarise this CAT mentoring session in 3-4 sentences. Focus on: what topic was discussed, what specific problem or weakness was identified, what advice or task was given, and what the student should work on next. Be specific - include section names, topic names, scores if mentioned. This summary will be used to give the student continuity in their next session.';
+    
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        system: 'You are a helpful assistant that summarises tutoring sessions concisely.',
+        messages: [...recentHistory, { role: 'user', content: summaryPrompt }]
+      })
+    });
+    const data = await res.json();
+    const summary = data.content && data.content[0] ? data.content[0].text : null;
+    if (summary) {
+      await saveSessionSummary(summary);
+    }
+  } catch(e) { console.error('generateAndSaveSessionSummary error:', e); }
 }
 
 async function saveLastTask(task, insight) {
@@ -4151,6 +4197,19 @@ async function updateCognitivePattern(type, insight) {
     studentProfile[profMap[type]] = parts;
   } catch(e) { console.error('updateCognitivePattern error:', e); }
 }
+
+// Save session summary when user leaves or switches tabs
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && onboardingComplete && conversationHistory.length >= 4) {
+    generateAndSaveSessionSummary();
+  }
+});
+
+window.addEventListener('beforeunload', function() {
+  if (onboardingComplete && conversationHistory.length >= 4) {
+    generateAndSaveSessionSummary();
+  }
+});
 
 async function incrementSessionCount() {
   if (!currentUser || !SUPABASE_TOKEN) return;
