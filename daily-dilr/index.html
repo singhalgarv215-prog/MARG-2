@@ -173,8 +173,9 @@ async function generateDILR() {
     });
     
     const data = await res.json();
+    console.log('DILR API response status:', res.status, 'data:', JSON.stringify(data).substring(0, 200));
     const text = data.content && data.content[0] ? data.content[0].text : null;
-    if (!text) throw new Error('No response');
+    if (!text) throw new Error('No response - status: ' + res.status + ' data: ' + JSON.stringify(data).substring(0, 100));
     
     const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const jsonStart = clean.indexOf('{');
@@ -189,7 +190,8 @@ async function generateDILR() {
   } catch(e) {
     isGenerating = false;
     localStorage.removeItem(cacheKey);
-    container.innerHTML = '<div class="loading"><div style="color:var(--text-dim)">Having trouble generating. <span onclick="generateDILR()" style="color:#C9A84C;cursor:pointer;">Click to retry</span></div></div>';
+    console.error('DILR Error:', e.message);
+    container.innerHTML = '<div class="loading"><div style="color:var(--text-dim)">Error: ' + e.message + ' <span onclick="generateDILR()" style="color:#C9A84C;cursor:pointer;">Retry</span></div></div>';
   }
 }
 
