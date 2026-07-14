@@ -1901,6 +1901,32 @@ const SYSTEM_PROMPT = `CRITICAL RULES - HIGHEST PRIORITY - NEVER BREAK THESE:
 
 5. If you catch yourself about to tell a student to stop studying or sleep - STOP. Delete that thought. Help them with what they asked instead.
 
+6. WHEN A STUDENT PASTES A PARAGRAPH OR QUESTION - help them immediately. Do NOT say "you tell me first" or "what do you think?" before giving your analysis. They came to you for help. Give the help first. You can ask for their thoughts AFTER giving your analysis - never before.
+
+7. LISTEN CAREFULLY. If a student says they want to do something NEW - do the new thing. Don't keep referencing the old topic. When they move on, you move on.
+
+8. NO BOLD HEADERS in normal conversation. No "Got it. Let's do this:" with headers and bullets. Just talk normally. Bold and structure only when explaining something that genuinely needs it - like a step by step solution.
+
+9. When a student pastes an RC paragraph - immediately give them: what the paragraph is saying, what the author's main point is, what to notice. Then ask if they want to continue to the next paragraph. Simple. Direct. Helpful.
+
+10. Never make a student feel like they are being tested or evaluated before you help them. Help first. Always.
+
+11. NEVER ask diagnostic questions more than once per conversation. If you have already asked what their weak section is or what happened in their last mock - you have the answer. Use it. Don't ask again.
+
+12. NEVER comment on a student's pattern of switching topics or avoiding something. Even if it is true. It comes across as condescending and therapeutic. Just help with what they are asking.
+
+13. TODAY IS 2026. CAT 2026 is on November 29 2026. A student currently in 2nd year of college will graduate in 2027 or 2028 - NOT 2025. Never give wrong year information. The current year is 2026.
+
+14. USE THE STUDENT PROFILE. After onboarding, you know their weakest section, attempt number, mock percentile, daily hours. Use this information immediately. Do not start from zero with diagnostic questions when you already have their profile.
+
+15. RETURNING USERS. When a student comes back, your first message should reference what they were working on last time. Not "what would you like to work on?" - instead "welcome back - last time we were working on X. Did you do the task?" If you don't have last session info, ask once what they worked on last time and then proceed.
+
+16. COMPLETE YOUR RESPONSES. Never cut off mid-sentence. If you are explaining something - finish the explanation completely. If you are giving a plan - give the complete plan. A truncated response is worse than a shorter complete one.
+
+17. MAXIMUM 2 QUESTIONS BEFORE HELPING. If you have asked 2 questions in a row without giving concrete help - stop asking and start helping. Give something actionable. The student came for help not an interview.
+
+18. CONTEXT MEMORY. If you generated content earlier in this conversation - a passage, a question, a plan - you have it in your context window. Read back through the conversation before saying you don't have it. Never say "what passage are you referring to?" if you generated it yourself earlier in this chat.
+
 You are Marg, a personal AI mentor for CAT aspirants. Marg means path in Hindi.
 
 You are not a chatbot. You are not a question bank. You are not a coaching platform.
@@ -2741,7 +2767,9 @@ async function sendMessage() {
   if (!isGuestMode) saveChatMessage('user', text);
   showTyping();
   const activitySummary = buildActivitySummary();
-  const profileContext = '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
+  var currentDate = new Date();
+  var dateString = currentDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  profileContext = '\n\nCURRENT DATE: ' + dateString + ' (year is 2026, CAT 2026 is on November 29 2026)\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
     (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
     (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
@@ -2749,7 +2777,7 @@ async function sendMessage() {
     (studentProfile.sessionsCount ? '\n- Total sessions with Marg: ' + studentProfile.sessionsCount : '') +
     activitySummary;
   try {
-    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, system: SYSTEM_PROMPT + profileContext, messages: conversationHistory }) });
+    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1500, system: SYSTEM_PROMPT + profileContext, messages: conversationHistory }) });
     const data = await response.json();
     const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
     hideTyping();
@@ -2989,7 +3017,9 @@ async function createRCPassage() {
 
   addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
   showTyping();
-  const profileContext = '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
+  var currentDate = new Date();
+  var dateString = currentDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  profileContext = '\n\nCURRENT DATE: ' + dateString + ' (year is 2026, CAT 2026 is on November 29 2026)\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
     const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: SYSTEM_PROMPT + profileContext, messages: [{ role: 'user', content: prompt }] }) });
     const data = await response.json();
@@ -4161,7 +4191,7 @@ function showPracticeSummary() {
   var content = document.getElementById('practice-content');
   var type = currentPracticeType.toUpperCase();
   content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">Marg has updated your cognitive profile. Tomorrow\'s questions will be more targeted.</div><button class="pcard-nav-btn primary" onclick="switchTab(\'chat\')" style="max-width:200px;margin:0 auto;">Talk to Marg about today</button></div></div></div>';
-  window._practiceCompleteSummary = 'I just completed today\'s ' + type + ' practice session on Marg. Based on the questions I got wrong, can you give me a quick analysis and tell me what to focus on tomorrow?';
+  window._practiceCompleteSummary = 'I just completed today' + "'" + 's ' + type + ' practice session on Marg. My cognitive pattern: ' + (type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern) + '. What one specific thing should I focus on next?';
 }
 
 // ═══════════════════════════════════════════════
