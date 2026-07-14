@@ -144,7 +144,7 @@ async function generateDILR() {
   isGenerating = true;
   const container = document.getElementById('practice-container');
   
-  const cacheKey = 'marg_daily_dilr_v2_' + today.toISOString().split('T')[0];
+  const cacheKey = 'marg_daily_dilr_v3_' + today.toISOString().split('T')[0];
   const cached = localStorage.getItem(cacheKey);
   
   if (cached) {
@@ -158,7 +158,7 @@ async function generateDILR() {
     }
   }
   
-  const prompt = 'Generate a CAT-level DILR set with 4 questions. Return ONLY valid JSON no markdown no backticks: {"set_title":"title","difficulty":"Medium","constraint_types":["Type1","Type2"],"setup":"full set description with all conditions","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"solution approach","common_mistake":"common error"}]}';
+  const prompt = 'Create a CAT DILR puzzle with 5 people or items and 4 constraints. Then write 4 multiple choice questions about it. Respond with ONLY this JSON structure, no other text: {"set_title":"short title","difficulty":"Medium","constraint_types":["type1","type2"],"setup":"describe the full puzzle setup here","questions":[{"q":"question 1","options":["A. option","B. option","C. option","D. option"],"correct":0,"explanation":"how to solve","common_mistake":"typical error"},{"q":"question 2","options":["A. option","B. option","C. option","D. option"],"correct":1,"explanation":"how to solve","common_mistake":"typical error"},{"q":"question 3","options":["A. option","B. option","C. option","D. option"],"correct":2,"explanation":"how to solve","common_mistake":"typical error"},{"q":"question 4","options":["A. option","B. option","C. option","D. option"],"correct":3,"explanation":"how to solve","common_mistake":"typical error"}]}';
   
   try {
     const res = await fetch(WORKER_URL, {
@@ -177,11 +177,13 @@ async function generateDILR() {
     const text = data.content && data.content[0] ? data.content[0].text : null;
     if (!text) throw new Error('No response - status: ' + res.status + ' data: ' + JSON.stringify(data).substring(0, 100));
     
-    const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const jsonStart = clean.indexOf('{');
     const jsonEnd = clean.lastIndexOf('}');
-    const jsonStr = (jsonStart !== -1 && jsonEnd !== -1) ? clean.substring(jsonStart, jsonEnd + 1) : clean;
-    const dilrData = JSON.parse(jsonStr);
+    clean = (jsonStart !== -1 && jsonEnd !== -1) ? clean.substring(jsonStart, jsonEnd + 1) : clean;
+    // Clean JSON
+    try { clean = clean.replace(/,\s*([}\]])/g, '$1'); } catch(ex) {}
+        const dilrData = JSON.parse(clean);
     
     localStorage.setItem(cacheKey, JSON.stringify(dilrData));
     isGenerating = false;
