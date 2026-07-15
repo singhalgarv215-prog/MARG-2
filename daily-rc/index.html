@@ -281,9 +281,9 @@
 <nav>
   <a href="https://trymarg.com" class="nav-logo">M<span>arg</span></a>
   <div class="nav-links">
-    <a href="/daily-rc" class="nav-link active">RC</a>
-    <a href="/daily-dilr" class="nav-link">DILR</a>
-    <a href="/daily-qa" class="nav-link">QA</a>
+    <a href="/daily-rc/" class="nav-link active">RC</a>
+    <a href="/daily-dilr/" class="nav-link">DILR</a>
+    <a href="/daily-qa/" class="nav-link">QA</a>
   </div>
   <a href="https://trymarg.com" class="nav-cta">Try Marg free →</a>
 </nav>
@@ -302,9 +302,9 @@
   </div>
 
   <div class="section-nav">
-    <a href="/daily-rc" class="section-nav-btn active">📖 Reading Comprehension</a>
-    <a href="/daily-dilr" class="section-nav-btn">🧩 DILR</a>
-    <a href="/daily-qa" class="section-nav-btn">🔢 Quantitative</a>
+    <a href="/daily-rc/" class="section-nav-btn active">📖 Reading Comprehension</a>
+    <a href="/daily-dilr/" class="section-nav-btn">🧩 DILR</a>
+    <a href="/daily-qa/" class="section-nav-btn">🔢 Quantitative</a>
   </div>
 
   <div id="practice-container">
@@ -327,14 +327,14 @@
   <div style="background:#141414;border:1px solid #2A2A2A;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px;">
     <div style="font-size:14px;color:#F0EDE6;font-weight:500;margin-bottom:6px;">Also practice today</div>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px;">
-      <a href="/daily-dilr" style="font-size:13px;color:#888880;text-decoration:none;padding:8px 14px;border:1px solid #2A2A2A;border-radius:8px;">🧩 Today's DILR</a>
-      <a href="/daily-qa" style="font-size:13px;color:#888880;text-decoration:none;padding:8px 14px;border:1px solid #2A2A2A;border-radius:8px;">🔢 Today's QA</a>
+      <a href="/daily-dilr/" style="font-size:13px;color:#888880;text-decoration:none;padding:8px 14px;border:1px solid #2A2A2A;border-radius:8px;">🧩 Today's DILR</a>
+      <a href="/daily-qa/" style="font-size:13px;color:#888880;text-decoration:none;padding:8px 14px;border:1px solid #2A2A2A;border-radius:8px;">🔢 Today's QA</a>
       <a href="https://trymarg.com" style="font-size:13px;color:#C9A84C;text-decoration:none;padding:8px 14px;border:1px solid rgba(201,168,76,0.3);border-radius:8px;">✨ Full Marg experience</a>
     </div>
   </div>
 </div>
 <footer>
-  <p>Built by <a href="https://trymarg.com">Marg</a> — AI mentor for CAT aspirants · <a href="/daily-dilr">Daily DILR</a> · <a href="/daily-qa">Daily QA</a></p>
+  <p>Built by <a href="https://trymarg.com">Marg</a> — AI mentor for CAT aspirants · <a href="/daily-dilr/">Daily DILR</a> · <a href="/daily-qa/">Daily QA</a></p>
   <p style="margin-top:8px;">© 2026 Marg · Free CAT preparation platform</p>
 </footer>
 
@@ -354,7 +354,11 @@ document.getElementById('rc-number').textContent = 'RC #' + dayNum;
 // Track answered questions
 var answered = {};
 
+var isGenerating = false;
+
 async function generateRC() {
+  if (isGenerating) return;
+  isGenerating = true;
   const container = document.getElementById('practice-container');
   
   // Check localStorage for today's RC
@@ -377,7 +381,7 @@ async function generateRC() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        max_tokens: 1200,
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.',
         messages: [{ role: 'user', content: prompt }]
       })
@@ -464,5 +468,8 @@ function selectOption(qIndex, optIndex, correct, btn) {
 generateRC();
 </script>
 
+<div style="text-align:center;padding:16px;font-size:12px;color:#555550;">
+  Questions or feedback? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decoration:none;">hello@trymarg.com</a>
+</div>
 </body>
 </html>
