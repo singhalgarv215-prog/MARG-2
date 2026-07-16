@@ -2042,8 +2042,7 @@ async function saveChatMessage(role, msgContent) {
     const result = await sbFetch('chats', 'POST', { 
       user_id: currentUser.id, 
       role: role, 
-      content: msgContent,
-      created_at: new Date().toISOString()
+      content: msgContent
     });
     if (!result.ok) console.error('Chat save failed:', result.status);
   } catch(e) { console.error('Chat save error:', e); }
