@@ -2332,7 +2332,7 @@ var conversationalProfile = {
 function showConversationalOptions(options, context) {
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'conv-options-' + context;
-  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:8px 12px 12px;max-width:480px;';
+  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 16px 12px 60px;max-width:100%;';
   
   options.forEach(function(opt) {
     var btn = document.createElement('button');
@@ -2652,7 +2652,9 @@ async function sendMessage() {
   // Allow chat if onboarding is complete OR if mock onboarding overlay is shown
   const mockOverlay = document.getElementById('mock-onboarding-overlay');
   const mockVisible = mockOverlay && mockOverlay.style.display === 'flex';
-  if (!onboardingComplete && !mockVisible) return;
+  // Allow during conversational onboarding too
+  var inConversationalOnboarding = !onboardingComplete && conversationHistory.length > 0;
+  if (!onboardingComplete && !mockVisible && !inConversationalOnboarding) return;
   if (!checkGuestLimit()) return;
   const input = document.getElementById('user-input');
   const text = input.value.trim();
@@ -2664,6 +2666,15 @@ async function sendMessage() {
   conversationHistory.push({ role: 'user', content: text });
   detectAndSaveMockScores(text);
   if (!isGuestMode) saveChatMessage('user', text);
+  
+  // Route through conversational onboarding if still active
+  if (!onboardingComplete && conversationHistory.length <= 10) {
+    await sendConversationalMessage(text, 'typed');
+    isLoading = false;
+    document.getElementById('send-btn').disabled = false;
+    return;
+  }
+  
   showTyping();
   const activitySummary = buildActivitySummary();
   var currentDate = new Date();
@@ -4432,7 +4443,7 @@ function askOnboardingQuestion() {
 function showOnboardingOptions(options) {
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'onboarding-chips';
-  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:8px 12px 12px;max-width:480px;';
+  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 16px 12px 60px;max-width:100%;';
 
   options.forEach(function(opt) {
     var btn = document.createElement('button');
