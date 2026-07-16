@@ -18,8 +18,8 @@
 </script>
 <style>
   :root {
-    --bg: #0D0D0D;
-    --surface: #161616;
+    --bg: #000000;
+    --surface: #0E0E0E;
     --surface2: #1E1E1E;
     --border: rgba(255,255,255,0.07);
     --border2: rgba(255,255,255,0.12);
@@ -123,11 +123,12 @@
   #user-name { font-size: 12px; color: var(--text-muted); }
   #logout-btn { font-size: 11px; color: var(--text-dim); background: none; border: none; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
   #logout-btn:hover{color:var(--text-muted)}
-  #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; scroll-padding-bottom: 20px; }
   #messages::-webkit-scrollbar{width:4px}
   #messages::-webkit-scrollbar-track{background:transparent}
   #messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-  .msg-wrap{display:flex;gap:10px;align-items:flex-end;max-width:82%}
+  .msg-wrap{display:flex;gap:10px;align-items:flex-end;max-width:82%;animation:msgPop 0.2s ease;}
+  @keyframes msgPop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   .msg-wrap.user{align-self:flex-end;flex-direction:row-reverse}
   .msg-wrap.marg{align-self:flex-start}
   .avatar{width:28px;height:28px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--surface2);display:flex;align-items:center;justify-content:center}
@@ -2332,23 +2333,25 @@ var conversationalProfile = {
 function showConversationalOptions(options, context) {
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'conv-options-' + context;
-  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 16px 12px 60px;max-width:100%;';
+  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 0 4px 38px;max-width:100%;width:100%;';
   
   options.forEach(function(opt) {
     var btn = document.createElement('button');
     btn.textContent = opt;
     btn.style.cssText = [
-      'background:#1A1A1A',
-      'border:1.5px solid #2A2A2A',
-      'border-radius:10px',
-      'padding:12px 16px',
+      'background:#161616',
+      'border:1.5px solid rgba(255,255,255,0.1)',
+      'border-radius:12px',
+      'padding:13px 16px',
       'font-family:DM Sans,sans-serif',
       'font-size:14px',
       'color:#C8C4BC',
       'cursor:pointer',
       'transition:all 0.18s ease',
       'text-align:left',
-      'width:100%'
+      'width:100%',
+      'max-width:460px',
+      'line-height:1.4'
     ].join(';');
     btn.onmouseover = function() {
       this.style.borderColor = '#C9A84C';
@@ -4443,7 +4446,7 @@ function askOnboardingQuestion() {
 function showOnboardingOptions(options) {
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'onboarding-chips';
-  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 16px 12px 60px;max-width:100%;';
+  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 0 4px 38px;max-width:100%;width:100%;';
 
   options.forEach(function(opt) {
     var btn = document.createElement('button');
@@ -4602,8 +4605,8 @@ async function completeOnboarding() {
 </script>
 <style>
   :root {
-    --bg: #0D0D0D;
-    --surface: #161616;
+    --bg: #000000;
+    --surface: #0E0E0E;
     --surface2: #1E1E1E;
     --border: rgba(255,255,255,0.07);
     --border2: rgba(255,255,255,0.12);
@@ -4707,11 +4710,12 @@ async function completeOnboarding() {
   #user-name { font-size: 12px; color: var(--text-muted); }
   #logout-btn { font-size: 11px; color: var(--text-dim); background: none; border: none; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
   #logout-btn:hover{color:var(--text-muted)}
-  #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; scroll-padding-bottom: 20px; }
   #messages::-webkit-scrollbar{width:4px}
   #messages::-webkit-scrollbar-track{background:transparent}
   #messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-  .msg-wrap{display:flex;gap:10px;align-items:flex-end;max-width:82%}
+  .msg-wrap{display:flex;gap:10px;align-items:flex-end;max-width:82%;animation:msgPop 0.2s ease;}
+  @keyframes msgPop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   .msg-wrap.user{align-self:flex-end;flex-direction:row-reverse}
   .msg-wrap.marg{align-self:flex-start}
   .avatar{width:28px;height:28px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--surface2);display:flex;align-items:center;justify-content:center}
