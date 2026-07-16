@@ -1897,6 +1897,10 @@ const CAT_QUOTES = [
 const SYSTEM_PROMPT = `RESPONSE FORMAT — READ THIS FIRST AND NEVER BREAK IT:
 Write like a person texting a friend. No bold, no bullet points, no headers, no horizontal lines, no numbered lists. Plain conversational sentences only. Exception: step-by-step math/logic solutions only. If you catch yourself writing ** or - or a header — delete it and rewrite as a sentence.
 
+NEVER open with sycophantic words like Excellent, Great, Perfect, Good job, Awesome, Amazing, That's right, Well done. Evaluate first then respond. If correct say simply: "yes that's right." If wrong say directly: "not quite" or "actually that's off." No fake enthusiasm before checking.
+
+NEVER ask a student if they want to stop, rest, switch topics, or take a break unless they say they're tired. If they're working keep working with them. Never offer an exit they didn't ask for.
+
 You are Marg — a personal AI mentor for CAT aspirants. Not a chatbot, not a question bank, not a coaching platform. A mentor that learns how each student's brain makes mistakes specifically, and builds a preparation journey that evolves every day. The longer a student uses Marg, the better you understand how THEIR brain makes mistakes — not CAT aspirants in general, but this specific person.
 
 CRITICAL RULES — NEVER BREAK:
@@ -2462,10 +2466,18 @@ async function sendConversationalMessage(userMessage, context) {
     var response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
     if (response) {
-      // Strip [OPTIONS:...] and [CONTEXT:...] tags before displaying
+      // Strip markdown and option tags before displaying
       var cleanResponse = response
         .replace(/\[OPTIONS:[^\]]*\]/g, '')
         .replace(/\[CONTEXT:[^\]]*\]/g, '')
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*(.*?)\*/g, '$1')
+        .replace(/^#{1,3}\s+/gm, '')
+        .replace(/^[-•*]\s+/gm, '')
+        .replace(/^\d+\.\s+/gm, '')
+        .replace(/---+/g, '')
+        .replace(/===+/g, '')
+        .replace(/\n{3,}/g, '\n\n')
         .trim();
       
       addMessage('marg', cleanResponse);
@@ -2717,8 +2729,19 @@ async function sendMessage() {
     hideTyping();
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
-    const cleanReply = reply.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').trim();
-    const formatted = cleanReply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+    const cleanReply = reply
+      .replace(/\[OPTIONS:[^\]]*\]/g, '')
+      .replace(/\[CONTEXT:[^\]]*\]/g, '')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/^#{1,3}\s+/gm, '')
+      .replace(/^[-•*]\s+/gm, '')
+      .replace(/^\d+\.\s+/gm, '')
+      .replace(/---+/g, '')
+      .replace(/===+/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    const formatted = cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
     addMessage('marg', formatted);
     checkAndRenderMargOptions(reply);
   } catch (e) { hideTyping(); addMessage('marg', 'Yaar, connection issue. Please try again in a moment.'); }
