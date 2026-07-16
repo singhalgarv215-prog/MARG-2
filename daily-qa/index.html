@@ -3639,6 +3639,7 @@ var currentPracticeType = 'rc';
 var practiceData = { rc: null, dilr: null, qa: null };
 var currentQuestionIndex = 0;
 var practiceAnswered = false;
+var sessionResults = { correct: 0, wrong: 0, total: 0, mistakes: [], passageTitle: '' };
 
 function switchTab(tab) {
   currentTab = tab;
@@ -3741,6 +3742,7 @@ function buildQAPrompt() {
 }
 
 async function loadDailyPractice() {
+  sessionResults = { correct: 0, wrong: 0, total: 0, mistakes: [], passageTitle: '' };
   var content = document.getElementById('practice-content');
   
   if (isPracticeDoneToday(currentPracticeType)) {
@@ -3877,10 +3879,29 @@ function selectAnswer(selectedIndex) {
   var nextBtn = document.getElementById('next-btn');
   if (nextBtn) nextBtn.disabled = false;
   
+  // Track session results
+  sessionResults.total++;
+  if (isCorrect) {
+    sessionResults.correct++;
+  } else {
+    sessionResults.wrong++;
+    if (q.marg_insight) {
+      sessionResults.mistakes.push({
+        topic: q.concept_check || q.trap_type || currentPracticeType.toUpperCase(),
+        insight: q.marg_insight,
+        trap: q.trap_type || ''
+      });
+    }
+  }
+  // Store passage/set title
+  var data = practiceData[currentPracticeType];
+  if (data && data.topic) sessionResults.passageTitle = data.topic;
+  if (data && data.set_title) sessionResults.passageTitle = data.set_title;
+  if (data && data.topics_combined) sessionResults.passageTitle = data.topics_combined.join(' + ');
+
   if (!isCorrect && q.marg_insight) {
     updateCognitivePattern(currentPracticeType, q.marg_insight);
     showInsightToast('<strong>Marg just learned something</strong><br>' + q.marg_insight);
-    // Store wrong answer for targeted practice
     storeWrongAnswer(currentPracticeType, q, q.marg_insight);
   }
   incrementSessionCount();
@@ -4334,7 +4355,23 @@ async function completeOnboarding() {
 }
 
 
-  completeSummary = 'I just completed my ' + type.toUpperCase() + ' practice session. Section: ' + type.toUpperCase() + '. Cognitive pattern: ' + (type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern) + '. Weakest section: ' + (studentProfile.weakestSection || 'unknown') + '. Last task: ' + (studentProfile.lastTask || 'none') + '. Give me one specific insight and one next action. Do not ask me any follow up questions - just use this data and respond directly.';
+  var sectionPattern = type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern;
+  var patternText = (sectionPattern && sectionPattern !== 'undefined' && sectionPattern !== 'null') ? sectionPattern : 'not identified yet';
+  
+  // Build real session results
+  var resultsText = '';
+  if (sessionResults.total > 0) {
+    resultsText = 'Session results: ' + sessionResults.correct + ' correct out of ' + sessionResults.total + ' questions';
+    if (sessionResults.passageTitle) resultsText += ' on ' + sessionResults.passageTitle;
+    resultsText += '. ';
+    if (sessionResults.mistakes.length > 0) {
+      resultsText += 'Wrong answers: ' + sessionResults.mistakes.map(function(m) { return m.topic + ' (' + m.insight + ')'; }).join('; ') + '. ';
+    } else if (sessionResults.correct === sessionResults.total) {
+      resultsText += 'Got all correct. ';
+    }
+  }
+  
+  completeSummary = 'I just completed my ' + type.toUpperCase() + ' practice on Marg. ' + resultsText + 'My cognitive pattern: ' + patternText + '. Weakest section: ' + (studentProfile.weakestSection || 'unknown') + '. You already know exactly what happened — tell me specifically what this reveals about my thinking and give me one concrete thing to work on next. Do not ask me what happened — you have all the data.';
 </script>
 <script>
   window.dataLayer = window.dataLayer || [];
