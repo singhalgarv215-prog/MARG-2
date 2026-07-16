@@ -2284,8 +2284,8 @@ async function savePracticeAttempt(attempt) {
 }
 
 function showWelcomeMarg() {
-  var overlay = document.getElementById('welcome-marg-overlay');
-  if (overlay) overlay.style.display = 'flex';
+  // Skip welcome overlay - go straight to conversational onboarding in chat
+  startConversationalOnboarding();
 }
 
 function showPreviewScreen() {
@@ -2293,6 +2293,216 @@ function showPreviewScreen() {
   if (welcome) welcome.style.display = 'none';
   var preview = document.getElementById('preview-overlay');
   if (preview) preview.style.display = 'flex';
+}
+
+function startConversationalOnboarding() {
+  // Enable input
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  onboardingComplete = false; // still in onboarding mode
+  
+  // Show chat app
+  document.getElementById('chat-app').style.display = 'flex';
+  
+  // Marg opens with first message + options
+  setTimeout(function() {
+    addMessage('marg', "Hi, I'm Marg — your personal CAT mentor. What's bothering you most about your prep right now?");
+    showConversationalOptions([
+      "My scores aren't improving despite studying",
+      "I'm weak in a specific section",
+      "I don't know where to start",
+      "Time management in the exam",
+      "I want to analyse my recent mock"
+    ], 'opening');
+  }, 600);
+}
+
+// Track what we've collected conversationally
+var conversationalProfile = {
+  openingChoice: null,
+  weakSection: null,
+  subWeakness: null,
+  mockRange: null,
+  attempt: null,
+  hours: null,
+  situation: null,
+  email: null
+};
+
+function showConversationalOptions(options, context) {
+  var chipsDiv = document.createElement('div');
+  chipsDiv.id = 'conv-options-' + context;
+  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:8px 12px 12px;max-width:480px;';
+  
+  options.forEach(function(opt) {
+    var btn = document.createElement('button');
+    btn.textContent = opt;
+    btn.style.cssText = [
+      'background:#1A1A1A',
+      'border:1.5px solid #2A2A2A',
+      'border-radius:10px',
+      'padding:12px 16px',
+      'font-family:DM Sans,sans-serif',
+      'font-size:14px',
+      'color:#C8C4BC',
+      'cursor:pointer',
+      'transition:all 0.18s ease',
+      'text-align:left',
+      'width:100%'
+    ].join(';');
+    btn.onmouseover = function() {
+      this.style.borderColor = '#C9A84C';
+      this.style.color = '#F0EDE6';
+      this.style.background = 'rgba(201,168,76,0.06)';
+    };
+    btn.onmouseout = function() {
+      if (!this.classList.contains('selected')) {
+        this.style.borderColor = '#2A2A2A';
+        this.style.color = '#C8C4BC';
+        this.style.background = '#1A1A1A';
+      }
+    };
+    btn.onclick = function() {
+      // Remove all option chips
+      var chips = document.getElementById('conv-options-' + context);
+      if (chips) chips.remove();
+      // Show as user message
+      addMessage('user', opt);
+      // Handle the response
+      handleConversationalResponse(opt, context);
+    };
+    chipsDiv.appendChild(btn);
+  });
+  
+  var messages = document.getElementById('messages');
+  messages.appendChild(chipsDiv);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+async function handleConversationalResponse(answer, context) {
+  conversationalProfile.lastAnswer = answer;
+  
+  if (context === 'opening') {
+    conversationalProfile.openingChoice = answer;
+    // Save weakest section hint
+    if (answer.includes('weak in')) studentProfile.weakestSection = null; // will get from follow-up
+    if (answer.includes('mock')) studentProfile.situation = 'mock analysis needed';
+    
+    // Let Marg respond naturally via AI
+    await sendConversationalMessage(answer, context);
+    
+  } else if (context === 'section') {
+    var section = answer.includes('VARC') ? 'VARC' : answer.includes('DILR') ? 'DILR' : answer.includes('QA') ? 'QA' : 'All';
+    conversationalProfile.weakSection = section;
+    studentProfile.weakestSection = section;
+    await sendConversationalMessage(answer, context);
+    
+  } else if (context === 'hours') {
+    studentProfile.dailyHours = answer;
+    conversationalProfile.hours = answer;
+    await sendConversationalMessage(answer, context);
+    
+  } else if (context === 'attempt') {
+    studentProfile.attemptNumber = answer;
+    conversationalProfile.attempt = answer;
+    await sendConversationalMessage(answer, context);
+    
+  } else if (context === 'situation') {
+    studentProfile.situation = answer;
+    conversationalProfile.situation = answer;
+    await sendConversationalMessage(answer, context);
+    
+  } else {
+    // Generic - just send to Marg
+    await sendConversationalMessage(answer, context);
+  }
+  
+  // Save profile progressively
+  saveProfileProgressively();
+}
+
+async function sendConversationalMessage(userMessage, context) {
+  conversationHistory.push({ role: 'user', content: userMessage });
+  showTyping();
+  
+  var profileSoFar = '';
+  if (conversationalProfile.weakSection) profileSoFar += 'Weak section: ' + conversationalProfile.weakSection + '. ';
+  if (conversationalProfile.hours) profileSoFar += 'Daily hours: ' + conversationalProfile.hours + '. ';
+  if (conversationalProfile.attempt) profileSoFar += 'Attempt: ' + conversationalProfile.attempt + '. ';
+  if (conversationalProfile.situation) profileSoFar += 'Situation: ' + conversationalProfile.situation + '. ';
+  
+  var systemAddition = profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
+  systemAddition += '\n\nCONVERSATIONAL ONBOARDING MODE: You are getting to know this student naturally. Ask follow-up questions one at a time. Use MCQ options ONLY when it helps narrow something specific (like which section, or how many hours). When you have enough to give a real diagnosis (usually after 3-4 exchanges) — give it. Be warm, curious, specific. DO NOT give a generic welcome. DO NOT list features. Just be a mentor getting to know them.';
+  
+  try {
+    var res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system: SYSTEM_PROMPT + systemAddition,
+        messages: conversationHistory
+      })
+    });
+    var data = await res.json();
+    var response = data.content && data.content[0] ? data.content[0].text : null;
+    hideTyping();
+    if (response) {
+      addMessage('marg', response);
+      conversationHistory.push({ role: 'assistant', content: response });
+      
+      // Check if Marg's response contains MCQ options we should render
+      // Marg will signal options with [OPTIONS: opt1|opt2|opt3] format
+      checkAndRenderMargOptions(response);
+      
+      // After 4+ exchanges, transition to full chat
+      if (conversationHistory.length >= 8 && !onboardingComplete) {
+        onboardingComplete = true;
+        showBottomNav();
+        studentProfile.monthsLeft = calculateMonthsLeftForCAT();
+        await saveProfile();
+        await saveLastTask('Complete CAT prep plan from onboarding conversation', 'Initial diagnosis done');
+      }
+    }
+  } catch(e) {
+    hideTyping();
+    addMessage('marg', 'Tell me more — what specifically feels stuck?');
+  }
+}
+
+function checkAndRenderMargOptions(response) {
+  // Check if response contains [OPTIONS: ...] signal
+  var optMatch = response.match(/\[OPTIONS:\s*([^\]]+)\]/);
+  if (optMatch) {
+    var options = optMatch[1].split('|').map(function(o) { return o.trim(); });
+    var contextMatch = response.match(/\[CONTEXT:\s*([^\]]+)\]/);
+    var ctx = contextMatch ? contextMatch[1].trim() : 'general';
+    showConversationalOptions(options, ctx);
+  }
+}
+
+async function saveProfileProgressively() {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    var updates = { user_id: currentUser.id };
+    if (studentProfile.weakestSection) updates.weakest_section = studentProfile.weakestSection;
+    if (studentProfile.dailyHours) updates.daily_hours = studentProfile.dailyHours;
+    if (studentProfile.attemptNumber) updates.attempt_number = studentProfile.attemptNumber;
+    if (studentProfile.situation) updates.situation = studentProfile.situation;
+    if (studentProfile.monthsLeft) updates.months_left = studentProfile.monthsLeft;
+    
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_TOKEN,
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(updates)
+    });
+  } catch(e) {}
 }
 
 function skipToOnboarding() {
@@ -2464,6 +2674,11 @@ async function sendMessage() {
     (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
     (studentProfile.mockHistory ? '\n- Mock history: ' + studentProfile.mockHistory : '') +
     (studentProfile.sessionsCount ? '\n- Total sessions with Marg: ' + studentProfile.sessionsCount : '') +
+    (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0 ?
+      '\n\nRECENT MISTAKES (last ' + studentProfile.recentMistakes.length + ' wrong answers — USE THESE to target practice):\n' +
+      studentProfile.recentMistakes.slice(0, 5).map(function(m) {
+        return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
+      }).join('\n') : '') +
     activitySummary;
   try {
     const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1500, system: SYSTEM_PROMPT + profileContext, messages: conversationHistory }) });
@@ -3634,6 +3849,7 @@ var currentPracticeType = 'rc';
 var practiceData = { rc: null, dilr: null, qa: null };
 var currentQuestionIndex = 0;
 var practiceAnswered = false;
+var sessionResults = { correct: 0, wrong: 0, total: 0, mistakes: [], passageTitle: '' };
 
 function switchTab(tab) {
   currentTab = tab;
@@ -3693,28 +3909,50 @@ function switchPracticeTab(type) {
 function buildRCPrompt() {
   var focusArea = '';
   if (studentProfile.varcPattern) {
-    focusArea = 'IMPORTANT: Focus on this student s specific VARC weakness: ' + studentProfile.varcPattern + '. Design questions that specifically target this pattern.';
+    focusArea = 'This student specifically: ' + studentProfile.varcPattern + '. ';
   }
-  return 'Generate a high-quality CAT-level Reading Comprehension passage and 3 questions. ' + focusArea + ' Requirements: Passage 350-420 words on Philosophy Economics Science Technology Social Issues or Psychology. Dense argument-driven writing exactly like CAT RC. 3 questions testing Primary Purpose Author Attitude and Inference. Each question has 4 options where 2 feel correct but only 1 is right. Wrong options must be too extreme out of scope or reversals of argument. Return ONLY valid JSON no markdown no backticks: {"passage":"text","difficulty":"Medium or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why correct and why each wrong is a trap","trap_type":"cognitive error","marg_insight":"what wrong answer reveals about thinking"}]}';
+  var recentMistakes = '';
+  if (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0) {
+    var rcMistakes = studentProfile.recentMistakes.filter(function(m) { return m.type === 'rc'; }).slice(0, 3);
+    if (rcMistakes.length > 0) {
+      recentMistakes = 'Recent specific mistakes to target: ' + rcMistakes.map(function(m) { return m.insight; }).join('; ') + '. Generate questions that specifically expose and help fix these exact mistakes.';
+    }
+  }
+  return 'Generate a CAT-level RC passage and 3 questions. ' + focusArea + recentMistakes + ' Passage 350-420 words on Philosophy Economics Science Technology Social Issues or Psychology. Dense argument-driven. 3 questions on Primary Purpose, Author Attitude, Inference. 4 options where wrong ones are extreme, out of scope, or reversals. Return ONLY valid JSON: {"passage":"text","difficulty":"Medium or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why correct and why each wrong is a trap","trap_type":"cognitive error","marg_insight":"what wrong answer reveals about thinking"}]}';
 }
 
 function buildDILRPrompt() {
   var focusArea = '';
   if (studentProfile.dilrPattern) {
-    focusArea = 'IMPORTANT: Focus on this student s specific DILR weakness: ' + studentProfile.dilrPattern;
+    focusArea = 'This student specifically: ' + studentProfile.dilrPattern + '. ';
   }
-  return 'Generate a high-quality CAT-level DILR set combining 2 constraint types. ' + focusArea + ' Requirements: Combine Arrangements plus Rankings or Scheduling plus Grouping or Matrix plus Conditions. 5 elements to track. 4 questions of increasing difficulty. Include a time trap question. Make it genuinely hard like actual CAT DILR. Return ONLY valid JSON no markdown: {"set_title":"description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"full set with all conditions","questions":[{"q":"question","options":["A. opt","B. opt","C. opt","D. opt"],"correct":0,"explanation":"step by step solution","common_mistake":"what students get wrong","marg_insight":"what wrong answer reveals"}]}';
+  var recentMistakes = '';
+  if (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0) {
+    var dilrMistakes = studentProfile.recentMistakes.filter(function(m) { return m.type === 'dilr'; }).slice(0, 3);
+    if (dilrMistakes.length > 0) {
+      recentMistakes = 'Recent specific DILR mistakes: ' + dilrMistakes.map(function(m) { return m.insight; }).join('; ') + '. Design the set to specifically expose and help fix these mistakes.';
+    }
+  }
+  return 'Generate a CAT-level DILR set. ' + focusArea + recentMistakes + ' Combine 2 of: Arrangements+Rankings, Scheduling+Grouping, Matrix+Conditions. 5 elements, 4 questions increasing difficulty. Include a time trap. Return ONLY valid JSON: {"set_title":"description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"full set with all conditions","questions":[{"q":"question","options":["A. opt","B. opt","C. opt","D. opt"],"correct":0,"explanation":"step by step solution","common_mistake":"what students get wrong","marg_insight":"what wrong answer reveals"}]}';
 }
 
 function buildQAPrompt() {
   var focusArea = '';
   if (studentProfile.qaPattern) {
-    focusArea = 'IMPORTANT: Focus on this student s specific QA weakness: ' + studentProfile.qaPattern;
+    focusArea = 'This student specifically: ' + studentProfile.qaPattern + '. ';
   }
-  return 'Generate 2 high-quality CAT-level Quantitative Aptitude questions combining 2 topics each. ' + focusArea + ' Requirements: Combine Percentages plus Time Speed Distance or Ratios plus Profit Loss or Geometry plus Mensuration. Each question needs 2 conceptual steps. Wrong options should be common calculation mistakes not random. Return ONLY valid JSON no markdown: {"difficulty":"Medium or Hard","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question with data","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step with working","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
+  var recentMistakes = '';
+  if (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0) {
+    var qaMistakes = studentProfile.recentMistakes.filter(function(m) { return m.type === 'qa'; }).slice(0, 3);
+    if (qaMistakes.length > 0) {
+      recentMistakes = 'Recent specific QA mistakes: ' + qaMistakes.map(function(m) { return m.topic + ': ' + m.insight; }).join('; ') + '. Generate questions specifically targeting these exact weaknesses.';
+    }
+  }
+  return 'Generate 2 CAT-level QA questions combining 2 topics each. ' + focusArea + recentMistakes + ' Combine: Percentages+TSD, Ratios+Profit-Loss, or Geometry+Mensuration. 2 conceptual steps each. Wrong options = common calculation mistakes. Return ONLY valid JSON: {"difficulty":"Medium or Hard","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
 }
 
 async function loadDailyPractice() {
+  sessionResults = { correct: 0, wrong: 0, total: 0, mistakes: [], passageTitle: '' };
   var content = document.getElementById('practice-content');
   
   if (isPracticeDoneToday(currentPracticeType)) {
@@ -3851,11 +4089,60 @@ function selectAnswer(selectedIndex) {
   var nextBtn = document.getElementById('next-btn');
   if (nextBtn) nextBtn.disabled = false;
   
+  // Track session results
+  sessionResults.total++;
+  if (isCorrect) {
+    sessionResults.correct++;
+  } else {
+    sessionResults.wrong++;
+    if (q.marg_insight) {
+      sessionResults.mistakes.push({
+        topic: q.concept_check || q.trap_type || currentPracticeType.toUpperCase(),
+        insight: q.marg_insight,
+        trap: q.trap_type || ''
+      });
+    }
+  }
+  // Store passage/set title
+  var data = practiceData[currentPracticeType];
+  if (data && data.topic) sessionResults.passageTitle = data.topic;
+  if (data && data.set_title) sessionResults.passageTitle = data.set_title;
+  if (data && data.topics_combined) sessionResults.passageTitle = data.topics_combined.join(' + ');
+
   if (!isCorrect && q.marg_insight) {
     updateCognitivePattern(currentPracticeType, q.marg_insight);
     showInsightToast('<strong>Marg just learned something</strong><br>' + q.marg_insight);
+    storeWrongAnswer(currentPracticeType, q, q.marg_insight);
   }
   incrementSessionCount();
+}
+
+function storeWrongAnswer(type, question, insight) {
+  try {
+    var key = 'marg_wrong_answers_' + (currentUser ? currentUser.id : 'guest');
+    var existing = JSON.parse(localStorage.getItem(key) || '[]');
+    var entry = {
+      date: new Date().toISOString().split('T')[0],
+      type: type,
+      topic: question.concept_check || question.trap_type || type.toUpperCase(),
+      insight: insight,
+      questionText: (question.q || '').substring(0, 80)
+    };
+    existing.unshift(entry);
+    // Keep only last 10 wrong answers
+    existing = existing.slice(0, 10);
+    localStorage.setItem(key, JSON.stringify(existing));
+    studentProfile.recentMistakes = existing;
+  } catch(e) {}
+}
+
+function loadRecentMistakes() {
+  try {
+    var key = 'marg_wrong_answers_' + (currentUser ? currentUser.id : 'guest');
+    var mistakes = JSON.parse(localStorage.getItem(key) || '[]');
+    studentProfile.recentMistakes = mistakes;
+    return mistakes;
+  } catch(e) { return []; }
 }
 
 async function updateCognitivePattern(type, insight) {
@@ -4278,7 +4565,23 @@ async function completeOnboarding() {
 }
 
 
-  completeSummary = 'I just completed my ' + type.toUpperCase() + ' practice session. Section: ' + type.toUpperCase() + '. Cognitive pattern: ' + (type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern) + '. Weakest section: ' + (studentProfile.weakestSection || 'unknown') + '. Last task: ' + (studentProfile.lastTask || 'none') + '. Give me one specific insight and one next action. Do not ask me any follow up questions - just use this data and respond directly.';
+  var sectionPattern = type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern;
+  var patternText = (sectionPattern && sectionPattern !== 'undefined' && sectionPattern !== 'null') ? sectionPattern : 'not identified yet';
+  
+  // Build real session results
+  var resultsText = '';
+  if (sessionResults.total > 0) {
+    resultsText = 'Session results: ' + sessionResults.correct + ' correct out of ' + sessionResults.total + ' questions';
+    if (sessionResults.passageTitle) resultsText += ' on ' + sessionResults.passageTitle;
+    resultsText += '. ';
+    if (sessionResults.mistakes.length > 0) {
+      resultsText += 'Wrong answers: ' + sessionResults.mistakes.map(function(m) { return m.topic + ' (' + m.insight + ')'; }).join('; ') + '. ';
+    } else if (sessionResults.correct === sessionResults.total) {
+      resultsText += 'Got all correct. ';
+    }
+  }
+  
+  completeSummary = 'I just completed my ' + type.toUpperCase() + ' practice on Marg. ' + resultsText + 'My cognitive pattern: ' + patternText + '. Weakest section: ' + (studentProfile.weakestSection || 'unknown') + '. You already know exactly what happened — tell me specifically what this reveals about my thinking and give me one concrete thing to work on next. Do not ask me what happened — you have all the data.';
 </script>
 <script>
   window.dataLayer = window.dataLayer || [];
