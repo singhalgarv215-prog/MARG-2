@@ -2426,6 +2426,7 @@ async function handleConversationalResponse(answer, context) {
 
 async function sendConversationalMessage(userMessage, context) {
   conversationHistory.push({ role: 'user', content: userMessage });
+  if (!isGuestMode) saveChatMessage('user', userMessage);
   showTyping();
   
   var profileSoFar = '';
@@ -2435,7 +2436,7 @@ async function sendConversationalMessage(userMessage, context) {
   if (conversationalProfile.situation) profileSoFar += 'Situation: ' + conversationalProfile.situation + '. ';
   
   var systemAddition = profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
-  systemAddition += '\n\nCONVERSATIONAL ONBOARDING MODE: You are getting to know this student naturally. Ask follow-up questions one at a time. Use MCQ options ONLY when it helps narrow something specific (like which section, or how many hours). When you have enough to give a real diagnosis (usually after 3-4 exchanges) — give it. Be warm, curious, specific. DO NOT give a generic welcome. DO NOT list features. Just be a mentor getting to know them.';
+  systemAddition += '\n\nCONVERSATIONAL ONBOARDING MODE: Be warm and direct. When you need to narrow something down, use options. Format: [OPTIONS: opt1|opt2|opt3][CONTEXT: type]. Only use options when it genuinely helps — not for every response.\n\nOPTIONS TO USE FOR EACH CONTEXT:\n\nSection weakness (CONTEXT: section): VARC|DILR|QA|All sections equally\n\nVARC sub-issue (CONTEXT: varc_sub): RC is the problem|VA is the problem|Both RC and VA\n\nRC specific issues (CONTEXT: rc_specific): I dont understand the passage|I understand but pick wrong options|I get stuck between 2 final options|I run out of time|I do well in practice but fail in mocks|I change my correct answer at the last moment\n\nVA specific issues (CONTEXT: va_specific): Para jumbles confuse me|Odd sentence out is hit or miss|Para summary questions feel subjective|All VA types trouble me\n\nDILR sub-issue (CONTEXT: dilr_sub): I run out of time|I cant crack the setup|I stay too long on hard sets|I solve correctly but make calculation errors|I panic and lose accuracy\n\nQA sub-issue (CONTEXT: qa_sub): I dont know the concept|I know the concept but make errors|I am too slow|I make careless mistakes in final step|Certain topics like geometry or P&C feel impossible\n\nDaily hours (CONTEXT: hours): Less than 1 hour|1-2 hours|2-4 hours|4-6 hours|6+ hours\n\nAttempt number (CONTEXT: attempt): First attempt|Second attempt|Third attempt or more\n\nSituation (CONTEXT: situation): Working professional|College student|Full-time prep|Preparing alongside other exams\n\nAfter 3-4 exchanges give a specific diagnosis. Never generic. Never list Marg features.';
   
   try {
     var res = await fetch(WORKER_URL, {
@@ -2454,6 +2455,7 @@ async function sendConversationalMessage(userMessage, context) {
     if (response) {
       addMessage('marg', response);
       conversationHistory.push({ role: 'assistant', content: response });
+      if (!isGuestMode) saveChatMessage('assistant', response);
       
       // Check if Marg's response contains MCQ options we should render
       // Marg will signal options with [OPTIONS: opt1|opt2|opt3] format
