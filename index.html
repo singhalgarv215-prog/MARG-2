@@ -1842,7 +1842,7 @@
   <div class="toast-text" id="toast-text"></div>
 </div>
 
-<button onclick="showFeedbackManual()" style="position:fixed;bottom:72px;right:16px;background:#1A1A1A;border:1px solid #2A2A2A;border-radius:20px;padding:8px 14px;font-size:12px;color:#888880;cursor:pointer;font-family:DM Sans,sans-serif;z-index:100;display:none;transition:all 0.2s;" id="feedback-btn" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='#2A2A2A';this.style.color='#888880'">💬 Feedback</button>
+<button onclick="showFeedbackManual()" style="position:fixed;bottom:72px;right:16px;background:#1A1A1A;border:1px solid #2A2A2A;border-radius:20px;padding:8px 14px;font-size:12px;color:#888880;cursor:pointer;font-family:DM Sans,sans-serif;z-index:100;display:none;transition:all 0.2s;" id="feedback-btn" onclick="window._showFeedback()" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='#2A2A2A';this.style.color='#888880'">💬 Feedback</button>
 
 <div id="bottom-nav">
   <button class="bnav-btn active" onclick="switchTab('chat')" id="bnav-chat">
@@ -4720,6 +4720,99 @@ async function completeOnboarding() {
   }
   
   completeSummary = 'I just completed my ' + type.toUpperCase() + ' practice on Marg. ' + resultsText + 'My cognitive pattern: ' + patternText + '. Weakest section: ' + (studentProfile.weakestSection || 'unknown') + '. You already know exactly what happened — tell me specifically what this reveals about my thinking and give me one concrete thing to work on next. Do not ask me what happened — you have all the data.';
+
+// ═══════════════════════════════════════════════
+// TOUR SYSTEM
+// ═══════════════════════════════════════════════
+var tourStep = 0;
+var totalTourSteps = 3;
+
+function showTour() {
+  var modal = document.getElementById('tour-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeTour() {
+  var modal = document.getElementById('tour-modal');
+  if (modal) modal.style.display = 'none';
+  localStorage.setItem('marg_tour_done', '1');
+}
+
+function tourNext() {
+  var cur = document.getElementById('tour-' + tourStep);
+  var dot = document.getElementById('dot-' + tourStep);
+  if (cur) cur.style.display = 'none';
+  if (dot) dot.style.background = '#333';
+  tourStep++;
+  if (tourStep >= totalTourSteps) { closeTour(); return; }
+  var next = document.getElementById('tour-' + tourStep);
+  var nextDot = document.getElementById('dot-' + tourStep);
+  if (next) next.style.display = 'block';
+  if (nextDot) nextDot.style.background = '#C9A84C';
+  var btn = document.getElementById('tour-next-btn');
+  if (btn && tourStep === totalTourSteps - 1) btn.textContent = "Let\'s go 🚀";
+}
+
+function checkAndShowTour() {
+  if (!localStorage.getItem('marg_tour_done')) {
+    setTimeout(showTour, 1500);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// FEEDBACK SYSTEM
+// ═══════════════════════════════════════════════
+var feedbackSelected = null;
+var feedbackShown = false;
+
+function showFeedback() {
+  var modal = document.getElementById('feedback-modal');
+  if (modal) { modal.style.display = 'flex'; feedbackShown = true; }
+}
+
+window._showFeedback = function() {
+  feedbackShown = false;
+  showFeedback();
+};
+
+function closeFeedback() {
+  var modal = document.getElementById('feedback-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function selectFeedback(btn) {
+  document.querySelectorAll('.fb-opt').forEach(function(b) { b.classList.remove('selected'); });
+  btn.classList.add('selected');
+  feedbackSelected = btn.textContent;
+}
+
+async function submitFeedback() {
+  var text = document.getElementById('feedback-text').value;
+  try {
+    await fetch(SUPABASE_URL + '/rest/v1/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + (SUPABASE_TOKEN || SUPABASE_ANON_KEY) },
+      body: JSON.stringify({ user_id: currentUser ? currentUser.id : 'guest', selected: feedbackSelected || 'none', text: text, page: 'marg_chat', sessions: studentProfile ? studentProfile.sessionsCount : 0 })
+    });
+  } catch(e) {}
+  closeFeedback();
+  setTimeout(function() {
+    var msg = document.getElementById('messages');
+    if (msg) {
+      var thanks = document.createElement('div');
+      thanks.style.cssText = 'text-align:center;padding:8px;font-size:13px;color:#4CAF7D;margin:8px 0;';
+      thanks.textContent = 'Thanks for the feedback — it genuinely helps 🙏';
+      msg.appendChild(thanks);
+      msg.scrollTop = msg.scrollHeight;
+    }
+  }, 300);
+}
+
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && conversationHistory && conversationHistory.length >= 2 && !feedbackShown) {
+    showFeedback();
+  }
+});
 </script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -6071,41 +6164,7 @@ async function completeOnboarding() {
   </div>
 </div>
 
-<script>
-var tourStep = 0;
-var totalTourSteps = 3;
 
-function showTour() {
-  document.getElementById('tour-modal').style.display = 'flex';
-}
-
-function closeTour() {
-  document.getElementById('tour-modal').style.display = 'none';
-  localStorage.setItem('marg_tour_done', '1');
-}
-
-function tourNext() {
-  document.getElementById('tour-' + tourStep).style.display = 'none';
-  document.getElementById('dot-' + tourStep).style.background = '#333';
-  tourStep++;
-  if (tourStep >= totalTourSteps) {
-    closeTour();
-    return;
-  }
-  document.getElementById('tour-' + tourStep).style.display = 'block';
-  document.getElementById('dot-' + tourStep).style.background = '#C9A84C';
-  if (tourStep === totalTourSteps - 1) {
-    document.getElementById('tour-next-btn').textContent = "Let's go 🚀";
-  }
-}
-
-function checkAndShowTour() {
-  var done = localStorage.getItem('marg_tour_done');
-  if (!done) {
-    setTimeout(showTour, 1500);
-  }
-}
-</script>
 
 <!-- FEEDBACK MODAL -->
 <div id="feedback-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
@@ -6145,93 +6204,7 @@ function checkAndShowTour() {
 .fb-opt.selected { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,77,0.06); }
 </style>
 
-<script>
-var feedbackSelected = null;
-var feedbackShown = false;
 
-function showFeedback() {
-  if (feedbackShown) return;
-  feedbackShown = true;
-  var modal = document.getElementById('feedback-modal');
-  modal.style.display = 'flex';
-}
-
-function closeFeedback() {
-  document.getElementById('feedback-modal').style.display = 'none';
-}
-
-function selectFeedback(btn) {
-  document.querySelectorAll('.fb-opt').forEach(function(b) { b.classList.remove('selected'); });
-  btn.classList.add('selected');
-  feedbackSelected = btn.textContent;
-}
-
-async function submitFeedback() {
-  var text = document.getElementById('feedback-text').value;
-  var feedback = {
-    user_id: currentUser ? currentUser.id : 'guest',
-    selected: feedbackSelected || 'none selected',
-    text: text,
-    page: 'marg_chat',
-    sessions: studentProfile ? studentProfile.sessionsCount : 0
-  };
-  try {
-    await fetch(SUPABASE_URL + '/rest/v1/feedback', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': 'Bearer ' + (SUPABASE_TOKEN || SUPABASE_ANON_KEY)
-      },
-      body: JSON.stringify(feedback)
-    });
-  } catch(e) {}
-  closeFeedback();
-  setTimeout(function() {
-    var msg = document.getElementById('messages');
-    if (msg) {
-      var thanks = document.createElement('div');
-      thanks.style.cssText = 'text-align:center;padding:8px;font-size:13px;color:#4CAF7D;';
-      thanks.textContent = 'Thanks for the feedback — it genuinely helps 🙏';
-      msg.appendChild(thanks);
-    }
-  }, 300);
-}
-
-// Trigger feedback on page close/leave
-window.addEventListener('beforeunload', function(e) {
-  if (conversationHistory.length >= 2 && !feedbackShown) {
-    showFeedback();
-  }
-});
-
-// Also trigger when tab switches away
-document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'hidden' && conversationHistory.length >= 2 && !feedbackShown) {
-    showFeedback();
-  }
-});
-
-// Show after 10 minutes of inactivity
-var lastActivity = Date.now();
-document.addEventListener('click', function() { lastActivity = Date.now(); });
-document.addEventListener('keydown', function() { lastActivity = Date.now(); });
-setInterval(function() {
-  if (conversationHistory.length >= 2 && !feedbackShown && Date.now() - lastActivity > 600000) {
-    showFeedback();
-  }
-}, 60000);
-
-// Manual feedback button in chat
-function showFeedbackManual() {
-  feedbackShown = false;
-  var modal = document.getElementById('feedback-modal');
-  if (modal) {
-    modal.style.display = 'flex';
-    feedbackShown = true;
-  }
-}
-</script>
 
 </body>
 </html>
