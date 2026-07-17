@@ -742,7 +742,7 @@ function showTour() {
 function closeTour() {
   var m = document.getElementById('tour-modal');
   if (m) m.style.display = 'none';
-  localStorage.setItem('marg_tour_done', '1');
+  localStorage.setItem('marg_tour_v2', '1');
   tourStep = 0;
 }
 function tourNext() {
@@ -760,7 +760,7 @@ function tourNext() {
   if (btn && tourStep === totalTourSteps - 1) btn.textContent = 'Lets go';
 }
 function checkAndShowTour() {
-  if (!localStorage.getItem('marg_tour_done')) setTimeout(showTour, 1500);
+  if (!localStorage.getItem('marg_tour_v2')) setTimeout(showTour, 1500);
 }
 var feedbackSelected = null;
 var feedbackShown = false;
