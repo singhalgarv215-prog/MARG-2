@@ -6071,22 +6071,35 @@ async function submitFeedback() {
   }, 300);
 }
 
-// Trigger on page leave
-document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'hidden' && onboardingComplete && conversationHistory.length >= 2) {
+// Trigger feedback on page close/leave
+window.addEventListener('beforeunload', function(e) {
+  if (conversationHistory.length >= 2 && !feedbackShown) {
     showFeedback();
   }
 });
 
-// Also show after 8+ minutes of inactivity
+// Also trigger when tab switches away
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && conversationHistory.length >= 2 && !feedbackShown) {
+    showFeedback();
+  }
+});
+
+// Show after 10 minutes of inactivity
 var lastActivity = Date.now();
 document.addEventListener('click', function() { lastActivity = Date.now(); });
 document.addEventListener('keydown', function() { lastActivity = Date.now(); });
 setInterval(function() {
-  if (onboardingComplete && Date.now() - lastActivity > 480000 && conversationHistory.length >= 2) {
+  if (conversationHistory.length >= 2 && !feedbackShown && Date.now() - lastActivity > 600000) {
     showFeedback();
   }
 }, 60000);
+
+// Manual feedback button in chat
+function showFeedbackManual() {
+  feedbackShown = false;
+  showFeedback();
+}
 </script>
 
 </body>
