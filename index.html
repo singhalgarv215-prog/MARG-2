@@ -731,7 +731,47 @@
   </button>
 </div>
 
-<script>
+<script>var tourStep = 0;
+var totalTourSteps = 3;
+function showTour() {
+  var m = document.getElementById('tour-modal');
+  if (m) { m.style.display = 'flex'; m.style.alignItems = 'center'; m.style.justifyContent = 'center'; }
+}
+function closeTour() {
+  var m = document.getElementById('tour-modal');
+  if (m) m.style.display = 'none';
+  localStorage.setItem('marg_tour_done', '1');
+  tourStep = 0;
+}
+function tourNext() {
+  var cur = document.getElementById('tour-' + tourStep);
+  var dot = document.getElementById('dot-' + tourStep);
+  if (cur) cur.style.display = 'none';
+  if (dot) dot.style.background = '#333';
+  tourStep++;
+  if (tourStep >= totalTourSteps) { closeTour(); return; }
+  var nxt = document.getElementById('tour-' + tourStep);
+  var ndot = document.getElementById('dot-' + tourStep);
+  if (nxt) { nxt.style.display = 'block'; }
+  if (ndot) ndot.style.background = '#C9A84C';
+  var btn = document.getElementById('tour-next-btn');
+  if (btn && tourStep === totalTourSteps - 1) btn.textContent = 'Lets go';
+}
+function checkAndShowTour() {
+  if (!localStorage.getItem('marg_tour_done')) setTimeout(showTour, 1500);
+}
+var feedbackSelected = null;
+var feedbackShown = false;
+function showFeedback() {
+  var modal = document.getElementById('feedback-modal');
+  if (modal) { modal.style.display = 'flex'; modal.style.alignItems = 'center'; modal.style.justifyContent = 'center'; feedbackShown = true; }
+}
+window._showFeedback = function() {
+  feedbackShown = false;
+  showFeedback();
+};
+
+
 
 const SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkdXF0cnVtaHZldGV5amt5bHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNjc0MzMsImV4cCI6MjA5NDc0MzQzM30.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
@@ -3512,26 +3552,7 @@ function checkAndShowTour() {
     setTimeout(showTour, 1500);
   }
 }
-var feedbackSelected = null;
-var feedbackShown = false;
-
-function showFeedback() {
-  var modal = document.getElementById('feedback-modal');
-  if (modal) { modal.style.display = 'flex'; modal.style.alignItems = 'center'; modal.style.justifyContent = 'center'; feedbackShown = true; }
-}
-
-window._showFeedback = function() {
-  try {
-    feedbackShown = false;
-    var modal = document.getElementById('feedback-modal');
-    if (modal) {
-      modal.style.display = 'flex';
-      feedbackShown = true;
-    } else {
-      console.error('feedback-modal not found');
-    }
-  } catch(e) { console.error('showFeedback error:', e); }
-};
+// feedback system defined at top
 
 function closeFeedback() {
   var modal = document.getElementById('feedback-modal');
