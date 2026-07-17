@@ -2389,8 +2389,9 @@ function startConversationalOnboarding() {
   document.getElementById('send-btn').disabled = false;
   onboardingComplete = false; // still in onboarding mode
   
-  // Show chat app
+  // Show chat app and bottom nav immediately
   document.getElementById('chat-app').style.display = 'flex';
+  showBottomNav();
   
   // Marg opens with first message + options
   setTimeout(function() {
@@ -2682,6 +2683,7 @@ function buildPersonalizedOpening() {
 
 function restoreConversation() {
   onboardingComplete = true;
+  showBottomNav();
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
   const displayMessages = conversationHistory.slice(2);
@@ -3182,6 +3184,7 @@ async function initSession() {
 
 // ─── RETURNING USER GREETING ───
 async function sendReturningUserGreeting() {
+  showBottomNav();
   const todayStr = new Date().toISOString().split('T')[0];
   const lastGreetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
   const lastGreet = localStorage.getItem(lastGreetKey);
