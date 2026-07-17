@@ -2376,6 +2376,7 @@ async function savePracticeAttempt(attempt) {
 function showWelcomeMarg() {
   // Skip welcome overlay - go straight to conversational onboarding in chat
   startConversationalOnboarding();
+  checkAndShowTour();
 }
 
 function showPreviewScreen() {
@@ -2699,6 +2700,7 @@ function restoreConversation() {
   addMessage('marg', 'Welcome back' + (name ? ', ' + name : '') + '! 👋 Ready to continue from where we left off?', true);
   addSuggestionChips();
   document.getElementById('user-input').focus();
+  checkAndShowTour();
 }
 
 function addSuggestionChips() {
@@ -5987,6 +5989,124 @@ async function completeOnboarding() {
     transform: none;
   }
 
+<!-- PRODUCT TOUR MODAL -->
+<div id="tour-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:9998;align-items:center;justify-content:center;">
+  <div style="background:#111;border:1px solid #222;border-radius:20px;padding:0;max-width:380px;width:92%;overflow:hidden;">
+    
+    <!-- Tour slides -->
+    <div id="tour-slides">
+      
+      <div class="tour-slide" id="tour-0">
+        <div style="background:linear-gradient(135deg,#0D0D0D,#1A1A1A);padding:32px 28px 24px;text-align:center;border-bottom:1px solid #1E1E1E;">
+          <div style="font-size:40px;margin-bottom:12px;">🧠</div>
+          <div style="font-size:20px;font-weight:700;color:#F0EDE6;margin-bottom:8px;">Meet Marg</div>
+          <div style="font-size:14px;color:#888;line-height:1.6;">Not another chatbot. A mentor that learns exactly how YOUR brain makes mistakes — and fixes them.</div>
+        </div>
+        <div style="padding:20px 28px 24px;">
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:36px;height:36px;background:rgba(201,168,76,0.1);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">💬</div>
+              <div style="font-size:13px;color:#C8C4BC;">Chat with Marg like a mentor — ask anything about CAT prep</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:36px;height:36px;background:rgba(76,175,77,0.1);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">📝</div>
+              <div style="font-size:13px;color:#C8C4BC;">Daily RC, DILR and QA practice targeting your specific mistakes</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:36px;height:36px;background:rgba(100,150,255,0.1);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">📊</div>
+              <div style="font-size:13px;color:#C8C4BC;">Track your progress and see your cognitive patterns evolve</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tour-slide" id="tour-1" style="display:none;">
+        <div style="background:linear-gradient(135deg,#0D0D0D,#1A1A1A);padding:32px 28px 24px;text-align:center;border-bottom:1px solid #1E1E1E;">
+          <div style="font-size:40px;margin-bottom:12px;">📝</div>
+          <div style="font-size:20px;font-weight:700;color:#F0EDE6;margin-bottom:8px;">Daily Practice Tab</div>
+          <div style="font-size:14px;color:#888;line-height:1.6;">Fresh RC, DILR and QA sets every day — generated specifically around your mistake patterns.</div>
+        </div>
+        <div style="padding:20px 28px 24px;">
+          <div style="background:#1A1A1A;border-radius:12px;padding:16px;border-left:3px solid #C9A84C;">
+            <div style="font-size:13px;color:#C9A84C;font-weight:600;margin-bottom:6px;">How it works</div>
+            <div style="font-size:13px;color:#888;line-height:1.7;">Every time you get a question wrong, Marg learns from it. Next day's practice targets exactly those patterns. The longer you use Marg, the more personal it gets.</div>
+          </div>
+          <div style="margin-top:14px;background:#1A1A1A;border-radius:12px;padding:16px;border-left:3px solid #4CAF7D;">
+            <div style="font-size:13px;color:#4CAF7D;font-weight:600;margin-bottom:6px;">Ask Marg about any question</div>
+            <div style="font-size:13px;color:#888;line-height:1.7;">After answering, tap "Ask Marg to explain this" on any question to get a detailed breakdown in chat.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tour-slide" id="tour-2" style="display:none;">
+        <div style="background:linear-gradient(135deg,#0D0D0D,#1A1A1A);padding:32px 28px 24px;text-align:center;border-bottom:1px solid #1E1E1E;">
+          <div style="font-size:40px;margin-bottom:12px;">🎯</div>
+          <div style="font-size:20px;font-weight:700;color:#F0EDE6;margin-bottom:8px;">Chat Like a Mentor</div>
+          <div style="font-size:14px;color:#888;line-height:1.6;">Marg remembers you across sessions and builds on every conversation.</div>
+        </div>
+        <div style="padding:20px 28px 24px;">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="background:#1A1A1A;border-radius:10px;padding:12px 14px;font-size:13px;color:#C8C4BC;">"Explain why I keep getting RC inference questions wrong"</div>
+            <div style="background:#1A1A1A;border-radius:10px;padding:12px 14px;font-size:13px;color:#C8C4BC;">"Analyse my mock — VARC 28, DILR 18, QA 34"</div>
+            <div style="background:#1A1A1A;border-radius:10px;padding:12px 14px;font-size:13px;color:#C8C4BC;">"I have 2 hours today, what should I focus on?"</div>
+            <div style="background:#1A1A1A;border-radius:10px;padding:12px 14px;font-size:13px;color:#C8C4BC;">"Walk me through this DILR set I got stuck on"</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Navigation -->
+    <div style="padding:16px 24px 20px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid #1E1E1E;">
+      <div style="display:flex;gap:6px;">
+        <div class="tour-dot active" id="dot-0" style="width:8px;height:8px;border-radius:50%;background:#C9A84C;transition:all 0.2s;"></div>
+        <div class="tour-dot" id="dot-1" style="width:8px;height:8px;border-radius:50%;background:#333;transition:all 0.2s;"></div>
+        <div class="tour-dot" id="dot-2" style="width:8px;height:8px;border-radius:50%;background:#333;transition:all 0.2s;"></div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="closeTour()" style="background:none;border:none;color:#555;font-size:13px;cursor:pointer;padding:8px 12px;">Skip</button>
+        <button id="tour-next-btn" onclick="tourNext()" style="background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:14px;cursor:pointer;font-weight:600;">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var tourStep = 0;
+var totalTourSteps = 3;
+
+function showTour() {
+  document.getElementById('tour-modal').style.display = 'flex';
+}
+
+function closeTour() {
+  document.getElementById('tour-modal').style.display = 'none';
+  localStorage.setItem('marg_tour_done', '1');
+}
+
+function tourNext() {
+  document.getElementById('tour-' + tourStep).style.display = 'none';
+  document.getElementById('dot-' + tourStep).style.background = '#333';
+  tourStep++;
+  if (tourStep >= totalTourSteps) {
+    closeTour();
+    return;
+  }
+  document.getElementById('tour-' + tourStep).style.display = 'block';
+  document.getElementById('dot-' + tourStep).style.background = '#C9A84C';
+  if (tourStep === totalTourSteps - 1) {
+    document.getElementById('tour-next-btn').textContent = "Let's go 🚀";
+  }
+}
+
+function checkAndShowTour() {
+  var done = localStorage.getItem('marg_tour_done');
+  if (!done) {
+    setTimeout(showTour, 1500);
+  }
+}
+</script>
+
 <!-- FEEDBACK MODAL -->
 <div id="feedback-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#111;border:1px solid #222;border-radius:16px;padding:28px 24px;max-width:360px;width:90%;position:relative;">
@@ -6105,7 +6225,11 @@ setInterval(function() {
 // Manual feedback button in chat
 function showFeedbackManual() {
   feedbackShown = false;
-  showFeedback();
+  var modal = document.getElementById('feedback-modal');
+  if (modal) {
+    modal.style.display = 'flex';
+    feedbackShown = true;
+  }
 }
 </script>
 
