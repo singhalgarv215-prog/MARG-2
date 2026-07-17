@@ -1842,6 +1842,8 @@
   <div class="toast-text" id="toast-text"></div>
 </div>
 
+<button onclick="showFeedbackManual()" style="position:fixed;bottom:72px;right:16px;background:#1A1A1A;border:1px solid #2A2A2A;border-radius:20px;padding:8px 14px;font-size:12px;color:#888880;cursor:pointer;font-family:DM Sans,sans-serif;z-index:100;display:none;transition:all 0.2s;" id="feedback-btn" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='#2A2A2A';this.style.color='#888880'">💬 Feedback</button>
+
 <div id="bottom-nav">
   <button class="bnav-btn active" onclick="switchTab('chat')" id="bnav-chat">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -4022,6 +4024,8 @@ function switchTab(tab) {
 function showBottomNav() {
   var nav = document.getElementById('bottom-nav');
   if (nav) nav.classList.add('visible');
+  var fbBtn = document.getElementById('feedback-btn');
+  if (fbBtn) fbBtn.style.display = 'block';
 }
 
 // ═══════════════════════════════════════════════
