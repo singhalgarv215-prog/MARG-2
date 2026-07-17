@@ -2568,6 +2568,7 @@ async function sendConversationalMessage(userMessage, context) {
       // After 4+ exchanges, transition to full chat
       if (conversationHistory.length >= 8 && !onboardingComplete) {
         onboardingComplete = true;
+        localStorage.setItem('marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest'), '1');
         showBottomNav();
         studentProfile.monthsLeft = calculateMonthsLeftForCAT();
         await saveProfile();
@@ -3176,9 +3177,19 @@ async function initSession() {
           mobLoginForMock = false;
           showMockOnboarding();
         } else {
-          showWelcomeMarg();
+          // Check if they've done onboarding before (refresh mid-onboarding)
+          var onboardingKey = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
+          var prevOnboarded = localStorage.getItem(onboardingKey);
+          if (prevOnboarded) {
+            onboardingComplete = true;
+            showBottomNav();
+            checkAndShowTour();
+            addMessage('marg', 'Welcome back! Pick up where you left off — what do you want to work on today?');
+          } else {
+            showWelcomeMarg();
+          }
         }
-        // Don't set onboardingComplete yet - 5 questions will run after profile setup
+        // Don't set onboardingComplete yet - will be set after conversational onboarding
       }
     });
   } catch(e) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); }
@@ -3189,6 +3200,7 @@ async function initSession() {
 // ─── RETURNING USER GREETING ───
 async function sendReturningUserGreeting() {
   showBottomNav();
+  if (typeof checkAndShowTour === 'function') checkAndShowTour();
   const todayStr = new Date().toISOString().split('T')[0];
   const lastGreetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
   const lastGreet = localStorage.getItem(lastGreetKey);
@@ -4771,8 +4783,16 @@ function showFeedback() {
 }
 
 window._showFeedback = function() {
-  feedbackShown = false;
-  showFeedback();
+  try {
+    feedbackShown = false;
+    var modal = document.getElementById('feedback-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+      feedbackShown = true;
+    } else {
+      console.error('feedback-modal not found');
+    }
+  } catch(e) { console.error('showFeedback error:', e); }
 };
 
 function closeFeedback() {
