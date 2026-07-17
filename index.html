@@ -1277,6 +1277,13 @@
     background: rgba(201,168,76,0.04);
     transform: none;
   }
+
+#tour-modal.visible, #feedback-modal.visible {
+  display: flex !important;
+}
+#tour-modal, #feedback-modal {
+  display: none;
+}
 </style>
 </head>
 <body>
@@ -3184,6 +3191,14 @@ async function initSession() {
             onboardingComplete = true;
             showBottomNav();
             checkAndShowTour();
+            loadStreakData();
+            setTimeout(function() { 
+              var btn = document.getElementById('varc-toggle-btn'); 
+              if (btn) btn.style.display = 'inline-flex'; 
+            }, 500);
+            checkVarcShownToday().then(function(shown) {
+              if (!shown) setTimeout(function() { loadVarcCard('economy'); }, 1000);
+            });
             addMessage('marg', 'Welcome back! Pick up where you left off — what do you want to work on today?');
           } else {
             showWelcomeMarg();
@@ -3201,6 +3216,7 @@ async function initSession() {
 async function sendReturningUserGreeting() {
   showBottomNav();
   if (typeof checkAndShowTour === 'function') checkAndShowTour();
+  if (!conversationHistory || conversationHistory.length < 2) return;
   const todayStr = new Date().toISOString().split('T')[0];
   const lastGreetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
   const lastGreet = localStorage.getItem(lastGreetKey);
@@ -4741,7 +4757,7 @@ var totalTourSteps = 3;
 
 function showTour() {
   var modal = document.getElementById('tour-modal');
-  if (modal) modal.style.display = 'flex';
+  if (modal) { modal.style.display = 'flex'; modal.style.alignItems = 'center'; modal.style.justifyContent = 'center'; }
 }
 
 function closeTour() {
@@ -4779,7 +4795,7 @@ var feedbackShown = false;
 
 function showFeedback() {
   var modal = document.getElementById('feedback-modal');
-  if (modal) { modal.style.display = 'flex'; feedbackShown = true; }
+  if (modal) { modal.style.display = 'flex'; modal.style.alignItems = 'center'; modal.style.justifyContent = 'center'; feedbackShown = true; }
 }
 
 window._showFeedback = function() {
@@ -6103,7 +6119,7 @@ document.addEventListener('visibilitychange', function() {
   }
 
 <!-- PRODUCT TOUR MODAL -->
-<div id="tour-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:9998;align-items:center;justify-content:center;">
+<div id="tour-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:9998;align-items:center;justify-content:center;display:none;">
   <div style="background:#111;border:1px solid #222;border-radius:20px;padding:0;max-width:380px;width:92%;overflow:hidden;">
     
     <!-- Tour slides -->
