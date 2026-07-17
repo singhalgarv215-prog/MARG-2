@@ -5980,5 +5980,114 @@ async function completeOnboarding() {
     transform: none;
   }
 
+<!-- FEEDBACK MODAL -->
+<div id="feedback-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#111;border:1px solid #222;border-radius:16px;padding:28px 24px;max-width:360px;width:90%;position:relative;">
+    <button onclick="closeFeedback()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#555;font-size:20px;cursor:pointer;">×</button>
+    <div style="font-size:16px;color:#F0EDE6;font-weight:600;margin-bottom:6px;">Before you go 👋</div>
+    <div style="font-size:13px;color:#888;margin-bottom:16px;">Quick feedback helps us improve Marg for you.</div>
+    <div style="font-size:13px;color:#C8C4BC;margin-bottom:10px;">What could be better?</div>
+    <div id="feedback-options" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+      <button class="fb-opt" onclick="selectFeedback(this)">Marg didn't understand my problem</button>
+      <button class="fb-opt" onclick="selectFeedback(this)">Responses were too long or confusing</button>
+      <button class="fb-opt" onclick="selectFeedback(this)">I wanted more practice questions</button>
+      <button class="fb-opt" onclick="selectFeedback(this)">Marg kept pushing me away</button>
+      <button class="fb-opt" onclick="selectFeedback(this)">I just came to explore</button>
+      <button class="fb-opt" onclick="selectFeedback(this)">Something else</button>
+    </div>
+    <textarea id="feedback-text" placeholder="Any other thoughts? (optional)" style="width:100%;background:#1A1A1A;border:1px solid #2A2A2A;border-radius:10px;padding:10px;color:#C8C4BC;font-size:13px;resize:none;height:72px;box-sizing:border-box;font-family:DM Sans,sans-serif;"></textarea>
+    <button onclick="submitFeedback()" style="width:100%;margin-top:12px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;cursor:pointer;font-family:DM Sans,sans-serif;font-weight:600;">Send feedback</button>
+    <button onclick="closeFeedback()" style="width:100%;margin-top:8px;background:none;border:none;color:#555;font-size:13px;cursor:pointer;padding:6px;">Skip</button>
+  </div>
+</div>
+
+<style>
+.fb-opt {
+  background: #1A1A1A;
+  border: 1.5px solid #2A2A2A;
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #888;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  font-family: DM Sans, sans-serif;
+  transition: all 0.15s;
+}
+.fb-opt:hover { border-color: #C9A84C; color: #C8C4BC; }
+.fb-opt.selected { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,77,0.06); }
+</style>
+
+<script>
+var feedbackSelected = null;
+var feedbackShown = false;
+
+function showFeedback() {
+  if (feedbackShown) return;
+  feedbackShown = true;
+  var modal = document.getElementById('feedback-modal');
+  modal.style.display = 'flex';
+}
+
+function closeFeedback() {
+  document.getElementById('feedback-modal').style.display = 'none';
+}
+
+function selectFeedback(btn) {
+  document.querySelectorAll('.fb-opt').forEach(function(b) { b.classList.remove('selected'); });
+  btn.classList.add('selected');
+  feedbackSelected = btn.textContent;
+}
+
+async function submitFeedback() {
+  var text = document.getElementById('feedback-text').value;
+  var feedback = {
+    user_id: currentUser ? currentUser.id : 'guest',
+    selected: feedbackSelected || 'none selected',
+    text: text,
+    page: 'marg_chat',
+    sessions: studentProfile ? studentProfile.sessionsCount : 0
+  };
+  try {
+    await fetch(SUPABASE_URL + '/rest/v1/feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + (SUPABASE_TOKEN || SUPABASE_ANON_KEY)
+      },
+      body: JSON.stringify(feedback)
+    });
+  } catch(e) {}
+  closeFeedback();
+  setTimeout(function() {
+    var msg = document.getElementById('messages');
+    if (msg) {
+      var thanks = document.createElement('div');
+      thanks.style.cssText = 'text-align:center;padding:8px;font-size:13px;color:#4CAF7D;';
+      thanks.textContent = 'Thanks for the feedback — it genuinely helps 🙏';
+      msg.appendChild(thanks);
+    }
+  }, 300);
+}
+
+// Trigger on page leave
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && onboardingComplete && conversationHistory.length >= 2) {
+    showFeedback();
+  }
+});
+
+// Also show after 8+ minutes of inactivity
+var lastActivity = Date.now();
+document.addEventListener('click', function() { lastActivity = Date.now(); });
+document.addEventListener('keydown', function() { lastActivity = Date.now(); });
+setInterval(function() {
+  if (onboardingComplete && Date.now() - lastActivity > 480000 && conversationHistory.length >= 2) {
+    showFeedback();
+  }
+}, 60000);
+</script>
+
 </body>
 </html>
