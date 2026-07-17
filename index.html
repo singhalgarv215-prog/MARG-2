@@ -708,7 +708,9 @@
   <div class="toast-text" id="toast-text"></div>
 </div>
 
-<button onclick="showFeedbackManual()" style="position:fixed;bottom:72px;right:16px;background:#1A1A1A;border:1px solid #2A2A2A;border-radius:20px;padding:8px 14px;font-size:12px;color:#888880;cursor:pointer;font-family:DM Sans,sans-serif;z-index:100;display:none;transition:all 0.2s;" id="feedback-btn" onclick="window._showFeedback()" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='#2A2A2A';this.style.color='#888880'">💬 Feedback</button>
+
+
+<button id="feedback-btn" onclick="window._showFeedback()" style="position:fixed;bottom:72px;right:16px;background:#1A1A1A;border:1px solid #2A2A2A;border-radius:20px;padding:8px 14px;font-size:12px;color:#888880;cursor:pointer;font-family:DM Sans,sans-serif;z-index:100;display:none;">💬 Feedback</button>
 
 <div id="bottom-nav">
   <button class="bnav-btn active" onclick="switchTab('chat')" id="bnav-chat">
@@ -3518,40 +3520,15 @@ async function completeOnboarding() {
   }
 
   completeSummary = 'I just completed my ' + type.toUpperCase() + ' practice on Marg. ' + resultsText + 'My cognitive pattern: ' + patternText + '. Weakest section: ' + (studentProfile.weakestSection || 'unknown') + '. You already know exactly what happened — tell me specifically what this reveals about my thinking and give me one concrete thing to work on next. Do not ask me what happened — you have all the data.';
-var tourStep = 0;
 var totalTourSteps = 3;
 
-function showTour() {
-  var modal = document.getElementById('tour-modal');
-  if (modal) { modal.style.display = 'flex'; modal.style.alignItems = 'center'; modal.style.justifyContent = 'center'; }
-}
 
-function closeTour() {
-  var modal = document.getElementById('tour-modal');
-  if (modal) modal.style.display = 'none';
-  localStorage.setItem('marg_tour_done', '1');
-}
 
-function tourNext() {
-  var cur = document.getElementById('tour-' + tourStep);
-  var dot = document.getElementById('dot-' + tourStep);
-  if (cur) cur.style.display = 'none';
-  if (dot) dot.style.background = '#333';
-  tourStep++;
-  if (tourStep >= totalTourSteps) { closeTour(); return; }
-  var next = document.getElementById('tour-' + tourStep);
-  var nextDot = document.getElementById('dot-' + tourStep);
-  if (next) { next.style.display = 'block'; next.style.width = '100%'; }
-  if (nextDot) nextDot.style.background = '#C9A84C';
-  var btn = document.getElementById('tour-next-btn');
-  if (btn && tourStep === totalTourSteps - 1) btn.textContent = "Lets go"
-}
 
-function checkAndShowTour() {
-  if (!localStorage.getItem('marg_tour_done')) {
-    setTimeout(showTour, 1500);
-  }
-}
+
+
+
+
 // feedback system defined at top
 
 function closeFeedback() {
