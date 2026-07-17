@@ -1193,6 +1193,14 @@ function startConversationalOnboarding() {
 
   document.getElementById('chat-app').style.display = 'flex';
   showBottomNav();
+  loadStreakData();
+  setTimeout(function() {
+    var btn = document.getElementById('varc-toggle-btn');
+    if (btn) btn.style.display = 'inline-flex';
+  }, 500);
+  checkVarcShownToday().then(function(shown) {
+    if (!shown) setTimeout(function() { loadVarcCard('economy'); }, 1000);
+  });
 
 
   setTimeout(function() {
@@ -2815,7 +2823,7 @@ function showBottomNav() {
   var nav = document.getElementById('bottom-nav');
   if (nav) nav.classList.add('visible');
   var fbBtn = document.getElementById('feedback-btn');
-  if (fbBtn) fbBtn.style.display = 'block';
+  if (fbBtn) { fbBtn.style.display = 'block'; fbBtn.style.opacity = '1'; }
 }
 function switchPracticeTab(type) {
   currentPracticeType = type;
@@ -3493,10 +3501,10 @@ function tourNext() {
   if (tourStep >= totalTourSteps) { closeTour(); return; }
   var next = document.getElementById('tour-' + tourStep);
   var nextDot = document.getElementById('dot-' + tourStep);
-  if (next) next.style.display = 'block';
+  if (next) { next.style.display = 'block'; next.style.width = '100%'; }
   if (nextDot) nextDot.style.background = '#C9A84C';
   var btn = document.getElementById('tour-next-btn');
-  if (btn && tourStep === totalTourSteps - 1) btn.textContent = "Let\'s go 🚀";
+  if (btn && tourStep === totalTourSteps - 1) btn.textContent = "Let's go 🚀";
 }
 
 function checkAndShowTour() {
