@@ -731,6 +731,12 @@
     </svg>
     Progress
   </button>
+  <a href="https://chat.whatsapp.com/YOUR_WHATSAPP_LINK" target="_blank" class="bnav-btn" id="bnav-community" style="text-decoration:none;color:inherit;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+    Community
+  </a>
 </div>
 
 <script>var tourStep = 0;
@@ -970,7 +976,8 @@ async function loadUserData() {
     const profile = profiles[0];
 
 
-    if (!profile.attempt_number || !profile.weakest_section) return false;
+    // Don't block returning users just because profile is incomplete
+    // Check localStorage for onboarding completion
 
     studentProfile = {
       attemptNumber: profile.attempt_number,
@@ -1991,7 +1998,9 @@ async function initSession() {
     updateUserUI(user);
     showWelcome(async function() {
       const hasHistory = await loadUserData();
-      if (hasHistory) {
+      const onboardingKey2 = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
+      const prevOnboarded2 = localStorage.getItem(onboardingKey2);
+      if (hasHistory || prevOnboarded2) {
         restoreConversation();
         loadStreakData();
         setTimeout(function() { const btn = document.getElementById('varc-toggle-btn'); if (btn) btn.style.display = 'inline-flex'; }, 500);
