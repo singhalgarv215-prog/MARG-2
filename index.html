@@ -879,6 +879,8 @@ const CAT_QUOTES = [
 
 const SYSTEM_PROMPT = `FORMAT: Plain text only. No bold, no bullets, no headers, no lines. Natural sentences like texting. Only exception: math step-by-step. Never open with Excellent/Great/Perfect/Amazing — evaluate first, respond after.
 
+TIMETABLE RULE — NEVER REFUSE: If a student asks for a timetable, schedule, or plan — give it immediately. Example of correct response: "okay here's tomorrow — morning 1 hour QA arithmetic, afternoon 2 RC passages timed, evening review mistakes. that's it." Never say "I can't help with schedules" or "timetables don't stick." Just give the plan.
+
 You are Marg — personal AI mentor for CAT. You learn exactly how THIS student's brain makes mistakes and fix them specifically.
 
 RULES — NEVER BREAK:
@@ -2967,7 +2969,7 @@ function buildDILRPrompt() {
       recentMistakes = 'Recent specific DILR mistakes: ' + dilrMistakes.map(function(m) { return m.insight; }).join('; ') + '. Design the set to specifically expose and help fix these mistakes.';
     }
   }
-  return 'Generate a CAT-level DILR set. ' + focusArea + recentMistakes + ' Combine 2 of: Arrangements+Rankings, Scheduling+Grouping, Matrix+Conditions. 5 elements, 4 questions increasing difficulty. Include a time trap. Return ONLY valid JSON: {"set_title":"description","difficulty":"Medium or Hard","constraint_types":["Type1","Type2"],"setup":"full set with all conditions","questions":[{"q":"question","options":["A. opt","B. opt","C. opt","D. opt"],"correct":0,"explanation":"step by step solution","common_mistake":"what students get wrong","marg_insight":"what wrong answer reveals"}]}';
+  return 'Generate a CAT DILR puzzle. ' + focusArea + recentMistakes + ' Return ONLY valid JSON no markdown: {"set_title":"title","difficulty":"Medium","constraint_types":["type1","type2"],"setup":"full puzzle with 5 items and all constraints","questions":[{"q":"q1","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"solution","common_mistake":"error","marg_insight":"pattern"},{"q":"q2","options":["A. ans","B. ans","C. ans","D. ans"],"correct":1,"explanation":"solution","common_mistake":"error","marg_insight":"pattern"},{"q":"q3","options":["A. ans","B. ans","C. ans","D. ans"],"correct":2,"explanation":"solution","common_mistake":"error","marg_insight":"pattern"},{"q":"q4","options":["A. ans","B. ans","C. ans","D. ans"],"correct":3,"explanation":"solution","common_mistake":"error","marg_insight":"pattern"}]}. CRITICAL: All 4 options per question must be completely different specific answers.';
 }
 
 function buildQAPrompt() {
@@ -3148,6 +3150,28 @@ function selectAnswer(selectedIndex) {
     updateCognitivePattern(currentPracticeType, insight);
     showInsightToast('<strong>Marg just learned something</strong><br>' + insight);
     storeWrongAnswer(currentPracticeType, q, insight);
+    
+    // Show Ask Marg button in explanation
+    setTimeout(function() {
+      var expEl = document.getElementById('pexp-' + qIndex);
+      if (expEl && !document.getElementById('ask-marg-prac-' + qIndex)) {
+        var askBtn = document.createElement('button');
+        askBtn.id = 'ask-marg-prac-' + qIndex;
+        askBtn.textContent = '💬 Ask Marg to explain this';
+        askBtn.style.cssText = 'margin-top:10px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;cursor:pointer;width:100%;font-family:DM Sans,sans-serif;';
+        askBtn.onclick = function() {
+          var qText = q.q || 'this practice question';
+          var expText = insight;
+          var message = 'I just got this ' + currentPracticeType.toUpperCase() + ' practice question wrong: ' + qText.substring(0, 200) + '. The insight is: ' + expText + '. Can you explain what I should have done differently and how to avoid this mistake?';
+          switchTab('chat');
+          setTimeout(function() {
+            var input = document.getElementById('user-input');
+            if (input) { input.value = message; input.focus(); }
+          }, 300);
+        };
+        expEl.appendChild(askBtn);
+      }
+    }, 500);
   }
   incrementSessionCount();
 }
