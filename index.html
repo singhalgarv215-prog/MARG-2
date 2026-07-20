@@ -796,7 +796,7 @@
     </svg>
     Progress
   </button>
-  <a href="https://chat.whatsapp.com/YOUR_WHATSAPP_LINK" target="_blank" class="bnav-btn" id="bnav-community" style="text-decoration:none;color:inherit;">
+  <a href="https://whatsapp.com/channel/0029VbCUt7SEKyZHjpCg2R25" target="_blank" class="bnav-btn" id="bnav-community" style="text-decoration:none;color:inherit;">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
     </svg>
@@ -813,7 +813,7 @@ function showTour() {
 function closeTour() {
   var m = document.getElementById('tour-modal');
   if (m) m.style.display = 'none';
-  localStorage.setItem('marg_tour_v2', '1');
+  localStorage.setItem('marg_tour_v3', '1');
   tourStep = 0;
 }
 function tourNext() {
@@ -831,7 +831,7 @@ function tourNext() {
   if (btn && tourStep === totalTourSteps - 1) btn.textContent = 'Lets go';
 }
 function checkAndShowTour() {
-  if (!localStorage.getItem('marg_tour_v2')) setTimeout(showTour, 1500);
+  if (!localStorage.getItem('marg_tour_v3')) setTimeout(showTour, 1500);
 }
 var feedbackSelected = null;
 var feedbackShown = false;
@@ -3153,16 +3153,16 @@ function selectAnswer(selectedIndex) {
     
     // Show Ask Marg button in explanation
     setTimeout(function() {
-      var expEl = document.getElementById('pexp-' + qIndex);
-      if (expEl && !document.getElementById('ask-marg-prac-' + qIndex)) {
+      var expEl = document.getElementById('explanation-box');
+      if (!expEl) expEl = document.querySelector('.pcard-explanation');
+      if (expEl && !document.getElementById('ask-marg-prac')) {
         var askBtn = document.createElement('button');
-        askBtn.id = 'ask-marg-prac-' + qIndex;
+        askBtn.id = 'ask-marg-prac';
         askBtn.textContent = '💬 Ask Marg to explain this';
-        askBtn.style.cssText = 'margin-top:10px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;cursor:pointer;width:100%;font-family:DM Sans,sans-serif;';
+        askBtn.style.cssText = 'margin-top:12px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;cursor:pointer;width:100%;font-family:DM Sans,sans-serif;';
         askBtn.onclick = function() {
           var qText = q.q || 'this practice question';
-          var expText = insight;
-          var message = 'I just got this ' + currentPracticeType.toUpperCase() + ' practice question wrong: ' + qText.substring(0, 200) + '. The insight is: ' + expText + '. Can you explain what I should have done differently and how to avoid this mistake?';
+          var message = 'I just got this ' + currentPracticeType.toUpperCase() + ' question wrong in my practice: ' + qText.substring(0, 200) + '. The mistake pattern is: ' + insight + '. Can you explain what I should have done differently?';
           switchTab('chat');
           setTimeout(function() {
             var input = document.getElementById('user-input');
@@ -3171,7 +3171,7 @@ function selectAnswer(selectedIndex) {
         };
         expEl.appendChild(askBtn);
       }
-    }, 500);
+    }, 800);
   }
   incrementSessionCount();
 }
