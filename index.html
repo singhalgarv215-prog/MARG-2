@@ -3281,8 +3281,11 @@ function showPracticeSummary() {
   markPracticeDoneToday(currentPracticeType);
   var content = document.getElementById('practice-content');
   var type = currentPracticeType.toUpperCase();
-  content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">Marg has updated your cognitive profile. Tomorrow\'s questions will be more targeted.</div><button class="pcard-nav-btn primary" onclick="switchTab(\'chat\')" style="max-width:200px;margin:0 auto;">Talk to Marg about today</button></div></div></div>';
-  window._practiceCompleteSummary = 'I just completed today' + "'" + 's ' + type + ' practice session on Marg. My cognitive pattern: ' + (type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern) + '. What one specific thing should I focus on next?';
+  content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">Marg has updated your cognitive profile. Tomorrow\'s questions will be more targeted.</div><button class="pcard-nav-btn primary" onclick="switchTab(\'chat\')" style="max-width:200px;margin:0 auto;">Talk to Marg about today</button><button class="pcard-nav-btn" onclick="loadDailyPractice()" style="max-width:200px;margin:8px auto 0;">Practice Again</button></div></div></div>';
+  var _pattern = type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern;
+  var _patternText = (_pattern && _pattern !== 'undefined' && _pattern !== 'null' && _pattern.trim() !== '') ? _pattern : 'still building from your answers today';
+  var _resultsText = sessionResults.total > 0 ? 'Got ' + sessionResults.correct + ' out of ' + sessionResults.total + ' correct. ' : '';
+  window._practiceCompleteSummary = 'I just completed my ' + type.toUpperCase() + ' practice on Marg. ' + _resultsText + 'My cognitive pattern: ' + _patternText + '. Based on this session give me one specific insight and one concrete next action.';
 }
 async function loadProgressDashboard() {
   var sessEl = document.getElementById('stat-sessions');
@@ -3415,11 +3418,19 @@ function getTodayPracticeKey(type) {
   return 'marg_practice_done_' + type + '_' + new Date().toISOString().split('T')[0];
 }
 
+function getTodaySessionCount(type) {
+  var key = getTodayPracticeKey(type) + '_count';
+  return parseInt(localStorage.getItem(key) || '0');
+}
+
 function isPracticeDoneToday(type) {
-  return localStorage.getItem(getTodayPracticeKey(type)) === 'true';
+  return getTodaySessionCount(type) >= 3;
 }
 
 function markPracticeDoneToday(type) {
+  var key = getTodayPracticeKey(type) + '_count';
+  var count = parseInt(localStorage.getItem(key) || '0');
+  localStorage.setItem(key, (count + 1).toString());
   localStorage.setItem(getTodayPracticeKey(type), 'true');
 }
 
@@ -3431,7 +3442,7 @@ function showDailyLimitCard(type) {
   content.innerHTML = '<div class="daily-limit-card">' +
     '<div class="daily-limit-icon">✅</div>' +
     '<div class="daily-limit-title">Today\'s ' + typeName + ' practice — done</div>' +
-    '<div class="daily-limit-body">Marg builds your cognitive profile one focused session at a time. Quality over quantity — come back tomorrow for fresh ' + typeName + ' practice targeting your specific patterns.</div>' +
+    '<div class="daily-limit-body">You\'ve completed 3 ' + typeName + ' sessions today. Come back tomorrow for fresh practice targeting your updated patterns.</div>' +
     '<div class="daily-limit-stat">🔥 ' + sessionsCount + ' sessions completed with Marg</div>' +
     '<div style="font-size:12px;color:var(--text-dim);">Try a different section, or chat with Marg about today\'s mistakes</div>' +
     '</div>';
