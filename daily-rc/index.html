@@ -373,7 +373,7 @@ async function generateRC() {
     } catch(e) {}
   }
   
-  const prompt = 'Generate a high-quality CAT-level Reading Comprehension passage and 3 questions for daily practice. Requirements: Passage 380-420 words on a topic from Philosophy, Economics, Science and Technology, Social Issues, Environment, or Psychology. Dense argument-driven writing exactly like CAT RC — not narrative or descriptive. Author must take a clear position or make a nuanced argument. 3 questions testing: Primary Purpose, Author Attitude or Tone, and Inference. Each question has 4 options where 2 feel correct but only 1 is right. Wrong options must be: too extreme, out of scope, reversals of argument, or memory traps. Return ONLY valid JSON no markdown no backticks: {"passage":"full passage text","difficulty":"Medium or Hard","topic":"topic name","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why this is correct and specifically why each wrong option is a trap","trap_type":"what cognitive error causes wrong answer"}]}';
+  const prompt = 'Generate a high-quality CAT-level Reading Comprehension passage and 3 questions for daily practice. Requirements: Passage 380-420 words on a topic from Philosophy, Economics, Science and Technology, Social Issues, Environment, or Psychology. Dense argument-driven writing exactly like CAT RC — not narrative or descriptive. Author must take a clear position or make a nuanced argument. 3 questions testing: Primary Purpose, Author Attitude or Tone, and Inference. Each question has 4 options where 2 feel correct but only 1 is right. Wrong options must be: too extreme, out of scope, reversals of argument, or memory traps. CRITICAL: All 4 options for each question must be completely different from each other — never repeat the same letter or similar text across options. Return ONLY valid JSON no markdown no backticks: {"passage":"full passage text","difficulty":"Medium or Hard","topic":"topic name","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why this is correct and specifically why each wrong option is a trap","trap_type":"what cognitive error causes wrong answer"}]}';
   
   try {
     const res = await fetch(WORKER_URL, {
@@ -381,7 +381,507 @@ async function generateRC() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1200,
+        max_tokens: 2000,
+        system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.',
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    
+    const data = await res.json();
+    const text = data.content && data.content[0] ? data.content[0].text : null;
+    if (!text) throw new Error('No response');
+    
+    const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const rcData = JSON.parse(clean);
+    
+    localStorage.setItem(cacheKey, JSON.stringify(rcData));
+    renderRC(rcData);
+    
+  } catch(e) {
+    container.innerHTML = '<div class="loading"><div style="color:var(--text-dim)">Having trouble loading today\'s RC. Please refresh the page.</div></div>';
+  }
+}
+
+function renderRC(data) {
+  const container = document.getElementById('practice-container');
+  
+  var questionsHtml = data.questions.map(function(q, qi) {
+    var optionsHtml = q.options.map(function(opt, oi) {
+      return '<button class="option" onclick="selectOption(' + qi + ',' + oi + ',' + q.correct + ',this)" id="opt-' + qi + '-' + oi + '">' + opt + '</button>';
+    }).join('');
+    
+    var divider = qi < data.questions.length - 1 ? '<div class="question-divider"></div>' : '';
+    
+    return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="question-text">' + q.q + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Answer & Analysis</div><div class="explanation-text">' + q.explanation + (q.trap_type ? '<br><br><strong>Trap type:</strong> ' + q.trap_type : '') + '</div></div></div>' + divider;
+  }).join('');
+  
+  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">📖 Reading Comprehension · RC #' + dayNum + '</div><div class="card-meta">' + (data.difficulty || 'Medium') + ' · ' + (data.topic || 'General') + '</div></div><div class="card-body"><div class="passage-text">' + data.passage + '</div>' + questionsHtml + '</div></div>';
+}
+
+function selectOption(qIndex, optIndex, correct, btn) {
+  if (answered[qIndex]) return;
+  answered[qIndex] = true;
+  
+  var isCorrect = optIndex === correct;
+  var cached = localStorage.getItem('marg_daily_rc_' + today.toISOString().split('T')[0]);
+  var rcData = cached ? JSON.parse(cached) : null;
+  var q = rcData ? rcData.questions[qIndex] : null;
+  
+  // Store attempt for Marg to use after signup
+  localStorage.setItem('marg_pending_attempt', JSON.stringify({
+    type: 'rc',
+    correct: isCorrect,
+    selectedOption: ['A','B','C','D'][optIndex],
+    topic: rcData ? rcData.topic : 'RC passage',
+    trapType: q ? q.trap_type : null,
+    dayNum: dayNum
+  }));
+  
+  // Disable all options
+  for (var i = 0; i < 4; i++) {
+    var optEl = document.getElementById('opt-' + qIndex + '-' + i);
+    if (optEl) {
+      optEl.disabled = true;
+      optEl.style.cursor = 'default';
+      if (i === correct) optEl.classList.add('correct');
+      else if (i === optIndex && !isCorrect) optEl.classList.add('wrong');
+    }
+  }
+  
+  // Show explanation
+  var exp = document.getElementById('exp-' + qIndex);
+  if (exp) {
+    if (qIndex < 2) {
+      exp.classList.add('show');
+      if (!document.getElementById('ask-marg-' + qIndex)) {
+        var askBtn = document.createElement('button');
+        askBtn.id = 'ask-marg-' + qIndex;
+        askBtn.textContent = '💬 Ask Marg to explain this';
+        askBtn.style.cssText = 'margin-top:10px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;cursor:pointer;width:100%;font-family:DM Sans,sans-serif;';
+        askBtn.onclick = function() {
+          var qEl = document.getElementById('q-' + qIndex);
+          var expEl = document.getElementById('exp-' + qIndex);
+          var questionText = qEl ? qEl.textContent : 'practice question';
+          var explanationText = expEl ? expEl.textContent : '';
+          var message = 'I just did this RC question in my practice: ' + questionText + '. The explanation says: ' + explanationText + '. Can you explain this more clearly?';
+          localStorage.setItem('marg_ask_question', message);
+          window.location.href = 'https://trymarg.com';
+        };
+        exp.appendChild(askBtn);
+      }
+    } else {
+      exp.classList.add('show');
+      if (!document.getElementById('gate-' + qIndex)) {
+        var gate = document.createElement('div');
+        gate.id = 'gate-' + qIndex;
+        gate.style.cssText = 'margin-top:12px;background:#111;border:1.5px solid #C9A84C;border-radius:14px;padding:20px;text-align:center;';
+        var gTitle = document.createElement('div');
+        gTitle.style.cssText = 'font-size:15px;color:#F0EDE6;font-weight:600;margin-bottom:6px;';
+        gTitle.textContent = 'Marg noticed something about your attempt';
+        var gDesc = document.createElement('div');
+        gDesc.style.cssText = 'font-size:13px;color:#888;margin-bottom:14px;';
+        gDesc.textContent = 'Sign up free to see the full explanation and what this reveals about your RC pattern';
+        var gLink = document.createElement('a');
+        gLink.href = 'https://trymarg.com';
+        gLink.style.cssText = 'display:inline-block;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;text-decoration:none;border-radius:10px;padding:11px 24px;font-size:14px;font-weight:600;';
+        gLink.textContent = 'See explanation — free';
+        gate.appendChild(gTitle);
+        gate.appendChild(gDesc);
+        gate.appendChild(gLink);
+        exp.style.filter = 'blur(4px)';
+        exp.style.pointerEvents = 'none';
+        exp.parentNode.insertBefore(gate, exp.nextSibling);
+      }
+    }
+  }
+
+  var totalQuestions = rcData ? rcData.questions.length : 3;
+  var answeredCount = Object.keys(answered).length;
+  if (answeredCount === totalQuestions) {
+    setTimeout(function() { showSignupPrompt(answered, totalQuestions); }, 800);
+  }
+}
+</script>
+</head>
+<title>
+<meta name="description" content="Practice one fresh CAT-level Reading Comprehension passage every day. AI-generated passages on Philosophy, Economics, Social Issues. Track your mistakes and improve VARC accuracy. Free.">
+<meta name="keywords" content="CAT RC practice, CAT reading comprehension, CAT VARC practice, free CAT questions, CAT 2026 preparation, RC passages CAT level">
+<meta property="og:title" content="CAT Daily RC Practice — Free | Marg">
+<meta property="og:description" content="One fresh CAT-level RC passage every day. Attempt it, see the answer, understand your mistake. Free forever.">
+<meta property="og:url" content="https://trymarg.com/daily-rc">
+<meta property="og:type" content="website">
+<link rel="canonical" href="https://trymarg.com/daily-rc">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "EducationalOrganization",
+  "name": "Marg",
+  "url": "https://trymarg.com",
+  "description": "AI-powered CAT mentor that learns how your brain makes mistakes",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "INR",
+    "description": "Free daily CAT RC practice"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=Georgia&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  :root {
+    --bg: #0D0D0D;
+    --surface: #141414;
+    --surface2: #1A1A1A;
+    --border: #2A2A2A;
+    --text: #F0EDE6;
+    --text-muted: #C8C4BC;
+    --text-dim: #888880;
+    --gold: #C9A84C;
+    --gold-light: #E8C96A;
+    --green: #4CAF7D;
+    --red: #E05C5C;
+    --radius: 12px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* NAV */
+  nav {
+    padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .nav-logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 20px; color: var(--text);
+    text-decoration: none;
+  }
+  .nav-logo span { color: var(--gold); }
+  .nav-links { display: flex; gap: 8px; }
+  .nav-link {
+    padding: 8px 14px; border-radius: 8px;
+    font-size: 13px; text-decoration: none;
+    color: var(--text-dim); transition: all 0.2s;
+  }
+  .nav-link:hover { color: var(--text); }
+  .nav-link.active {
+    background: rgba(201,168,76,0.1);
+    color: var(--gold); border: 1px solid rgba(201,168,76,0.2);
+  }
+  .nav-cta {
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; font-weight: 500; text-decoration: none;
+    transition: opacity 0.2s;
+  }
+  .nav-cta:hover { opacity: 0.85; }
+
+  /* MAIN */
+  main {
+    max-width: 720px; margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+
+  /* HEADER */
+  .page-header { margin-bottom: 28px; }
+  .page-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(201,168,76,0.08);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: 20px; padding: 5px 12px;
+    font-size: 11px; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 14px;
+  }
+  .page-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 32px; color: var(--text);
+    line-height: 1.25; margin-bottom: 10px;
+  }
+  .page-sub {
+    font-size: 15px; color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .day-counter {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 12px; font-size: 12px; color: var(--text-dim);
+  }
+
+  /* PRACTICE CARD */
+  .practice-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .card-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-label {
+    font-size: 11px; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500;
+  }
+  .card-meta { font-size: 11px; color: var(--text-dim); }
+  .card-body { padding: 20px; }
+
+  /* PASSAGE */
+  .passage-text {
+    font-family: Georgia, serif;
+    font-size: 15px; color: var(--text-muted);
+    line-height: 1.9; margin-bottom: 24px;
+    padding: 16px;
+    background: var(--surface2);
+    border-radius: 8px;
+    border-left: 3px solid var(--border);
+  }
+
+  /* QUESTIONS */
+  .question-block { margin-bottom: 28px; }
+  .question-number {
+    font-size: 11px; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .question-text {
+    font-size: 15px; color: var(--text);
+    font-weight: 500; line-height: 1.5;
+    margin-bottom: 14px;
+  }
+  .options { display: flex; flex-direction: column; gap: 8px; }
+  .option {
+    background: var(--surface2);
+    border: 1.5px solid var(--border);
+    border-radius: 10px; padding: 12px 16px;
+    font-size: 14px; color: var(--text-muted);
+    cursor: pointer; transition: all 0.15s;
+    text-align: left; font-family: 'DM Sans', sans-serif;
+    line-height: 1.5; width: 100%;
+  }
+  .option:hover { border-color: var(--gold); color: var(--text); }
+  .option.selected { border-color: var(--gold); background: rgba(201,168,76,0.06); }
+  .option.correct { border-color: var(--green); background: rgba(76,175,125,0.08); color: var(--green); }
+  .option.wrong { border-color: var(--red); background: rgba(224,92,92,0.08); color: var(--red); }
+  .option:disabled { cursor: default; }
+
+  /* EXPLANATION */
+  .explanation {
+    display: none;
+    margin-top: 12px;
+    background: var(--surface2);
+    border-left: 3px solid var(--gold);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 16px;
+  }
+  .explanation.show { display: block; }
+  .explanation-label {
+    font-size: 11px; color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .explanation-text {
+    font-size: 13px; color: var(--text-muted);
+    line-height: 1.7;
+  }
+
+  /* DIVIDER */
+  .question-divider {
+    height: 1px; background: var(--border);
+    margin: 24px 0;
+  }
+
+  /* CTA CARD */
+  .cta-card {
+    background: linear-gradient(135deg, rgba(201,168,76,0.06), transparent);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: var(--radius);
+    padding: 24px 20px;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .cta-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 20px; color: var(--text);
+    margin-bottom: 8px;
+  }
+  .cta-body {
+    font-size: 13px; color: var(--text-dim);
+    line-height: 1.6; margin-bottom: 18px;
+  }
+  .cta-btn {
+    display: inline-block;
+    background: linear-gradient(135deg, #4CAF7D, #2D7A55);
+    color: #fff; padding: 14px 28px;
+    border-radius: 10px; font-size: 15px;
+    font-weight: 500; text-decoration: none;
+    transition: opacity 0.2s;
+  }
+  .cta-btn:hover { opacity: 0.85; }
+  .cta-note {
+    font-size: 12px; color: var(--text-dim);
+    margin-top: 10px;
+  }
+
+  /* NAV LINKS */
+  .section-nav {
+    display: flex; gap: 10px; margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .section-nav-btn {
+    padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; text-decoration: none;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-dim); transition: all 0.2s;
+  }
+  .section-nav-btn:hover { border-color: var(--gold); color: var(--gold); }
+  .section-nav-btn.active {
+    background: rgba(201,168,76,0.08);
+    border-color: rgba(201,168,76,0.3); color: var(--gold);
+  }
+
+  /* LOADING */
+  .loading {
+    text-align: center; padding: 60px 20px;
+    color: var(--text-dim);
+  }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* FOOTER */
+  footer {
+    text-align: center; padding: 40px 20px;
+    color: var(--text-dim); font-size: 12px;
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--gold); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="https://trymarg.com" class="nav-logo">M<span>arg</span></a>
+  <div class="nav-links">
+    <a href="/daily-rc/" class="nav-link active">RC</a>
+    <a href="/daily-dilr/" class="nav-link">DILR</a>
+    <a href="/daily-qa/" class="nav-link">QA</a>
+  </div>
+  <a href="https://trymarg.com" class="nav-cta">Try Marg free →</a>
+</nav>
+
+<main>
+
+  <div class="page-header">
+    <div class="page-badge">📖 Daily Practice · Free</div>
+    <h1 class="page-title">CAT Daily RC Practice</h1>
+    <p class="page-sub">One fresh CAT-level Reading Comprehension passage every day. Attempt it, see where you went wrong, and understand the trap.</p>
+    <div class="day-counter">
+      <span id="today-date"></span>
+      <span>·</span>
+      <span id="rc-number"></span>
+    </div>
+  </div>
+
+  <div class="section-nav">
+    <a href="/daily-rc/" class="section-nav-btn active">📖 Reading Comprehension</a>
+    <a href="/daily-dilr/" class="section-nav-btn">🧩 DILR</a>
+    <a href="/daily-qa/" class="section-nav-btn">🔢 Quantitative</a>
+  </div>
+
+  <div id="practice-container">
+    <div class="loading">
+      <div class="spinner"></div>
+      <div>Generating today's RC passage...</div>
+    </div>
+  </div>
+
+  <div class="cta-card">
+    <div class="cta-title">Marg remembers your mistakes.</div>
+    <div class="cta-body">When you sign up, Marg tracks which RC traps you fall for — extreme language, memory-based answers, tone errors — and tomorrow's practice targets those specific patterns. The longer you use Marg, the better it knows how your brain thinks.</div>
+    <a href="https://trymarg.com" class="cta-btn">Start personalised practice — free →</a>
+    <div class="cta-note">No credit card. Takes 60 seconds to set up.</div>
+  </div>
+
+</main>
+
+<div style="max-width:720px;margin:0 auto;padding:0 20px 40px;">
+  <div style="background:#141414;border:1px solid #2A2A2A;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px;">
+    <div style="font-size:14px;color:#F0EDE6;font-weight:500;margin-bottom:6px;">Also practice today</div>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px;">
+      <a href="/daily-dilr/" style="font-size:13px;color:#888880;text-decoration:none;padding:8px 14px;border:1px solid #2A2A2A;border-radius:8px;">🧩 Today's DILR</a>
+      <a href="/daily-qa/" style="font-size:13px;color:#888880;text-decoration:none;padding:8px 14px;border:1px solid #2A2A2A;border-radius:8px;">🔢 Today's QA</a>
+      <a href="https://trymarg.com" style="font-size:13px;color:#C9A84C;text-decoration:none;padding:8px 14px;border:1px solid rgba(201,168,76,0.3);border-radius:8px;">✨ Full Marg experience</a>
+    </div>
+  </div>
+</div>
+<footer>
+  <p>Built by <a href="https://trymarg.com">Marg</a> — AI mentor for CAT aspirants · <a href="/daily-dilr/">Daily DILR</a> · <a href="/daily-qa/">Daily QA</a></p>
+  <p style="margin-top:8px;">© 2026 Marg · Free CAT preparation platform</p>
+</footer>
+
+<script>
+const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
+
+// Set date and RC number
+const today = new Date();
+const dateStr = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+document.getElementById('today-date').textContent = dateStr;
+
+// RC number based on days since launch (June 1, 2026)
+const launch = new Date('2026-06-01');
+const dayNum = Math.floor((today - launch) / (1000 * 60 * 60 * 24)) + 1;
+document.getElementById('rc-number').textContent = 'RC #' + dayNum;
+
+// Track answered questions
+var answered = {};
+
+var isGenerating = false;
+
+async function generateRC() {
+  if (isGenerating) return;
+  isGenerating = true;
+  const container = document.getElementById('practice-container');
+  
+  // Check localStorage for today's RC
+  const cacheKey = 'marg_daily_rc_' + today.toISOString().split('T')[0];
+  const cached = localStorage.getItem(cacheKey);
+  
+  if (cached) {
+    try {
+      const data = JSON.parse(cached);
+      renderRC(data);
+      return;
+    } catch(e) {}
+  }
+  
+  const prompt = 'Generate a high-quality CAT-level Reading Comprehension passage and 3 questions for daily practice. Requirements: Passage 380-420 words on a topic from Philosophy, Economics, Science and Technology, Social Issues, Environment, or Psychology. Dense argument-driven writing exactly like CAT RC — not narrative or descriptive. Author must take a clear position or make a nuanced argument. 3 questions testing: Primary Purpose, Author Attitude or Tone, and Inference. Each question has 4 options where 2 feel correct but only 1 is right. Wrong options must be: too extreme, out of scope, reversals of argument, or memory traps. CRITICAL: All 4 options for each question must be completely different from each other — never repeat the same letter or similar text across options. Return ONLY valid JSON no markdown no backticks: {"passage":"full passage text","difficulty":"Medium or Hard","topic":"topic name","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why this is correct and specifically why each wrong option is a trap","trap_type":"what cognitive error causes wrong answer"}]}';
+  
+  try {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.',
         messages: [{ role: 'user', content: prompt }]
       })
