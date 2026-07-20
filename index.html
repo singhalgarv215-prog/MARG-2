@@ -2073,9 +2073,14 @@ async function initSession() {
         setTimeout(function() { const btn = document.getElementById('varc-toggle-btn'); if (btn) btn.style.display = 'inline-flex'; }, 500);
 
 
-        setTimeout(async function() {
-          await sendReturningUserGreeting();
-        }, 600);
+        // Only send greeting once per day
+        var greetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
+        var todayDate = new Date().toISOString().split('T')[0];
+        if (localStorage.getItem(greetKey) !== todayDate) {
+          setTimeout(async function() {
+            await sendReturningUserGreeting();
+          }, 600);
+        }
 
         const alreadyCheckedIn = await hasCheckedInToday();
         if (!alreadyCheckedIn) {
@@ -3138,10 +3143,11 @@ function selectAnswer(selectedIndex) {
   if (data && data.set_title) sessionResults.passageTitle = data.set_title;
   if (data && data.topics_combined) sessionResults.passageTitle = data.topics_combined.join(' + ');
 
-  if (!isCorrect && q.marg_insight) {
-    updateCognitivePattern(currentPracticeType, q.marg_insight);
-    showInsightToast('<strong>Marg just learned something</strong><br>' + q.marg_insight);
-    storeWrongAnswer(currentPracticeType, q, q.marg_insight);
+  if (!isCorrect) {
+    var insight = q.marg_insight || q.common_mistake || ('Made a ' + currentPracticeType.toUpperCase() + ' error');
+    updateCognitivePattern(currentPracticeType, insight);
+    showInsightToast('<strong>Marg just learned something</strong><br>' + insight);
+    storeWrongAnswer(currentPracticeType, q, insight);
   }
   incrementSessionCount();
 }
