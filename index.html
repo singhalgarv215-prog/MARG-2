@@ -2075,9 +2075,37 @@ async function initSession() {
   if (hash && hash.includes('access_token')) {
     const params = new URLSearchParams(hash.substring(1));
     const token = params.get('access_token');
-    if (token) { localStorage.setItem('marg_token', token); window.history.replaceState({}, document.title, window.location.pathname); }
+    const refreshToken = params.get('refresh_token');
+    const expiresIn = params.get('expires_in');
+    if (token) { 
+      localStorage.setItem('marg_token', token);
+      if (refreshToken) localStorage.setItem('marg_refresh_token', refreshToken);
+      if (expiresIn) localStorage.setItem('marg_token_expiry', Date.now() + (parseInt(expiresIn) * 1000));
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }
-  const token = localStorage.getItem('marg_token');
+  let token = localStorage.getItem('marg_token');
+  const expiry = localStorage.getItem('marg_token_expiry');
+  const refreshToken = localStorage.getItem('marg_refresh_token');
+  
+  // If token expired or about to expire, refresh it
+  if (token && refreshToken && expiry && Date.now() > (parseInt(expiry) - 300000)) {
+    try {
+      const refreshRes = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        body: JSON.stringify({ refresh_token: refreshToken })
+      });
+      const refreshData = await refreshRes.json();
+      if (refreshData.access_token) {
+        token = refreshData.access_token;
+        localStorage.setItem('marg_token', token);
+        if (refreshData.refresh_token) localStorage.setItem('marg_refresh_token', refreshData.refresh_token);
+        if (refreshData.expires_in) localStorage.setItem('marg_token_expiry', Date.now() + (refreshData.expires_in * 1000));
+      }
+    } catch(e) { console.log('Token refresh failed:', e); }
+  }
+  
   if (!token) { setTimeout(showLanding, 3200); return; }
   try {
     const res = await fetch(SUPABASE_URL + '/auth/v1/user', { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token } });
