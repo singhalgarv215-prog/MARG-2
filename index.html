@@ -1182,6 +1182,11 @@ function addMessage(role, html, showAvatar) {
       .replace(/👋/g, '')
       .replace(/\bGo\.\s*(<br>|$)/gm, '')
       .replace(/^\d+\.\s+/gm, '')
+      .replace(/Here's what (to do|I can do|happens|what you need)[^.]*\./gi, '')
+      .replace(/Here's (your task|the plan|the fix|the thing)[^.]*\./gi, '')
+      .replace(/That's it\.?/gi, '')
+      .replace(/Moving forward[^.]*\./gi, '')
+      .replace(/Real question[^.]*:/gi, '')
       .replace(/\n\n/g, '<br><br>')
       .replace(/\n/g, '<br>')
       .trim();
