@@ -898,7 +898,23 @@ const CAT_QUOTES = [
   { quote: "Think clearer. Move better.", author: "— Marg" }
 ];
 
-const SYSTEM_PROMPT = `FORMAT: Plain text only. No bold, no bullets, no headers, no lines. Natural sentences like texting. Only exception: math step-by-step. Never open with Excellent/Great/Perfect/Amazing — evaluate first, respond after.
+const SYSTEM_PROMPT = `FORMAT — THIS IS THE MOST IMPORTANT RULE:
+Write exactly like a friend texting. Short sentences. No structure. No asterisks. No dashes. No numbers. No headers. No "Here's what to do:" type intros. Just talk.
+
+BAD: "**Today's task:**\n1. Do 8 problems\n2. Come back at 5pm\n\nGo. 👇"
+GOOD: "do 8 percentage problems from Arun Sharma today and come back at 5pm with how many you got right."
+
+BAD: "**The truth:** I'm an AI. **That's real.**"
+GOOD: "you're right, I should remember what you told me."
+
+BAD: "Here's what I can do:\n1. Stop asking about yesterday\n2. Use continuity markers"
+GOOD: "I'll stop asking about yesterday. I have your history — I should use it."
+
+If you catch yourself about to write ** or - or a number or "Here's" — stop. Rewrite as one plain sentence.
+
+NEVER fabricate memories. Never say "I've seen this pattern with you before" unless it's in SESSION MEMORY. Say "based on what you've told me" instead.
+
+NEVER end with "Go." or "Go. 👇" or any pointing emoji. End like a normal person would end a text. Never open with Excellent/Great/Perfect/Amazing — evaluate first, respond after.
 
 TIMETABLE RULE — NEVER REFUSE: If a student asks for a timetable, schedule, or plan — give it immediately. Example of correct response: "okay here's tomorrow — morning 1 hour QA arithmetic, afternoon 2 RC passages timed, evening review mistakes. that's it." Never say "I can't help with schedules" or "timetables don't stick." Just give the plan.
 
@@ -1150,6 +1166,26 @@ function showLanding() {
 
 function addMessage(role, html, showAvatar) {
   if (showAvatar === undefined) showAvatar = true;
+  // Strip markdown from ALL Marg responses at the source
+  if (role === 'marg' && html && typeof html === 'string' && !html.includes('<div') && !html.includes('<button')) {
+    html = html
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/^#{1,3}\s+/gm, '')
+      .replace(/^[-•*]\s+/gm, '')
+      .replace(/^>\s+/gm, '')
+      .replace(/---+/g, '')
+      .replace(/===+/g, '')
+      .replace(/\[OPTIONS:[^\]]*\]/g, '')
+      .replace(/\[CONTEXT:[^\]]*\]/g, '')
+      .replace(/👇/g, '')
+      .replace(/👋/g, '')
+      .replace(/\bGo\.\s*(<br>|$)/gm, '')
+      .replace(/^\d+\.\s+/gm, '')
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>')
+      .trim();
+  }
   const container = document.getElementById('messages');
   const wrap = document.createElement('div');
   wrap.className = 'msg-wrap ' + role + ' fade-in';
@@ -1732,7 +1768,9 @@ async function sendMessage() {
   const activitySummary = buildActivitySummary();
   var currentDate = new Date();
   var dateString = currentDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  profileContext = '\n\nCURRENT DATE: ' + dateString + ' (year is 2026, CAT 2026 is on November 29 2026)\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
+  var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var currentDayName = dayNames[currentDate.getDay()];
+  profileContext = '\n\nTODAY IS: ' + currentDayName + ', ' + dateString + '. Year is 2026. CAT 2026 is November 29 2026. NEVER say a wrong day or date. \n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
     (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
     (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
@@ -2000,7 +2038,9 @@ async function createRCPassage() {
   showTyping();
   var currentDate = new Date();
   var dateString = currentDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  profileContext = '\n\nCURRENT DATE: ' + dateString + ' (year is 2026, CAT 2026 is on November 29 2026)\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
+  var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var currentDayName = dayNames[currentDate.getDay()];
+  profileContext = '\n\nTODAY IS: ' + currentDayName + ', ' + dateString + '. Year is 2026. CAT 2026 is November 29 2026. NEVER say a wrong day or date. \n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
     const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: SYSTEM_PROMPT + profileContext, messages: [{ role: 'user', content: prompt }] }) });
     const data = await response.json();
