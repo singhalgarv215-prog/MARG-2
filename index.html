@@ -941,6 +941,28 @@ function getDateContext() {
   return '\n\nTODAY IS: ' + dayNames[now.getDay()] + ', ' + dateString + '. Year is 2026. CAT 2026 is November 29 2026. NEVER say a wrong day or date.';
 }
 
+function cleanHistory(history) {
+  if (!history || !history.length) return history;
+  return history.map(function(m) {
+    if (m.role !== 'assistant' || !m.content || typeof m.content !== 'string') return m;
+    var cleaned = m.content
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/^#{1,3}\s+/gm, '')
+      .replace(/^[-•*]\s+/gm, '')
+      .replace(/^\d+\.\s+/gm, '')
+      .replace(/^[-=]{3,}\s*$/gm, '')
+      .replace(/👇/g, '')
+      .replace(/👋/g, '')
+      .replace(/\bGo\.\s*$/gm, '')
+      .replace(/[^.!?\n]*\bcome back at\b[^.!?\n]*[.!?]?/gi, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    return { role: m.role, content: cleaned };
+  });
+}
+
 let currentUser = null;
 let profileContext = '';
 let studentProfile = { attemptNumber: null, monthsLeft: null, weakestSection: null, dailyHours: null, situation: null };
@@ -1215,7 +1237,7 @@ function showPathChoiceScreen() {
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 1500,
             system: SYSTEM_PROMPT + getDateContext() + profileContext,
-            messages: conversationHistory
+            messages: cleanHistory(conversationHistory)
           })
         });
         var data = await res.json();
@@ -1274,7 +1296,7 @@ async function startFromAttemptContext(attempt) {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         system: SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: This user just signed up after attempting a practice question on the daily practice page. Start by acknowledging what their attempt reveals about their thinking pattern. Then after 2-3 exchanges, naturally ask them to complete their profile setup saying something like "To make tomorrow\'s practice even more targeted — tell me quickly: is this your first CAT attempt or have you given it before?"',
-        messages: conversationHistory
+        messages: cleanHistory(conversationHistory)
       })
     });
     var data = await res.json();
@@ -1478,7 +1500,7 @@ async function sendConversationalMessage(userMessage, context) {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         system: SYSTEM_PROMPT + getDateContext() + systemAddition,
-        messages: conversationHistory
+        messages: cleanHistory(conversationHistory)
       })
     });
     var data = await res.json();
@@ -1741,7 +1763,7 @@ async function sendMessage() {
       }).join('\n') : '') +
     activitySummary;
   try {
-    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, system: SYSTEM_PROMPT + profileContext, messages: conversationHistory }) });
+    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) });
     const data = await response.json();
     const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
     hideTyping();
@@ -2216,7 +2238,7 @@ async function sendReturningUserGreeting() {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 200,
         system: SYSTEM_PROMPT + greetingContext,
-        messages: conversationHistory.concat([{ role: 'user', content: '[the student just opened the app — greet them]' }])
+        messages: cleanHistory(conversationHistory).concat([{ role: 'user', content: '[the student just opened the app — greet them]' }])
       })
     });
     const data = await res.json();
@@ -2395,7 +2417,7 @@ async function finishMockOnboarding() {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 600,
         system: SYSTEM_PROMPT + getDateContext(),
-        messages: conversationHistory
+        messages: cleanHistory(conversationHistory)
       })
     });
     const data = await res.json();
@@ -2689,7 +2711,7 @@ async function submitMockScores() {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         system: SYSTEM_PROMPT + getDateContext(),
-        messages: conversationHistory
+        messages: cleanHistory(conversationHistory)
       })
     });
     const data = await res.json();
@@ -3570,7 +3592,7 @@ async function completeOnboarding() {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         system: SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: A new student just completed their profile. Give a warm 2-3 sentence opening that: 1) acknowledges ONE specific thing from their profile (attempt number or weak section), 2) shares your hypothesis in one line, 3) asks what they want to do first — discuss strategy or start practicing. Keep it conversational and warm, not robotic. Do NOT list all their profile details back at them.',
-        messages: conversationHistory
+        messages: cleanHistory(conversationHistory)
       })
     });
     var data = await res.json();
