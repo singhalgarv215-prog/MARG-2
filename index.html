@@ -1763,7 +1763,7 @@ async function sendMessage() {
       }).join('\n') : '') +
     activitySummary;
   try {
-    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) });
+    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) });
     const data = await response.json();
     const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
     hideTyping();
