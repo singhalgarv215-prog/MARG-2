@@ -3077,7 +3077,7 @@ var practiceTopicChosen = false;
 var selectedPracticeTopic = null;
 
 var practiceTopics = {
-  dilr: ['Seating Arrangement', 'Scheduling', 'Blood Relations', 'Data Sufficiency', 'Venn Diagrams', 'Distribution/Grouping', 'Mixed — surprise me'],
+  dilr: ['Seating Arrangement', 'Scheduling', 'Blood Relations', 'Data Sufficiency', 'Venn Diagrams', 'Distribution/Grouping', 'Games & Tournaments', 'Mixed — surprise me'],
   qa: ['Arithmetic (Percentages, Ratios, TSD, Profit-Loss)', 'Algebra', 'Geometry & Mensuration', 'Number Systems', 'Modern Math (P&C, Probability)', 'Mixed — surprise me']
 };
 
@@ -3164,7 +3164,7 @@ function buildRCPrompt() {
       recentMistakes = 'Recent specific mistakes to target: ' + rcMistakes.map(function(m) { return m.insight; }).join('; ') + '. Generate questions that specifically expose and help fix these exact mistakes.';
     }
   }
-  return 'Generate 3 separate CAT-level RC passages, each with its own 3 questions — 3 fully independent passages, not variations of one topic. ' + focusArea + recentMistakes + ' Each passage 350-420 words on Philosophy, Economics, Science, Technology, Social Issues, or Psychology — vary the subject across the 3 passages. Dense argument-driven writing. Each passage\'s 3 questions cover Primary Purpose, Author Attitude, and Inference. 4 options per question where wrong ones are extreme, out of scope, or reversals. Return ONLY valid JSON, no markdown, exactly this shape with 3 objects in the sets array: {"sets":[{"passage":"text","difficulty":"Medium or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why correct and why each wrong is a trap","trap_type":"cognitive error","marg_insight":"what wrong answer reveals about thinking"}]}]}';
+  return 'Generate 3 separate CAT-level RC passages, each with its own 3 questions — 3 independent passages, not variations of one topic. ' + focusArea + recentMistakes + ' Each passage 500-600 words on Philosophy, Economics, Science, Technology, Social Issues, or Psychology — vary the subject across the 3 passages. Write with the density of a real CAT RC passage: pulled from an academic journal or opinion essay, not explainer prose. One central thesis with a counter-consideration or qualification the author addresses. Layered, complex sentence structure. Harder vocabulary suited to the subject. Must require careful, effortful reading — a skim should not be enough to answer the questions. Each passage\'s 3 questions cover Primary Purpose, Author Attitude, and Inference. 4 options per question where wrong ones are extreme, out of scope, or reversals. Return ONLY valid JSON, no markdown, exactly this shape with 3 objects in the sets array: {"sets":[{"passage":"text","difficulty":"Medium or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why correct and why each wrong is a trap","trap_type":"cognitive error","marg_insight":"what wrong answer reveals about thinking"}]}]}';
 }
 
 function buildDILRPrompt(topic) {
@@ -3179,8 +3179,8 @@ function buildDILRPrompt(topic) {
       recentMistakes = 'Recent specific DILR mistakes: ' + dilrMistakes.map(function(m) { return m.insight; }).join('; ') + '. Design the sets to specifically expose and help fix these mistakes.';
     }
   }
-  var topicLine = topic ? 'All 3 sets should be built around this topic area: ' + topic + '. ' : 'Vary the topic naturally across the 3 sets (seating arrangement, scheduling, blood relations, data sufficiency, venn diagrams, distribution/grouping). ';
-  return 'Generate 3 separate CAT DILR puzzle sets — 3 fully independent sets, not variations of the same puzzle — each with 4 items, clear constraints, and exactly 4 questions. ' + topicLine + focusArea + recentMistakes + ' Keep each setup under 100 words. Keep every "explanation", "common_mistake" and "marg_insight" to one short sentence each — brevity matters more than detail here, this must fit in a limited response. All 4 options per question must be different specific answers. Return ONLY valid JSON, no markdown, exactly this shape with 3 objects in the sets array, each with 4 objects in its questions array: {"sets":[{"set_title":"title","difficulty":"Medium","constraint_types":["type1","type2"],"setup":"puzzle text, under 100 words","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"one short sentence","marg_insight":"one short sentence"}]}]}';
+  var topicLine = topic ? 'All 3 sets should be built around this topic area: ' + topic + '. ' : 'Vary the topic naturally across the 3 sets (seating arrangement, scheduling, blood relations, data sufficiency, venn diagrams, distribution/grouping, games & tournaments). ';
+  return 'Generate 3 separate CAT DILR puzzle sets — 3 independent sets, not variations of the same puzzle — each with 4 items and exactly 4 questions. ' + topicLine + focusArea + recentMistakes + ' Each set must require cross-referencing 4 to 6 conditions simultaneously to solve — genuine CAT-level complexity, not a simple 2-condition puzzle. It should require building a grid or table and deducing the answer through multiple passes, not something solvable by reading once. Keep each setup under 150 words despite the added conditions — precise and information-dense, not padded with filler. Keep every "explanation", "common_mistake" and "marg_insight" to one short sentence each. All 4 options per question must be different specific answers. Return ONLY valid JSON, no markdown, exactly this shape with 3 objects in the sets array, each with 4 objects in its questions array: {"sets":[{"set_title":"title","difficulty":"Medium","constraint_types":["type1","type2"],"setup":"puzzle text with 4-6 conditions, under 150 words","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"one short sentence","marg_insight":"one short sentence"}]}]}';
 }
 
 function buildQAPrompt(topic) {
@@ -3195,8 +3195,8 @@ function buildQAPrompt(topic) {
       recentMistakes = 'Recent specific QA mistakes: ' + qaMistakes.map(function(m) { return m.topic + ': ' + m.insight; }).join('; ') + '. Generate questions specifically targeting these exact weaknesses.';
     }
   }
-  var topicLine = topic ? 'All 8 questions should be from this topic area: ' + topic + '. ' : 'Combine 2 topics per question — mix of Percentages+TSD, Ratios+Profit-Loss, Geometry+Mensuration, and other natural pairings. ';
-  return 'Generate 8 CAT-level QA questions. ' + topicLine + focusArea + recentMistakes + ' Vary difficulty naturally across easy, medium, and hard. 2 conceptual steps each. Wrong options = common calculation mistakes. Return ONLY valid JSON, no markdown, exactly this shape with 8 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
+  var topicLine = topic ? 'All 8 questions should draw from this topic area: ' + topic + ', combined with related sub-concepts so each question still needs multi-step reasoning rather than being a single-concept plug-in. ' : 'Combine 2 topics per question — mix of Percentages+TSD, Ratios+Profit-Loss, Geometry+Mensuration, and other natural pairings. ';
+  return 'Generate 8 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Every question must need at least 2 logical or computational steps just to set up the problem, before solving even begins — the setup itself should take real thought, not just plugging into a formula. Aim for the difficulty where a strong student who knows the concept still takes 90-120 seconds, not something solvable by inspection or in one glance. Vary difficulty naturally across medium and hard within that bar — nothing below it. Wrong options should be believable mid-solution errors, not random numbers. Return ONLY valid JSON, no markdown, exactly this shape with 8 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
 }
 
 async function loadDailyPractice() {
@@ -3226,7 +3226,7 @@ async function loadDailyPractice() {
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
   else prompt = buildQAPrompt(selectedPracticeTopic);
 
-  var maxTokens = currentPracticeType === 'dilr' ? 4500 : currentPracticeType === 'rc' ? 4500 : 2500;
+  var maxTokens = currentPracticeType === 'dilr' ? 4500 : currentPracticeType === 'rc' ? 6000 : 3000;
 
   try {
     var res = await fetch(WORKER_URL, {
