@@ -941,6 +941,13 @@ function getDateContext() {
   return '\n\nTODAY IS: ' + dayNames[now.getDay()] + ', ' + dateString + '. Year is 2026. CAT 2026 is November 29 2026. NEVER say a wrong day or date.';
 }
 
+function getTimeGreeting() {
+  var hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 function cleanHistory(history) {
   if (!history || !history.length) return history;
   return history.map(function(m) {
@@ -1381,7 +1388,47 @@ var conversationalProfile = {
   attempt: null,
   hours: null,
   situation: null,
-  email: null
+  email: null,
+  diagnosisSection: null,
+  diagnosisPattern: null,
+  patternConfirmed: false,
+  awaitingPatternCorrection: false
+};
+
+var FAILURE_PATTERN_FALLBACK = "actually, let me not assume — what's the last question in this section that you got wrong and remember clearly? walk me through what happened";
+
+var FAILURE_PATTERNS = {
+  rc: {
+    'I get stuck between 2 final options': "you understand the passage fine, but when you're down to the last two options, the timer kicks in and you go with whichever one sounds more like what the author meant, instead of finding the exact line that proves it",
+    'I understand but pick wrong options': "you're answering from your overall impression of the passage instead of verifying against the specific line the question is asking about — you know the argument, but the exact detail trips you up",
+    'I run out of time': "you're spending too long on the first read trying to understand everything perfectly, instead of reading for structure first and going back for details only when a question needs them",
+    'I do well in practice but fail in mocks': "under mock pressure you second-guess yourself and change correct answers to wrong ones in the last few seconds — practice doesn't have that pressure, so it doesn't show up there",
+    'I change my correct answer at the last moment': "you trust your first instinct less than you should — statistically your first read is usually right, but doubt creeps in during review and you flip it",
+    'I skip questions but shouldnt have': "you're marking questions as skip too early because the passage felt dense on first read, when actually you'd have gotten it right if you'd just gone back to the specific paragraph",
+    'I fall for extreme language traps': "you're picking options with words like always, never, completely because they sound confident, when the passage actually supports a more moderate claim"
+  },
+  va: {
+    'Para jumbles confuse me': "you're trying to find the exact starting sentence first instead of identifying pairs of sentences that clearly link together, then building outward from those pairs",
+    'Odd sentence out is hit or miss': "you're judging sentences on whether they sound relevant to the topic, instead of checking whether each one fits the exact logical flow between the sentences around it",
+    'Para summary questions feel subjective': "you're picking the summary that covers the most points mentioned, instead of the one that captures the author's main argument — CAT wants the core idea, not a checklist",
+    'All VA types trouble me': "it's not really about VA technique — you're rushing VA because you feel behind on time after RC, so you're not giving it the same careful attention"
+  },
+  dilr: {
+    'I run out of time': "you're picking sets based on whether the topic feels familiar, like seating or blood relations, instead of counting how many actual constraints the set has — familiar topics with complex constraints eat your time",
+    'I cant crack the setup': "you're trying to solve the whole puzzle in your head before writing anything down — you need to build a table or grid the moment you start reading, not after you think you understand it",
+    'I stay too long on hard sets': "you treat every set you start as something you have to finish, even when 5 minutes in it's clear the set isn't clicking — sunk cost thinking in DILR is expensive",
+    'I solve correctly but make calculation errors': "you're doing the logical deduction right but rushing the final arithmetic because you feel time pressure the moment the logic clicks",
+    'I panic and lose accuracy': "you open the hardest-looking set first because you want to get it out of the way, and it drains your confidence for the easier sets that come after",
+    'I misread the constraints': "you read the constraints once quickly and start solving, then realize halfway through that you missed a condition and have to restart — a slower, careful first read actually saves more time than it costs"
+  },
+  qa: {
+    'I dont know the concept': "this isn't really a mystery — you know exactly which topics these are, the real question is whether we fix them with theory review or targeted practice",
+    'I know the concept but make errors': "you set up the problem correctly almost every time, but the final calculation step goes wrong because you're rushing it after the hard part is already done",
+    'I am too slow': "you're solving every question the textbook way instead of using faster elimination or approximation techniques that CAT actually rewards",
+    'I make careless mistakes in final step': "you're not writing your final answer twice before marking it — the setup is right, the arithmetic slips in the last 5 seconds",
+    'Certain topics like geometry or P&C feel impossible': "it's not that geometry or P&C are actually harder, it's that you've avoided practicing them enough that basic patterns don't feel automatic yet, so every question feels like starting from scratch",
+    'Mixed topics confuse me': "you can solve each concept separately fine, but when a question combines two topics you don't immediately recognize which one to apply first"
+  }
 };
 
 function showConversationalOptions(options, context) {
@@ -1469,6 +1516,30 @@ async function handleConversationalResponse(answer, context) {
     conversationalProfile.situation = answer;
     await sendConversationalMessage(answer, context);
 
+  } else if (context === 'rc_specific') {
+    await sendPatternGuess('rc', answer);
+
+  } else if (context === 'va_specific') {
+    await sendPatternGuess('va', answer);
+
+  } else if (context === 'dilr_sub') {
+    await sendPatternGuess('dilr', answer);
+
+  } else if (context === 'qa_sub') {
+    await sendPatternGuess('qa', answer);
+
+  } else if (context === 'pattern_confirm') {
+    if (answer === 'Yes, exactly') {
+      var patternType = conversationalProfile.diagnosisSection === 'va' ? 'rc' : conversationalProfile.diagnosisSection;
+      if (patternType && conversationalProfile.diagnosisPattern) {
+        await updateCognitivePattern(patternType, conversationalProfile.diagnosisPattern);
+      }
+      conversationalProfile.patternConfirmed = true;
+      await sendConversationalMessage(answer, 'pattern_confirmed');
+    } else {
+      await sendPatternFallbackQuestion();
+    }
+
   } else {
 
     await sendConversationalMessage(answer, context);
@@ -1490,7 +1561,15 @@ async function sendConversationalMessage(userMessage, context) {
   if (conversationalProfile.situation) profileSoFar += 'Situation: ' + conversationalProfile.situation + '. ';
 
   var systemAddition = profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
-  systemAddition += '\n\nCONVERSATIONAL ONBOARDING MODE: Be warm and direct. When you need to narrow something down, use options. Format: [OPTIONS: opt1|opt2|opt3][CONTEXT: type]. Only use options when it genuinely helps — not for every response.\n\nOPTIONS TO USE FOR EACH CONTEXT:\n\nSection weakness (CONTEXT: section): VARC|DILR|QA|All sections equally\n\nVARC sub-issue (CONTEXT: varc_sub): RC is the problem|VA is the problem|Both RC and VA\n\nRC specific issues (CONTEXT: rc_specific): I dont understand the passage|I understand but pick wrong options|I get stuck between 2 final options|I run out of time|I do well in practice but fail in mocks|I change my correct answer at the last moment\n\nVA specific issues (CONTEXT: va_specific): Para jumbles confuse me|Odd sentence out is hit or miss|Para summary questions feel subjective|All VA types trouble me\n\nDILR sub-issue (CONTEXT: dilr_sub): I run out of time|I cant crack the setup|I stay too long on hard sets|I solve correctly but make calculation errors|I panic and lose accuracy\n\nQA sub-issue (CONTEXT: qa_sub): I dont know the concept|I know the concept but make errors|I am too slow|I make careless mistakes in final step|Certain topics like geometry or P&C feel impossible\n\nDaily hours (CONTEXT: hours): Less than 1 hour|1-2 hours|2-4 hours|4-6 hours|6+ hours\n\nAttempt number (CONTEXT: attempt): First attempt|Second attempt|Third attempt or more\n\nSituation (CONTEXT: situation): Working professional|College student|Full-time prep|Preparing alongside other exams\n\nAfter 3-4 exchanges give a specific diagnosis. Never generic. Never list Marg features. IMPORTANT: Never show two sets of [OPTIONS] in the same message. One question, one set of options per message. If you need to ask about both RC and VA — ask RC first, wait for answer, then ask VA.';
+  systemAddition += '\n\nCONVERSATIONAL ONBOARDING MODE: Be warm and direct. When you need to narrow something down, use options. Format: [OPTIONS: opt1|opt2|opt3][CONTEXT: type]. Only use options when it genuinely helps — not for every response.\n\nOPTIONS TO USE FOR EACH CONTEXT:\n\nSection weakness (CONTEXT: section): VARC|DILR|QA|All sections equally\n\nVARC sub-issue (CONTEXT: varc_sub): RC is the problem|VA is the problem|Both RC and VA\n\nRC specific issues (CONTEXT: rc_specific): I dont understand the passage|I understand but pick wrong options|I get stuck between 2 final options|I run out of time|I do well in practice but fail in mocks|I change my correct answer at the last moment|I skip questions but shouldnt have|I fall for extreme language traps\n\nVA specific issues (CONTEXT: va_specific): Para jumbles confuse me|Odd sentence out is hit or miss|Para summary questions feel subjective|All VA types trouble me\n\nDILR sub-issue (CONTEXT: dilr_sub): I run out of time|I cant crack the setup|I stay too long on hard sets|I solve correctly but make calculation errors|I panic and lose accuracy|I misread the constraints\n\nQA sub-issue (CONTEXT: qa_sub): I dont know the concept|I know the concept but make errors|I am too slow|I make careless mistakes in final step|Certain topics like geometry or P&C feel impossible|Mixed topics confuse me\n\nDaily hours (CONTEXT: hours): Less than 1 hour|1-2 hours|2-4 hours|4-6 hours|6+ hours\n\nAttempt number (CONTEXT: attempt): First attempt|Second attempt|Third attempt or more\n\nSituation (CONTEXT: situation): Working professional|College student|Full-time prep|Preparing alongside other exams\n\nIMPORTANT: When the student picks a section sub-issue (rc_specific, va_specific, dilr_sub, qa_sub), do not respond yourself — the app handles that moment separately with a specific diagnosis guess. After 3-4 exchanges beyond that give a specific plan. Never generic. Never list Marg features. Never show two sets of [OPTIONS] in the same message. One question, one set of options per message. If you need to ask about both RC and VA — ask RC first, wait for answer, then ask VA.';
+
+  if (context === 'pattern_confirmed') {
+    systemAddition += '\n\nThe student just confirmed the diagnosis pattern you gave them is accurate. Do not repeat or re-explain it. Move straight to your next onboarding question.';
+  }
+  if (conversationalProfile.awaitingPatternCorrection) {
+    systemAddition += '\n\nThe student just explained what happened with a specific wrong answer, after you asked one clarifying question following a diagnosis they said was not quite right. Do not ask another open-ended question. State a one-sentence read on their actual pattern based on what they just told you, then move on to your next onboarding question.';
+    conversationalProfile.awaitingPatternCorrection = false;
+  }
 
   try {
     var res = await fetch(WORKER_URL, {
@@ -1542,6 +1621,100 @@ async function sendConversationalMessage(userMessage, context) {
     hideTyping();
     addMessage('marg', 'Tell me more — what specifically feels stuck?');
   }
+}
+
+async function sendPatternGuess(section, subissueAnswer) {
+  conversationHistory.push({ role: 'user', content: subissueAnswer });
+  if (!isGuestMode) saveChatMessage('user', subissueAnswer);
+  showTyping();
+
+  var patternMap = FAILURE_PATTERNS[section] || {};
+  var matchedPattern = patternMap[subissueAnswer];
+  var isFallback = !matchedPattern;
+  var patternContent = matchedPattern || FAILURE_PATTERN_FALLBACK;
+
+  conversationalProfile.subWeakness = subissueAnswer;
+  conversationalProfile.diagnosisSection = section;
+  conversationalProfile.diagnosisPattern = patternContent;
+
+  var instruction = isFallback
+    ? '\n\nDIAGNOSIS MOMENT: The student picked "' + subissueAnswer + '" — there is no specific statistical pattern for this exact combination, so do not guess. In your own natural voice, ask this: ' + patternContent + '. 1-2 sentences. Do not use [OPTIONS]. Do not ask anything else.'
+    : '\n\nDIAGNOSIS MOMENT: This is the single most important moment in the conversation. Based on real, statistically common CAT aspirant failure patterns, state this exact guess as your own read on the student, in your natural conversational voice — adapt the wording, do not recite it word for word: "' + patternContent + '". End with something like "sound familiar?" or "that about right?". 1 to 3 sentences total, nothing else. Do not use [OPTIONS]. Do not ask a different question.';
+
+  try {
+    var res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        system: SYSTEM_PROMPT + getDateContext() + instruction,
+        messages: cleanHistory(conversationHistory)
+      })
+    });
+    var data = await res.json();
+    var response = data.content && data.content[0] ? data.content[0].text : null;
+    hideTyping();
+
+    var guessText = response ? stripMarkdown(response) : ('my guess — ' + patternContent + (isFallback ? '' : '. sound familiar?'));
+
+    addMessage('marg', guessText.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
+    conversationHistory.push({ role: 'assistant', content: guessText });
+    if (!isGuestMode) saveChatMessage('assistant', guessText);
+
+    if (isFallback) {
+      conversationalProfile.awaitingPatternCorrection = true;
+      document.getElementById('user-input').disabled = false;
+      document.getElementById('send-btn').disabled = false;
+      document.getElementById('user-input').focus();
+    } else {
+      showConversationalOptions(['Yes, exactly', 'Not quite'], 'pattern_confirm');
+    }
+  } catch(e) {
+    hideTyping();
+    addMessage('marg', 'Tell me about the last question in this section you got wrong — what happened?');
+    conversationalProfile.awaitingPatternCorrection = true;
+    document.getElementById('user-input').disabled = false;
+    document.getElementById('send-btn').disabled = false;
+  }
+}
+
+async function sendPatternFallbackQuestion() {
+  conversationHistory.push({ role: 'user', content: 'Not quite' });
+  if (!isGuestMode) saveChatMessage('user', 'Not quite');
+  showTyping();
+
+  var instruction = '\n\nDIAGNOSIS MOMENT: Your guess was not quite right. Do not guess again and do not ask a fully open "what is going wrong" question. In your own natural voice, ask this one specific thing: ' + FAILURE_PATTERN_FALLBACK + '. 1-2 sentences. Do not use [OPTIONS].';
+
+  try {
+    var res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        system: SYSTEM_PROMPT + getDateContext() + instruction,
+        messages: cleanHistory(conversationHistory)
+      })
+    });
+    var data = await res.json();
+    var response = data.content && data.content[0] ? data.content[0].text : null;
+    hideTyping();
+
+    var guessText = response ? stripMarkdown(response) : ('no worries — ' + FAILURE_PATTERN_FALLBACK);
+
+    addMessage('marg', guessText.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
+    conversationHistory.push({ role: 'assistant', content: guessText });
+    if (!isGuestMode) saveChatMessage('assistant', guessText);
+  } catch(e) {
+    hideTyping();
+    addMessage('marg', 'No worries — tell me about the last question in this section you got wrong. What happened?');
+  }
+
+  conversationalProfile.awaitingPatternCorrection = true;
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('user-input').focus();
 }
 
 function checkAndRenderMargOptions(response) {
@@ -1893,7 +2066,7 @@ function showCheckin(userName) {
   const overlay = document.getElementById('checkin-overlay');
   const today = new Date();
   document.getElementById('checkin-date').textContent = today.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' });
-  document.getElementById('checkin-q1').textContent = 'Good morning' + (userName ? ', ' + userName : '') + '! Did you study yesterday?';
+  document.getElementById('checkin-q1').textContent = getTimeGreeting() + (userName ? ', ' + userName : '') + '! Did you study yesterday?';
   overlay.style.display = 'flex';
 }
 
@@ -2895,9 +3068,18 @@ window.onload = initSession;
 var currentTab = 'chat';
 var currentPracticeType = 'rc';
 var practiceData = { rc: null, dilr: null, qa: null };
+var currentSetIndex = 0;
 var currentQuestionIndex = 0;
 var practiceAnswered = false;
+var practiceSessionCounted = false;
 var sessionResults = { correct: 0, wrong: 0, total: 0, mistakes: [], passageTitle: '' };
+var practiceTopicChosen = false;
+var selectedPracticeTopic = null;
+
+var practiceTopics = {
+  dilr: ['Seating Arrangement', 'Scheduling', 'Blood Relations', 'Data Sufficiency', 'Venn Diagrams', 'Distribution/Grouping', 'Mixed — surprise me'],
+  qa: ['Arithmetic (Percentages, Ratios, TSD, Profit-Loss)', 'Algebra', 'Geometry & Mensuration', 'Number Systems', 'Modern Math (P&C, Probability)', 'Mixed — surprise me']
+};
 
 function switchTab(tab) {
   currentTab = tab;
@@ -2943,11 +3125,30 @@ function showBottomNav() {
 }
 function switchPracticeTab(type) {
   currentPracticeType = type;
+  currentSetIndex = 0;
   currentQuestionIndex = 0;
   practiceAnswered = false;
+  practiceTopicChosen = false;
+  selectedPracticeTopic = null;
   document.querySelectorAll('.ptab-btn').forEach(function(b) { b.classList.remove('active'); });
   var btn = document.getElementById('ptab-' + type);
   if (btn) btn.classList.add('active');
+  loadDailyPractice();
+}
+
+function showTopicPicker(type) {
+  var content = document.getElementById('practice-content');
+  var typeName = type === 'dilr' ? 'DILR' : 'QA';
+  var topics = practiceTopics[type] || [];
+  var buttonsHtml = topics.map(function(t) {
+    return '<button class="pcard-option" onclick="selectPracticeTopic(\'' + t.replace(/'/g, "\\'") + '\')">' + t + '</button>';
+  }).join('');
+  content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Choose a ' + typeName + ' topic</div></div><div class="pcard-body"><div class="pcard-options">' + buttonsHtml + '</div></div></div>';
+}
+
+function selectPracticeTopic(topic) {
+  practiceTopicChosen = true;
+  selectedPracticeTopic = topic.indexOf('Mixed') === 0 ? null : topic;
   loadDailyPractice();
 }
 
@@ -2963,10 +3164,10 @@ function buildRCPrompt() {
       recentMistakes = 'Recent specific mistakes to target: ' + rcMistakes.map(function(m) { return m.insight; }).join('; ') + '. Generate questions that specifically expose and help fix these exact mistakes.';
     }
   }
-  return 'Generate a CAT-level RC passage and 3 questions. ' + focusArea + recentMistakes + ' Passage 350-420 words on Philosophy Economics Science Technology Social Issues or Psychology. Dense argument-driven. 3 questions on Primary Purpose, Author Attitude, Inference. 4 options where wrong ones are extreme, out of scope, or reversals. Return ONLY valid JSON: {"passage":"text","difficulty":"Medium or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why correct and why each wrong is a trap","trap_type":"cognitive error","marg_insight":"what wrong answer reveals about thinking"}]}';
+  return 'Generate 3 separate CAT-level RC passages, each with its own 3 questions — 3 fully independent passages, not variations of one topic. ' + focusArea + recentMistakes + ' Each passage 350-420 words on Philosophy, Economics, Science, Technology, Social Issues, or Psychology — vary the subject across the 3 passages. Dense argument-driven writing. Each passage\'s 3 questions cover Primary Purpose, Author Attitude, and Inference. 4 options per question where wrong ones are extreme, out of scope, or reversals. Return ONLY valid JSON, no markdown, exactly this shape with 3 objects in the sets array: {"sets":[{"passage":"text","difficulty":"Medium or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why correct and why each wrong is a trap","trap_type":"cognitive error","marg_insight":"what wrong answer reveals about thinking"}]}]}';
 }
 
-function buildDILRPrompt() {
+function buildDILRPrompt(topic) {
   var focusArea = '';
   if (studentProfile.dilrPattern) {
     focusArea = 'This student specifically: ' + studentProfile.dilrPattern + '. ';
@@ -2975,13 +3176,14 @@ function buildDILRPrompt() {
   if (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0) {
     var dilrMistakes = studentProfile.recentMistakes.filter(function(m) { return m.type === 'dilr'; }).slice(0, 3);
     if (dilrMistakes.length > 0) {
-      recentMistakes = 'Recent specific DILR mistakes: ' + dilrMistakes.map(function(m) { return m.insight; }).join('; ') + '. Design the set to specifically expose and help fix these mistakes.';
+      recentMistakes = 'Recent specific DILR mistakes: ' + dilrMistakes.map(function(m) { return m.insight; }).join('; ') + '. Design the sets to specifically expose and help fix these mistakes.';
     }
   }
-  return 'Generate one CAT DILR puzzle set with 4 items and clear constraints. ' + focusArea + recentMistakes + ' Keep the setup under 100 words. Write exactly 4 questions. Keep every "explanation", "common_mistake" and "marg_insight" to one short sentence each — brevity matters more than detail here, this must fit in a small response. All 4 options per question must be different specific answers. Return ONLY valid JSON, no markdown, exactly this shape with 4 objects in the questions array: {"set_title":"title","difficulty":"Medium","constraint_types":["type1","type2"],"setup":"puzzle text, under 100 words","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"one short sentence","marg_insight":"one short sentence"}]}';
+  var topicLine = topic ? 'All 3 sets should be built around this topic area: ' + topic + '. ' : 'Vary the topic naturally across the 3 sets (seating arrangement, scheduling, blood relations, data sufficiency, venn diagrams, distribution/grouping). ';
+  return 'Generate 3 separate CAT DILR puzzle sets — 3 fully independent sets, not variations of the same puzzle — each with 4 items, clear constraints, and exactly 4 questions. ' + topicLine + focusArea + recentMistakes + ' Keep each setup under 100 words. Keep every "explanation", "common_mistake" and "marg_insight" to one short sentence each — brevity matters more than detail here, this must fit in a limited response. All 4 options per question must be different specific answers. Return ONLY valid JSON, no markdown, exactly this shape with 3 objects in the sets array, each with 4 objects in its questions array: {"sets":[{"set_title":"title","difficulty":"Medium","constraint_types":["type1","type2"],"setup":"puzzle text, under 100 words","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"one short sentence","marg_insight":"one short sentence"}]}]}';
 }
 
-function buildQAPrompt() {
+function buildQAPrompt(topic) {
   var focusArea = '';
   if (studentProfile.qaPattern) {
     focusArea = 'This student specifically: ' + studentProfile.qaPattern + '. ';
@@ -2993,7 +3195,8 @@ function buildQAPrompt() {
       recentMistakes = 'Recent specific QA mistakes: ' + qaMistakes.map(function(m) { return m.topic + ': ' + m.insight; }).join('; ') + '. Generate questions specifically targeting these exact weaknesses.';
     }
   }
-  return 'Generate 2 CAT-level QA questions combining 2 topics each. ' + focusArea + recentMistakes + ' Combine: Percentages+TSD, Ratios+Profit-Loss, or Geometry+Mensuration. 2 conceptual steps each. Wrong options = common calculation mistakes. Return ONLY valid JSON: {"difficulty":"Medium or Hard","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
+  var topicLine = topic ? 'All 8 questions should be from this topic area: ' + topic + '. ' : 'Combine 2 topics per question — mix of Percentages+TSD, Ratios+Profit-Loss, Geometry+Mensuration, and other natural pairings. ';
+  return 'Generate 8 CAT-level QA questions. ' + topicLine + focusArea + recentMistakes + ' Vary difficulty naturally across easy, medium, and hard. 2 conceptual steps each. Wrong options = common calculation mistakes. Return ONLY valid JSON, no markdown, exactly this shape with 8 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
 }
 
 async function loadDailyPractice() {
@@ -3002,6 +3205,11 @@ async function loadDailyPractice() {
 
   if (isPracticeDoneToday(currentPracticeType)) {
     showDailyLimitCard(currentPracticeType);
+    return;
+  }
+
+  if ((currentPracticeType === 'dilr' || currentPracticeType === 'qa') && !practiceTopicChosen) {
+    showTopicPicker(currentPracticeType);
     return;
   }
 
@@ -3015,10 +3223,10 @@ async function loadDailyPractice() {
 
   var prompt = '';
   if (currentPracticeType === 'rc') prompt = buildRCPrompt();
-  else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt();
-  else prompt = buildQAPrompt();
+  else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
+  else prompt = buildQAPrompt(selectedPracticeTopic);
 
-  var maxTokens = currentPracticeType === 'dilr' ? 2500 : 2000;
+  var maxTokens = currentPracticeType === 'dilr' ? 4500 : currentPracticeType === 'rc' ? 4500 : 2500;
 
   try {
     var res = await fetch(WORKER_URL, {
@@ -3039,8 +3247,10 @@ async function loadDailyPractice() {
     var clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     var practiceJson = JSON.parse(clean);
     practiceData[currentPracticeType] = practiceJson;
+    currentSetIndex = 0;
     currentQuestionIndex = 0;
     practiceAnswered = false;
+    practiceSessionCounted = false;
     renderPractice(practiceJson);
 
   } catch(e) {
@@ -3051,7 +3261,7 @@ async function loadDailyPractice() {
 
 function getMorningPromptHtml() {
   if (!studentProfile.lastTask) return '';
-  return '<div class="morning-prompt"><div class="morning-prompt-title">Good morning — picking up where you left off</div><div class="morning-prompt-body">Last time: <strong>' + studentProfile.lastTask + '</strong><br>Today\'s practice targets your specific weak areas.</div></div>';
+  return '<div class="morning-prompt"><div class="morning-prompt-title">' + getTimeGreeting() + ' — picking up where you left off</div><div class="morning-prompt-body">Last time: <strong>' + studentProfile.lastTask + '</strong><br>Today\'s practice targets your specific weak areas.</div></div>';
 }
 
 function getOptionsHtml(options) {
@@ -3060,27 +3270,37 @@ function getOptionsHtml(options) {
   }).join('');
 }
 
+function usesSets(type) { return type === 'rc' || type === 'dilr'; }
+
 function renderPractice(data) {
   var content = document.getElementById('practice-content');
   var morningPrompt = getMorningPromptHtml();
-  var q, qNum, total, headerLabel, diffLabel, bodyHtml;
+  var q, qNum, total, headerLabel, diffLabel, bodyHtml, hasPrev, isLastOverall;
 
   if (currentPracticeType === 'rc') {
-    q = data.questions[currentQuestionIndex];
+    var totalSets = data.sets.length;
+    var setObj = data.sets[currentSetIndex];
+    q = setObj.questions[currentQuestionIndex];
     qNum = currentQuestionIndex + 1;
-    total = data.questions.length;
-    headerLabel = 'RC — Question ' + qNum + ' of ' + total;
-    diffLabel = (data.difficulty || 'Medium') + ' · ' + (data.topic || 'General');
-    var passageHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage">' + data.passage + '</div>' : '';
+    total = setObj.questions.length;
+    headerLabel = 'RC — Set ' + (currentSetIndex + 1) + ' of ' + totalSets + ' · Question ' + qNum + ' of ' + total;
+    diffLabel = (setObj.difficulty || 'Medium') + ' · ' + (setObj.topic || 'General');
+    var passageHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage">' + setObj.passage + '</div>' : '';
     bodyHtml = passageHtml + '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+    hasPrev = currentSetIndex > 0 || currentQuestionIndex > 0;
+    isLastOverall = currentSetIndex === totalSets - 1 && currentQuestionIndex === total - 1;
   } else if (currentPracticeType === 'dilr') {
-    q = data.questions[currentQuestionIndex];
+    var totalSets = data.sets.length;
+    var setObj = data.sets[currentSetIndex];
+    q = setObj.questions[currentQuestionIndex];
     qNum = currentQuestionIndex + 1;
-    total = data.questions.length;
-    headerLabel = 'DILR — Question ' + qNum + ' of ' + total;
-    diffLabel = (data.difficulty || 'Medium') + ' · ' + (data.constraint_types || []).join(' + ');
-    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong> ' + data.setup + '</div>' : '';
+    total = setObj.questions.length;
+    headerLabel = 'DILR — Set ' + (currentSetIndex + 1) + ' of ' + totalSets + ' · Question ' + qNum + ' of ' + total;
+    diffLabel = (setObj.difficulty || 'Medium') + ' · ' + (setObj.constraint_types || []).join(' + ');
+    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong> ' + setObj.setup + '</div>' : '';
     bodyHtml = setupHtml + '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+    hasPrev = currentSetIndex > 0 || currentQuestionIndex > 0;
+    isLastOverall = currentSetIndex === totalSets - 1 && currentQuestionIndex === total - 1;
   } else {
     q = data.questions[currentQuestionIndex];
     qNum = currentQuestionIndex + 1;
@@ -3088,10 +3308,12 @@ function renderPractice(data) {
     headerLabel = 'QA — Question ' + qNum + ' of ' + total;
     diffLabel = (data.difficulty || 'Medium') + ' · ' + (data.topics_combined || []).join(' + ');
     bodyHtml = '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+    hasPrev = currentQuestionIndex > 0;
+    isLastOverall = currentQuestionIndex === total - 1;
   }
 
-  var prevBtn = currentQuestionIndex > 0 ? '<button class="pcard-nav-btn secondary" onclick="prevQuestion()">Previous</button>' : '';
-  var nextLabel = currentQuestionIndex < total - 1 ? 'Next question' : 'Finish session';
+  var prevBtn = hasPrev ? '<button class="pcard-nav-btn secondary" onclick="prevQuestion()">Previous</button>' : '';
+  var nextLabel = isLastOverall ? 'Finish session' : (usesSets(currentPracticeType) && currentQuestionIndex === total - 1 ? 'Next set' : 'Next question');
 
   content.innerHTML = morningPrompt + '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">' + headerLabel + '</div><div class="pcard-difficulty">' + diffLabel + '</div></div><div class="pcard-body">' + bodyHtml + '<div class="pcard-explanation" id="explanation-box"><div class="explanation-title">Answer &amp; Analysis</div><div class="explanation-body" id="explanation-body"></div><div class="marg-insight" id="marg-insight"></div></div></div><div class="pcard-nav">' + prevBtn + '<button class="pcard-nav-btn primary" id="next-btn" onclick="nextQuestion()" disabled>' + nextLabel + '</button></div></div>';
 }
@@ -3101,7 +3323,8 @@ function selectAnswer(selectedIndex) {
   practiceAnswered = true;
 
   var data = practiceData[currentPracticeType];
-  var q = data.questions[currentQuestionIndex];
+  var setObj = usesSets(currentPracticeType) ? data.sets[currentSetIndex] : data;
+  var q = setObj.questions[currentQuestionIndex];
   var correct = q.correct;
   var isCorrect = selectedIndex === correct;
 
@@ -3151,10 +3374,9 @@ function selectAnswer(selectedIndex) {
     }
   }
 
-  var data = practiceData[currentPracticeType];
-  if (data && data.topic) sessionResults.passageTitle = data.topic;
-  if (data && data.set_title) sessionResults.passageTitle = data.set_title;
-  if (data && data.topics_combined) sessionResults.passageTitle = data.topics_combined.join(' + ');
+  if (setObj && setObj.topic) sessionResults.passageTitle = setObj.topic;
+  if (setObj && setObj.set_title) sessionResults.passageTitle = setObj.set_title;
+  if (setObj && setObj.topics_combined) sessionResults.passageTitle = setObj.topics_combined.join(' + ');
 
   if (!isCorrect) {
     var insight = q.marg_insight || q.common_mistake || ('Made a ' + currentPracticeType.toUpperCase() + ' error');
@@ -3184,7 +3406,6 @@ function selectAnswer(selectedIndex) {
       }
     }, 800);
   }
-  incrementSessionCount();
 }
 
 function storeWrongAnswer(type, question, insight) {
@@ -3270,29 +3491,65 @@ async function incrementSessionCount() {
 function nextQuestion() {
   var data = practiceData[currentPracticeType];
   if (!data) return;
-  var total = data.questions.length;
-  if (currentQuestionIndex < total - 1) {
-    currentQuestionIndex++;
-    practiceAnswered = false;
-    renderPractice(data);
+
+  if (usesSets(currentPracticeType)) {
+    var setObj = data.sets[currentSetIndex];
+    var total = setObj.questions.length;
+    if (currentQuestionIndex < total - 1) {
+      currentQuestionIndex++;
+      practiceAnswered = false;
+      renderPractice(data);
+    } else if (currentSetIndex < data.sets.length - 1) {
+      currentSetIndex++;
+      currentQuestionIndex = 0;
+      practiceAnswered = false;
+      renderPractice(data);
+    } else {
+      showPracticeSummary();
+    }
   } else {
-    showPracticeSummary();
+    var total = data.questions.length;
+    if (currentQuestionIndex < total - 1) {
+      currentQuestionIndex++;
+      practiceAnswered = false;
+      renderPractice(data);
+    } else {
+      showPracticeSummary();
+    }
   }
 }
 
 function prevQuestion() {
-  if (currentQuestionIndex > 0) {
+  var data = practiceData[currentPracticeType];
+  if (!data) return;
+
+  if (usesSets(currentPracticeType)) {
+    if (currentQuestionIndex > 0) {
+      currentQuestionIndex--;
+      practiceAnswered = true;
+      renderPractice(data);
+    } else if (currentSetIndex > 0) {
+      currentSetIndex--;
+      currentQuestionIndex = data.sets[currentSetIndex].questions.length - 1;
+      practiceAnswered = true;
+      renderPractice(data);
+    }
+  } else if (currentQuestionIndex > 0) {
     currentQuestionIndex--;
     practiceAnswered = true;
-    renderPractice(practiceData[currentPracticeType]);
+    renderPractice(data);
   }
 }
 
 function showPracticeSummary() {
   markPracticeDoneToday(currentPracticeType);
+  if (!practiceSessionCounted) {
+    practiceSessionCounted = true;
+    incrementSessionCount();
+  }
   var content = document.getElementById('practice-content');
   var type = currentPracticeType.toUpperCase();
-  content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">Marg has updated your cognitive profile. Tomorrow\'s questions will be more targeted.</div><button class="pcard-nav-btn primary" onclick="switchTab(\'chat\')" style="max-width:200px;margin:0 auto;">Talk to Marg about today</button><button class="pcard-nav-btn" onclick="loadDailyPractice()" style="max-width:200px;margin:8px auto 0;">Practice Again</button></div></div></div>';
+  content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">Marg has updated your cognitive profile. Tomorrow\'s questions will be more targeted.</div><button class="pcard-nav-btn primary" onclick="switchTab(\'chat\')" style="max-width:200px;margin:0 auto;">Talk to Marg about today</button><button class="pcard-nav-btn" onclick="switchPracticeTab(\'' + currentPracticeType + '\')" style="max-width:200px;margin:8px auto 0;">Practice Again</button></div></div></div>';
   var _pattern = type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern;
   var _patternText = (_pattern && _pattern !== 'undefined' && _pattern !== 'null' && _pattern.trim() !== '') ? _pattern : 'still building from your answers today';
   var _resultsText = sessionResults.total > 0 ? 'Got ' + sessionResults.correct + ' out of ' + sessionResults.total + ' correct. ' : '';
