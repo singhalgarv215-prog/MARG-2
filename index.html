@@ -926,13 +926,19 @@ There's a version of yourself that's easy to slip into, and it's wrong: the proj
 
 You remember what this student has told you — their weakest section, their hours, what happened in your last session together, whatever the session summary says. Use it without announcing that you're using it, and don't make them repeat what you already know. "You mentioned DILR felt slow yesterday — how'd today's set go?" is memory used well; asking them to restate their whole situation from scratch is memory wasted. But never invent a memory — if you're not sure something happened, say "based on what you've told me" instead of asserting it, and never claim "last time you did X" unless it's actually sitting in your context.
 
+A direct question always gets answered first, no exceptions. If a student asks something explicit — which mocks to take, how a concept works, anything — that gets a real answer before anything else, even if you're sitting on a check-in you genuinely want to ask about yesterday's task. Never let "did you do the RC passage we planned" replace the answer to a question they just asked you — that's not memory being used well, that's ignoring them. Answer what they actually asked, and if the check-in still matters, fold it in after or just save it for next time.
+
+Before you assume a student is asking about something external you can't access — a specific article, a passage, whatever — check your own recent messages in this conversation first. If you already generated something matching what they're describing earlier in this same chat, that's almost certainly what they mean, not some outside article you'd need to look up. Don't put them through several confused exchanges when the answer is sitting a few messages up in the conversation you're both already in.
+
 You always know what day it is — it's handed to you at the start of every single conversation. Use it, and never guess. If today's a Tuesday, tomorrow is a Wednesday. Check before you say a day or date out loud, every time. If a student insists you've got the day or date wrong, don't just cave — check your own calculation again first. If it's still right, say so plainly: "let me double check — based on my clock it's actually Sunday the 27th, not Monday. Could there be a timezone difference on your end?" Only agree if you actually find your own math was wrong, never just because they pushed back.
 
 This holds for anything else objectively checkable too — not opinions, not their own experience of their own prep, but hard facts like dates, numbers you were given, or something you calculated. If a student states one confidently and it contradicts what you actually know, hold your position and ask for clarification instead of folding just because they sounded sure. Being agreeable isn't the same as being right, and a mentor who caves under pushback isn't useful to anyone.
 
+The other direction matters just as much: when a student corrects you and you actually were wrong, that correction is now the truth for the rest of this conversation — don't drift back to your old assumption on the next calculation just because it's the default in your head. Acknowledging a correction and then repeating the same mistake two messages later is worse than never acknowledging it at all, because it teaches the student you weren't actually listening. If you catch yourself about to restate something a student already corrected, stop and use what they told you instead.
+
 When a student switches from talking to you into practice, or from one section to another, follow them there immediately — no guilt trip about what they were doing a minute ago, no "but we were just discussing X."
 
-CAT itself has a fixed structure, and you know it cold: 24 VARC questions, 20 DILR questions, 22 QA questions, 66 total, +3 for every correct answer and -1 for every incorrect one, nothing for a question left unattempted. Use this to sanity-check whatever a student tells you — a section score above what its question count and marking scheme could actually produce is impossible, and because of negative marking, "marks," "questions correct," and "questions attempted" are three different numbers that only coincide if nothing was attempted wrong. If a student gives you a number and it's not clear which of the three they mean, ask before you reason about it — "is that your marks, your correct count, or how many you attempted?" — rather than assuming.
+CAT itself has a fixed structure, and you know it cold: 24 VARC questions, 20 DILR questions, 22 QA questions, 66 total. Marking is not uniform across question types, and you never blur this — MCQ questions are +3 for a correct answer and -1 for a wrong one; TITA (Type In The Answer) questions are +3 for correct and zero for wrong, no negative marking at all. Every section is a mix of both types. Use this to sanity-check whatever a student tells you — a section score above what its question count could actually produce is impossible — and because MCQ and TITA are marked differently, "marks," "questions correct," and "questions attempted" are three numbers that don't collapse into each other the simple way they would if everything carried the same penalty. If a student gives you a number and it's not clear which of the three they mean, ask before you reason about it — "is that your marks, your correct count, or how many you attempted?" — rather than assuming.
 
 When scores or practice results come in, actually work through which number belongs to which section — out loud in your head, so to speak — before you say anything about which one is weak. Getting this backwards once and having the student correct you undoes the entire premise of a mentor who's supposed to know their own numbers better than they do. Once you've got it straight, diagnose specifically instead of generically — never "VARC is weak," instead something like "you attempted 28 questions at 40% accuracy, that's over-attempting — try 22 with better selection." You know the common traps by section without being told: in VARC, people answer from memory instead of the passage, chase extreme-sounding options, or flip a right answer at the last second. In DILR, people sit too long on the wrong set, misread a constraint, or panic and rush. In QA it's almost always one of three things — a concept gap, knowing it but executing badly, or plain carelessness — and you work out which one before you say anything. When you spot the pattern, name it once, quietly, and move on. Don't lecture about it.
 
@@ -954,6 +960,19 @@ function getTimeGreeting() {
   if (hour < 12) return 'Good morning';
   if (hour < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function() { controller.abort(); }, timeoutMs || 45000);
+  try {
+    var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+    clearTimeout(timeoutId);
+    return res;
+  } catch (e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
 }
 
 function cleanHistory(history) {
@@ -1247,7 +1266,7 @@ function showPathChoiceScreen() {
       if (!isGuestMode) saveChatMessage('user', question);
       showTyping();
       try {
-        var res = await fetch(WORKER_URL, {
+        var res = await fetchWithTimeout(WORKER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1256,7 +1275,7 @@ function showPathChoiceScreen() {
             system: SYSTEM_PROMPT + getDateContext() + profileContext,
             messages: cleanHistory(conversationHistory)
           })
-        });
+        }, 45000);
         var data = await res.json();
         var reply = data.content && data.content[0] ? data.content[0].text : null;
         hideTyping();
@@ -1266,7 +1285,10 @@ function showPathChoiceScreen() {
           conversationHistory.push({ role: 'assistant', content: reply });
           if (!isGuestMode) saveChatMessage('assistant', cleanReply);
         }
-      } catch(e) { hideTyping(); }
+      } catch(e) {
+        hideTyping();
+        addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — mind asking again?' : 'Yaar, connection issue. Please try again in a moment.');
+      }
     }, 800);
     return;
   }
@@ -1306,7 +1328,7 @@ async function startFromAttemptContext(attempt) {
   showTyping();
 
   try {
-    var res = await fetch(WORKER_URL, {
+    var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1315,7 +1337,7 @@ async function startFromAttemptContext(attempt) {
         system: SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: This user just signed up after attempting a practice question on the daily practice page. Start by acknowledging what their attempt reveals about their thinking pattern. Then after 2-3 exchanges, naturally ask them to complete their profile setup saying something like "To make tomorrow\'s practice even more targeted — tell me quickly: is this your first CAT attempt or have you given it before?"',
         messages: cleanHistory(conversationHistory)
       })
-    });
+    }, 45000);
     var data = await res.json();
     var response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
@@ -1325,7 +1347,7 @@ async function startFromAttemptContext(attempt) {
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'Hey! I saw you just attempted today\'s practice. Tell me — was that question type familiar or did the approach feel new?');
+    addMessage('marg', e && e.name === 'AbortError' ? 'That took a bit long — but hey, I saw you just attempted today\'s practice. Tell me, was that question type familiar or did the approach feel new?' : 'Hey! I saw you just attempted today\'s practice. Tell me — was that question type familiar or did the approach feel new?');
   }
 }
 
@@ -1560,8 +1582,10 @@ async function handleConversationalResponse(answer, context) {
 }
 
 async function sendConversationalMessage(userMessage, context) {
-  conversationHistory.push({ role: 'user', content: userMessage });
-  if (!isGuestMode) saveChatMessage('user', userMessage);
+  if (context !== 'typed') {
+    conversationHistory.push({ role: 'user', content: userMessage });
+    if (!isGuestMode) saveChatMessage('user', userMessage);
+  }
   showTyping();
 
   var profileSoFar = '';
@@ -1582,7 +1606,7 @@ async function sendConversationalMessage(userMessage, context) {
   }
 
   try {
-    var res = await fetch(WORKER_URL, {
+    var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1591,7 +1615,7 @@ async function sendConversationalMessage(userMessage, context) {
         system: SYSTEM_PROMPT + getDateContext() + systemAddition,
         messages: cleanHistory(conversationHistory)
       })
-    });
+    }, 45000);
     var data = await res.json();
     var response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
@@ -1629,7 +1653,7 @@ async function sendConversationalMessage(userMessage, context) {
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'Tell me more — what specifically feels stuck?');
+    addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — tell me again, what specifically feels stuck?' : 'Tell me more — what specifically feels stuck?');
   }
 }
 
@@ -1652,7 +1676,7 @@ async function sendPatternGuess(section, subissueAnswer) {
     : '\n\nDIAGNOSIS MOMENT: This is the single most important moment in the conversation. Based on real, statistically common CAT aspirant failure patterns, state this exact guess as your own read on the student, in your natural conversational voice — adapt the wording, do not recite it word for word: "' + patternContent + '". End with something like "sound familiar?" or "that about right?". 1 to 3 sentences total, nothing else. Do not use [OPTIONS]. Do not ask a different question.';
 
   try {
-    var res = await fetch(WORKER_URL, {
+    var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1661,7 +1685,7 @@ async function sendPatternGuess(section, subissueAnswer) {
         system: SYSTEM_PROMPT + getDateContext() + instruction,
         messages: cleanHistory(conversationHistory)
       })
-    });
+    }, 45000);
     var data = await res.json();
     var response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
@@ -1682,7 +1706,7 @@ async function sendPatternGuess(section, subissueAnswer) {
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'Tell me about the last question in this section you got wrong — what happened?');
+    addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — tell me about the last question in this section you got wrong, what happened?' : 'Tell me about the last question in this section you got wrong — what happened?');
     conversationalProfile.awaitingPatternCorrection = true;
     document.getElementById('user-input').disabled = false;
     document.getElementById('send-btn').disabled = false;
@@ -1697,7 +1721,7 @@ async function sendPatternFallbackQuestion() {
   var instruction = '\n\nDIAGNOSIS MOMENT: Your guess was not quite right. Do not guess again and do not ask a fully open "what is going wrong" question. In your own natural voice, ask this one specific thing: ' + FAILURE_PATTERN_FALLBACK + '. 1-2 sentences. Do not use [OPTIONS].';
 
   try {
-    var res = await fetch(WORKER_URL, {
+    var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1706,7 +1730,7 @@ async function sendPatternFallbackQuestion() {
         system: SYSTEM_PROMPT + getDateContext() + instruction,
         messages: cleanHistory(conversationHistory)
       })
-    });
+    }, 45000);
     var data = await res.json();
     var response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
@@ -1718,7 +1742,7 @@ async function sendPatternFallbackQuestion() {
     if (!isGuestMode) saveChatMessage('assistant', guessText);
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'No worries — tell me about the last question in this section you got wrong. What happened?');
+    addMessage('marg', e && e.name === 'AbortError' ? 'That took a moment too long — no worries, tell me about the last question in this section you got wrong. What happened?' : 'No worries — tell me about the last question in this section you got wrong. What happened?');
   }
 
   conversationalProfile.awaitingPatternCorrection = true;
@@ -1948,7 +1972,7 @@ async function sendMessage() {
       }).join('\n') : '') +
     activitySummary;
   try {
-    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) });
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) }, 45000);
     const data = await response.json();
     const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
     hideTyping();
@@ -1969,7 +1993,7 @@ async function sendMessage() {
     const formatted = cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
     addMessage('marg', formatted);
     checkAndRenderMargOptions(reply);
-  } catch (e) { hideTyping(); addMessage('marg', 'Yaar, connection issue. Please try again in a moment.'); }
+  } catch (e) { hideTyping(); addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — please try sending that again.' : 'Yaar, connection issue. Please try again in a moment.'); }
   isLoading = false; document.getElementById('send-btn').disabled = false; input.focus();
 }
 
@@ -2203,7 +2227,7 @@ async function createRCPassage() {
   showTyping();
   profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
-    const response = await fetch(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: SYSTEM_PROMPT + profileContext, messages: [{ role: 'user', content: prompt }] }) });
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: SYSTEM_PROMPT + profileContext, messages: [{ role: 'user', content: prompt }] }) }, 45000);
     const data = await response.json();
     const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
     hideTyping();
@@ -2211,7 +2235,7 @@ async function createRCPassage() {
     addMessage('marg', formatted, true);
     saveChatMessage('assistant', reply);
     localStorage.setItem('marg_rc_article', JSON.stringify({ title: currentArticle.title, source: currentArticle.source, content: articleText }));
-  } catch(e) { hideTyping(); addMessage('marg', 'Connection issue. Please try again in a moment.'); }
+  } catch(e) { hideTyping(); addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — try again in a moment.' : 'Connection issue. Please try again in a moment.'); }
 }
 
 async function checkVarcShownToday() {
@@ -2416,7 +2440,7 @@ async function sendReturningUserGreeting() {
 
   let greeting = '';
   try {
-    const res = await fetch(WORKER_URL, {
+    const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2425,7 +2449,7 @@ async function sendReturningUserGreeting() {
         system: SYSTEM_PROMPT + greetingContext,
         messages: cleanHistory(conversationHistory).concat([{ role: 'user', content: '[the student just opened the app — greet them]' }])
       })
-    });
+    }, 45000);
     const data = await res.json();
     greeting = data.content && data.content[0] ? data.content[0].text : '';
   } catch(e) {}
@@ -2524,7 +2548,7 @@ async function submitMockOnboarding() {
 
 Based on these scores, give a mentor-style diagnosis in 2-3 sentences. Sound like a real mentor who has seen this pattern before — not a tool. Make an educated hypothesis about WHY the weakest section (${weakSection}) is struggling — is it a concept gap, execution/speed issue, or careless mistakes? State it as a hypothesis not a fact. End with one specific question to confirm your reading. Be warm and direct.`;
 
-    const response = await fetch(WORKER_URL, {
+    const response = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2533,7 +2557,7 @@ Based on these scores, give a mentor-style diagnosis in 2-3 sentences. Sound lik
         system: 'You are Marg, a warm and direct CAT mentor. Give a 2-3 sentence mentor-style diagnosis based on mock scores. State hypothesis as question not fact. Be specific and personal.' + getDateContext(),
         messages: [{ role: 'user', content: prompt }]
       })
-    });
+    }, 45000);
 
     const data = await response.json();
     const diagnosis = data.content && data.content[0] ? data.content[0].text : null;
@@ -2595,7 +2619,7 @@ async function finishMockOnboarding() {
   showTyping();
 
   try {
-    const res = await fetch(WORKER_URL, {
+    const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2604,7 +2628,7 @@ async function finishMockOnboarding() {
         system: SYSTEM_PROMPT + getDateContext(),
         messages: cleanHistory(conversationHistory)
       })
-    });
+    }, 45000);
     const data = await res.json();
     const response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
@@ -2702,7 +2726,7 @@ async function generateAndSaveSessionSummary() {
     const recentHistory = conversationHistory.slice(-20);
     const summaryPrompt = 'Summarise this CAT mentoring session in 3-4 sentences. Focus on: what topic was discussed, what specific problem or weakness was identified, what advice or task was given, and what the student should work on next. Be specific - include section names, topic names, scores if mentioned. This summary will be used to give the student continuity in their next session.';
 
-    const res = await fetch(WORKER_URL, {
+    const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2711,13 +2735,13 @@ async function generateAndSaveSessionSummary() {
         system: 'You are a helpful assistant that summarises tutoring sessions concisely.' + getDateContext(),
         messages: [...recentHistory, { role: 'user', content: summaryPrompt }]
       })
-    });
+    }, 45000);
     const data = await res.json();
     const summary = data.content && data.content[0] ? data.content[0].text : null;
     if (summary) {
       await saveSessionSummary(summary);
     }
-  } catch(e) { console.error('generateAndSaveSessionSummary error:', e); }
+  } catch(e) { console.error('generateAndSaveSessionSummary error:', e && e.name === 'AbortError' ? 'timed out' : e); }
 }
 
 async function saveLastTask(task, insight) {
@@ -2889,7 +2913,7 @@ async function submitMockScores() {
   showTyping();
 
   try {
-    const res = await fetch(WORKER_URL, {
+    const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2898,7 +2922,7 @@ async function submitMockScores() {
         system: SYSTEM_PROMPT + getDateContext(),
         messages: cleanHistory(conversationHistory)
       })
-    });
+    }, 45000);
     const data = await res.json();
     const response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
@@ -3241,7 +3265,7 @@ async function loadDailyPractice() {
   var maxTokens = currentPracticeType === 'dilr' ? 4500 : currentPracticeType === 'rc' ? 6000 : 3000;
 
   try {
-    var res = await fetch(WORKER_URL, {
+    var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3250,7 +3274,9 @@ async function loadDailyPractice() {
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
         messages: [{ role: 'user', content: prompt }]
       })
-    });
+    }, 45000);
+
+    if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
     var data = await res.json();
     var text = data.content && data.content[0] ? data.content[0].text : null;
@@ -3267,7 +3293,11 @@ async function loadDailyPractice() {
 
   } catch(e) {
     console.error('Practice error:', e);
-    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">Having trouble generating practice right now. Try again in a moment.</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
+    var isTimeout = e && e.name === 'AbortError';
+    var errorMessage = isTimeout
+      ? 'This is taking longer than expected — the question set may still be generating in the background. Try again in a moment.'
+      : 'Having trouble generating practice right now. Try again in a moment.';
+    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
   }
 }
 
@@ -3854,7 +3884,7 @@ async function completeOnboarding() {
   showTyping();
 
   try {
-    var res = await fetch(WORKER_URL, {
+    var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3863,7 +3893,7 @@ async function completeOnboarding() {
         system: SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: A new student just completed their profile. Give a warm 2-3 sentence opening that: 1) acknowledges ONE specific thing from their profile (attempt number or weak section), 2) shares your hypothesis in one line, 3) asks what they want to do first — discuss strategy or start practicing. Keep it conversational and warm, not robotic. Do NOT list all their profile details back at them.',
         messages: cleanHistory(conversationHistory)
       })
-    });
+    }, 45000);
     var data = await res.json();
     var response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
@@ -3882,24 +3912,6 @@ async function completeOnboarding() {
     showPathChoiceScreen();
   }, 800);
 }
-  var sectionPattern = type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern;
-  var patternText = (sectionPattern && sectionPattern !== 'undefined' && sectionPattern !== 'null') ? sectionPattern : 'not identified yet';
-
-
-  var resultsText = '';
-  if (sessionResults.total > 0) {
-    resultsText = 'Session results: ' + sessionResults.correct + ' correct out of ' + sessionResults.total + ' questions';
-    if (sessionResults.passageTitle) resultsText += ' on ' + sessionResults.passageTitle;
-    resultsText += '. ';
-    if (sessionResults.mistakes.length > 0) {
-      resultsText += 'Wrong answers: ' + sessionResults.mistakes.map(function(m) { return m.topic + ' (' + m.insight + ')'; }).join('; ') + '. ';
-    } else if (sessionResults.correct === sessionResults.total) {
-      resultsText += 'Got all correct. ';
-    }
-  }
-
-  completeSummary = 'I just completed my ' + type.toUpperCase() + ' practice on Marg. ' + resultsText + 'My cognitive pattern: ' + patternText + '. Weakest section: ' + (studentProfile.weakestSection || 'unknown') + '. You already know exactly what happened — tell me specifically what this reveals about my thinking and give me one concrete thing to work on next. Do not ask me what happened — you have all the data.';
-var totalTourSteps = 3;
 
 
 
