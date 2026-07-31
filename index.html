@@ -576,6 +576,45 @@
   </div>
 </div>
 
+<!-- ═══ TIMED SECTIONAL TEST OVERLAY ═══ -->
+<div id="timed-test-overlay" style="display:none;">
+  <div id="tt-header">
+    <div id="tt-title"></div>
+    <div id="tt-timer">--:--</div>
+    <button id="tt-close-btn" onclick="confirmExitTimedTest()">×</button>
+  </div>
+  <div id="tt-qnav" style="display:none;"></div>
+  <div id="tt-content"></div>
+</div>
+
+<style>
+#timed-test-overlay { display:none; position:fixed; inset:0; background:var(--bg); z-index:500; flex-direction:column; }
+#timed-test-overlay.visible { display:flex; }
+#tt-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-bottom:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+#tt-title { font-size:14px; font-weight:600; color:var(--text); flex:1; }
+#tt-timer { font-size:16px; font-weight:700; color:var(--gold); font-variant-numeric:tabular-nums; letter-spacing:0.02em; }
+#tt-timer.tt-timer-warning { color:#E05C5C; animation:pulse 1s infinite; }
+#tt-close-btn { background:none; border:none; color:var(--text-dim); font-size:22px; line-height:1; cursor:pointer; padding:2px 6px; }
+#tt-close-btn:hover { color:var(--text); }
+#tt-qnav { display:flex; flex-wrap:wrap; gap:6px; padding:10px 20px; border-bottom:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+.tt-qnav-btn { width:30px; height:30px; border-radius:8px; border:1.5px solid var(--border2); background:var(--surface2); color:var(--text-dim); font-size:12px; font-weight:500; cursor:pointer; }
+.tt-qnav-btn.tt-current { border-color:var(--gold); color:var(--gold); }
+.tt-qnav-btn.tt-answered { background:rgba(76,175,125,0.12); border-color:rgba(76,175,125,0.3); color:#4CAF7D; }
+#tt-content { flex:1; overflow-y:auto; padding:16px 20px 32px; }
+.tt-option { background:var(--surface2); border:1.5px solid var(--border2); border-radius:10px; padding:11px 14px; font-size:13px; color:var(--text); cursor:pointer; text-align:left; font-family:'DM Sans',sans-serif; line-height:1.5; display:block; width:100%; margin-bottom:8px; }
+.tt-option:hover { border-color:var(--gold); }
+.tt-option.tt-selected { border-color:var(--gold); background:rgba(201,168,76,0.08); color:var(--gold-light); }
+.tt-results-score { text-align:center; padding:24px 0; }
+.tt-results-score .tt-score-num { font-size:40px; font-weight:700; color:var(--gold); font-family:'Playfair Display',serif; }
+.tt-results-score .tt-score-label { font-size:12px; color:var(--text-dim); margin-top:4px; }
+.tt-results-stats { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:20px; }
+.tt-results-stats .stat-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; padding:12px; text-align:center; }
+.tt-review-item { background:var(--surface); border:1px solid var(--border2); border-left:3px solid var(--border2); border-radius:10px; padding:12px 14px; margin-bottom:8px; font-size:13px; }
+.tt-review-item.tt-review-correct { border-left-color:#4CAF7D; }
+.tt-review-item.tt-review-wrong { border-left-color:#E05C5C; }
+.tt-review-item.tt-review-skipped { border-left-color:var(--text-dim); }
+</style>
+
 <div id="checkin-overlay">
   <div id="checkin-box">
     <div id="checkin-header">
@@ -841,7 +880,7 @@ var onboardingComplete = false;
 function stripMarkdown(text) {
   if (!text || typeof text !== 'string') return text;
   return text
-    .replace(/\[OPTIONS:[^\]]*\]/g, '')
+    .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '')
     .replace(/\[CONTEXT:[^\]]*\]/g, '')
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/\*(.*?)\*/g, '$1')
@@ -943,6 +982,10 @@ When a student switches from talking to you into practice, or from one section t
 CAT itself has a fixed structure, and you know it cold: 24 VARC questions, 20 DILR questions, 22 QA questions, 66 total. Marking is not uniform across question types, and you never blur this — MCQ questions are +3 for a correct answer and -1 for a wrong one; TITA (Type In The Answer) questions are +3 for correct and zero for wrong, no negative marking at all. Every section is a mix of both types. Use this to sanity-check whatever a student tells you — a section score above what its question count could actually produce is impossible — and because MCQ and TITA are marked differently, "marks," "questions correct," and "questions attempted" are three numbers that don't collapse into each other the simple way they would if everything carried the same penalty. If a student gives you a number and it's not clear which of the three they mean, ask before you reason about it — "is that your marks, your correct count, or how many you attempted?" — rather than assuming.
 
 When scores or practice results come in, actually work through which number belongs to which section — out loud in your head, so to speak — before you say anything about which one is weak. Getting this backwards once and having the student correct you undoes the entire premise of a mentor who's supposed to know their own numbers better than they do. Once you've got it straight, diagnose specifically instead of generically — never "VARC is weak," instead something like "you attempted 28 questions at 40% accuracy, that's over-attempting — try 22 with better selection." You know the common traps by section without being told: in VARC, people answer from memory instead of the passage, chase extreme-sounding options, or flip a right answer at the last second. In DILR, people sit too long on the wrong set, misread a constraint, or panic and rush. In QA it's almost always one of three things — a concept gap, knowing it but executing badly, or plain carelessness — and you work out which one before you say anything. When you spot the pattern, name it once, quietly, and move on. Don't lecture about it.
+
+Pacing matters as much as accuracy, and it's on you to watch it, not the student. If a conversation keeps circling back to one narrow sub-topic — percentages, para jumbles, whatever it is — for something like 15-20 questions or a few sessions running with no sign of moving on, that's your cue to suggest testing it properly instead of drilling it forever: "we've done a good chunk of percentage work — want to test it properly with a timed sectional, then move on to what's next?" Weigh this against today's actual date relative to November 29 — if it's August or later and a student is still deep in one topic while whole sections have barely been touched, say so plainly, not gently: "we've spent a lot of time on percentages — let's test where you actually stand, then make sure DILR and VARC are getting real coverage too, CAT's in [X] months." You don't have a counter that tracks exact question counts, but you have the conversation itself — session after session returning to the same narrow corner is the signal, and it's your job to notice it and raise it before the student runs out of runway, not wait for them to notice they're behind on their own.
+
+When the narrow topic you're flagging is a QA or DILR one specifically — not VARC, which doesn't have this feature yet — end that suggestion with a tag so the student can actually start the test right there: [START_TEST: qa|Percentages|10] or [START_TEST: dilr|Seating Arrangement|12], using the real topic name and a sensible question count (8-12 is typical). Only include this tag in the exact message where you're genuinely suggesting a timed sectional, never as a reflex tacked onto unrelated replies, and never more than one per message.
 
 Every conversation should end with something unfinished on purpose — not homework, an actual open thread between the two of you. "Bring me the hardest one tomorrow" works because it's specific to what just happened and because it's for them, not for you. Students don't come back out of obligation. They come back because something's still open.
 
@@ -1193,7 +1236,7 @@ function addMessage(role, html, showAvatar) {
       .replace(/^>\s+/gm, '')
       .replace(/---+/g, '')
       .replace(/===+/g, '')
-      .replace(/\[OPTIONS:[^\]]*\]/g, '')
+      .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '')
       .replace(/\[CONTEXT:[^\]]*\]/g, '')
       .replace(/👇/g, '')
       .replace(/👋/g, '')
@@ -1282,7 +1325,7 @@ function showPathChoiceScreen() {
         var reply = data.content && data.content[0] ? data.content[0].text : null;
         hideTyping();
         if (reply) {
-          var cleanReply = reply.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/^#{1,3}\s+/gm, '').replace(/^[-•*]\s+/gm, '').replace(/---+/g, '').trim();
+          var cleanReply = reply.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/^#{1,3}\s+/gm, '').replace(/^[-•*]\s+/gm, '').replace(/---+/g, '').trim();
           addMessage('marg', cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
           conversationHistory.push({ role: 'assistant', content: reply });
           if (!isGuestMode) saveChatMessage('assistant', cleanReply);
@@ -1624,7 +1667,7 @@ async function sendConversationalMessage(userMessage, context) {
     if (response) {
 
       var cleanResponse = response
-        .replace(/\[OPTIONS:[^\]]*\]/g, '')
+        .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '')
         .replace(/\[CONTEXT:[^\]]*\]/g, '')
         .replace(/\*\*(.*?)\*\*/g, '$1')
         .replace(/\*(.*?)\*/g, '$1')
@@ -1642,6 +1685,7 @@ async function sendConversationalMessage(userMessage, context) {
 
 
       checkAndRenderMargOptions(response);
+      checkAndRenderTestPrompt(response);
 
 
       if (conversationHistory.length >= 8 && !onboardingComplete) {
@@ -1762,6 +1806,31 @@ function checkAndRenderMargOptions(response) {
     var ctx = contextMatch ? contextMatch[1].trim() : 'general';
     showConversationalOptions(options, ctx);
   }
+}
+
+function checkAndRenderTestPrompt(response) {
+  var testMatch = response.match(/\[START_TEST:\s*([^\]]+)\]/);
+  if (!testMatch) return;
+
+  var parts = testMatch[1].split('|').map(function(p) { return p.trim(); });
+  var section = (parts[0] || '').toLowerCase();
+  var topic = parts[1] || '';
+  var questionCount = parseInt(parts[2], 10) || (section === 'qa' ? 10 : 12);
+  if ((section !== 'qa' && section !== 'dilr') || !topic) return;
+
+  var container = document.getElementById('messages');
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:4px 0 4px 38px;max-width:100%;';
+  var btn = document.createElement('button');
+  btn.textContent = '▶ Start Timed Test — ' + topic;
+  btn.style.cssText = 'background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:12px;padding:12px 18px;font-family:DM Sans,sans-serif;font-size:13px;font-weight:500;cursor:pointer;';
+  btn.onclick = function() {
+    wrap.remove();
+    startTimedTest(section, topic, questionCount);
+  };
+  wrap.appendChild(btn);
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
 }
 
 async function saveProfileProgressively() {
@@ -1981,7 +2050,7 @@ async function sendMessage() {
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
     const cleanReply = reply
-      .replace(/\[OPTIONS:[^\]]*\]/g, '')
+      .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '')
       .replace(/\[CONTEXT:[^\]]*\]/g, '')
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
@@ -1995,6 +2064,7 @@ async function sendMessage() {
     const formatted = cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
     addMessage('marg', formatted);
     checkAndRenderMargOptions(reply);
+    checkAndRenderTestPrompt(reply);
   } catch (e) { hideTyping(); addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — please try sending that again.' : 'Yaar, connection issue. Please try again in a moment.'); }
   isLoading = false; document.getElementById('send-btn').disabled = false; input.focus();
 }
@@ -3119,6 +3189,16 @@ var practiceTopics = {
   qa: ['Arithmetic (Percentages, Ratios, TSD, Profit-Loss)', 'Algebra', 'Geometry & Mensuration', 'Number Systems', 'Modern Math (P&C, Probability)', 'Mixed — surprise me']
 };
 
+var timedTestSection = null;
+var timedTestTopic = null;
+var timedTestQuestions = [];
+var timedTestAnswers = [];
+var timedTestIndex = 0;
+var timedTestSecondsTotal = 0;
+var timedTestSecondsLeft = 0;
+var timedTestTimerHandle = null;
+var timedTestSubmitted = false;
+
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab-section').forEach(function(s) { s.classList.remove('active'); });
@@ -3235,6 +3315,252 @@ function buildQAPrompt(topic) {
   }
   var topicLine = topic ? 'All 8 questions should draw from this topic area: ' + topic + ', combined with related sub-concepts so each question still needs multi-step reasoning rather than being a single-concept plug-in. ' : 'Combine 2 topics per question — mix of Percentages+TSD, Ratios+Profit-Loss, Geometry+Mensuration, and other natural pairings. ';
   return 'Generate 8 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Every question must need at least 2 logical or computational steps just to set up the problem, before solving even begins — the setup itself should take real thought, not just plugging into a formula. Aim for the difficulty where a strong student who knows the concept still takes 90-120 seconds, not something solvable by inspection or in one glance. Vary difficulty naturally across medium and hard within that bar — nothing below it. Wrong options should be believable mid-solution errors, not random numbers. Return ONLY valid JSON, no markdown, exactly this shape with 8 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
+}
+
+function buildSectionalTestPrompt(section, topic, questionCount) {
+  var difficultyGuard = ' These questions must match or exceed actual CAT exam difficulty — under no circumstances generate simpler practice-level questions for this sectional test.';
+
+  if (section === 'qa') {
+    var n = questionCount || 10;
+    return 'Generate ' + n + ' genuinely CAT-difficulty QA questions, ALL on this specific topic: ' + topic + '. This is a timed sectional test the student asked for after focused practice on this topic — every question must be about ' + topic + ', not a mix of unrelated topics.' + difficultyGuard + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Every question must need at least 2 logical or computational steps just to set up the problem, before solving even begins. Aim for the difficulty where a strong student who knows the concept still takes 90-120 seconds, not something solvable by inspection or in one glance. Vary difficulty naturally across medium and hard — nothing below it. Wrong options should be believable mid-solution errors, not random numbers. Return ONLY valid JSON, no markdown, exactly this shape with ' + n + ' objects in the questions array: {"difficulty":"Mixed","topics_combined":["' + topic + '"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"step by step","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
+  }
+
+  var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
+  return 'Generate ' + setsCount + ' separate CAT DILR puzzle sets — ' + setsCount + ' independent sets, not variations of the same puzzle — each with 4 items and exactly 4 questions, ALL themed around this specific topic: ' + topic + '. This is a timed sectional test the student asked for after focused practice on this topic.' + difficultyGuard + ' Two things make real CAT DILR hard, and both must be true here, not just one: the setup, and the questions themselves. SETUP: cross-reference 4 to 6 conditions simultaneously. Most conditions should be relative or conditional ("X is somewhere before Y, not necessarily immediately") rather than plain direct facts. At least one condition should only become usable after combining it with another, and there should be a point where more than one arrangement looks valid until a later condition rules it out. QUESTIONS: at least 2 of the 4 per set must require reasoning beyond a direct lookup — how many valid arrangements are possible, which must be true / cannot be determined, or a question with one extra condition specific only to itself. Keep each setup under 170 words despite the complexity. Keep every "explanation", "common_mistake" and "marg_insight" to one short sentence each. All 4 options per question must be different specific answers. Return ONLY valid JSON, no markdown, exactly this shape with ' + setsCount + ' objects in the sets array, each with 4 objects in its questions array: {"sets":[{"set_title":"title","difficulty":"Medium","constraint_types":["' + topic + '"],"setup":"puzzle text with 4-6 relative/conditional conditions, under 170 words","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"one short sentence","marg_insight":"one short sentence"}]}]}';
+}
+
+function getSectionalTestMaxTokens(section, questionCount) {
+  if (section === 'qa') return Math.max(2500, (questionCount || 10) * 250);
+  var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
+  return Math.max(3000, setsCount * 900);
+}
+
+function flattenTimedTestQuestions(section, data) {
+  var flat = [];
+  if (section === 'qa') {
+    (data.questions || []).forEach(function(q) {
+      flat.push({ q: q.q, options: q.options, correct: q.correct, setupText: null, setLabel: null, explanation: q.solution || '', commonMistake: q.common_mistake || '' });
+    });
+  } else {
+    (data.sets || []).forEach(function(setObj, si) {
+      (setObj.questions || []).forEach(function(q, qi) {
+        flat.push({
+          q: q.q, options: q.options, correct: q.correct,
+          setupText: qi === 0 ? setObj.setup : null,
+          setLabel: 'Set ' + (si + 1),
+          explanation: q.explanation || '', commonMistake: q.common_mistake || ''
+        });
+      });
+    });
+  }
+  return flat;
+}
+
+async function startTimedTest(section, topic, questionCount) {
+  timedTestSection = section;
+  timedTestTopic = topic;
+  timedTestQuestions = [];
+  timedTestAnswers = [];
+  timedTestIndex = 0;
+  timedTestSubmitted = false;
+
+  var overlay = document.getElementById('timed-test-overlay');
+  var titleEl = document.getElementById('tt-title');
+  var contentEl = document.getElementById('tt-content');
+  var qnavEl = document.getElementById('tt-qnav');
+  var timerEl = document.getElementById('tt-timer');
+
+  overlay.classList.add('visible');
+  qnavEl.style.display = 'none';
+  timerEl.textContent = '--:--';
+  timerEl.classList.remove('tt-timer-warning');
+  titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + ' Sectional Test — ' + topic;
+  contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is building a timed ' + (section === 'qa' ? 'QA' : 'DILR') + ' test on ' + topic + ' — CAT-level difficulty...</div></div>';
+
+  var prompt = buildSectionalTestPrompt(section, topic, questionCount);
+  var maxTokens = getSectionalTestMaxTokens(section, questionCount);
+
+  try {
+    var res = await fetchWithTimeout(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: maxTokens,
+        system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
+        messages: [{ role: 'user', content: prompt }]
+      })
+    }, 60000);
+
+    if (!res.ok) throw new Error('Worker returned status ' + res.status);
+
+    var data = await res.json();
+    var text = data.content && data.content[0] ? data.content[0].text : null;
+    if (!text) throw new Error('No response');
+
+    var clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    var parsed = JSON.parse(clean);
+    timedTestQuestions = flattenTimedTestQuestions(section, parsed);
+    if (timedTestQuestions.length === 0) throw new Error('No questions generated');
+
+    timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
+    timedTestSecondsTotal = timedTestQuestions.length * 120;
+    timedTestSecondsLeft = timedTestSecondsTotal;
+
+    renderTimedTestQuestionNav();
+    qnavEl.style.display = 'flex';
+    renderTimedTestQuestion();
+    startTimedTestTimer();
+
+  } catch(e) {
+    console.error('Timed test generation error:', e);
+    var isTimeout = e && e.name === 'AbortError';
+    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + (isTimeout ? 'This is taking longer than expected — try again in a moment.' : 'Having trouble building this test right now. Try again in a moment.') + '</div><button class="pcard-nav-btn primary" onclick="startTimedTest(\'' + section + '\', \'' + topic.replace(/'/g, "\\'") + '\', ' + questionCount + ')" style="margin-top:12px;max-width:200px;">Try again</button></div>';
+  }
+}
+
+function renderTimedTestQuestionNav() {
+  var qnavEl = document.getElementById('tt-qnav');
+  qnavEl.innerHTML = timedTestQuestions.map(function(_, i) {
+    var cls = 'tt-qnav-btn' + (i === timedTestIndex ? ' tt-current' : '') + (timedTestAnswers[i] !== null ? ' tt-answered' : '');
+    return '<button class="' + cls + '" onclick="goToTimedTestQuestion(' + i + ')">' + (i + 1) + '</button>';
+  }).join('');
+}
+
+function renderTimedTestQuestion() {
+  var contentEl = document.getElementById('tt-content');
+  var q = timedTestQuestions[timedTestIndex];
+  if (!q) return;
+
+  var setupHtml = q.setupText ? '<div class="pcard-passage">' + (q.setLabel ? '<strong>' + q.setLabel + ':</strong> ' : '') + q.setupText + '</div>' : '';
+  var optionsHtml = q.options.map(function(opt, i) {
+    var selected = timedTestAnswers[timedTestIndex] === i ? ' tt-selected' : '';
+    return '<button class="tt-option' + selected + '" onclick="selectTimedTestAnswer(' + i + ')">' + opt + '</button>';
+  }).join('');
+
+  var prevBtn = timedTestIndex > 0 ? '<button class="pcard-nav-btn secondary" onclick="goToTimedTestQuestion(' + (timedTestIndex - 1) + ')">Previous</button>' : '';
+  var isLast = timedTestIndex === timedTestQuestions.length - 1;
+  var nextBtn = isLast
+    ? '<button class="pcard-nav-btn primary" onclick="confirmSubmitTimedTest()">Submit Test</button>'
+    : '<button class="pcard-nav-btn primary" onclick="goToTimedTestQuestion(' + (timedTestIndex + 1) + ')">Next question</button>';
+
+  contentEl.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Question ' + (timedTestIndex + 1) + ' of ' + timedTestQuestions.length + '</div></div><div class="pcard-body">' + setupHtml + '<div class="pcard-question">' + q.q + '</div><div class="pcard-options">' + optionsHtml + '</div></div><div class="pcard-nav">' + prevBtn + nextBtn + '</div></div>';
+}
+
+function selectTimedTestAnswer(idx) {
+  timedTestAnswers[timedTestIndex] = idx;
+  renderTimedTestQuestionNav();
+  renderTimedTestQuestion();
+}
+
+function goToTimedTestQuestion(i) {
+  if (i < 0 || i >= timedTestQuestions.length) return;
+  timedTestIndex = i;
+  renderTimedTestQuestionNav();
+  renderTimedTestQuestion();
+}
+
+function formatTimedTestClock(seconds) {
+  var m = Math.floor(seconds / 60);
+  var s = seconds % 60;
+  return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+function startTimedTestTimer() {
+  if (timedTestTimerHandle) clearInterval(timedTestTimerHandle);
+  var timerEl = document.getElementById('tt-timer');
+  timerEl.textContent = formatTimedTestClock(timedTestSecondsLeft);
+  timedTestTimerHandle = setInterval(function() {
+    timedTestSecondsLeft--;
+    if (timedTestSecondsLeft <= 0) {
+      timedTestSecondsLeft = 0;
+      timerEl.textContent = '00:00';
+      clearInterval(timedTestTimerHandle);
+      timedTestTimerHandle = null;
+      submitTimedTest(true);
+      return;
+    }
+    timerEl.textContent = formatTimedTestClock(timedTestSecondsLeft);
+    if (timedTestSecondsLeft <= 120) timerEl.classList.add('tt-timer-warning');
+  }, 1000);
+}
+
+function confirmExitTimedTest() {
+  if (timedTestSubmitted) { closeTimedTest(); return; }
+  if (confirm('Leave this test? Your progress will be lost.')) {
+    closeTimedTest();
+  }
+}
+
+function closeTimedTest() {
+  if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+  document.getElementById('timed-test-overlay').classList.remove('visible');
+}
+
+function confirmSubmitTimedTest() {
+  var unanswered = timedTestAnswers.filter(function(a) { return a === null; }).length;
+  if (unanswered > 0) {
+    if (!confirm('You have ' + unanswered + ' unanswered question' + (unanswered > 1 ? 's' : '') + '. Submit anyway?')) return;
+  }
+  submitTimedTest(false);
+}
+
+function submitTimedTest(isAutoSubmit) {
+  if (timedTestSubmitted) return;
+  timedTestSubmitted = true;
+  if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+
+  var correct = 0, wrong = 0, skipped = 0, marks = 0;
+  timedTestQuestions.forEach(function(q, i) {
+    var ans = timedTestAnswers[i];
+    if (ans === null) { skipped++; return; }
+    if (ans === q.correct) { correct++; marks += 3; }
+    else { wrong++; marks -= 1; }
+  });
+
+  var total = timedTestQuestions.length;
+  var maxMarks = total * 3;
+
+  renderTimedTestResults({ correct: correct, wrong: wrong, skipped: skipped, marks: marks, maxMarks: maxMarks, total: total, isAutoSubmit: isAutoSubmit });
+
+  window._practiceCompleteSummary = 'I just finished a timed ' + (timedTestSection === 'qa' ? 'QA' : 'DILR') + ' sectional test on ' + timedTestTopic + ' on Marg. Scored ' + marks + '/' + maxMarks + ' marks — ' + correct + ' correct, ' + wrong + ' wrong, ' + skipped + ' skipped out of ' + total + ' questions' + (isAutoSubmit ? ' (time ran out before I finished)' : '') + '. Based on this, give me a real diagnostic — am I actually ready to move past ' + timedTestTopic + ', or do I need more work here specifically? Be direct.';
+}
+
+function renderTimedTestResults(stats) {
+  var contentEl = document.getElementById('tt-content');
+  var qnavEl = document.getElementById('tt-qnav');
+  qnavEl.style.display = 'none';
+
+  var timeoutNote = stats.isAutoSubmit ? '<div style="text-align:center;font-size:12px;color:var(--text-dim);margin-bottom:12px;">Time ran out — test auto-submitted.</div>' : '';
+
+  var scoreHtml = '<div class="tt-results-score"><div class="tt-score-num">' + stats.marks + '/' + stats.maxMarks + '</div><div class="tt-score-label">marks (+3 correct, -1 wrong — real CAT marking)</div></div>';
+
+  var statsHtml = '<div class="tt-results-stats">' +
+    '<div class="stat-card"><div class="stat-value">' + stats.correct + '</div><div class="stat-label">Correct</div></div>' +
+    '<div class="stat-card"><div class="stat-value">' + stats.wrong + '</div><div class="stat-label">Wrong</div></div>' +
+    '<div class="stat-card"><div class="stat-value">' + stats.skipped + '</div><div class="stat-label">Skipped</div></div>' +
+    '</div>';
+
+  var reviewHtml = timedTestQuestions.map(function(q, i) {
+    var ans = timedTestAnswers[i];
+    var cls = ans === null ? 'tt-review-skipped' : (ans === q.correct ? 'tt-review-correct' : 'tt-review-wrong');
+    var label;
+    if (ans === null) label = 'Skipped';
+    else if (ans === q.correct) label = 'Correct';
+    else label = 'Wrong — you picked ' + q.options[ans].replace(/^[A-D]\.\s*/, '') + ', correct was ' + q.options[q.correct].replace(/^[A-D]\.\s*/, '');
+    return '<div class="tt-review-item ' + cls + '">Q' + (i + 1) + ' — ' + label + '</div>';
+  }).join('');
+
+  contentEl.innerHTML = timeoutNote + scoreHtml + statsHtml + reviewHtml +
+    '<div class="pcard-nav" style="margin-top:16px;">' +
+    '<button class="pcard-nav-btn secondary" onclick="closeTimedTest()">Close</button>' +
+    '<button class="pcard-nav-btn primary" onclick="goToChatFromTimedTest()">Talk to Marg about this</button>' +
+    '</div>';
+}
+
+function goToChatFromTimedTest() {
+  closeTimedTest();
+  switchTab('chat');
 }
 
 async function loadDailyPractice() {
