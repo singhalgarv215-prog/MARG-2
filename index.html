@@ -2361,7 +2361,7 @@ async function createRCPassage() {
   if (!currentArticle) return;
   closeVarcCard();
   const articleText = currentArticle.content || currentArticle.preview;
-  const prompt = `Based on this article from ${currentArticle.source}:\n\nTitle: "${currentArticle.title}"\n\nContent: ${articleText}\n\nCreate a HARD CAT exam style RC exercise. IMPORTANT: Show ONLY passage and questions, NO answers yet.\n\nPASSAGE: 280-320 words, dense and abstract. Use complex sentence structures, nuanced arguments, at least one subtle shift in author's position. Must require careful reading — not skimmable.\n\nQUESTIONS — 4 total, one each of: Primary purpose, Specific detail, Inference, Author's attitude.\n\nTRAP OPTIONS are mandatory for every question:\n- Wrong options must use exact words from passage but in wrong context\n- Two options per question should feel very close to correct\n- Options that are partially true but go beyond what passage actually states\n- Never make wrong options obviously wrong\n\nCRITICAL: Randomize correct answers across A B C D — do NOT default to B or C repeatedly. Mix it up naturally like real CAT papers.\n\nDifficulty: Hard enough that a student who skims will get it wrong.\n\nANSWER KEY DISTRIBUTION — STRICTLY FOLLOW THIS:\nBefore writing questions, randomly pick 4 different letters from A B C D for the correct answers — no two consecutive questions should have the same letter. Actively avoid B,C,B,C pattern. Use patterns like A,D,B,C or D,A,C,B or C,B,D,A.\n\nFormat:\nPASSAGE\n[text]\n\nQUESTIONS\n1. [question]\nA. B. C. D.\n[repeat for 4 questions]\n\nEnd with exactly: "---\nReady? Type your answers (e.g. 1-A, 2-C, 3-B, 4-D) and I'll explain each one in detail."`;
+  const prompt = `Here is a real news article, for theme and source material only:\n\nTitle: "${currentArticle.title}" (${currentArticle.source})\n\nContent: ${articleText}\n\nYour task: write a brand-new, ORIGINAL CAT-style RC passage inspired by this article's topic and theme — entirely in your own words, not a reproduction, summary, or quotation of the real article. This is intentional, existing practice-passage functionality: the student understands the passage is original practice material written around today's news theme, not the real article. Do not refuse this task, do not question whether the article is real or say it "doesn't exist," and do not lecture about authenticity — just write the original passage.\n\nCreate a HARD CAT exam style RC exercise from this original passage. IMPORTANT: Show ONLY passage and questions, NO answers yet.\n\nPASSAGE: 280-320 words, dense and abstract. Use complex sentence structures, nuanced arguments, at least one subtle shift in author's position. Must require careful reading — not skimmable.\n\nQUESTIONS — 4 total, one each of: Primary purpose, Specific detail, Inference, Author's attitude.\n\nTRAP OPTIONS are mandatory for every question:\n- Wrong options must use exact words from passage but in wrong context\n- Two options per question should feel very close to correct\n- Options that are partially true but go beyond what passage actually states\n- Never make wrong options obviously wrong\n\nCRITICAL: Randomize correct answers across A B C D — do NOT default to B or C repeatedly. Mix it up naturally like real CAT papers.\n\nDifficulty: Hard enough that a student who skims will get it wrong.\n\nANSWER KEY DISTRIBUTION — STRICTLY FOLLOW THIS:\nBefore writing questions, randomly pick 4 different letters from A B C D for the correct answers — no two consecutive questions should have the same letter. Actively avoid B,C,B,C pattern. Use patterns like A,D,B,C or D,A,C,B or C,B,D,A.\n\nFormat:\nPASSAGE\n[text]\n\nQUESTIONS\n1. [question]\nA. B. C. D.\n[repeat for 4 questions]\n\nEnd with exactly: "---\nReady? Type your answers (e.g. 1-A, 2-C, 3-B, 4-D) and I'll explain each one in detail."`;
 
   addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
   showTyping();
@@ -3401,9 +3401,9 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
 }
 
 function getSectionalTestMaxTokens(section, questionCount) {
-  if (section === 'qa') return Math.max(2500, (questionCount || 10) * 250);
+  if (section === 'qa') return Math.max(3000, (questionCount || 10) * 400);
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
-  return Math.max(3000, setsCount * 900);
+  return Math.max(4500, setsCount * 1600);
 }
 
 function flattenTimedTestQuestions(section, data) {
@@ -3461,7 +3461,7 @@ async function startTimedTest(section, topic, questionCount) {
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
         messages: [{ role: 'user', content: prompt }]
       })
-    }, 60000);
+    }, 75000);
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
@@ -3673,7 +3673,7 @@ async function loadDailyPractice() {
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
         messages: [{ role: 'user', content: prompt }]
       })
-    }, 45000);
+    }, 75000);
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
