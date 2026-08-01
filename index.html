@@ -3389,7 +3389,7 @@ function buildQAPrompt(topic) {
     }
   }
   var topicLine = topic ? 'All 8 questions should draw from this topic area: ' + topic + ', combined with related sub-concepts so each question still needs multi-step reasoning rather than being a single-concept plug-in. ' : 'Combine 2 topics per question — mix of Percentages+TSD, Ratios+Profit-Loss, Geometry+Mensuration, and other natural pairings. ';
-  return 'Generate 8 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Every question must need at least 2 logical or computational steps just to set up the problem, before solving even begins — the setup itself should take real thought, not just plugging into a formula. Aim for the difficulty where a strong student who knows the concept still takes 90-120 seconds, not something solvable by inspection or in one glance. Vary difficulty naturally across medium and hard within that bar — nothing below it. Wrong options should be believable mid-solution errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + ' Keep "solution" to 2-3 short steps, not a full essay — concise working, not exposition. Return ONLY valid JSON, no markdown, exactly this shape with 8 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-3 short steps","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
+  return 'Generate 8 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Every question must need at least 2 logical or computational steps just to set up the problem, before solving even begins — the setup itself should take real thought, not just plugging into a formula. Aim for the difficulty where a strong student who knows the concept still takes 90-120 seconds, not something solvable by inspection or in one glance. Vary difficulty naturally across medium and hard within that bar — nothing below it. Wrong options should be believable mid-solution errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + ' Keep "solution" to 2-3 short steps, not a full essay — concise working, not exposition. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with 8 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-3 short steps","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
 }
 
 function buildSectionalTestPrompt(section, topic, questionCount) {
@@ -3674,7 +3674,7 @@ async function loadDailyPractice() {
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
   else prompt = buildQAPrompt(selectedPracticeTopic);
 
-  var maxTokens = currentPracticeType === 'dilr' ? 5000 : currentPracticeType === 'rc' ? 7000 : 3200;
+  var maxTokens = currentPracticeType === 'dilr' ? 5000 : currentPracticeType === 'rc' ? 7000 : 4200;
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
