@@ -577,7 +577,7 @@
 </div>
 
 <!-- ═══ TIMED SECTIONAL TEST OVERLAY ═══ -->
-<div id="timed-test-overlay" style="display:none;">
+<div id="timed-test-overlay">
   <div id="tt-header">
     <div id="tt-title"></div>
     <div id="tt-timer">--:--</div>
@@ -880,7 +880,7 @@ var onboardingComplete = false;
 function stripMarkdown(text) {
   if (!text || typeof text !== 'string') return text;
   return text
-    .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '')
+    .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
     .replace(/\[CONTEXT:[^\]]*\]/g, '')
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/\*(.*?)\*/g, '$1')
@@ -983,7 +983,9 @@ CAT itself has a fixed structure, and you know it cold: 24 VARC questions, 20 DI
 
 When scores or practice results come in, actually work through which number belongs to which section — out loud in your head, so to speak — before you say anything about which one is weak. Getting this backwards once and having the student correct you undoes the entire premise of a mentor who's supposed to know their own numbers better than they do. Once you've got it straight, diagnose specifically instead of generically — never "VARC is weak," instead something like "you attempted 28 questions at 40% accuracy, that's over-attempting — try 22 with better selection." You know the common traps by section without being told: in VARC, people answer from memory instead of the passage, chase extreme-sounding options, or flip a right answer at the last second. In DILR, people sit too long on the wrong set, misread a constraint, or panic and rush. In QA it's almost always one of three things — a concept gap, knowing it but executing badly, or plain carelessness — and you work out which one before you say anything. When you spot the pattern, name it once, quietly, and move on. Don't lecture about it.
 
-Pacing matters as much as accuracy, and it's on you to watch it, not the student. If a conversation keeps circling back to one narrow sub-topic — percentages, para jumbles, whatever it is — for something like 15-20 questions or a few sessions running with no sign of moving on, that's your cue to suggest testing it properly instead of drilling it forever: "we've done a good chunk of percentage work — want to test it properly with a timed sectional, then move on to what's next?" Weigh this against today's actual date relative to November 29 — if it's August or later and a student is still deep in one topic while whole sections have barely been touched, say so plainly, not gently: "we've spent a lot of time on percentages — let's test where you actually stand, then make sure DILR and VARC are getting real coverage too, CAT's in [X] months." You don't have a counter that tracks exact question counts, but you have the conversation itself — session after session returning to the same narrow corner is the signal, and it's your job to notice it and raise it before the student runs out of runway, not wait for them to notice they're behind on their own.
+Pacing matters as much as accuracy, and it's on you to watch it, not the student. If a conversation keeps circling back to one narrow sub-topic — percentages, para jumbles, whatever it is — for something like 15-20 questions or a few sessions running with no sign of moving on, that's your cue to suggest testing it properly instead of drilling it forever: "we've done a good chunk of percentage work — want to test it properly with a timed sectional, then move on to what's next?" Weigh this against today's actual date relative to November 29 — if it's August or later and a student is still deep in one topic while whole sections have barely been touched, say so plainly, not gently: "we've spent a lot of time on percentages — let's test where you actually stand, then make sure DILR and VARC are getting real coverage too, CAT's in [X] months." Watch the conversation itself for this too — session after session returning to the same narrow corner is the signal, and it's your job to notice it and raise it before the student runs out of runway, not wait for them to notice they're behind on their own.
+
+There's also an actual practice counter running behind the scenes for QA and DILR topics, and you feed it. Whenever a student reports completing practice on a specific QA or DILR topic — "solved 2 more percentage problems," "did 5 ratio questions," "just finished that DILR set on seating" — tag it silently at the end of your reply: [PRACTICE_LOG: qa|Percentages|2] or [PRACTICE_LOG: dilr|Seating Arrangement|4], using your best honest estimate of how many questions they just described completing (not a running total — the app adds it up). Use the same plain topic name each time a student is working the same thing, so it accumulates correctly instead of fragmenting under slightly different phrasing. This tag is invisible to the student, exactly like [OPTIONS] and [CONTEXT] — never mention it, never explain it, just include it when it's genuinely warranted. When the counter crosses the practice threshold on its own, you'll get a note telling you so directly — follow that note's instruction in your very next reply rather than waiting for your own read of the conversation to catch up.
 
 When the narrow topic you're flagging is a QA or DILR one specifically — not VARC, which doesn't have this feature yet — end that suggestion with a tag so the student can actually start the test right there: [START_TEST: qa|Percentages|10] or [START_TEST: dilr|Seating Arrangement|12], using the real topic name and a sensible question count (8-12 is typical). Only include this tag in the exact message where you're genuinely suggesting a timed sectional, never as a reflex tacked onto unrelated replies, and never more than one per message.
 
@@ -1161,6 +1163,18 @@ async function loadUserData() {
       lastSessionDate: profile.last_session_date || null,
       sessionSummary: profile.session_summary || null
     };
+
+    var savedTopicLog = profile.practice_topic_log || {};
+    practiceTopicLog = {};
+    practiceTopicDisplayName = {};
+    practiceTopicFlagged = {};
+    for (var key in savedTopicLog) {
+      var entry = savedTopicLog[key] || {};
+      practiceTopicLog[key] = entry.count || 0;
+      practiceTopicDisplayName[key] = entry.displayName || key.split('::')[1];
+      practiceTopicFlagged[key] = !!entry.flagged;
+    }
+
     const { data: chats } = await sbFetch('chats?select=*&user_id=eq.' + currentUser.id + '&order=created_at.asc', 'GET');
     if (chats && chats.length > 0) {
       conversationHistory = chats.map(function(c) { return { role: c.role, content: c.content }; });
@@ -1236,7 +1250,7 @@ function addMessage(role, html, showAvatar) {
       .replace(/^>\s+/gm, '')
       .replace(/---+/g, '')
       .replace(/===+/g, '')
-      .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '')
+      .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
       .replace(/\[CONTEXT:[^\]]*\]/g, '')
       .replace(/👇/g, '')
       .replace(/👋/g, '')
@@ -1325,7 +1339,7 @@ function showPathChoiceScreen() {
         var reply = data.content && data.content[0] ? data.content[0].text : null;
         hideTyping();
         if (reply) {
-          var cleanReply = reply.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/^#{1,3}\s+/gm, '').replace(/^[-•*]\s+/gm, '').replace(/---+/g, '').trim();
+          var cleanReply = reply.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/^#{1,3}\s+/gm, '').replace(/^[-•*]\s+/gm, '').replace(/---+/g, '').trim();
           addMessage('marg', cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
           conversationHistory.push({ role: 'assistant', content: reply });
           if (!isGuestMode) saveChatMessage('assistant', cleanReply);
@@ -1649,6 +1663,7 @@ async function sendConversationalMessage(userMessage, context) {
     systemAddition += '\n\nThe student just explained what happened with a specific wrong answer, after you asked one clarifying question following a diagnosis they said was not quite right. Do not ask another open-ended question. State a one-sentence read on their actual pattern based on what they just told you, then move on to your next onboarding question.';
     conversationalProfile.awaitingPatternCorrection = false;
   }
+  systemAddition += getPracticeThresholdNote();
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
@@ -1667,7 +1682,7 @@ async function sendConversationalMessage(userMessage, context) {
     if (response) {
 
       var cleanResponse = response
-        .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '')
+        .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
         .replace(/\[CONTEXT:[^\]]*\]/g, '')
         .replace(/\*\*(.*?)\*\*/g, '$1')
         .replace(/\*(.*?)\*/g, '$1')
@@ -1686,6 +1701,7 @@ async function sendConversationalMessage(userMessage, context) {
 
       checkAndRenderMargOptions(response);
       checkAndRenderTestPrompt(response);
+      checkAndLogPracticeVolume(response);
 
 
       if (conversationHistory.length >= 8 && !onboardingComplete) {
@@ -1831,6 +1847,57 @@ function checkAndRenderTestPrompt(response) {
   wrap.appendChild(btn);
   container.appendChild(wrap);
   container.scrollTop = container.scrollHeight;
+}
+
+var practiceTopicDisplayName = {};
+
+function checkAndLogPracticeVolume(response) {
+  var match = response.match(/\[PRACTICE_LOG:\s*([^\]]+)\]/);
+  if (!match) return;
+
+  var parts = match[1].split('|').map(function(p) { return p.trim(); });
+  var section = (parts[0] || '').toLowerCase();
+  var topic = parts[1] || '';
+  var count = parseInt(parts[2], 10) || 0;
+  if ((section !== 'qa' && section !== 'dilr') || !topic || count <= 0) return;
+
+  var key = section + '::' + topic.toLowerCase();
+  practiceTopicLog[key] = (practiceTopicLog[key] || 0) + count;
+  practiceTopicDisplayName[key] = topic;
+  savePracticeTopicLog();
+}
+
+function getPracticeThresholdNote() {
+  for (var key in practiceTopicLog) {
+    if (practiceTopicLog[key] >= 15 && !practiceTopicFlagged[key]) {
+      practiceTopicFlagged[key] = true;
+      savePracticeTopicLog();
+      var section = key.split('::')[0];
+      var topic = practiceTopicDisplayName[key] || key.split('::')[1];
+      var defaultCount = section === 'qa' ? 10 : 12;
+      return '\n\nPRACTICE THRESHOLD REACHED: The student has now done approximately ' + practiceTopicLog[key] + ' practice questions on ' + topic + ' (' + section.toUpperCase() + ') across this conversation. In your very next reply, proactively suggest testing this topic properly with a timed sectional instead of continuing to drill it — say it the way you\'d actually say it, like "you\'ve done solid practice on ' + topic + ' now — want to test it with a timed sectional?" — and end that message with [START_TEST: ' + section + '|' + topic + '|' + defaultCount + ']. Do this once, naturally, not as a mechanical tag dump.';
+    }
+  }
+  return '';
+}
+
+async function savePracticeTopicLog() {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  try {
+    var payload = {};
+    for (var key in practiceTopicLog) {
+      payload[key] = {
+        count: practiceTopicLog[key],
+        displayName: practiceTopicDisplayName[key] || key.split('::')[1],
+        flagged: !!practiceTopicFlagged[key]
+      };
+    }
+    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({ user_id: currentUser.id, practice_topic_log: payload })
+    });
+  } catch(e) { console.error('savePracticeTopicLog error:', e); }
 }
 
 async function saveProfileProgressively() {
@@ -2041,7 +2108,7 @@ async function sendMessage() {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary;
+    activitySummary + getPracticeThresholdNote();
   try {
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) }, 45000);
     const data = await response.json();
@@ -2050,7 +2117,7 @@ async function sendMessage() {
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
     const cleanReply = reply
-      .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '')
+      .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
       .replace(/\[CONTEXT:[^\]]*\]/g, '')
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
@@ -2065,6 +2132,7 @@ async function sendMessage() {
     addMessage('marg', formatted);
     checkAndRenderMargOptions(reply);
     checkAndRenderTestPrompt(reply);
+    checkAndLogPracticeVolume(reply);
   } catch (e) { hideTyping(); addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — please try sending that again.' : 'Yaar, connection issue. Please try again in a moment.'); }
   isLoading = false; document.getElementById('send-btn').disabled = false; input.focus();
 }
@@ -3188,6 +3256,9 @@ var practiceTopics = {
   dilr: ['Seating Arrangement', 'Scheduling', 'Blood Relations', 'Data Sufficiency', 'Venn Diagrams', 'Distribution/Grouping', 'Games & Tournaments', 'Mixed — surprise me'],
   qa: ['Arithmetic (Percentages, Ratios, TSD, Profit-Loss)', 'Algebra', 'Geometry & Mensuration', 'Number Systems', 'Modern Math (P&C, Probability)', 'Mixed — surprise me']
 };
+
+var practiceTopicLog = {};
+var practiceTopicFlagged = {};
 
 var timedTestSection = null;
 var timedTestTopic = null;
