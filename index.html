@@ -3442,7 +3442,7 @@ function buildRCPrompt() {
       recentMistakes = 'Recent specific mistakes to target: ' + rcMistakes.map(function(m) { return m.insight; }).join('; ') + '. Generate questions that specifically expose and help fix these exact mistakes.';
     }
   }
-  return 'Generate 3 separate CAT-level RC passages, each with its own 3 questions — 3 independent passages, not variations of one topic. ' + focusArea + recentMistakes + ' Each passage 500-600 words on Philosophy, Economics, Science, Technology, Social Issues, or Psychology — vary the subject across the 3 passages. Write with the density of a real CAT RC passage: pulled from an academic journal or opinion essay, not explainer prose. One central thesis with a counter-consideration or qualification the author addresses. Layered, complex sentence structure. Harder vocabulary suited to the subject. Must require careful, effortful reading — a skim should not be enough to answer the questions.' + RC_CALIBRATION_EXAMPLE + ' Structure each passage as 3-4 distinct paragraphs separated by a blank line (\n\n) inside the JSON string — never one continuous block, matching real CAT formatting. Each passage\'s 3 questions cover Primary Purpose, Author Attitude, and Inference. 4 options per question where wrong ones are extreme, out of scope, or reversals. Keep "explanation" to one or two short sentences, not a full breakdown of every option. Return ONLY valid JSON, no markdown, exactly this shape with 3 objects in the sets array: {"sets":[{"passage":"text with \n\n between paragraphs","difficulty":"Medium or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"one or two short sentences on why correct and the trap","trap_type":"cognitive error","marg_insight":"what wrong answer reveals about thinking"}]}]}';
+  return 'Generate exactly 1 CAT-level RC passage with exactly 3 questions. ' + focusArea + recentMistakes + ' Passage 480-550 words on Philosophy, Economics, Science, Technology, Social Issues, Environment, History, Culture, or Psychology. Write with the density of a real CAT RC passage: academic or serious opinion writing, not explainer prose or a story. Build one central thesis, a counter-consideration or qualification, and at least one subtle shift in the author\'s position. Use layered sentence structure and precise subject-appropriate vocabulary. A skim must not be enough.' + RC_CALIBRATION_EXAMPLE + ' Structure the passage as 3-4 distinct paragraphs separated by \n\n inside the JSON string. The 3 questions must test Primary Purpose, Author Attitude, and Inference. Every question needs four distinct options; at least two should look plausible, while wrong options use controlled traps such as overstatement, scope shift, partial truth, causal reversal, or confusing the author\'s view with a view discussed in the passage. Independently verify the answer key before responding. Keep each explanation to one or two short sentences. Return ONLY valid JSON, no markdown, exactly this shape with exactly 1 object in the sets array: {"sets":[{"passage":"text with \n\n between paragraphs","difficulty":"Medium-Hard or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"one or two short sentences","trap_type":"short trap label","marg_insight":"one short sentence"}]}]}';
 }
 
 function buildDILRPrompt(topic) {
@@ -3469,6 +3469,14 @@ function validateDILRPracticeSet(data) {
       Array.isArray(setObj.questions) && setObj.questions.length === 4 &&
       setObj.questions.every(isValidTimedTestQuestion);
   });
+}
+
+function validateRCPracticeSet(data) {
+  if (!data || !Array.isArray(data.sets) || data.sets.length !== 1) return false;
+  var setObj = data.sets[0];
+  return setObj && typeof setObj.passage === 'string' && setObj.passage.trim().length > 0 &&
+    Array.isArray(setObj.questions) && setObj.questions.length === 3 &&
+    setObj.questions.every(isValidTimedTestQuestion);
 }
 
 function buildQAPrompt(topic) {
@@ -3543,7 +3551,7 @@ function normalizeCorrectIndex(q) {
 function normalizePracticeAnswers(data, type) {
   if (!data) return data;
   if (type === 'qa' && Array.isArray(data.questions)) data.questions.forEach(normalizeCorrectIndex);
-  if (type === 'dilr' && Array.isArray(data.sets)) {
+  if ((type === 'dilr' || type === 'rc') && Array.isArray(data.sets)) {
     data.sets.forEach(function(setObj) {
       if (setObj && Array.isArray(setObj.questions)) setObj.questions.forEach(normalizeCorrectIndex);
     });
@@ -3827,7 +3835,7 @@ async function loadDailyPractice() {
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
   else prompt = buildQAPrompt(selectedPracticeTopic);
 
-  var maxTokens = currentPracticeType === 'dilr' ? 4000 : currentPracticeType === 'rc' ? 7000 : 3200;
+  var maxTokens = currentPracticeType === 'dilr' ? 3200 : currentPracticeType === 'rc' ? 3200 : 2600;
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
@@ -3864,6 +3872,8 @@ async function loadDailyPractice() {
       if (!validateQASetShape(practiceJson)) throw new Error('Generated QA set failed structural validation');
     } else if (currentPracticeType === 'dilr') {
       if (!validateDILRPracticeSet(practiceJson)) throw new Error('Generated DILR sets failed structural validation');
+    } else if (currentPracticeType === 'rc') {
+      if (!validateRCPracticeSet(practiceJson)) throw new Error('Generated RC set failed structural validation');
     }
     practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
