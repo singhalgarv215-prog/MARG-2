@@ -3256,7 +3256,7 @@ var practiceLoadInFlight = false;
 var practiceLoadTarget = null;
 
 var practiceTopics = {
-  dilr: ['Seating Arrangement', 'Scheduling', 'Blood Relations', 'Data Sufficiency', 'Venn Diagrams', 'Distribution/Grouping', 'Games & Tournaments', 'Mixed — surprise me']
+  dilr: ['Arrangements & Rankings', 'Scheduling & Allocation', 'Distribution & Grouping', 'Games & Tournaments', 'Routes & Networks', 'Tables, Charts & DI Caselets', 'Venn Diagrams & Set Data', 'Mixed — surprise me']
 };
 
 var qaTopicCategories = {
@@ -3401,8 +3401,18 @@ function buildDILRPrompt(topic) {
       recentMistakes = 'Recent specific DILR mistakes: ' + dilrMistakes.map(function(m) { return m.insight; }).join('; ') + '. Design the sets to specifically expose and help fix these mistakes.';
     }
   }
-  var topicLine = topic ? 'All 3 sets should be built around this topic area: ' + topic + '. ' : 'Vary the topic naturally across the 3 sets (seating arrangement, scheduling, blood relations, data sufficiency, venn diagrams, distribution/grouping, games & tournaments). ';
-  return 'Generate 3 separate CAT DILR puzzle sets — 3 independent sets, not variations of the same puzzle — each with 4 items and exactly 4 questions. ' + topicLine + focusArea + recentMistakes + ' Two things make real CAT DILR hard, and both must be true here, not just one: the setup, and the questions themselves. SETUP: cross-reference 4 to 6 conditions simultaneously. Most conditions should be relative or conditional ("X is somewhere before Y, not necessarily immediately", "if A does not hold a specific role, then B does") rather than plain direct facts — a set built entirely from direct facts can be filled into a grid with zero real inference, which is not CAT-level. At least one condition should only become usable after combining it with another, and there should be a point where more than one arrangement looks valid until a later condition rules it out. QUESTIONS: a hard setup does not excuse easy questions — at least 2 of the 4 must require reasoning beyond a direct lookup on the completed grid. Use types like: how many different valid arrangements are possible, which of the following must be true / cannot be determined, or a question that adds one extra condition specific only to itself and asks you to re-deduce from there. At most 1 or 2 of the 4 should be simple direct-lookup questions — the rest need real work even after the grid is built.' + DILR_CALIBRATION_EXAMPLE + ' Keep each setup under 170 words despite the added complexity — precise and information-dense, not padded with filler. Keep every "explanation", "common_mistake" and "marg_insight" to one short sentence each. All 4 options per question must be different specific answers. Return ONLY valid JSON, no markdown, exactly this shape with 3 objects in the sets array, each with 4 objects in its questions array: {"sets":[{"set_title":"title","difficulty":"Medium","constraint_types":["type1","type2"],"setup":"puzzle text with 4-6 relative/conditional conditions, under 170 words","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"one short sentence","marg_insight":"one short sentence"}]}]}';
+  var topicLine = topic ? 'All 3 sets must center on ' + topic + ', but use three different structures or data representations so they are not reskins of one puzzle. ' : 'Use three different CAT-relevant families chosen from arrangements/rankings, scheduling/allocation, distribution/grouping, games/tournaments, routes/networks, tables/charts/caselets, and Venn/set data. At least one set must be DI-heavy or a genuine DI-LR hybrid, not three pure arrangement puzzles. ';
+  var dilrPyqMap = ' PYQ-INFORMED DESIGN MAP: reproduce the reasoning character of CAT DILR PYQs without copying, paraphrasing, or changing only names/numbers. Real CAT sets are compact but data-rich; require choosing a useful table, grid, graph, cases or variables; make several constraints interact; and usually have a decisive inference that is not stated directly. Use 5-8 entities or a comparably rich data table. Include quantitative relationships where natural—totals, percentages, ratios, capacities, scores, ranks, distances or counts—so DI and LR reinforce each other. Avoid school-level blood-relation chains, a simple row of people with direct positions, one-clue-one-cell grids, standalone arithmetic tables, and trivia-like data sufficiency.';
+  return 'Generate exactly 3 independent CAT-level DILR sets, each with exactly 4 questions. ' + topicLine + focusArea + recentMistakes + dilrPyqMap + ' DIFFICULTY: Set 1 medium-hard, Set 2 hard, Set 3 hard. A prepared student should need roughly 8-12 minutes per set. SET CONSTRUCTION: use 5-8 entities or equivalent data density and 5-8 meaningful constraints. At least two constraints must become useful only when combined with others. The initial information must permit multiple cases until a non-obvious deduction, bound or conservation relationship narrows them. Do not make difficulty through long prose, ambiguity, exhaustive brute force or excessive arithmetic. Every condition must be necessary and the complete set must be feasible. QUESTION CONSTRUCTION: across each set include at least three of these four types: must/cannot be true, number of feasible cases, maximum/minimum or exact value requiring optimization, and a local hypothetical that forces re-deduction. At most one question may be answered by direct lookup after the base representation is completed; the other three must require additional reasoning.' + DILR_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT: independently enumerate or logically verify all feasible cases; solve every question without trusting the first answer; confirm four distinct options, exactly one correct option, the correct zero-based index and an explanation that reaches it. Silently repair or replace any inconsistent, ambiguous, underdetermined or trivial set. Keep setup precise and under 230 words. Keep explanation to 1-2 compact but verifiable sentences and each diagnostic field to one short phrase. Return ONLY valid parseable JSON, no markdown, exactly this shape with exactly 3 set objects and 4 question objects per set: {"sets":[{"set_title":"specific descriptive title","difficulty":"Medium-Hard or Hard","constraint_types":["primary structure","secondary structure or data type"],"setup":"complete self-contained set with all data and constraints","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"1-2 compact verifiable sentences","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
+}
+
+function validateDILRPracticeSet(data) {
+  if (!data || !Array.isArray(data.sets) || data.sets.length !== 3) return false;
+  return data.sets.every(function(setObj) {
+    return setObj && typeof setObj.setup === 'string' && setObj.setup.trim().length > 0 &&
+      Array.isArray(setObj.questions) && setObj.questions.length === 4 &&
+      setObj.questions.every(isValidTimedTestQuestion);
+  });
 }
 
 function buildQAPrompt(topic) {
@@ -3739,7 +3749,7 @@ async function loadDailyPractice() {
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
   else prompt = buildQAPrompt(selectedPracticeTopic);
 
-  var maxTokens = currentPracticeType === 'dilr' ? 5000 : currentPracticeType === 'rc' ? 7000 : 5500;
+  var maxTokens = currentPracticeType === 'dilr' ? 6500 : currentPracticeType === 'rc' ? 7000 : 5500;
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
@@ -3762,7 +3772,7 @@ async function loadDailyPractice() {
     var clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     var practiceJson;
     try {
-      practiceJson = JSON.parse(clean);
+      practiceJson = parseGeneratedJson(clean);
     } catch (parseErr) {
       console.error('Practice JSON parse failed. Raw model output:', text);
       throw parseErr;
@@ -3774,6 +3784,8 @@ async function loadDailyPractice() {
     }
     if (currentPracticeType === 'qa') {
       if (!validateQASetShape(practiceJson)) throw new Error('Generated QA set failed structural validation');
+    } else if (currentPracticeType === 'dilr') {
+      if (!validateDILRPracticeSet(practiceJson)) throw new Error('Generated DILR sets failed structural validation');
     }
     practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
