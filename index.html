@@ -3439,17 +3439,34 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
 
   if (section === 'qa') {
     var n = questionCount || 10;
-    return 'Generate ' + n + ' genuinely CAT-difficulty QA questions, ALL on this specific topic: ' + topic + '. This is a timed sectional test the student asked for after focused practice on this topic — every question must be about ' + topic + ', not a mix of unrelated topics.' + difficultyGuard + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Every question must need at least 2 logical or computational steps just to set up the problem, before solving even begins. Aim for the difficulty where a strong student who knows the concept still takes 90-120 seconds, not something solvable by inspection or in one glance. Vary difficulty naturally across medium and hard — nothing below it. Wrong options should be believable mid-solution errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + ' This bar applies no matter which topic is selected — a topic like ' + topic + ' does not excuse easier questions than any other topic would get. Return ONLY valid JSON, no markdown, exactly this shape with ' + n + ' objects in the questions array: {"difficulty":"Mixed","topics_combined":["' + topic + '"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-3 short steps","common_mistake":"most common error","concept_check":"concept tested","marg_insight":"what wrong answer reveals"}]}';
+    return 'Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions, ALL centered on this specific topic: ' + topic + '. This is a timed sectional after focused practice; related sub-concepts may appear only where they arise naturally, but do not drift to unrelated topics.' + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics appropriate to ' + topic + ' so no two questions share the same solution skeleton. Include roughly 30% medium, 50% medium-hard and 20% hard questions. At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT: independently solve every item; verify feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Silently replace any flawed draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"Mixed","topics_combined":["' + topic + '"],"questions":[{"q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
   }
 
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
-  return 'Generate ' + setsCount + ' separate CAT DILR puzzle sets — ' + setsCount + ' independent sets, not variations of the same puzzle — each with 4 items and exactly 4 questions, ALL themed around this specific topic: ' + topic + '. This is a timed sectional test the student asked for after focused practice on this topic.' + difficultyGuard + ' Two things make real CAT DILR hard, and both must be true here, not just one: the setup, and the questions themselves. SETUP: cross-reference 4 to 6 conditions simultaneously. Most conditions should be relative or conditional ("X is somewhere before Y, not necessarily immediately") rather than plain direct facts. At least one condition should only become usable after combining it with another, and there should be a point where more than one arrangement looks valid until a later condition rules it out. QUESTIONS: at least 2 of the 4 per set must require reasoning beyond a direct lookup — how many valid arrangements are possible, which must be true / cannot be determined, or a question with one extra condition specific only to itself.' + DILR_CALIBRATION_EXAMPLE + ' This bar applies no matter which topic is selected — a topic like ' + topic + ' does not excuse simpler conditions or simpler questions than any other topic would get. Keep each setup under 170 words despite the complexity. Keep every "explanation", "common_mistake" and "marg_insight" to one short sentence each. All 4 options per question must be different specific answers. Return ONLY valid JSON, no markdown, exactly this shape with ' + setsCount + ' objects in the sets array, each with 4 objects in its questions array: {"sets":[{"set_title":"title","difficulty":"Medium","constraint_types":["' + topic + '"],"setup":"puzzle text with 4-6 relative/conditional conditions, under 170 words","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"one short sentence","marg_insight":"one short sentence"}]}]}';
+  return 'Generate exactly ' + setsCount + ' independent CAT-level DILR sets, each with 5-7 entities and exactly 4 questions, all centered on ' + topic + '.' + difficultyGuard + ' Match the reasoning character of CAT DILR PYQs without copying them: a compact setup in which 4-6 constraints interact, at least one inference appears only after combining conditions, and multiple possibilities remain until a decisive deduction. Do not create a school-style puzzle that fills mechanically from direct clues. Across each set, at least 2 questions must require fresh work after the base arrangement: must/cannot be true, number of valid cases, maximum/minimum, or a local hypothetical condition. At most one question may be a direct lookup. Make the sets structurally different from one another even though the topic is shared.' + DILR_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure the setup is consistent, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Keep each setup under 180 words and explanations/diagnostic fields to one short sentence to preserve valid JSON. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Medium-Hard or Hard","constraint_types":["' + topic + '"],"setup":"complete compact setup","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
 }
 
 function getSectionalTestMaxTokens(section, questionCount) {
-  if (section === 'qa') return Math.max(3200, (questionCount || 10) * 400);
+  if (section === 'qa') return Math.min(6500, Math.max(5000, (questionCount || 10) * 550));
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
-  return Math.max(5000, setsCount * 1700);
+  return Math.min(6500, Math.max(5500, setsCount * 2000));
+}
+
+function parseGeneratedJson(text) {
+  var clean = String(text || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+  var firstBrace = clean.indexOf('{');
+  var lastBrace = clean.lastIndexOf('}');
+  if (firstBrace > 0 || lastBrace < clean.length - 1) {
+    if (firstBrace >= 0 && lastBrace > firstBrace) clean = clean.slice(firstBrace, lastBrace + 1);
+  }
+  clean = clean.replace(/,\s*([}\]])/g, '$1');
+  return JSON.parse(clean);
+}
+
+function isValidTimedTestQuestion(q) {
+  if (!q || typeof q.q !== 'string' || !q.q.trim() || !Array.isArray(q.options) || q.options.length !== 4) return false;
+  var normalized = q.options.map(function(opt) { return String(opt).replace(/^[A-D]\.\s*/, '').trim().toLowerCase(); });
+  return normalized.every(function(opt) { return !!opt; }) && new Set(normalized).size === 4 && Number.isInteger(q.correct) && q.correct >= 0 && q.correct < 4;
 }
 
 function flattenTimedTestQuestions(section, data) {
@@ -3515,18 +3532,18 @@ async function startTimedTest(section, topic, questionCount) {
     var text = data.content && data.content[0] ? data.content[0].text : null;
     if (!text) throw new Error('No response');
 
-    var clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     var parsed;
     try {
-      parsed = JSON.parse(clean);
+      parsed = parseGeneratedJson(text);
     } catch (parseErr) {
       console.error('Timed test JSON parse failed. Raw model output:', text);
       throw parseErr;
     }
     timedTestQuestions = flattenTimedTestQuestions(section, parsed);
-    if (timedTestQuestions.length === 0) {
-      console.error('Timed test parsed OK but yielded 0 questions. Parsed shape:', parsed, 'Raw model output:', text);
-      throw new Error('No questions generated');
+    var expectedQuestionCount = section === 'qa' ? (questionCount || 10) : Math.max(1, Math.round((questionCount || 12) / 4)) * 4;
+    if (timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion)) {
+      console.error('Timed test failed count/options validation. Parsed shape:', parsed, 'Raw model output:', text);
+      throw new Error('Generated test failed structural validation');
     }
 
     timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
