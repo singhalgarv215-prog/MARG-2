@@ -3427,13 +3427,13 @@ function buildQAPrompt(topic) {
       recentMistakes = 'Recent specific QA mistakes: ' + qaMistakes.map(function(m) { return m.topic + ': ' + m.insight; }).join('; ') + '. Generate questions specifically targeting these exact weaknesses.';
     }
   }
-  var topicLine = topic ? 'All 5 questions should draw from this topic area: ' + topic + '. Combine related sub-concepts only where the relationship is natural; depth of reasoning matters more than the number of named topics. ' : 'Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics, but never force a pairing merely to make it look difficult. ';
-  var pyqDesignMap = ' PYQ-INFORMED DESIGN MAP: Match the reasoning character of recent CAT QA without copying, paraphrasing, or merely changing numbers in any past question. Draw from recurring structures such as ratios hidden inside percentage language; averages or mixtures with a conservation constraint; time-work or time-speed problems requiring relative rates; integer, remainder, digit or divisibility restrictions; algebra where the useful substitution must be discovered; and geometry where similarity, area ratios or a construction reveals the route. Create original situations and relationships. Across the set include: 2 medium questions, 2 medium-hard questions and 1 hard question; at least 2 questions with a short non-obvious insight rather than lengthy calculation; no more than 2 questions from the same narrow subtopic; and no two questions with the same solution skeleton.';
-  return 'Generate exactly 5 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + pyqDesignMap + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x").' + QA_STRUCTURAL_REQUIREMENTS + ' Aim for the difficulty where a prepared student still needs roughly 90-180 seconds because the representation or insight is not immediately obvious. Wrong options should be believable results of identifiable reasoning errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT before responding: independently solve every question without trusting your first answer; verify the data are consistent, every condition is necessary, exactly one of the four options is correct, the correct index matches that option, and the written solution reaches it. Silently repair or replace any question that fails. Keep "solution" to 2-4 compact steps and include enough working to verify the answer. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with exactly 5 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-4 verifiable steps","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
+  var topicLine = topic ? 'All 3 questions should draw from this topic area: ' + topic + '. Combine related sub-concepts only where the relationship is natural; depth of reasoning matters more than the number of named topics. ' : 'Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics, but never force a pairing merely to make it look difficult. ';
+  var pyqDesignMap = ' PYQ-INFORMED DESIGN MAP: Match the reasoning character of recent CAT QA without copying, paraphrasing, or merely changing numbers in any past question. Draw from recurring structures such as ratios hidden inside percentage language; averages or mixtures with a conservation constraint; time-work or time-speed problems requiring relative rates; integer, remainder, digit or divisibility restrictions; algebra where the useful substitution must be discovered; and geometry where similarity, area ratios or a construction reveals the route. Create original situations and relationships. Across the set include 1 medium, 1 medium-hard and 1 hard question; at least one must reward a short non-obvious insight rather than lengthy calculation; and no two questions may share the same solution skeleton.';
+  return 'Generate exactly 3 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + pyqDesignMap + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x").' + QA_STRUCTURAL_REQUIREMENTS + ' Aim for the difficulty where a prepared student still needs roughly 90-180 seconds because the representation or insight is not immediately obvious. Wrong options should be believable results of identifiable reasoning errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT before responding: independently solve every question without trusting your first answer; verify the data are consistent, every condition is necessary, exactly one of the four options is correct, the correct index matches that option, and the written solution reaches it. Silently repair or replace any question that fails. Keep "solution" to 2-4 compact steps and include enough working to verify the answer. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with exactly 3 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1","Topic2"],"questions":[{"q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-4 verifiable steps","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
 }
 
 function validateQASetShape(data) {
-  if (!data || !Array.isArray(data.questions) || data.questions.length !== 5) return false;
+  if (!data || !Array.isArray(data.questions) || data.questions.length < 3 || data.questions.length > 5) return false;
   return data.questions.every(function(q) {
     if (!q || typeof q.q !== 'string' || !q.q.trim()) return false;
     if (!Array.isArray(q.options) || q.options.length !== 4) return false;
@@ -3471,6 +3471,28 @@ function parseGeneratedJson(text) {
   }
   clean = clean.replace(/,\s*([}\]])/g, '$1');
   return JSON.parse(clean);
+}
+
+function normalizeCorrectIndex(q) {
+  if (!q) return q;
+  if (typeof q.correct === 'string') {
+    var value = q.correct.trim().toUpperCase();
+    if (/^[A-D]$/.test(value)) q.correct = value.charCodeAt(0) - 65;
+    else if (/^[0-3]$/.test(value)) q.correct = Number(value);
+    else if (/^[1-4]$/.test(value)) q.correct = Number(value) - 1;
+  }
+  return q;
+}
+
+function normalizePracticeAnswers(data, type) {
+  if (!data) return data;
+  if (type === 'qa' && Array.isArray(data.questions)) data.questions.forEach(normalizeCorrectIndex);
+  if (type === 'dilr' && Array.isArray(data.sets)) {
+    data.sets.forEach(function(setObj) {
+      if (setObj && Array.isArray(setObj.questions)) setObj.questions.forEach(normalizeCorrectIndex);
+    });
+  }
+  return data;
 }
 
 function isValidTimedTestQuestion(q) {
@@ -3749,7 +3771,7 @@ async function loadDailyPractice() {
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
   else prompt = buildQAPrompt(selectedPracticeTopic);
 
-  var maxTokens = currentPracticeType === 'dilr' ? 4000 : currentPracticeType === 'rc' ? 7000 : 4000;
+  var maxTokens = currentPracticeType === 'dilr' ? 4000 : currentPracticeType === 'rc' ? 7000 : 3200;
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
@@ -3772,7 +3794,7 @@ async function loadDailyPractice() {
     var clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     var practiceJson;
     try {
-      practiceJson = parseGeneratedJson(clean);
+      practiceJson = normalizePracticeAnswers(parseGeneratedJson(clean), currentPracticeType);
     } catch (parseErr) {
       console.error('Practice JSON parse failed. Raw model output:', text);
       throw parseErr;
