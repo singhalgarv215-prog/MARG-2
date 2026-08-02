@@ -3251,6 +3251,9 @@ var practiceSessionCounted = false;
 var sessionResults = { correct: 0, wrong: 0, total: 0, mistakes: [], passageTitle: '' };
 var practiceTopicChosen = false;
 var selectedPracticeTopic = null;
+var practiceLoadSeq = 0;
+var practiceLoadInFlight = false;
+var practiceLoadTarget = null;
 
 var practiceTopics = {
   dilr: ['Seating Arrangement', 'Scheduling', 'Blood Relations', 'Data Sufficiency', 'Venn Diagrams', 'Distribution/Grouping', 'Games & Tournaments', 'Mixed — surprise me']
@@ -3692,6 +3695,12 @@ async function loadDailyPractice() {
     dateEl.textContent = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
   }
 
+  var loadTarget = currentPracticeType + '::' + (selectedPracticeTopic || '');
+  if (practiceLoadInFlight && practiceLoadTarget === loadTarget) return;
+  practiceLoadInFlight = true;
+  practiceLoadTarget = loadTarget;
+  var mySeq = ++practiceLoadSeq;
+
   var typeName = currentPracticeType === 'rc' ? 'RC' : currentPracticeType === 'dilr' ? 'DILR' : 'QA';
   content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is generating today\'s personalised ' + typeName + ' practice based on your profile...</div></div>';
 
@@ -3733,6 +3742,8 @@ async function loadDailyPractice() {
       console.error('Practice parsed OK but yielded no questions/sets. Parsed shape:', practiceJson, 'Raw model output:', text);
       throw new Error('No questions generated');
     }
+    practiceLoadInFlight = false;
+    if (mySeq !== practiceLoadSeq) return;
     practiceData[currentPracticeType] = practiceJson;
     currentSetIndex = 0;
     currentQuestionIndex = 0;
@@ -3741,6 +3752,8 @@ async function loadDailyPractice() {
     renderPractice(practiceJson);
 
   } catch(e) {
+    practiceLoadInFlight = false;
+    if (mySeq !== practiceLoadSeq) return;
     console.error('Practice error:', e);
     var isTimeout = e && e.name === 'AbortError';
     var errorMessage = isTimeout
