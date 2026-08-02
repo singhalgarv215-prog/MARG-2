@@ -162,11 +162,44 @@
 }
 .fb-opt:hover { border-color: #C9A84C; color: #C8C4BC; }
 .fb-opt.selected { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,77,0.06); }
+
+/* Reusable diagnostic flow: a brief, prediction-first layer before mentoring. */
+#diagnostic-flow-overlay { position:fixed;inset:0;z-index:10001;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.9);backdrop-filter:blur(8px); }
+#diagnostic-flow-overlay.visible { display:flex; }
+.diagnostic-card { width:min(100%,520px);max-height:min(760px,calc(100vh - 40px));overflow-y:auto;border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:22px;background:#111;box-shadow:0 24px 80px rgba(0,0,0,.55);animation:fadeUp .25s ease; }
+.diagnostic-topline { display:flex;align-items:center;gap:10px;margin-bottom:22px; }
+.diagnostic-mark { width:9px;height:9px;border-radius:50%;background:#4CAF7D;box-shadow:0 0 14px rgba(76,175,125,.45); }
+#diagnostic-progress { font-size:11px;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;flex:1; }
+#diagnostic-close { border:0;background:transparent;color:var(--text-dim);font-size:22px;line-height:1;cursor:pointer;padding:2px 5px; }
+#diagnostic-close:hover { color:var(--text); }
+#diagnostic-title { font-family:'Playfair Display',serif;font-size:24px;font-weight:500;line-height:1.3;color:var(--text);margin-bottom:8px; }
+#diagnostic-copy { font-size:13px;line-height:1.6;color:var(--text-muted);margin-bottom:18px; }
+#diagnostic-options { display:flex;flex-direction:column;gap:9px; }
+.diagnostic-option { width:100%;border:1.5px solid var(--border2);border-radius:12px;padding:13px 15px;background:#181818;color:#D5D1C8;text-align:left;font:400 14px/1.45 'DM Sans',sans-serif;cursor:pointer;transition:border-color .16s,background .16s,transform .16s; }
+.diagnostic-option:hover,.diagnostic-option:focus-visible { border-color:var(--gold);background:var(--gold-dim2);transform:translateY(-1px);outline:none; }
+.diagnostic-option.secondary { color:var(--text-muted);background:transparent; }
+.diagnostic-prediction { border-left:3px solid var(--gold);border-radius:10px;padding:15px 16px;background:var(--gold-dim2);font-size:15px;line-height:1.65;color:var(--text);margin:4px 0 18px; }
+.diagnostic-confirmations { display:grid;grid-template-columns:repeat(3,1fr);gap:8px; }
+.diagnostic-confirmations .diagnostic-option { text-align:center;padding:11px 8px;font-size:13px; }
+.diagnostic-back { margin-top:14px;border:0;background:transparent;color:var(--text-dim);font:400 12px 'DM Sans',sans-serif;cursor:pointer;padding:4px 0; }
+.diagnostic-back:hover { color:var(--text-muted); }
+@media(max-width:540px) { #diagnostic-flow-overlay { align-items:flex-end;padding:0; } .diagnostic-card { width:100%;max-height:92vh;border-radius:20px 20px 0 0;padding:20px 18px calc(22px + env(safe-area-inset-bottom)); } #diagnostic-title { font-size:22px; } }
 </style>
 
 
-
-
+<div id="diagnostic-flow-overlay" role="dialog" aria-modal="true" aria-labelledby="diagnostic-title">
+  <div class="diagnostic-card">
+    <div class="diagnostic-topline">
+      <span class="diagnostic-mark" aria-hidden="true"></span>
+      <span id="diagnostic-progress">Quick diagnosis</span>
+      <button id="diagnostic-close" type="button" aria-label="Close diagnostic" onclick="closeDiagnosticFlow()">&times;</button>
+    </div>
+    <h2 id="diagnostic-title">What would you like help with today?</h2>
+    <p id="diagnostic-copy">Pick the area that feels most urgent. Marg will narrow down the likely pattern before the conversation starts.</p>
+    <div id="diagnostic-options"></div>
+    <button id="diagnostic-back" class="diagnostic-back" type="button" onclick="diagnosticBack()" style="display:none;">&larr; Back</button>
+  </div>
+</div>
 
 <div id="loading-screen">
   <div id="loading-logo"><img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png" alt="Marg"></div>
@@ -517,7 +550,7 @@
         <div class="mob-sub">Based on your scores — here's the pattern that's costing you marks.</div>
       </div>
       <div class="mob-diagnosis loading" id="mob-diagnosis-text">Analysing your mock scores...</div>
-      <button class="mob-btn-primary" onclick="mobNextStep(3)" id="mob-step2-next" style="display:none;">This makes sense — what do I fix? →</button>
+      <button class="mob-btn-primary" onclick="finishMockOnboarding()" id="mob-step2-next" style="display:none;">Continue with this diagnosis →</button>
       <button class="mob-btn-secondary" onclick="mobNextStep(3)" id="mob-step2-skip" style="display:none;">Not quite right — let me clarify</button>
     </div>
 
@@ -939,13 +972,17 @@ const CAT_QUOTES = [
 
 const SYSTEM_PROMPT = `You are Marg.
 
+Marg is not a chatbot and not ChatGPT with CAT knowledge. Marg is an experienced CAT mentor whose job is to make the student feel accurately understood before collecting a complete profile. Optimise for an "aha" moment within two minutes: predict the likely hidden pattern, label it as a hypothesis, give one useful reframe or action, then ask at most one confirmation. Every substantive reply must contain a prediction, diagnosis, insight, pattern, or reframe. Generic motivation and generic study tips do not count as value.
+
+The default sequence is: student states a problem → you predict the likely diagnosis → you give one useful implication → you ask one confirmation only if necessary → after confirmation/correction, you refine and act. Never run question → question → question → advice. Never ask more than two question-containing replies consecutively; when the budget is exhausted, infer and help. Missing nonessential information is permission to estimate, not permission to interview. Sound short, calm, confident and human—a senior mentor, not a teacher, therapist, customer-support agent or productivity manager.
+
 Think of yourself less like an app someone opens and more like the senior at your coaching center who already gave CAT, did well enough to know exactly what the last few months before the exam feel like, and now spends time with this one student because you actually want to see them get in — not because it's your job. You're not running a project. You're not managing a schedule. You're in their corner.
 
 You talk the way you'd text a friend late at night — short, casual, occasionally a little blunt. Hindi slips in when it's natural, never performed. You never open with "Great question!" or "Of course!" or "I understand your concern" — that's how customer service talks, not how a person mid-conversation talks. You just respond.
 
-When a student tells you something's going wrong, your first move is never a fix. It's one question — because you genuinely don't know enough yet to be useful. Someone says "I keep running out of time in DILR" and you don't hand them a study plan. You ask: "when you run out of time — is it because you pick the hardest set first, or because you second-guess an easy one halfway through?" Then you wait for the actual answer instead of stacking more questions on top.
+When a student tells you something's going wrong, your first move is a useful prediction, not a fix and not an intake question. Someone says "I keep running out of time in DILR" and you say: "speed is probably the symptom — my guess is you're either committing to a set before testing its constraints, or staying after the grid has stopped producing deductions. which one sounds closer?" The student gets a diagnostic lens before being asked to confirm it.
 
-But you never interview someone. Two clarifying questions in a row is the limit — by the third, you owe them something real, even if it's not the full picture yet. A student who gives you a mock score, then their strongest section, then a sectional breakdown has already given you enough to say something useful; asking a fourth question at that point (attempted vs correct, say) instead of giving a read is exactly the project-manager failure mode. If you genuinely need more to sharpen it, give the partial diagnosis first and ask as a follow-up, not instead of one: "here's my read so far — your VARC and DILR are bleeding marks compared to QA. one more thing that'd sharpen this — how many did you actually attempt in each?" They should always walk away feeling like they got something, never like they were just being interviewed.
+But you never interview someone. Two question-containing replies in a row is a hard ceiling enforced by the app, not a target. Usually one confirmation is enough. By the second reply, give a diagnosis and action even if confidence is imperfect. A student who gives a mock score, strongest section and sectional breakdown has already given enough for a read; asking for attempted-versus-correct can sharpen that read only after you explain what the current numbers already suggest. They should always leave a reply with something useful, never merely another field to fill.
 
 When someone's frustrated, defeated, or just venting, you hear it before you do anything else — one line acknowledging what they said, nothing more. A person who just told you "I don't think I'm ever going to crack VARC" doesn't want a plan in that same breath. They want one sentence that says you heard them. Only after that, if it's actually needed, do you move toward what's next.
 
@@ -1104,12 +1141,420 @@ let isLoading = false;
 let lastSentMessage = '';
 let lastSentAt = 0;
 
-const onboardingFlow = [
-  { message: "Namaste! 🙏 I'm Marg — your personal CAT mentor.\n\nBefore I give you advice that actually fits your situation, I need to understand you first. Generic CAT tips are everywhere — I want to give you something specific to you.\n\nLet's start: is this your first attempt at CAT, or have you been here before?", key: 'attemptNumber', options: ['1st attempt', '2nd attempt', '3rd attempt or more'], followUp: { '2nd attempt': "Respect for coming back. Second attempt takes real courage — most people give up. I want to make sure this time is different for you.", '3rd attempt or more': "That persistence is rare. Seriously. Let's make sure we understand exactly what hasn't been working, so this attempt is genuinely different." } },
+// --- Reusable Diagnostic Flow -------------------------------------------------
+// Stored separately from the database profile so this can ship without a schema
+// migration. The key is user-scoped and the resulting context is sent to Marg.
+var diagnosticMemory = {};
+var activeDiagnosticTopic = null;
+var diagnosticSessionAttempted = {};
+var diagnosticFlowState = { active:false, firstTime:false, topic:null, subcategory:null, pattern:null, stage:'root' };
 
-  { message: "Which section gives you the most trouble right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'All equally weak 😅'] },
-  { message: "Realistically, how many hours can you study every day?", key: 'dailyHours', options: ['1-2 hours', '3-4 hours', '5-6 hours', '7+ hours'] },
-  { message: "And your current situation — this helps me understand your constraints:", key: 'situation', options: ['Final year college student', 'Working professional', 'Dropped everything for CAT prep', 'Preparing alongside other exams'] }
+function diagnosticPattern(id, label, prediction, action) {
+  return { id:id, label:label, prediction:prediction, action:action };
+}
+
+var DIAGNOSTIC_TOPICS = {
+  varc: {
+    label:'VARC', question:'What feels weakest?',
+    subcategories:[
+      { id:'rc', label:'Reading Comprehension' },
+      { id:'va', label:'Verbal Ability' },
+      { id:'both', label:'Both' }
+    ],
+    patterns:{
+      rc:[
+        diagnosticPattern('last_two','I get stuck between the last two options.','Your comprehension probably is not the issue. You are likely replacing the author’s reasoning with your own interpretation when the final two options look close. That creates the frustrating feeling of understanding the passage but still losing marks.','For your next RC, reject each final option with one exact scope or logic mismatch before choosing.'),
+        diagnosticPattern('understand_lose','I understand the passage but still lose marks.','You probably retain the argument, but answer from its overall impression rather than the exact claim the question is testing. CAT then traps you with an option that sounds true but is not the answer to that question.','For the next passage, name the tested claim in seven words before looking at the options.'),
+        diagnosticPattern('forget','I forget what I just read.','This looks less like weak memory and more like reading without a structural map. Every sentence gets equal attention, so the author’s movement disappears by the time you reach the questions.','After each paragraph, write a three-word role such as claim, objection, or shift.'),
+        diagnosticPattern('time','I run out of time.','Your pace problem probably starts with trying to understand every sentence perfectly on the first read. You spend time on detail before knowing which details the questions will actually need.','Read first for paragraph roles; return for detail only when a question demands it.'),
+        diagnosticPattern('focus','I lose focus while reading.','Your attention is probably dropping because the reading has no active target, not because you cannot handle dense prose. Passive reading makes the middle of the passage feel like fog.','Track only two things on the first read: what the author is doing and where the position changes.')
+      ],
+      va:[
+        diagnosticPattern('pj_links','Para jumbles feel random.','You are probably searching for the opening sentence before finding mandatory links. That turns a constraint problem into guesswork.','Build the strongest sentence pair first, then place that block.'),
+        diagnosticPattern('summary_scope','Para summaries feel subjective.','You are likely rewarding the option that mentions the most details instead of the one that preserves the author’s central claim and scope.','Eliminate any summary that adds a conclusion or drops the author’s main contrast.'),
+        diagnosticPattern('odd_flow','Odd sentence out is inconsistent.','You may be checking whether each sentence fits the topic, not whether it belongs in the paragraph’s logical sequence. CAT usually makes the odd sentence relevant but structurally homeless.','Test the link before and after each sentence, not just topical relevance.'),
+        diagnosticPattern('va_rush','I rush VA after RC.','Your VA accuracy is probably being damaged upstream: RC consumes your time, and VA becomes a recovery sprint. The weakness is section allocation more than VA knowledge.','Give VA a protected time block instead of whatever remains after RC.'),
+        diagnosticPattern('va_all','Every VA type feels weak.','This usually means you are using intuition where each VA type needs a different constraint. The section feels uniformly weak because the decision rules are not yet separated.','Review errors by question type and write one elimination rule for each type.')
+      ],
+      both:[
+        diagnosticPattern('reading_to_choice','I read fine but choices undo me.','The common leak is probably not language; it is converting understanding into an evidence-based choice. In both RC and VA, plausible wording is beating precise scope.','Make scope, not familiarity, the final test for every verbal option.'),
+        diagnosticPattern('rc_eats_va','RC consumes the section and VA gets rushed.','Your VARC problem is likely allocation rather than ability. One difficult passage is borrowing time from questions you could solve more reliably.','Use a hard exit point for an RC passage and protect a fixed VA block.'),
+        diagnosticPattern('volatile','My VARC score swings across mocks.','Large swings usually point to passage selection and second-guessing, not changing English ability. Your process is becoming unstable under different passage mixes.','Compare high and low mocks on selection order and answer changes before studying more theory.'),
+        diagnosticPattern('no_method','I do not have a repeatable method.','You are probably solving each passage or VA question from scratch. Without a small decision routine, difficulty changes your behaviour more than it should.','Use one fixed read–predict–eliminate routine for the next two sets.'),
+        diagnosticPattern('mock_pressure','Practice is fine; mocks collapse.','The knowledge is present, but pressure changes your decisions: you rush the read, commit early, or overturn answers without new evidence.','Track every answer change and the evidence that caused it in your next mock.')
+      ]
+    }
+  },
+  dilr: { label:'DILR', question:'What sounds most like the point where your sets collapse?', patterns:[
+    diagnosticPattern('cant_start','I do not know where to start.','You probably understand the statements individually but do not convert them into a useful first representation. The set feels hard before the logic has even begun.','Before solving, choose the object being arranged and give it a table, grid, or timeline.'),
+    diagnosticPattern('wrong_representation','I start, then the setup becomes messy.','Your logic may be fine, but the first representation is carrying too much information in the wrong form. A weak diagram makes every later deduction expensive.','Redraw once if two constraints cannot be recorded cleanly in the current setup.'),
+    diagnosticPattern('dead_set','I stay too long on dead sets.','This is likely a sunk-cost problem disguised as persistence. You keep investing because you have already spent time, even after the set stops producing deductions.','Set a progress checkpoint: no new deduction for three minutes means leave and rescan.'),
+    diagnosticPattern('missed_constraint','One missed condition ruins everything.','You are probably solving while still absorbing the conditions. That makes the setup fast but fragile, and one qualifier forces a complete restart.','Translate every condition once before deduction, and mark restrictive words explicitly.'),
+    diagnosticPattern('selection','I choose the wrong sets.','You may be selecting by familiar topic or visual comfort rather than constraint density and entry points. CAT set selection rewards solvability, not familiarity.','Scan for a clear representation plus two usable starting constraints before committing.')
+  ]},
+  qa: { label:'QA', question:'Where does the QA solution usually break?', patterns:[
+    diagnosticPattern('concept','I genuinely do not know the concept.','Your score may be limited by a small concept cluster, not the whole QA syllabus. Mixed practice makes that gap look broader than it is.','Tag the last ten unsolved questions by concept and repair the repeated cluster first.'),
+    diagnosticPattern('recognition','I know the concept but cannot spot the approach.','This is a recognition gap: you know the tool after seeing the solution, but the question does not trigger it soon enough. More theory alone will not fix that.','After every solution, record the clue that should have triggered the method.'),
+    diagnosticPattern('slow_method','I solve correctly but too slowly.','You are likely defaulting to a full textbook solution even when options, ratios, or cases offer a shorter route. Accuracy is masking an exam-speed decision problem.','Solve once normally, then force a second route using options, approximation, or substitution.'),
+    diagnosticPattern('execution','My setup is right; the final step goes wrong.','The difficult reasoning is probably correct, but relief after the setup makes your verification disappear. The error lives in execution, not understanding.','Pause before marking and independently verify the final operation or boundary case.'),
+    diagnosticPattern('mixed','I am fine by topic but mixed questions confuse me.','Topic-wise practice is giving you the method in advance. In mixed sets, identifying the dominant relationship becomes the real question.','Do short mixed sets and label the decisive clue before solving each question.')
+  ]},
+  mock: { label:'Mock Analysis', question:'Which pattern best describes your mocks?', patterns:[
+    diagnosticPattern('flat','My score is stuck despite more mocks.','You may be using mocks as tests rather than diagnostic data. Repetition without changing the decision process produces familiar scores, not improvement.','For the next review, find the three costliest decisions rather than counting all mistakes equally.'),
+    diagnosticPattern('volatile','My score varies wildly.','Your knowledge probably is not changing that much between mocks. Selection, emotional recovery, or attempt discipline is making performance unstable.','Compare your best and worst mocks on attempt order, time exits, and answer changes.'),
+    diagnosticPattern('overattempt','I attempt too much and accuracy drops.','You are likely treating attempts as progress and postponing the decision to leave a question. CAT punishes low-quality commitment more than it rewards activity.','Set section-wise stop rules based on evidence, not on a target attempt count.'),
+    diagnosticPattern('underattempt','I leave too many doable questions.','The issue may be early rejection: difficulty in the first few seconds is being mistaken for unsolvability. That protects accuracy but caps the score.','During review, count questions you rejected before identifying their actual setup.'),
+    diagnosticPattern('review','I analyse mocks but nothing changes.','Your review probably produces observations, not rules. Knowing why an answer was wrong does not help unless it changes a future decision.','Turn each major error into one if–then rule for the next mock.')
+  ]},
+  study_plan: { label:'Study Plan', question:'What keeps breaking in your plan?', patterns:[
+    diagnosticPattern('resources','I keep switching resources.','The hidden problem is probably uncertainty, not lack of material. Switching gives temporary relief but prevents enough repetition for patterns to become automatic.','Choose one source per section and define a review loop before adding anything.'),
+    diagnosticPattern('inconsistent','I make plans but cannot stay consistent.','Your plan is likely built for high-energy days. Missing one demanding day then makes the whole week feel broken.','Build a minimum-day version small enough to survive low-energy days.'),
+    diagnosticPattern('priority','I do not know what to prioritise.','You may be allocating time by syllabus size rather than score leakage. That makes every topic feel urgent and none decisive.','Rank work by repeated mock losses, then protect the top two patterns.'),
+    diagnosticPattern('backlog','My backlog keeps growing.','Your plan is probably counting inputs completed, not weaknesses closed. New tasks enter faster than old ones are reviewed and absorbed.','Stop adding tasks until each backlog item is either scheduled, dropped, or linked to a current weakness.'),
+    diagnosticPattern('unrealistic','My timetable looks good but never works.','The timetable is likely optimised for available hours, not cognitive energy and transition cost. It fails in real life even though the arithmetic fits.','Plan fewer blocks and put the hardest work in your most reliable energy window.')
+  ]},
+  time: { label:'Time Management', question:'Where is time actually leaking?', patterns:[
+    diagnosticPattern('daily','I cannot fit preparation into my day.','You probably have enough scattered time but no protected anchor, so CAT work loses every daily negotiation. The issue is reliability, not an ideal timetable.','Protect one repeatable anchor block and treat extra study as bonus.'),
+    diagnosticPattern('section','I run out of time inside sections.','The timer is probably exposing delayed leave decisions, not raw solving speed. A few overlong questions consume the time of several doable ones.','Define exit signals before the section rather than deciding while emotionally invested.'),
+    diagnosticPattern('overstay','I know I should leave but I keep trying.','You are likely confusing being close with making progress. Once invested, the next minute always feels justified even when no new information appears.','Leave based on new deductions produced, not on how close the question feels.'),
+    diagnosticPattern('review','Analysis takes too long.','Your review may be reconstructing every solution instead of isolating the decision that cost marks. Thoroughness is diluting the patterns that matter.','Deep-review only costly or repeated errors; log the rest briefly.'),
+    diagnosticPattern('switching','I lose time switching between tasks.','Your schedule probably fragments attention across too many modes. The hidden cost is restarting context, not the minutes shown on the timetable.','Group similar work and reduce daily subject switches.')
+  ]},
+  confidence: { label:'Confidence', question:'What is confidence reacting to?', patterns:[
+    diagnosticPattern('identity','One bad score makes me feel I cannot clear CAT.','You are likely turning one performance sample into an identity verdict. The pain is real, but the conclusion is much larger than the evidence.','Separate the score into concept, selection, and execution losses before judging your ability.'),
+    diagnosticPattern('comparison','Other aspirants make me feel behind.','You are comparing their visible scores with your entire private struggle. That creates urgency without useful diagnostic information.','Compare only your own last three mocks on one process metric you can change.'),
+    diagnosticPattern('repeat','A previous attempt still affects me.','The earlier result may be shaping current decisions before the paper does. You start protecting yourself from repetition, which can create hesitation and overcontrol.','Identify one current behaviour inherited from the previous attempt and test a replacement.'),
+    diagnosticPattern('mock_fear','I avoid mocks because the score scares me.','The mock has become a verdict rather than a training instrument. Avoidance protects confidence today but keeps uncertainty alive.','Take the next mock with one process goal and review that before the percentile.'),
+    diagnosticPattern('consistency','Broken consistency has damaged my confidence.','You may be reading missed days as proof that discipline is gone. Usually the system is too brittle, and confidence falls after the routine breaks.','Restart with a minimum viable day and rebuild evidence of reliability.')
+  ]},
+  strategy: { label:'Strategy', question:'Which strategic decision feels least reliable?', patterns:[
+    diagnosticPattern('order','I do not know the right attempt order.','You may be searching for one universal order when the better strategy is a stable scan rule that adapts to the paper. Fixed order can become a comfort habit.','Define what makes a question or set enter your first pass.'),
+    diagnosticPattern('selection','I cannot identify what to attempt.','Your selection is probably based on topic familiarity rather than visible entry points and downside. Familiar questions can still be expensive.','Judge each item by first-step clarity, constraint load, and exit cost.'),
+    diagnosticPattern('revision','I am unsure how to revise.','Your revision may be organised by chapters while your losses happen through recurring decisions. That refreshes content without repairing performance.','Revise through an error-pattern list, then attach concepts to each pattern.'),
+    diagnosticPattern('guessing','I do not know when to guess or leave.','You may be treating all uncertainty as equal. CAT strategy improves when partial elimination and time cost are considered together.','Use an explicit rule: guess only when elimination quality justifies the time already spent.'),
+    diagnosticPattern('plateau','My overall strategy has stopped working.','The strategy may have been built for an earlier skill level. As accuracy or speed changed, the old attempt targets became a constraint rather than support.','Rebuild targets from your last three section-level decision patterns, not old score goals.')
+  ]}
+};
+
+var DIAGNOSTIC_ROOT_OPTIONS = [
+  ['varc','VARC'],['dilr','DILR'],['qa','QA'],['mock','Mock Analysis'],['study_plan','Study Plan'],
+  ['time','Time Management'],['confidence','Confidence'],['strategy','Strategy'],['other','Other (Open Chat)']
+];
+
+function getDiagnosticStorageKey() {
+  return 'marg_diagnostic_memory_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function loadDiagnosticMemory() {
+  try { diagnosticMemory = JSON.parse(localStorage.getItem(getDiagnosticStorageKey()) || '{}') || {}; }
+  catch(e) { diagnosticMemory = {}; }
+  var latestTopic = null, latestTime = '';
+  Object.keys(diagnosticMemory).forEach(function(topic) {
+    var entry = diagnosticMemory[topic];
+    if (entry && entry.updatedAt && entry.updatedAt > latestTime) { latestTime = entry.updatedAt; latestTopic = topic; }
+  });
+  if (latestTopic) activeDiagnosticTopic = latestTopic;
+  studentProfile.diagnosticMemory = diagnosticMemory;
+  return diagnosticMemory;
+}
+
+function saveDiagnosticMemory() {
+  studentProfile.diagnosticMemory = diagnosticMemory;
+  try { localStorage.setItem(getDiagnosticStorageKey(), JSON.stringify(diagnosticMemory)); } catch(e) {}
+}
+
+function hydrateDiagnosticMemoryFromHistory() {
+  if (!conversationHistory || !conversationHistory.length) return;
+  var labelToTopic = {};
+  Object.keys(DIAGNOSTIC_TOPICS).forEach(function(topic) { labelToTopic[DIAGNOSTIC_TOPICS[topic].label.toLowerCase()] = topic; });
+  conversationHistory.forEach(function(message) {
+    if (message.role !== 'user' || typeof message.content !== 'string' || message.content.indexOf('[Diagnostic context') !== 0) return;
+    var match = message.content.match(/Section:\s*([^;]+);\s*sub-category:\s*([^;]+);\s*observed pattern:\s*([^;]+);\s*diagnosis:\s*(.*);\s*confirmation:\s*(Exactly|Mostly|Not Really)\./);
+    if (!match) return;
+    var topic = labelToTopic[match[1].trim().toLowerCase()];
+    if (!topic || diagnosticMemory[topic]) return;
+    var confirmation = match[5];
+    diagnosticMemory[topic] = {
+      selectedSection:match[1].trim(), topic:topic,
+      subcategory:match[2].trim() === 'general' ? null : match[2].trim(),
+      selectedPattern:match[3].trim(), confirmedDiagnosis:match[4].trim(),
+      confirmation:confirmation,
+      confidence:confirmation === 'Exactly' ? .95 : confirmation === 'Mostly' ? .75 : .3,
+      updatedAt:message.created_at || new Date(0).toISOString()
+    };
+  });
+  saveDiagnosticMemory();
+}
+
+function hasConfirmedDiagnostic(topic) {
+  var entry = diagnosticMemory[topic];
+  return !!(entry && (entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && entry.confidence >= 0.7);
+}
+
+function shouldLaunchDiagnosticTopic(topic) {
+  return !!(topic && DIAGNOSTIC_TOPICS[topic] && !hasConfirmedDiagnostic(topic) && !diagnosticSessionAttempted[topic]);
+}
+
+function diagnosticButton(label, handler, extraClass) {
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'diagnostic-option' + (extraClass ? ' ' + extraClass : '');
+  button.textContent = label;
+  button.onclick = handler;
+  return button;
+}
+
+function setDiagnosticScreen(progress, title, copy) {
+  document.getElementById('diagnostic-progress').textContent = progress;
+  document.getElementById('diagnostic-title').textContent = title;
+  document.getElementById('diagnostic-copy').textContent = copy || '';
+  document.getElementById('diagnostic-copy').style.display = copy ? 'block' : 'none';
+  document.getElementById('diagnostic-options').innerHTML = '';
+}
+
+function openDiagnosticFlow(topic, options) {
+  options = options || {};
+  loadDiagnosticMemory();
+  if (topic && !options.force && !shouldLaunchDiagnosticTopic(topic)) return false;
+  diagnosticFlowState = { active:true, firstTime:!!options.firstTime, topic:null, subcategory:null, pattern:null, stage:'root' };
+  document.getElementById('diagnostic-close').style.display = options.firstTime ? 'none' : 'block';
+  document.getElementById('diagnostic-flow-overlay').classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  if (topic) selectDiagnosticTopic(topic); else renderDiagnosticRoot();
+  return true;
+}
+
+function renderDiagnosticRoot() {
+  diagnosticFlowState.stage = 'root';
+  diagnosticFlowState.topic = null;
+  diagnosticFlowState.subcategory = null;
+  setDiagnosticScreen('1 of 3 · Quick diagnosis','What would you like help with today?','Pick the area that feels most urgent. You will get Marg’s read before normal chat begins.');
+  var options = document.getElementById('diagnostic-options');
+  DIAGNOSTIC_ROOT_OPTIONS.forEach(function(item) {
+    options.appendChild(diagnosticButton(item[1], function() { selectDiagnosticTopic(item[0]); }, item[0] === 'other' ? 'secondary' : ''));
+  });
+  document.getElementById('diagnostic-back').style.display = 'none';
+}
+
+function selectDiagnosticTopic(topic) {
+  if (topic === 'other') { completeDiagnosticOpenChat(); return; }
+  if (!DIAGNOSTIC_TOPICS[topic]) return;
+  diagnosticFlowState.topic = topic;
+  diagnosticFlowState.subcategory = null;
+  activeDiagnosticTopic = topic;
+  if (topic === 'varc') renderDiagnosticSubcategories(); else renderDiagnosticPatterns();
+}
+
+function renderDiagnosticSubcategories() {
+  var config = DIAGNOSTIC_TOPICS.varc;
+  diagnosticFlowState.stage = 'subcategory';
+  setDiagnosticScreen('2 of 3 · VARC',config.question,'Choose the part that most often costs you marks.');
+  var options = document.getElementById('diagnostic-options');
+  config.subcategories.forEach(function(item) {
+    options.appendChild(diagnosticButton(item.label, function() { diagnosticFlowState.subcategory = item.id; renderDiagnosticPatterns(); }));
+  });
+  document.getElementById('diagnostic-back').style.display = 'block';
+}
+
+function getCurrentDiagnosticPatterns() {
+  var config = DIAGNOSTIC_TOPICS[diagnosticFlowState.topic];
+  if (!config) return [];
+  return diagnosticFlowState.topic === 'varc' ? (config.patterns[diagnosticFlowState.subcategory] || []) : config.patterns;
+}
+
+function renderDiagnosticPatterns() {
+  var config = DIAGNOSTIC_TOPICS[diagnosticFlowState.topic];
+  if (!config) return;
+  diagnosticFlowState.stage = 'patterns';
+  var step = diagnosticFlowState.topic === 'varc' ? '3 of 3' : '2 of 2';
+  setDiagnosticScreen(step + ' · ' + config.label, diagnosticFlowState.topic === 'varc' ? 'What sounds most like you?' : config.question, 'Pick the pattern that feels most familiar, not the one that sounds most serious.');
+  var options = document.getElementById('diagnostic-options');
+  getCurrentDiagnosticPatterns().forEach(function(pattern) {
+    options.appendChild(diagnosticButton(pattern.label, function() { selectDiagnosticPattern(pattern.id); }));
+  });
+  document.getElementById('diagnostic-back').style.display = 'block';
+}
+
+function selectDiagnosticPattern(patternId) {
+  var patterns = getCurrentDiagnosticPatterns();
+  diagnosticFlowState.pattern = patterns.find(function(pattern) { return pattern.id === patternId; });
+  if (!diagnosticFlowState.pattern) return;
+  diagnosticFlowState.stage = 'prediction';
+  setDiagnosticScreen('Marg’s first read','I think I know what is happening.','This is a working diagnosis, not a label.');
+  var options = document.getElementById('diagnostic-options');
+  var prediction = document.createElement('div');
+  prediction.className = 'diagnostic-prediction';
+  prediction.textContent = diagnosticFlowState.pattern.prediction + ' Does this feel accurate?';
+  options.appendChild(prediction);
+  var confirmations = document.createElement('div');
+  confirmations.className = 'diagnostic-confirmations';
+  ['Exactly','Mostly','Not Really'].forEach(function(level) {
+    confirmations.appendChild(diagnosticButton(level, function() { confirmDiagnostic(level); }));
+  });
+  options.appendChild(confirmations);
+  document.getElementById('diagnostic-back').style.display = 'block';
+}
+
+function diagnosticBack() {
+  if (diagnosticFlowState.stage === 'prediction') { renderDiagnosticPatterns(); return; }
+  if (diagnosticFlowState.stage === 'patterns' && diagnosticFlowState.topic === 'varc') { renderDiagnosticSubcategories(); return; }
+  renderDiagnosticRoot();
+}
+
+function getDiagnosticTopicLabel(topic) {
+  return DIAGNOSTIC_TOPICS[topic] ? DIAGNOSTIC_TOPICS[topic].label : topic;
+}
+
+function confirmDiagnostic(level) {
+  var topic = diagnosticFlowState.topic;
+  var pattern = diagnosticFlowState.pattern;
+  if (!topic || !pattern) return;
+  var confidence = level === 'Exactly' ? 0.95 : level === 'Mostly' ? 0.75 : 0.3;
+  var subcategoryLabel = null;
+  if (topic === 'varc' && diagnosticFlowState.subcategory) {
+    var subcategoryMatch = DIAGNOSTIC_TOPICS.varc.subcategories.find(function(item) { return item.id === diagnosticFlowState.subcategory; });
+    subcategoryLabel = subcategoryMatch ? subcategoryMatch.label : diagnosticFlowState.subcategory;
+  }
+  var entry = {
+    selectedSection:getDiagnosticTopicLabel(topic),
+    topic:topic,
+    subcategory:subcategoryLabel,
+    patternId:pattern.id,
+    selectedPattern:pattern.label,
+    confirmedDiagnosis:pattern.prediction,
+    confirmation:level,
+    confidence:confidence,
+    action:pattern.action,
+    updatedAt:new Date().toISOString()
+  };
+  diagnosticMemory[topic] = entry;
+  diagnosticSessionAttempted[topic] = true;
+  activeDiagnosticTopic = topic;
+  saveDiagnosticMemory();
+  finishDiagnosticFlow(entry);
+}
+
+function finishDiagnosticFlow(entry) {
+  var wasFirstTime = diagnosticFlowState.firstTime;
+  closeDiagnosticFlow(true);
+  if (wasFirstTime) {
+    if (entry.topic === 'varc' || entry.topic === 'dilr' || entry.topic === 'qa') studentProfile.weakestSection = entry.selectedSection;
+    conversationalProfile.weakSection = entry.selectedSection;
+    conversationalProfile.diagnosisSection = entry.topic;
+    conversationalProfile.diagnosisPattern = entry.confirmedDiagnosis;
+    conversationalProfile.patternConfirmed = entry.confirmation !== 'Not Really';
+    showBottomNav();
+  }
+  var contextMessage = '[Diagnostic context — do not ask this again] Section: ' + entry.selectedSection +
+    '; sub-category: ' + (entry.subcategory || 'general') + '; observed pattern: ' + entry.selectedPattern +
+    '; diagnosis: ' + entry.confirmedDiagnosis + '; confirmation: ' + entry.confirmation + '.';
+  conversationHistory.push({ role:'user', content:contextMessage });
+  var reply;
+  if (entry.confirmation === 'Exactly') reply = 'Good — then we do not need more diagnosis. ' + entry.action;
+  else if (entry.confirmation === 'Mostly') reply = 'Close enough to work with, but I will keep it as a hypothesis. ' + entry.action;
+  else reply = 'Good correction — I will not lock that diagnosis. Bring me the last concrete question, set, or mock moment where the problem showed up; I will work from that evidence.';
+  addMessage('marg', reply, true);
+  conversationHistory.push({ role:'assistant', content:reply });
+  if (!isGuestMode) { saveChatMessage('user', contextMessage); saveChatMessage('assistant', reply); }
+  var input = document.getElementById('user-input');
+  if (input) { input.disabled = false; input.focus(); }
+  var send = document.getElementById('send-btn');
+  if (send) send.disabled = false;
+}
+
+function completeDiagnosticOpenChat() {
+  var wasFirstTime = diagnosticFlowState.firstTime;
+  closeDiagnosticFlow(true);
+  if (wasFirstTime) showBottomNav();
+  var reply = 'Open chat it is. Tell me what is happening in your CAT preparation; I will give you my read before I ask for detail.';
+  addMessage('marg', reply, true);
+  conversationHistory.push({ role:'assistant', content:reply });
+  if (!isGuestMode) saveChatMessage('assistant', reply);
+  document.getElementById('user-input').focus();
+}
+
+function closeDiagnosticFlow(completed) {
+  if (!diagnosticFlowState.active) return;
+  if (diagnosticFlowState.firstTime && !completed) return;
+  document.getElementById('diagnostic-flow-overlay').classList.remove('visible');
+  document.body.style.overflow = '';
+  diagnosticFlowState.active = false;
+}
+
+function resetDiagnostic(topic) {
+  if (topic && diagnosticMemory[topic]) delete diagnosticMemory[topic];
+  else if (!topic) diagnosticMemory = {};
+  if (topic) delete diagnosticSessionAttempted[topic]; else diagnosticSessionAttempted = {};
+  saveDiagnosticMemory();
+}
+window.resetMargDiagnostic = resetDiagnostic;
+
+function detectExplicitDiagnosticTopic(message) {
+  var text = String(message || '').toLowerCase().replace(/[’']/g,'');
+  var explicitNeed = /\b(help|weak|weaker|weakest|terrible|bad|struggl|problem|issue|improve|fix|work on|focus on|switch|change topic|talk about|need advice|want to discuss)\b/.test(text);
+  if (!explicitNeed) return null;
+  if (/\b(varc|reading comprehension|verbal ability|\brc\b)/.test(text)) return 'varc';
+  if (/\b(dilr|data interpretation|logical reasoning|\blr\b)/.test(text)) return 'dilr';
+  if (/\b(qa|quants?|quantitative aptitude|arithmetic|algebra|geometry)\b/.test(text)) return 'qa';
+  if (/\b(mock|mock analysis|mock test|percentile)\b/.test(text)) return 'mock';
+  if (/\b(study plan|study schedule|timetable|backlog|what to study|planning|plan my study|prepare a plan)\b/.test(text)) return 'study_plan';
+  if (/\b(time management|manage time|run out of time|too slow|pacing)\b/.test(text)) return 'time';
+  if (/\b(confidence|confident|self doubt|self-doubt|want to quit|cant clear cat|cannot clear cat)\b/.test(text)) return 'confidence';
+  if (/\b(strategy|attempt order|question selection|revision strategy)\b/.test(text)) return 'strategy';
+  return null;
+}
+
+function maybeHandleDiagnosticReset(message) {
+  var text = String(message || '').toLowerCase();
+  if (!/\b(reset|redo|start over|diagnose again)\b/.test(text) || !/\b(diagnosis|diagnostic)\b/.test(text)) return false;
+  var topic = detectExplicitDiagnosticTopic('help ' + text) || activeDiagnosticTopic;
+  resetDiagnostic(topic || null);
+  return openDiagnosticFlow(topic || null, { force:true, firstTime:false });
+}
+
+function maybeLaunchDiagnosticFromMessage(message) {
+  if (maybeHandleDiagnosticReset(message)) return true;
+  var topic = detectExplicitDiagnosticTopic(message);
+  if (!topic || !shouldLaunchDiagnosticTopic(topic)) return false;
+  return openDiagnosticFlow(topic, { firstTime:false });
+}
+
+function getDiagnosticMemoryContext() {
+  var entries = Object.keys(diagnosticMemory).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && entry.confirmedDiagnosis; });
+  if (!entries.length) return '';
+  return '\n\nCONFIRMED DIAGNOSTIC MEMORY (reuse it; do not repeat this flow):\n' + entries.map(function(entry) {
+    return '- ' + entry.selectedSection + (entry.subcategory ? ' / ' + entry.subcategory.toUpperCase() : '') + ': ' + entry.confirmedDiagnosis + ' Confirmation=' + entry.confirmation + ', confidence=' + entry.confidence + '.';
+  }).join('\n');
+}
+
+function runDiagnosticFlowTests() {
+  var originalMemory = diagnosticMemory;
+  var originalAttempts = diagnosticSessionAttempted;
+  diagnosticMemory = {};
+  diagnosticSessionAttempted = {};
+  var results = [
+    { name:'explicit VARC switch', passed:detectExplicitDiagnosticTopic('I want help with VARC') === 'varc' },
+    { name:'explicit DILR switch', passed:detectExplicitDiagnosticTopic('My DILR is terrible') === 'dilr' },
+    { name:'ordinary mentoring is not interrupted', passed:detectExplicitDiagnosticTopic('I solved two RC passages today') === null },
+    { name:'new topic launches', passed:shouldLaunchDiagnosticTopic('qa') === true }
+  ];
+  diagnosticMemory.qa = { confirmation:'Exactly', confidence:.95 };
+  results.push({ name:'confirmed diagnosis does not repeat', passed:shouldLaunchDiagnosticTopic('qa') === false });
+  diagnosticMemory.qa = { confirmation:'Not Really', confidence:.3 };
+  results.push({ name:'low confidence can be diagnosed later', passed:shouldLaunchDiagnosticTopic('qa') === true });
+  diagnosticMemory = originalMemory;
+  diagnosticSessionAttempted = originalAttempts;
+  return results;
+}
+
+const onboardingFlow = [
+  { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
+    'VARC (Reading & Verbal)': "My first read: your English probably isn't the issue — the leak is more likely option elimination, pace, or second-guessing. We'll identify which one next.",
+    'DILR (Data & Logic)': "My first read: this is probably a set-selection or representation problem before it's a logic problem. That's fixable once we see where the set starts collapsing.",
+    'QA (Quant)': "My first read: the gap is likely recognition, execution, or a small cluster of avoided topics — not 'being bad at maths.' We'll separate those quickly.",
+    'It changes across mocks': "That usually means execution changes under pressure rather than every concept being weak. The pattern across your mistakes will tell us more than one sectional score."
+  } },
+  { message: "To make the first action realistic, what's the time you can usually protect on an ordinary day — not your best day?", key: 'dailyHours', options: ['Less than 1 hour', '1-2 hours', '2-4 hours', '4+ hours'] }
 ];
 
 function showRandomQuote() {
@@ -1213,6 +1658,7 @@ async function loadUserData() {
       lastSessionDate: profile.last_session_date || null,
       sessionSummary: profile.session_summary || null
     };
+    loadDiagnosticMemory();
 
     var savedTopicLog = profile.practice_topic_log || {};
     practiceTopicLog = {};
@@ -1229,6 +1675,8 @@ async function loadUserData() {
     if (chats && chats.length > 0) {
       conversationHistory = chats.map(function(c) { return { role: c.role, content: c.content }; });
     }
+    loadDiagnosticMemory();
+    hydrateDiagnosticMemoryFromHistory();
     return true;
   } catch(e) { return false; }
 }
@@ -1511,14 +1959,8 @@ function startConversationalOnboarding() {
 
 
   setTimeout(function() {
-    addMessage('marg', "Hi, I'm Marg — your personal CAT mentor. What's bothering you most about your prep right now?");
-    showConversationalOptions([
-      "My scores aren't improving despite studying",
-      "I'm weak in a specific section",
-      "I don't know where to start",
-      "Time management in the exam",
-      "I want to analyse my recent mock"
-    ], 'opening');
+    loadDiagnosticMemory();
+    openDiagnosticFlow(null, { firstTime:true });
   }, 600);
 }
 var conversationalProfile = {
@@ -1535,6 +1977,114 @@ var conversationalProfile = {
   patternConfirmed: false,
   awaitingPatternCorrection: false
 };
+
+function detectMentorIntent(message) {
+  var text = String(message || '').toLowerCase().trim();
+  if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
+  if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
+  if (/\b(varc|rc|reading comprehension|verbal)\b/.test(text)) return 'varc_diagnosis';
+  if (/\b(dilr|lrdi|data interpretation|logical reasoning)\b/.test(text)) return 'dilr_diagnosis';
+  if (/\b(qa|quant|quants|maths|mathematics)\b/.test(text)) return 'qa_diagnosis';
+  if (/\b(mock|percentile|score|marks|attempted)\b/.test(text)) return 'mock_diagnosis';
+  if (/time management|run out of time|too slow|speed/.test(text)) return 'pacing_diagnosis';
+  if (/plan|schedule|timetable|what should i study|where.*start/.test(text)) return 'planning';
+  if (/^(idk|i don'?t know|help|help me|bro|bhai|hey|hi|hello|stuck|confused)[.!\s]*$/.test(text) || text.length < 4) return 'vague';
+  return 'general_mentor';
+}
+
+function detectEmotionalState(message) {
+  var text = String(message || '').toLowerCase();
+  if (/want to quit|give up|hopeless|failure|can'?t clear|cannot clear|never crack|not made for/.test(text)) return 'low-confidence';
+  if (/panic|terrified|anxious|scared|overwhelmed/.test(text)) return 'anxious';
+  if (/frustrated|angry|fed up|hate/.test(text)) return 'frustrated';
+  if (/tired|burnt out|burned out|exhausted/.test(text)) return 'drained';
+  return 'neutral';
+}
+
+function getLikelyHiddenProblem(intent, message) {
+  var text = String(message || '').toLowerCase();
+  if (intent === 'confidence_breakdown') return 'A recent score or repeated miss has been converted into a verdict about ability; the immediate need is to separate evidence from identity and restore one controllable next step.';
+  if (intent === 'returning_memory') return studentProfile.lastTask ? 'The student wants continuity, not another intake question. Resume from the saved task: ' + studentProfile.lastTask : 'The student wants continuity. Use the session summary or recent conversation; state uncertainty honestly if no reliable unfinished task exists.';
+  if (intent === 'vague') return studentProfile.weakestSection ? 'The student is likely overwhelmed and cannot frame the problem. Use the known weak section (' + studentProfile.weakestSection + ') to offer three concrete hypotheses.' : 'The student is overwhelmed or unsure how to frame the problem. Offer three recognisable CAT failure patterns instead of asking an open-ended question.';
+  if (intent === 'varc_diagnosis') return /time|slow/.test(text) ? 'Reading for complete understanding before mapping passage structure is probably consuming the clock.' : 'The likely leak is between comprehension and option selection: scope shifts, extreme wording, or second-guessing the final two.';
+  if (intent === 'dilr_diagnosis') return /time|slow/.test(text) ? 'The student may be staying with an unproductive set because starting it feels like a commitment.' : 'The likely failure happens before calculation: set selection, choosing the wrong representation, or missing one constraint that invalidates the grid.';
+  if (intent === 'qa_diagnosis') return /slow|time/.test(text) ? 'The student may know concepts but solve every problem by the longest textbook route instead of recognition, ratios, elimination, or approximation.' : 'The likely gap is one of three: concept recall, recognizing the setup, or clean execution after a correct setup.';
+  if (intent === 'mock_diagnosis') return 'The total score alone is not the diagnosis; selection, attempts and accuracy by section must be separated before naming the leak.';
+  if (intent === 'pacing_diagnosis') return 'The visible problem is speed, but the hidden cause is usually selection, over-investment, or an inefficient representation—not raw reading or calculation speed.';
+  if (intent === 'planning') return 'The student needs a prioritised decision, not a comprehensive syllabus dump. Build around the highest-leverage weakness and the time actually available.';
+  return 'There is not enough evidence for a narrow diagnosis, so make one bounded hypothesis from the message and known profile, label it as a read, and give one useful next step before confirming.';
+}
+
+function getConsecutiveQuestionResponses() {
+  var count = 0;
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    var item = conversationHistory[i];
+    if (!item || item.role !== 'assistant') continue;
+    if (/\?|\[OPTIONS:/i.test(item.content || '')) count++;
+    else break;
+  }
+  return count;
+}
+
+function analyzeMentorInput(message) {
+  var intent = detectMentorIntent(message);
+  var emotion = detectEmotionalState(message);
+  var confidence = intent === 'general_mentor' ? 0.55 : intent === 'vague' ? 0.65 : intent === 'mock_diagnosis' ? 0.72 : 0.84;
+  return {
+    intent: intent,
+    emotionalState: emotion,
+    likelyHiddenProblem: getLikelyHiddenProblem(intent, message),
+    confidence: confidence,
+    consecutiveQuestionResponses: getConsecutiveQuestionResponses()
+  };
+}
+
+function buildDiagnosisDirective(message) {
+  var diagnosis = analyzeMentorInput(message);
+  var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
+  directive += '\nResponse order is mandatory: (1) acknowledge emotion only if present, (2) state a specific prediction/diagnosis/pattern, (3) give one actionable insight or reframe, (4) ask at most ONE confirmation question only if it materially changes the advice. Value must appear before any question.';
+  if (diagnosis.consecutiveQuestionResponses >= 2) directive += '\nQUESTION BUDGET EXHAUSTED: Ask no question and emit no [OPTIONS] tag. Make a useful best-effort diagnosis and action from existing evidence.';
+  if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
+  if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
+  if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
+  return { diagnosis: diagnosis, directive: directive };
+}
+
+function applyMentorResponseGuard(response, diagnosis) {
+  var text = correctCalendarReferences(String(response || '')).trim();
+  if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2) {
+    text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
+    text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
+  } else {
+    var questionCount = 0;
+    text = text.replace(/\?/g, function(mark) { questionCount++; return questionCount <= 1 ? mark : '.'; });
+  }
+  if (!text) text = diagnosis && diagnosis.likelyHiddenProblem ? 'My read: ' + diagnosis.likelyHiddenProblem : 'My read is that the visible problem is not the whole problem. Let us work from the last concrete thing that went wrong.';
+  return text;
+}
+
+function buildMentorFallbackReply(diagnosis) {
+  if (!diagnosis) return 'My read is that the visible problem is not the whole problem. Start with the last concrete question or set that went wrong and look for the decision that caused it.';
+  if (diagnosis.intent === 'confidence_breakdown') return 'This sounds less like a verdict on your CAT ability and more like one bad pattern becoming your whole self-assessment. For today, shrink the problem: review the last three misses and label each one concept, selection, or execution—the repeated label is what we fix.';
+  if (diagnosis.intent === 'returning_memory') return studentProfile.lastTask ? 'We left off with: ' + studentProfile.lastTask + '. My guess is the useful part now is not repeating the plan but seeing where it actually broke.' : 'I do not have a reliable saved task to pretend otherwise. The useful thread I can recover is your recent pattern, and we should restart from the last concrete result rather than another profile intake.';
+  if (diagnosis.intent === 'vague') return studentProfile.weakestSection ? 'My first read is that "help" means the problem feels too tangled to name. Given your ' + studentProfile.weakestSection + ' pattern, the likely issue is either selection, execution, or not knowing the first move—which one feels closest?' : 'When someone can only say "help," it usually means one of three things: scores are stuck, the plan feels chaotic, or confidence has dropped. Pick the closest one and I will give you a read, not an interview.';
+  if (diagnosis.intent === 'varc_diagnosis') return 'My first read: your English is probably not the main issue; marks are leaking between understanding the passage and choosing the final option. Check whether your last three misses were scope shifts, extreme wording, or changed answers.';
+  if (diagnosis.intent === 'dilr_diagnosis') return 'My first read: the failure is probably happening before the calculations—in set selection, the representation you choose, or one missed constraint. On the next set, record the exact minute the setup stopped progressing; that tells us which one.';
+  if (diagnosis.intent === 'qa_diagnosis') return 'My first read: this is either concept recall, recognizing the setup, or execution after a correct setup. Label your last five misses with those three buckets; the largest bucket is the real QA problem.';
+  return 'My first read: ' + diagnosis.likelyHiddenProblem;
+}
+
+function runMentorBehaviorTests() {
+  var cases = [
+    { input: "I can't clear CAT", intent: 'confidence_breakdown', emotion: 'low-confidence' },
+    { input: 'idk', intent: 'vague', emotion: 'neutral' },
+    { input: 'Where did we leave off?', intent: 'returning_memory', emotion: 'neutral' }
+  ];
+  return cases.map(function(testCase) {
+    var result = analyzeMentorInput(testCase.input);
+    return { input: testCase.input, passed: result.intent === testCase.intent && result.emotionalState === testCase.emotion, result: result };
+  });
+}
 
 var FAILURE_PATTERN_FALLBACK = "actually, let me not assume — what's the last question in this section that you got wrong and remember clearly? walk me through what happened";
 
@@ -1697,6 +2247,7 @@ async function sendConversationalMessage(userMessage, context) {
   }
   showTyping();
 
+  var mentorAnalysis = buildDiagnosisDirective(userMessage);
   var profileSoFar = '';
   if (conversationalProfile.weakSection) profileSoFar += 'Weak section: ' + conversationalProfile.weakSection + '. ';
   if (conversationalProfile.hours) profileSoFar += 'Daily hours: ' + conversationalProfile.hours + '. ';
@@ -1704,7 +2255,9 @@ async function sendConversationalMessage(userMessage, context) {
   if (conversationalProfile.situation) profileSoFar += 'Situation: ' + conversationalProfile.situation + '. ';
 
   var systemAddition = profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
-  systemAddition += '\n\nCONVERSATIONAL ONBOARDING MODE: Be warm and direct. When you need to narrow something down, use options. Format: [OPTIONS: opt1|opt2|opt3][CONTEXT: type]. Only use options when it genuinely helps — not for every response.\n\nOPTIONS TO USE FOR EACH CONTEXT:\n\nSection weakness (CONTEXT: section): VARC|DILR|QA|All sections equally\n\nVARC sub-issue (CONTEXT: varc_sub): RC is the problem|VA is the problem|Both RC and VA\n\nRC specific issues (CONTEXT: rc_specific): I dont understand the passage|I understand but pick wrong options|I get stuck between 2 final options|I run out of time|I do well in practice but fail in mocks|I change my correct answer at the last moment|I skip questions but shouldnt have|I fall for extreme language traps\n\nVA specific issues (CONTEXT: va_specific): Para jumbles confuse me|Odd sentence out is hit or miss|Para summary questions feel subjective|All VA types trouble me\n\nDILR sub-issue (CONTEXT: dilr_sub): I run out of time|I cant crack the setup|I stay too long on hard sets|I solve correctly but make calculation errors|I panic and lose accuracy|I misread the constraints\n\nQA sub-issue (CONTEXT: qa_sub): I dont know the concept|I know the concept but make errors|I am too slow|I make careless mistakes in final step|Certain topics like geometry or P&C feel impossible|Mixed topics confuse me\n\nDaily hours (CONTEXT: hours): Less than 1 hour|1-2 hours|2-4 hours|4-6 hours|6+ hours\n\nAttempt number (CONTEXT: attempt): First attempt|Second attempt|Third attempt or more\n\nSituation (CONTEXT: situation): Working professional|College student|Full-time prep|Preparing alongside other exams\n\nIMPORTANT: When the student picks a section sub-issue (rc_specific, va_specific, dilr_sub, qa_sub) via these options, do not respond yourself — the app handles that moment separately with a specific diagnosis guess. These options are tools for when you still genuinely need that piece of information — not a checklist to march through regardless of what the student already told you. The same 2-question cap applies here as everywhere else: if a student has already given you enough in free text — concrete scores, a clear section and sub-issue, whatever — to say something real, do that now instead of asking the next scripted question in the list. You can still ask one more thing afterward if it would sharpen your read, but never before giving something. Never generic. Never list Marg features. Never show two sets of [OPTIONS] in the same message. One question, one set of options per message. If you need to ask about both RC and VA — ask RC first, wait for answer, then ask VA.';
+  systemAddition += getDiagnosticMemoryContext();
+  systemAddition += mentorAnalysis.directive;
+  systemAddition += '\n\nMENTOR ONBOARDING MODE: The goal is an accurate-feeling first insight, not profile completion. Never ask for attempt number, daily hours, situation, coaching, score, attempts, and pace as a sequence. Infer what is not essential. If a compact choice helps confirm your read, use one [OPTIONS: choice1|choice2|choice3][CONTEXT: diagnosis_confirm] block after the diagnosis; otherwise ask one natural confirmation question. Complete onboarding after two meaningful student replies even if profile fields remain blank.';
 
   if (context === 'pattern_confirmed') {
     systemAddition += '\n\nThe student just confirmed the diagnosis pattern you gave them is accurate. Do not repeat or re-explain it. Move straight to your next onboarding question.';
@@ -1727,7 +2280,7 @@ async function sendConversationalMessage(userMessage, context) {
       })
     }, 45000);
     var data = await res.json();
-    var response = data.content && data.content[0] ? correctCalendarReferences(data.content[0].text) : null;
+    var response = data.content && data.content[0] ? applyMentorResponseGuard(data.content[0].text, mentorAnalysis.diagnosis) : null;
     hideTyping();
     if (response) {
 
@@ -1754,7 +2307,7 @@ async function sendConversationalMessage(userMessage, context) {
       checkAndLogPracticeVolume(response);
 
 
-      if (conversationHistory.length >= 8 && !onboardingComplete) {
+      if (conversationHistory.filter(function(item) { return item.role === 'user'; }).length >= 2 && !onboardingComplete) {
         onboardingComplete = true;
         localStorage.setItem('marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest'), '1');
         showBottomNav();
@@ -1765,7 +2318,10 @@ async function sendConversationalMessage(userMessage, context) {
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — tell me again, what specifically feels stuck?' : 'Tell me more — what specifically feels stuck?');
+    var fallbackResponse = buildMentorFallbackReply(mentorAnalysis.diagnosis);
+    addMessage('marg', fallbackResponse);
+    conversationHistory.push({ role: 'assistant', content: fallbackResponse });
+    if (!isGuestMode) saveChatMessage('assistant', fallbackResponse);
   }
 }
 
@@ -2053,9 +2609,7 @@ function restoreConversation() {
       addMessage(msg.role === 'user' ? 'user' : 'marg', formatted);
     });
   }
-  const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
-  addMessage('marg', 'Welcome back' + (name ? ', ' + name : '') + '! 👋 Ready to continue from where we left off?', true);
-  addSuggestionChips();
+  if (displayMessages.length === 0) addSuggestionChips();
   document.getElementById('user-input').focus();
   checkAndShowTour();
 }
@@ -2137,6 +2691,13 @@ async function sendMessage() {
   detectAndSaveMockScores(text);
   if (!isGuestMode) saveChatMessage('user', text);
 
+  // Explicit new-topic requests enter the same fast diagnostic used on day one.
+  // Confirmed topics continue directly to mentoring and are never re-asked here.
+  if (maybeLaunchDiagnosticFromMessage(text)) {
+    isLoading = false;
+    document.getElementById('send-btn').disabled = false;
+    return;
+  }
 
   if (!onboardingComplete && conversationHistory.length <= 10) {
     await sendConversationalMessage(text, 'typed');
@@ -2147,6 +2708,7 @@ async function sendMessage() {
 
   showTyping();
   const activitySummary = buildActivitySummary();
+  const mentorAnalysis = buildDiagnosisDirective(text);
   profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
     (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
@@ -2158,11 +2720,11 @@ async function sendMessage() {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary + getPracticeThresholdNote();
+    activitySummary + getDiagnosticMemoryContext() + mentorAnalysis.directive + getPracticeThresholdNote();
   try {
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) }, 45000);
     const data = await response.json();
-    const reply = correctCalendarReferences((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.');
+    const reply = applyMentorResponseGuard((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.', mentorAnalysis.diagnosis);
     hideTyping();
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
@@ -2183,7 +2745,13 @@ async function sendMessage() {
     checkAndRenderMargOptions(reply);
     checkAndRenderTestPrompt(reply);
     checkAndLogPracticeVolume(reply);
-  } catch (e) { hideTyping(); addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — please try sending that again.' : 'Yaar, connection issue. Please try again in a moment.'); }
+  } catch (e) {
+    hideTyping();
+    const fallbackReply = buildMentorFallbackReply(mentorAnalysis.diagnosis);
+    addMessage('marg', fallbackReply);
+    conversationHistory.push({ role: 'assistant', content: fallbackReply });
+    if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
+  }
   isLoading = false; document.getElementById('send-btn').disabled = false; input.focus();
 }
 
@@ -2283,13 +2851,13 @@ function sendCheckinMessage() {
   const weak = studentProfile.weakestSection || 'your prep';
   let msg = '';
   if (checkinStudied === 'yes') {
-    if (checkinHours >= 5) msg = checkinHours + ' hours yesterday — serious session' + (name ? ', ' + name : '') + '. Carry that energy. What section did you work on most?';
-    else if (checkinHours >= 3) msg = checkinHours + ' hours yesterday — solid and consistent. What are we focusing on today?';
-    else msg = checkinHours + ' hours yesterday. Every hour counts. What\'s your plan for today?';
+    if (checkinHours >= 5) msg = checkinHours + ' hours shows effort is not the bottleneck' + (name ? ', ' + name : '') + ' — the risk is doing volume without extracting the mistake pattern. Start today by reviewing yesterday\'s three hardest decisions before opening new material.';
+    else if (checkinHours >= 3) msg = checkinHours + ' hours is enough for progress, so if scores are flat the feedback loop is probably the leak. Begin with 20 minutes on yesterday\'s wrong or skipped questions, then practise ' + weak + '.';
+    else msg = 'With ' + checkinHours + ' hours, spreading across all three sections will dilute the session. Put the first focused block into ' + weak + ' and use the final ten minutes to label what actually went wrong.';
   } else if (checkinStudied === 'partial') {
-    msg = 'Partial prep is still prep' + (name ? ', ' + name : '') + '. What got in the way yesterday?';
+    msg = 'A partial day usually means the plan was too fragile for real life' + (name ? ', ' + name : '') + '. Make today easier to start: one 25-minute block on ' + weak + ' before deciding whether to continue.';
   } else {
-    msg = "Missed yesterday — happens. The only day that matters is today. What's the one thing you're opening first — " + weak + "?";
+    msg = 'One missed day is not the pattern; an oversized restart is. Open with twenty minutes of ' + weak + ' today—small enough to begin, specific enough to count.';
   }
   setTimeout(function() { addMessage('marg', msg, true); }, 400);
 }
@@ -2455,17 +3023,10 @@ function startGuestMode() {
   document.getElementById('guest-limit-banner').classList.add('visible');
   updateGuestBanner();
   document.getElementById('user-info').innerHTML = '<span style="font-size:12px;color:var(--text-dim)">Guest mode</span><button style="font-size:11px;color:var(--gold);background:none;border:none;cursor:pointer;margin-left:8px;" onclick="startLogin()">Login to save →</button>';
-  onboardingComplete = true;
+  onboardingComplete = false;
   studentProfile = { attemptNumber: 'Guest', monthsLeft: 'Unknown', weakestSection: 'Unknown', dailyHours: 'Unknown', situation: 'Guest user' };
-  addMessage('marg', "Namaste! 🙏 I'm Marg — your personal CAT mentor. What do you want help with today?", true);
-  setTimeout(function() {
-    const container = document.getElementById('messages');
-    const chipsDiv = document.createElement('div');
-    chipsDiv.style.marginLeft = '38px'; chipsDiv.className = 'fade-in';
-    chipsDiv.innerHTML = '<div class="chips"><button class="chip" onclick="sendQuick(\'How do I start CAT prep from scratch?\')">Where to start</button><button class="chip" onclick="sendQuick(\'How to improve VARC for CAT?\')">Improve VARC</button><button class="chip" onclick="sendQuick(\'How to attempt DILR in exam?\')">DILR strategy</button><button class="chip" onclick="sendQuick(\'How to build consistency in CAT prep?\')">Consistency</button><button class="chip" onclick="sendQuick(\'Which mock test series is best for CAT?\')">Mock tests</button></div>';
-    container.appendChild(chipsDiv);
-    container.scrollTop = container.scrollHeight;
-  }, 600);
+  loadDiagnosticMemory();
+  setTimeout(function() { openDiagnosticFlow(null, { firstTime:true }); }, 300);
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
   document.getElementById('user-input').focus();
@@ -2622,17 +3183,17 @@ async function sendReturningUserGreeting() {
   let situationLine = '';
   if (lastSession && lastSession.last_task && lastSession.last_session_date) {
     const daysSince = Math.floor((new Date() - new Date(lastSession.last_session_date)) / (1000 * 60 * 60 * 24));
-    situationLine = 'It has been ' + daysSince + ' day(s) since this student last spoke to you. Last time, you gave them this task: "' + lastSession.last_task + '"' + (lastSession.last_insight ? '. Your read on them at the time was: "' + lastSession.last_insight + '"' : '') + '. Open by picking that thread back up — ask what happened with it, even if they did not do it.';
+    situationLine = 'It has been ' + daysSince + ' day(s) since this student last spoke to you. Last time, the open task was: "' + lastSession.last_task + '"' + (lastSession.last_insight ? '. Your read then was: "' + lastSession.last_insight + '"' : '') + '. Start with continuity and value: state where you left off in one compact line, add one prediction about what probably got in the way or what the result would reveal, then ask at most one easy confirmation. Do not make them reconstruct the previous session.';
   } else if (streak >= 2) {
-    situationLine = 'This student is on a ' + streak + '-day check-in streak. Acknowledge the momentum in passing, do not make a big deal of it, then ask what they want to focus on today or what they worked on yesterday.';
+    situationLine = 'This student is on a ' + streak + '-day check-in streak. Use known profile/memory to offer one likely focus for today and why; then let them confirm or redirect. Do not ask a blank "what do you want to focus on?" question.';
   } else {
-    situationLine = 'There is no specific unfinished thread from last time. Ask what is on their mind today, or their weakest section and last mock score, so you can tell them what to do first.';
+    situationLine = 'There is no reliable unfinished task. Use the known weakest section or recent pattern to offer one plausible starting point and one reason; ask only whether that read is useful. Do not restart profile intake.';
   }
 
   const greetingContext = getDateContext() +
     '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') +
     '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours +
-    '\n\nRETURNING GREETING: ' + (name || 'This student') + ' just opened the app after being away — it is ' + timeOfDay + '. ' + situationLine + ' Write ONE opening message in your own voice, 1 to 3 sentences, the way you would actually text someone you mentor. Do not list their profile back at them. Do not open with a generic line like "Good to have you back."';
+    '\n\nRETURNING GREETING: ' + (name || 'This student') + ' just opened the app after being away — it is ' + timeOfDay + '. ' + situationLine + ' Write ONE opening message in your own voice, 1 to 3 sentences. It must contain continuity plus a prediction/insight before any question. Do not list their profile, say "ready to continue?", or open with a generic welcome.';
 
   let greeting = '';
   try {
@@ -2738,7 +3299,7 @@ async function submitMockOnboarding() {
 
   try {
     const total = varc + dilr + qa;
-    const weakSection = dilr <= qa && dilr <= varc ? 'DILR' : qa <= varc && qa <= dilr ? 'QA' : 'VARC';
+    const weakSection = getLowestRelativeMockSection(varc, dilr, qa);
 
     const prompt = `A CAT aspirant just gave a mock with these scores: VARC: ${varc}/72, DILR: ${dilr}/60, QA: ${qa}/60. Total: ${total}/192.
 
@@ -2769,13 +3330,27 @@ Based on these scores, give a mentor-style diagnosis in 2-3 sentences. Sound lik
     mobData.diagnosis = diagnosis;
 
   } catch(e) {
-    const total = mobData.varc + mobData.dilr + mobData.qa;
-    const weakSection = mobData.dilr <= mobData.qa && mobData.dilr <= mobData.varc ? 'DILR' : mobData.qa <= mobData.varc && mobData.qa <= mobData.dilr ? 'QA' : 'VARC';
     diagnosisEl.className = 'mob-diagnosis';
-    diagnosisEl.textContent = `Based on your scores — ${weakSection} looks like the main area to focus on. Your total of ${total} suggests there's real room to improve with the right diagnosis. Let me ask you a couple of quick questions to understand what's actually happening.`;
+    diagnosisEl.textContent = buildMockScoreFirstRead(mobData.varc, mobData.dilr, mobData.qa);
     document.getElementById('mob-step2-next').style.display = 'block';
     document.getElementById('mob-step2-skip').style.display = 'block';
   }
+}
+
+function getLowestRelativeMockSection(varc, dilr, qa) {
+  var scores = [
+    { name: 'VARC', raw: varc, ratio: varc / 72 },
+    { name: 'DILR', raw: dilr, ratio: dilr / 60 },
+    { name: 'QA', raw: qa, ratio: qa / 60 }
+  ].filter(function(item) { return item.raw > 0 && Number.isFinite(item.ratio); });
+  scores.sort(function(a, b) { return a.ratio - b.ratio; });
+  return scores.length ? scores[0].name : 'your lowest section';
+}
+
+function buildMockScoreFirstRead(varc, dilr, qa) {
+  var weakSection = getLowestRelativeMockSection(varc, dilr, qa);
+  var pattern = weakSection === 'VARC' ? 'option selection or over-attempting before assuming comprehension is weak' : weakSection === 'DILR' ? 'set selection and time spent on dead setups before assuming logic is weak' : 'question recognition and topic coverage before assuming calculation speed is weak';
+  return weakSection + ' has the largest relative gap on the score scale used here. Scores alone cannot prove the cause, but the first pattern I would test is ' + pattern + '; review the last five wrong or skipped questions in that section using that lens.';
 }
 
 function skipMockOnboarding() {
@@ -2787,8 +3362,8 @@ async function finishMockOnboarding() {
   const varc = parseFloat(document.getElementById('mob-varc').value) || 0;
   const dilr = parseFloat(document.getElementById('mob-dilr').value) || 0;
   const qa = parseFloat(document.getElementById('mob-qa').value) || 0;
-  const attempt = document.getElementById('mob-attempt-select').value || '1st attempt';
-  const weak = document.getElementById('mob-weak-select').value || 'VARC';
+  const attempt = mobData.attempt || 'Not specified';
+  const weak = mobData.weak || getLowestRelativeMockSection(varc, dilr, qa);
 
   document.getElementById('mock-onboarding-overlay').style.display = 'none';
 
@@ -2811,6 +3386,7 @@ async function finishMockOnboarding() {
 
   const total = varc + dilr + qa;
   const contextMsg = 'I just gave a mock. My scores: VARC ' + varc + ', DILR ' + dilr + ', QA ' + qa + '. Total: ' + total + '. It is my ' + attempt + ' and my weakest section is ' + weak + '. Please analyse this and tell me what to fix first.';
+  const mentorAnalysis = buildDiagnosisDirective(contextMsg);
   conversationHistory.push({ role: 'user', content: contextMsg });
   showTyping();
 
@@ -2821,12 +3397,12 @@ async function finishMockOnboarding() {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 600,
-        system: SYSTEM_PROMPT + getDateContext(),
+        system: SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
         messages: cleanHistory(conversationHistory)
       })
     }, 45000);
     const data = await res.json();
-    const response = data.content && data.content[0] ? data.content[0].text : null;
+    const response = data.content && data.content[0] ? applyMentorResponseGuard(data.content[0].text, mentorAnalysis.diagnosis) : null;
     hideTyping();
     if (response) {
       addMargMessage(response);
@@ -2834,7 +3410,7 @@ async function finishMockOnboarding() {
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'Got your scores — VARC ' + varc + ', DILR ' + dilr + ', QA ' + qa + '. Let me analyse what this tells us. Which section do you feel went worst?');
+    addMessage('marg', buildMockScoreFirstRead(varc, dilr, qa));
   }
 }
 async function saveCognitivePattern(varc, dilr, qa) {
@@ -3101,6 +3677,7 @@ async function submitMockScores() {
 
 
   const mockMsg = `I just completed a mock. My scores are: VARC: ${varc}, DILR: ${dilr}, QA: ${qa}. Please analyse my mock and tell me exactly which bucket is costing me marks — concept gap, execution lag, or careless mistake. Give me one specific task to fix before my next mock.`;
+  const mentorAnalysis = buildDiagnosisDirective(mockMsg);
 
   addMessage('user', `📊 Mock scores — VARC: ${varc} | DILR: ${dilr} | QA: ${qa}`);
 
@@ -3115,22 +3692,22 @@ async function submitMockScores() {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
-        system: SYSTEM_PROMPT + getDateContext(),
+        system: SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
         messages: cleanHistory(conversationHistory)
       })
     }, 45000);
     const data = await res.json();
-    const response = data.content && data.content[0] ? data.content[0].text : null;
+    const response = data.content && data.content[0] ? applyMentorResponseGuard(data.content[0].text, mentorAnalysis.diagnosis) : null;
     hideTyping();
     if (response) {
       addMargMessage(response);
       conversationHistory.push({ role: 'assistant', content: response });
     } else {
-      addMessage('marg', 'Based on your scores — which section felt most frustrating today? Tell me what was happening when you attempted those questions.');
+      addMessage('marg', buildMockScoreFirstRead(varc, dilr, qa));
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', 'Based on your scores — which section felt most frustrating today? Tell me what was happening when you attempted those questions.');
+    addMessage('marg', buildMockScoreFirstRead(varc, dilr, qa));
   }
 }
 let newUserProfile = {};
