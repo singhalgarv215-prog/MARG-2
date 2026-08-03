@@ -242,7 +242,7 @@
   <section style="padding:60px 24px;max-width:700px;margin:0 auto;width:100%;text-align:center;">
     <p class="section-label">Use Marg because</p>
     <h2 style="font-family:'Playfair Display',serif;font-size:28px;color:var(--text);font-weight:500;line-height:1.4;margin-bottom:12px;">"It tells you exactly which mistake YOUR brain keeps making — and fixes only that."</h2>
-    <p style="font-size:15px;color:var(--text-dim);line-height:1.7;">Every coaching gives the same advice. Every YouTube video has the same tips. Marg is the only thing that looks at how YOU specifically answered wrong — and builds tomorrow's practice around that.</p>
+    <p style="font-size:15px;color:var(--text-dim);line-height:1.7;">Every coaching gives the same advice. Every YouTube video has the same tips. Marg looks at how YOU specifically answered wrong — and chooses the next useful practice around that.</p>
   </section>
 
   <!-- HOW IT WORKS -->
@@ -257,7 +257,7 @@
         </div>
         <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;border-bottom:1px solid #1A1A1A;">
           <div style="width:36px;height:36px;border-radius:50%;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#C9A84C;font-weight:700;flex-shrink:0;">2</div>
-          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Test the prediction</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">After you confirm Marg’s read, it creates a CAT-level exercise designed to support or reject that exact diagnosis.</div></div>
+          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Test the prediction</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">After you confirm Marg’s read, it explains why, asks when you want to test it, and then opens a CAT-level exercise built around that exact pattern.</div></div>
         </div>
         <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;border-bottom:1px solid #1A1A1A;">
           <div style="width:36px;height:36px;border-radius:50%;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#C9A84C;font-weight:700;flex-shrink:0;">3</div>
@@ -892,7 +892,7 @@ function stripMarkdown(text) {
 }
 
 function addMargMessage(text, isHtml) {
-  var clean = isHtml ? text : stripMarkdown(text).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+  var clean = isHtml ? text : stripMarkdown(enforceIndiaTimeGreeting(text)).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
   addMessage('marg', clean);
 }
 function showFeedback() {
@@ -909,6 +909,7 @@ window._showFeedback = function() {
 const SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkdXF0cnVtaHZldGV5amt5bHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNjc0MzMsImV4cCI6MjA5NDc0MzQzM30.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
 const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
+const QUESTION_GENERATION_MODEL = 'claude-haiku-4-5-20251001';
 const LOGO_ICON = 'https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png';
 let SUPABASE_TOKEN = null;
 
@@ -957,9 +958,9 @@ When a student decides something you wouldn't have — skipping a topic, taking 
 
 When a student finishes a set, you never ask for a report. Diagnose what their choices already reveal and lead the next move: "Let's look at the two that exposed the pattern" beats "come back at 5pm with your results." Never say "come back at [time]." Never demand a summary of what they did. Never assign homework as the closing line of every single message.
 
-If a student asks for a timetable, give them one immediately, in plain sentences specific enough to act on today. "Tomorrow morning, eight percentage problems from Arun Sharma. Afternoon, one timed RC passage. Evening, go back over whatever you got wrong." That's the whole plan — you never refuse to give one, and you never pad it out with caveats about how plans don't really work.
+If a student asks for a timetable, do not invent one from generic assumptions. Say: "I can definitely do that. If you're comfortable sharing your daily routine, I'll build it around your actual schedule." Ask once for the minimum useful context in one message: fixed commitments, earliest realistic start, latest finish, and realistic CAT time. If that routine is already in memory, use it without asking again. Then produce a compact timetable built around the student's real energy and constraints.
 
-Outside of a full timetable, when you're suggesting one specific next thing to do, you don't get to decide the timing — that's the student's call, not yours. Don't default to "tomorrow" or "tomorrow morning" out of habit. Ask: "want to try this now, or does tomorrow work better?" The only time you skip asking is when they've already told you the timing themselves — if they ask "what should I do today," giving them today's task is just answering what they asked, not assuming anything.
+When you're suggesting one specific next thing to do, you don't get to decide the timing — that's the student's call, not yours. Don't default to "tomorrow" or "tomorrow morning" out of habit. Ask whether they want to do it right now, later today, or tomorrow. The only time you skip asking is when they've already told you the timing themselves — if they ask "what should I do today," giving them today's task is just answering what they asked, not assuming anything.
 
 Your replies run one to three sentences by default. You go longer only when someone's actually asked for an explanation or a full plan — if you're writing four sentences and two of them aren't doing anything, cut them.
 
@@ -1001,7 +1002,7 @@ When the narrow topic you're flagging is a QA or DILR one specifically — not V
 
 Every conversation should leave a clear next move, not homework or a vague request. Lead with "Let's test that pattern with one harder question next" so the student never has to invent the next step. Students return because the thread is useful, not because they were assigned a report.
 
-LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction, and ask for confirmation. Generate an exercise only after the student confirms Exactly or Mostly. That exercise must be designed to validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should always know what happens next.
+LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction in natural mentor language, and ask for confirmation. Never label it "My prediction:" in ordinary conversation; say "I think I know what's happening," "Here's my read," or "I think this might be the real issue." After Exactly or Mostly, briefly explain why the symptom points to that pattern, say you would like to verify it before locking it in, and ask when they want the check: right now, later today, or tomorrow. Never launch an exercise without that consent and never choose tomorrow for them. QA and DILR exercises belong in the dedicated timed interface, not as a long question dump in chat. Before a DILR set, teach the representation, why it fits, and the first constraint to inspect. Every exercise must validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should always know what happens next.
 
 One technical note, separate from all of this: when you want the student to pick from a short list of options during a section switch, wrap it as [OPTIONS: opt1|opt2|opt3][CONTEXT: type] — one set per message, and only when it genuinely helps.
 
@@ -1014,7 +1015,8 @@ function getDateContext() {
     var label = offset === -1 ? 'YESTERDAY' : offset === 0 ? 'TODAY' : offset === 1 ? 'TOMORROW' : 'TODAY_PLUS_' + offset + '_DAYS';
     entries.push(label + ': ' + entry.weekday + ', ' + entry.month + ' ' + entry.day + ', ' + entry.year + ' [' + entry.iso + ']');
   }
-  return '\n\nAUTHORITATIVE CALENDAR — INDIA STANDARD TIME (Asia/Kolkata):\n' + entries.join('\n') + '\nCalendar safety rules: Copy dates and weekdays from this table; do not calculate them yourself. "Tomorrow" always means the TOMORROW row. Never accept a contradictory weekday/date merely because the student asserts it; explain the India-time date and ask whether they are using another timezone. Before sending any schedule, silently verify every relative date and every weekday against this table. Do not claim the current date is anything outside this table.';
+  var clock = getIndiaClockInfo();
+  return '\n\nAUTHORITATIVE CALENDAR AND CLOCK — INDIA STANDARD TIME (Asia/Kolkata):\nCURRENT IST TIME: ' + clock.time + ' (' + clock.timeOfDay + ')\n' + entries.join('\n') + '\nCalendar and clock safety rules: Copy dates, weekdays and time of day from this block; do not calculate or guess them yourself. A greeting right now must use "' + clock.greeting + '"—never a different time-of-day greeting. "Tomorrow" always means the TOMORROW row. Never accept a contradictory weekday/date merely because the student asserts it; explain the India-time date and ask whether they are using another timezone. Before sending any schedule, silently verify every relative date and every weekday against this table.';
 }
 
 function getIndiaCalendarDate(offsetDays) {
@@ -1059,16 +1061,57 @@ function correctCalendarReferences(text) {
   return result;
 }
 
+function getIndiaClockInfo(dateValue) {
+  var instant = dateValue instanceof Date ? dateValue : new Date();
+  var hour, minute;
+  try {
+    var parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit', hourCycle:'h23'
+    }).formatToParts(instant);
+    var values = {};
+    parts.forEach(function(part) { if (part.type !== 'literal') values[part.type] = part.value; });
+    hour = Number(values.hour);
+    minute = Number(values.minute);
+    if (hour === 24) hour = 0;
+  } catch(e) {}
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute)) {
+    var indiaMinutes = (instant.getUTCHours() * 60 + instant.getUTCMinutes() + 330) % 1440;
+    hour = Math.floor(indiaMinutes / 60);
+    minute = indiaMinutes % 60;
+  }
+  var timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+  var greeting = timeOfDay === 'morning' ? 'Good morning' : timeOfDay === 'afternoon' ? 'Good afternoon' : 'Good evening';
+  return { hour:hour, minute:minute, timeOfDay:timeOfDay, greeting:greeting, time:String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0') + ' IST' };
+}
+
 function getTimeGreeting() {
-  var hour = getIndiaHour();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
+  return getIndiaClockInfo().greeting;
 }
 
 function getIndiaHour() {
-  var hourText = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', hourCycle: 'h23' }).format(new Date());
-  return Number(hourText.split(':')[0]);
+  return getIndiaClockInfo().hour;
+}
+
+function enforceIndiaTimeGreeting(text) {
+  if (!text || typeof text !== 'string') return text;
+  var correctGreeting = getIndiaClockInfo().greeting;
+  var greetingPattern = '(?:good\\s+morning|good\\s+afternoon|good\\s+evening|morning|afternoon|evening)';
+  var direct = new RegExp('^(\\s*)' + greetingPattern + '\\b', 'i');
+  var named = new RegExp('^(\\s*[^,\\n]{1,30},\\s*)' + greetingPattern + '\\b', 'i');
+  if (named.test(text)) return text.replace(named, function(match, prefix) { return prefix + correctGreeting; });
+  if (direct.test(text)) return text.replace(direct, function(match, prefix) { return prefix + correctGreeting; });
+  return text;
+}
+
+function runIndiaTimeTests() {
+  var morning = getIndiaClockInfo(new Date('2026-08-03T03:00:00Z'));
+  var afternoon = getIndiaClockInfo(new Date('2026-08-03T08:30:00Z'));
+  var evening = getIndiaClockInfo(new Date('2026-08-03T11:30:00Z'));
+  return [
+    { name:'08:30 IST is morning', passed:morning.hour === 8 && morning.timeOfDay === 'morning' },
+    { name:'14:00 IST is afternoon', passed:afternoon.hour === 14 && afternoon.timeOfDay === 'afternoon' },
+    { name:'17:00 IST is evening', passed:evening.hour === 17 && evening.timeOfDay === 'evening' }
+  ];
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -1132,24 +1175,24 @@ var DIAGNOSTIC_TOPICS = {
   varc: {
     label:'VARC', question:'What feels weakest?',
     subcategories:[
-      { id:'rc', label:'Reading Comprehension' },
-      { id:'va', label:'Verbal Ability' },
-      { id:'both', label:'Both' }
+      { id:'rc', label:'RC is where I lose most marks.' },
+      { id:'va', label:'VA is where I feel least sure.' },
+      { id:'both', label:'Both feel equally bad.' }
     ],
     patterns:{
       rc:[
-        diagnosticPattern('last_two','I get stuck between the last two options.','Your comprehension probably is not the issue. You are likely replacing the author’s reasoning with your own interpretation when the final two options look close. That creates the frustrating feeling of understanding the passage but still losing marks.','For your next RC, reject each final option with one exact scope or logic mismatch before choosing.'),
-        diagnosticPattern('understand_lose','I understand the passage but still lose marks.','You probably retain the argument, but answer from its overall impression rather than the exact claim the question is testing. CAT then traps you with an option that sounds true but is not the answer to that question.','For the next passage, name the tested claim in seven words before looking at the options.'),
-        diagnosticPattern('forget','I forget what I just read.','This looks less like weak memory and more like reading without a structural map. Every sentence gets equal attention, so the author’s movement disappears by the time you reach the questions.','After each paragraph, write a three-word role such as claim, objection, or shift.'),
-        diagnosticPattern('time','I run out of time.','Your pace problem probably starts with trying to understand every sentence perfectly on the first read. You spend time on detail before knowing which details the questions will actually need.','Read first for paragraph roles; return for detail only when a question demands it.'),
-        diagnosticPattern('focus','I lose focus while reading.','Your attention is probably dropping because the reading has no active target, not because you cannot handle dense prose. Passive reading makes the middle of the passage feel like fog.','Track only two things on the first read: what the author is doing and where the position changes.')
+        diagnosticPattern('last_two','I keep getting stuck between two options.','Your comprehension probably is not the issue. You are likely replacing the author’s reasoning with your own interpretation when the final two options look close. That creates the frustrating feeling of understanding the passage but still losing marks.','For your next RC, reject each final option with one exact scope or logic mismatch before choosing.'),
+        diagnosticPattern('understand_lose','I understand the passage, but my answers are still wrong.','You probably retain the argument, but answer from its overall impression rather than the exact claim the question is testing. CAT then traps you with an option that sounds true but is not the answer to that question.','For the next passage, name the tested claim in seven words before looking at the options.'),
+        diagnosticPattern('forget','I finish a paragraph and forget what I just read.','This looks less like weak memory and more like reading without a structural map. Every sentence gets equal attention, so the author’s movement disappears by the time you reach the questions.','After each paragraph, write a three-word role such as claim, objection, or shift.'),
+        diagnosticPattern('time','I always run out of time.','Your pace problem probably starts with trying to understand every sentence perfectly on the first read. You spend time on detail before knowing which details the questions will actually need.','Read first for paragraph roles; return for detail only when a question demands it.'),
+        diagnosticPattern('focus','Dense passages make me lose focus.','Your attention is probably dropping because the reading has no active target, not because you cannot handle dense prose. Passive reading makes the middle of the passage feel like fog.','Track only two things on the first read: what the author is doing and where the position changes.')
       ],
       va:[
-        diagnosticPattern('pj_links','Para jumbles feel random.','You are probably searching for the opening sentence before finding mandatory links. That turns a constraint problem into guesswork.','Build the strongest sentence pair first, then place that block.'),
-        diagnosticPattern('summary_scope','Para summaries feel subjective.','You are likely rewarding the option that mentions the most details instead of the one that preserves the author’s central claim and scope.','Eliminate any summary that adds a conclusion or drops the author’s main contrast.'),
-        diagnosticPattern('odd_flow','Odd sentence out is inconsistent.','You may be checking whether each sentence fits the topic, not whether it belongs in the paragraph’s logical sequence. CAT usually makes the odd sentence relevant but structurally homeless.','Test the link before and after each sentence, not just topical relevance.'),
-        diagnosticPattern('va_rush','I rush VA after RC.','Your VA accuracy is probably being damaged upstream: RC consumes your time, and VA becomes a recovery sprint. The weakness is section allocation more than VA knowledge.','Give VA a protected time block instead of whatever remains after RC.'),
-        diagnosticPattern('va_all','Every VA type feels weak.','This usually means you are using intuition where each VA type needs a different constraint. The section feels uniformly weak because the decision rules are not yet separated.','Review errors by question type and write one elimination rule for each type.')
+        diagnosticPattern('pj_links','Para jumbles feel like pure guesswork.','You are probably searching for the opening sentence before finding mandatory links. That turns a constraint problem into guesswork.','Build the strongest sentence pair first, then place that block.'),
+        diagnosticPattern('summary_scope','Two para-summary options always feel right.','You are likely rewarding the option that mentions the most details instead of the one that preserves the author’s central claim and scope.','Eliminate any summary that adds a conclusion or drops the author’s main contrast.'),
+        diagnosticPattern('odd_flow','Odd-one-out feels random every time.','You may be checking whether each sentence fits the topic, not whether it belongs in the paragraph’s logical sequence. CAT usually makes the odd sentence relevant but structurally homeless.','Test the link before and after each sentence, not just topical relevance.'),
+        diagnosticPattern('va_rush','I reach VA late and rush everything.','Your VA accuracy is probably being damaged upstream: RC consumes your time, and VA becomes a recovery sprint. The weakness is section allocation more than VA knowledge.','Give VA a protected time block instead of whatever remains after RC.'),
+        diagnosticPattern('va_all','Every VA question feels like a different trick.','This usually means you are using intuition where each VA type needs a different constraint. The section feels uniformly weak because the decision rules are not yet separated.','Review errors by question type and write one elimination rule for each type.')
       ],
       both:[
         diagnosticPattern('reading_to_choice','I read fine but choices undo me.','The common leak is probably not language; it is converting understanding into an evidence-based choice. In both RC and VA, plausible wording is beating precise scope.','Make scope, not familiarity, the final test for every verbal option.'),
@@ -1160,19 +1203,19 @@ var DIAGNOSTIC_TOPICS = {
       ]
     }
   },
-  dilr: { label:'DILR', question:'What sounds most like the point where your sets collapse?', patterns:[
-    diagnosticPattern('cant_start','I do not know where to start.','You probably understand the statements individually but do not convert them into a useful first representation. The set feels hard before the logic has even begun.','Before solving, choose the object being arranged and give it a table, grid, or timeline.'),
-    diagnosticPattern('wrong_representation','I start, then the setup becomes messy.','Your logic may be fine, but the first representation is carrying too much information in the wrong form. A weak diagram makes every later deduction expensive.','Redraw once if two constraints cannot be recorded cleanly in the current setup.'),
-    diagnosticPattern('dead_set','I stay too long on dead sets.','This is likely a sunk-cost problem disguised as persistence. You keep investing because you have already spent time, even after the set stops producing deductions.','Set a progress checkpoint: no new deduction for three minutes means leave and rescan.'),
-    diagnosticPattern('missed_constraint','One missed condition ruins everything.','You are probably solving while still absorbing the conditions. That makes the setup fast but fragile, and one qualifier forces a complete restart.','Translate every condition once before deduction, and mark restrictive words explicitly.'),
-    diagnosticPattern('selection','I choose the wrong sets.','You may be selecting by familiar topic or visual comfort rather than constraint density and entry points. CAT set selection rewards solvability, not familiarity.','Scan for a clear representation plus two usable starting constraints before committing.')
+  dilr: { label:'DILR', question:'Where does a DILR set usually go wrong for you?', patterns:[
+    diagnosticPattern('cant_start','I read the set and do not know how to start.','You probably understand the statements individually but do not convert them into a useful first representation. The set feels hard before the logic has even begun.','Before solving, choose the object being arranged and give it a table, grid, or timeline.'),
+    diagnosticPattern('wrong_representation','My table or diagram becomes messy.','Your logic may be fine, but the first representation is carrying too much information in the wrong form. A weak diagram makes every later deduction expensive.','Redraw once if two constraints cannot be recorded cleanly in the current setup.'),
+    diagnosticPattern('dead_set','I keep forcing a set that is not moving.','This is likely a sunk-cost problem disguised as persistence. You keep investing because you have already spent time, even after the set stops producing deductions.','Set a progress checkpoint: no new deduction for three minutes means leave and rescan.'),
+    diagnosticPattern('missed_constraint','I miss one condition and everything collapses.','You are probably solving while still absorbing the conditions. That makes the setup fast but fragile, and one qualifier forces a complete restart.','Translate every condition once before deduction, and mark restrictive words explicitly.'),
+    diagnosticPattern('selection','I pick the wrong set in mocks.','You may be selecting by familiar topic or visual comfort rather than constraint density and entry points. CAT set selection rewards solvability, not familiarity.','Scan for a clear representation plus two usable starting constraints before committing.')
   ]},
-  qa: { label:'QA', question:'Where does the QA solution usually break?', patterns:[
-    diagnosticPattern('concept','I genuinely do not know the concept.','Your score may be limited by a small concept cluster, not the whole QA syllabus. Mixed practice makes that gap look broader than it is.','Tag the last ten unsolved questions by concept and repair the repeated cluster first.'),
-    diagnosticPattern('recognition','I know the concept but cannot spot the approach.','This is a recognition gap: you know the tool after seeing the solution, but the question does not trigger it soon enough. More theory alone will not fix that.','After every solution, record the clue that should have triggered the method.'),
-    diagnosticPattern('slow_method','I solve correctly but too slowly.','You are likely defaulting to a full textbook solution even when options, ratios, or cases offer a shorter route. Accuracy is masking an exam-speed decision problem.','Solve once normally, then force a second route using options, approximation, or substitution.'),
-    diagnosticPattern('execution','My setup is right; the final step goes wrong.','The difficult reasoning is probably correct, but relief after the setup makes your verification disappear. The error lives in execution, not understanding.','Pause before marking and independently verify the final operation or boundary case.'),
-    diagnosticPattern('mixed','I am fine by topic but mixed questions confuse me.','Topic-wise practice is giving you the method in advance. In mixed sets, identifying the dominant relationship becomes the real question.','Do short mixed sets and label the decisive clue before solving each question.')
+  qa: { label:'QA', question:'What usually happens when a QA question goes wrong?', patterns:[
+    diagnosticPattern('concept','I look at it and realise I never learned this properly.','Your score may be limited by a small concept cluster, not the whole QA syllabus. Mixed practice makes that gap look broader than it is.','Tag the last ten unsolved questions by concept and repair the repeated cluster first.'),
+    diagnosticPattern('recognition','I know the concept, but I cannot see how to start.','This is a recognition gap: you know the tool after seeing the solution, but the question does not trigger it soon enough. More theory alone will not fix that.','After every solution, record the clue that should have triggered the method.'),
+    diagnosticPattern('slow_method','I get the answer, but it takes far too long.','You are likely defaulting to a full textbook solution even when options, ratios, or cases offer a shorter route. Accuracy is masking an exam-speed decision problem.','Solve once normally, then force a second route using options, approximation, or substitution.'),
+    diagnosticPattern('execution','I get the setup right and still make a silly mistake.','The difficult reasoning is probably correct, but relief after the setup makes your verification disappear. The error lives in execution, not understanding.','Pause before marking and independently verify the final operation or boundary case.'),
+    diagnosticPattern('mixed','I freeze when the topic is not obvious.','Topic-wise practice is giving you the method in advance. In mixed sets, identifying the dominant relationship becomes the real question.','Do short mixed sets and label the decisive clue before solving each question.')
   ]},
   mock: { label:'Mock Analysis', question:'Which pattern best describes your mocks?', patterns:[
     diagnosticPattern('flat','My score is stuck despite more mocks.','You may be using mocks as tests rather than diagnostic data. Repetition without changing the decision process produces familiar scores, not improvement.','For the next review, find the three costliest decisions rather than counting all mistakes equally.'),
@@ -1548,6 +1591,19 @@ function runDiagnosticFlowTests() {
   diagnosticMemory = originalMemory;
   diagnosticSessionAttempted = originalAttempts;
   return results;
+}
+
+function runProductExperienceTests() {
+  var qaFallback = getVerifiedFallbackPractice('qa', 3);
+  var dilrFallback = getVerifiedFallbackPractice('dilr', 4);
+  return [
+    { name:'diagnosis language is natural', passed:naturalDiagnosticLead('varc') === "I think I know what's happening." && naturalDiagnosticLead('varc').indexOf('prediction') === -1 },
+    { name:'QA choices describe lived problems', passed:DIAGNOSTIC_TOPICS.qa.patterns.every(function(pattern) { return /^I\b/.test(pattern.label); }) },
+    { name:'DILR choices describe lived problems', passed:DIAGNOSTIC_TOPICS.dilr.patterns.every(function(pattern) { return /^I\b|^My\b/.test(pattern.label); }) },
+    { name:'verified QA fallback is structurally valid', passed:validateQASetShape(qaFallback) },
+    { name:'verified DILR fallback is structurally valid', passed:validateDILRPracticeSet(dilrFallback) },
+    { name:'exercise timing is student-selected', passed:diagnosticExerciseLabel({ topic:'qa' }).indexOf('timed QA') !== -1 }
+  ];
 }
 
 // --- Generated exercise + behavioural memory --------------------------------
@@ -1960,12 +2016,16 @@ async function loadUserData() {
     practiceTopicLog = {};
     practiceTopicDisplayName = {};
     practiceTopicFlagged = {};
+    loadTopicProgression();
     for (var key in savedTopicLog) {
       var entry = savedTopicLog[key] || {};
       practiceTopicLog[key] = entry.count || 0;
       practiceTopicDisplayName[key] = entry.displayName || key.split('::')[1];
       practiceTopicFlagged[key] = !!entry.flagged;
+      var progressionItem = getTopicProgress(key.split('::')[0], practiceTopicDisplayName[key]);
+      progressionItem.conceptQuestionsCompleted = Math.max(progressionItem.conceptQuestionsCompleted || 0, entry.count || 0);
     }
+    saveTopicProgression();
 
     const { data: chats } = await sbFetch('chats?select=*&user_id=eq.' + currentUser.id + '&order=created_at.asc', 'GET');
     if (chats && chats.length > 0) {
@@ -2292,7 +2352,7 @@ function startChatFirstOnboarding() {
     return;
   }
   chatFirstOnboardingStarted = true;
-  var opening = "Tell me where preparation feels broken. I'll ask at most two quick questions, make a specific prediction about what is actually happening, and only then build an exercise to test that prediction.";
+  var opening = "Tell me where preparation feels broken. I'll ask at most two quick questions, make a specific read on what is actually happening, and then recommend a check you can do when you choose.";
   addMentorLeadMessage(opening);
   showConversationalOptions([
     "I'm weak in a specific section",
@@ -2319,6 +2379,49 @@ function completeChatFirstOnboarding(section) {
 }
 
 var chatDiagnosticState = { active:false, topic:null, subcategory:null, pattern:null, revisedPrediction:null, rejectedCount:0 };
+var pendingDiagnosticExercise = null;
+
+function getPendingDiagnosticStorageKey() {
+  return 'marg_pending_diagnostic_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function savePendingDiagnosticExercise(entry, timing) {
+  pendingDiagnosticExercise = entry ? { entry:entry, timing:timing || 'now', savedAt:new Date().toISOString() } : null;
+  try {
+    if (pendingDiagnosticExercise) localStorage.setItem(getPendingDiagnosticStorageKey(), JSON.stringify(pendingDiagnosticExercise));
+    else localStorage.removeItem(getPendingDiagnosticStorageKey());
+  } catch(e) {}
+}
+
+function loadPendingDiagnosticExercise() {
+  try { pendingDiagnosticExercise = JSON.parse(localStorage.getItem(getPendingDiagnosticStorageKey()) || 'null'); }
+  catch(e) { pendingDiagnosticExercise = null; }
+  return pendingDiagnosticExercise;
+}
+
+function naturalDiagnosticLead(topic) {
+  if (topic === 'dilr') return 'Here\'s my read.';
+  if (topic === 'qa') return 'I think this might be the real issue.';
+  return 'I think I know what\'s happening.';
+}
+
+function diagnosisReason(entry) {
+  if (!entry) return '';
+  var symptom = String(entry.selectedPattern || '').replace(/[.]$/, '');
+  var action = String(entry.action || '').replace(/[.]$/, '');
+  return 'The clue is that you said “' + symptom + '”. That usually points to a repeatable decision pattern, not a broad ability problem.' + (action ? ' If that read is right, ' + action.charAt(0).toLowerCase() + action.slice(1) + '.' : '');
+}
+
+function diagnosticExerciseLabel(entry) {
+  if (!entry) return 'short check';
+  if (entry.topic === 'varc') return 'one targeted RC check';
+  if (entry.topic === 'dilr') return 'one timed DILR set';
+  if (entry.topic === 'qa') return 'one short timed QA check';
+  if (entry.topic === 'mock') return 'one compact mini mock';
+  if (entry.topic === 'confidence') return 'one short confidence check';
+  if (entry.topic === 'study_plan') return 'one plan reality check';
+  return 'one decision check';
+}
 
 function normalizeChatDiagnosticTopic(answer) {
   var text = String(answer || '').toLowerCase();
@@ -2373,13 +2476,12 @@ function startPredictionFirstDiagnostic(topic, force) {
 function askChatDiagnosticFirstQuestion() {
   var topic = chatDiagnosticState.topic;
   if (topic === 'varc') {
-    addMentorLeadMessage('Is it mainly Reading Comprehension, Verbal Ability, or both?');
+    addMentorLeadMessage('Where does VARC feel most broken?');
     showConversationalOptions(DIAGNOSTIC_TOPICS.varc.subcategories.map(function(item) { return item.label; }), 'prediction_diag_subcategory');
     return;
   }
   if (topic === 'qa') {
-    addMentorLeadMessage('Where does this show up most often?');
-    showConversationalOptions(['Arithmetic', 'Algebra', 'Geometry', 'Number Systems', 'Mixed or unsure'], 'prediction_diag_subcategory');
+    askChatDiagnosticPatternQuestion();
     return;
   }
   askChatDiagnosticPatternQuestion();
@@ -2419,7 +2521,7 @@ function selectChatDiagnosticPattern(answer) {
     return;
   }
   chatDiagnosticState.pattern = pattern;
-  addMentorLeadMessage('My prediction:\n\n' + pattern.prediction + '\n\nDoes that sound accurate?');
+  addMentorLeadMessage(naturalDiagnosticLead(chatDiagnosticState.topic) + '\n\n' + pattern.prediction + '\n\nDoes that feel accurate?');
   showConversationalOptions(['Exactly', 'Mostly', 'Not Really'], 'prediction_diag_confirm');
 }
 
@@ -2440,6 +2542,7 @@ function saveChatDiagnosticEntry(level, prediction) {
   var entry = {
     selectedSection:getDiagnosticTopicLabel(topic), topic:topic,
     subcategory:subcategoryLabel || null,
+    subcategoryId:chatDiagnosticState.subcategory || null,
     patternId:pattern.id, selectedPattern:pattern.label,
     confirmedDiagnosis:prediction || pattern.prediction,
     originalPrediction:pattern.prediction,
@@ -2465,17 +2568,16 @@ async function confirmChatDiagnosticPrediction(level) {
       return;
     }
     chatDiagnosticState.revisedPrediction = buildRevisedDiagnosticPrediction();
-    addMentorLeadMessage('Good correction. Revised prediction:\n\n' + chatDiagnosticState.revisedPrediction + '\n\nDoes this feel closer?');
+    addMentorLeadMessage('Thanks—that changes my read.\n\n' + chatDiagnosticState.revisedPrediction + '\n\nDoes this feel closer?');
     showConversationalOptions(['Exactly', 'Mostly', 'Not Really'], 'prediction_diag_revised_confirm');
     return;
   }
   var prediction = chatDiagnosticState.revisedPrediction || chatDiagnosticState.pattern.prediction;
   var entry = saveChatDiagnosticEntry(level, prediction);
-  addMentorLeadMessage(level === 'Exactly'
-    ? "Good. Now I'll test that exact diagnosis—not give you generic practice."
-    : "That's enough for a working hypothesis. I'll build a contrastive exercise that can support or reject it.");
   chatDiagnosticState.active = false;
-  await runPredictionValidationExercise(entry);
+  savePendingDiagnosticExercise(entry, 'awaiting_choice');
+  addMentorLeadMessage(diagnosisReason(entry) + '\n\nI\'d like to verify this before we lock it in. Should I generate ' + diagnosticExerciseLabel(entry) + ' so we can see whether that is actually the issue?');
+  showConversationalOptions(["Yes, let's do it", 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
 }
 
 async function handleRememberedDiagnostic(answer) {
@@ -2488,8 +2590,44 @@ async function handleRememberedDiagnostic(answer) {
     return;
   }
   var entry = diagnosticMemory[topic];
-  addMentorLeadMessage("Good. I won't ask you to explain it again. Let's test whether that pattern is still showing up today.");
-  await runPredictionValidationExercise(entry);
+  savePendingDiagnosticExercise(entry, 'awaiting_choice');
+  addMentorLeadMessage("Good. I won't ask you to explain it again. I'd like to check whether that pattern is still showing up before we rely on it. When do you want to do the check?");
+  showConversationalOptions(["Yes, let's do it", 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
+}
+
+function getDILROpeningLesson(entry) {
+  var lessons = {
+    cant_start:'Start by asking: what is being placed, compared, or counted? Put that object on one axis and the fixed slots or categories on the other. Do not solve in your head. First look for the condition that fixes a position, creates a tight bound, or links two clues.',
+    wrong_representation:'Use the representation that makes every condition cheap to record. If the set mixes people and time slots, use a person-by-slot grid; if it tracks changing totals, use a table. The first test is simple: can two constraints be written cleanly without sentences?',
+    dead_set:'Open with a progress test, not a commitment. Build the smallest useful grid and combine the two strongest constraints. If that produces no case reduction or forced value, the set has not earned more time yet.',
+    missed_constraint:'Before deduction, translate every condition once. Circle words such as only, exactly, at least, consecutive, and unless. Then start with the most restrictive pair; that prevents one forgotten qualifier from poisoning the whole grid.',
+    selection:'During the scan, ignore whether the topic looks familiar. Choose the set where the representation is obvious and at least two constraints can immediately interact. Familiarity feels safe; usable entry points are what make a set solvable.'
+  };
+  return "Before you solve, here's how I'd open this set.\n\n" + (lessons[entry && entry.patternId] || lessons.cant_start) + '\n\nTake 30 seconds for that setup before touching the questions.';
+}
+
+async function handlePredictionExerciseTiming(answer) {
+  loadPendingDiagnosticExercise();
+  var pending = pendingDiagnosticExercise;
+  if (!pending || !pending.entry) return;
+  var normalized = String(answer || '').toLowerCase();
+  if (/yes|let.?s do|right now|now/.test(normalized)) {
+    savePendingDiagnosticExercise(null);
+    if (pending.entry.topic === 'dilr') {
+      addMentorLeadMessage(getDILROpeningLesson(pending.entry));
+      savePendingDiagnosticExercise(pending.entry, 'ready_after_lesson');
+      showConversationalOptions(['Start the set'], 'start_dilr_validation');
+      return;
+    }
+    await runPredictionValidationExercise(pending.entry);
+    return;
+  }
+  var timing = /tomorrow/.test(normalized) ? 'tomorrow' : 'later_today';
+  savePendingDiagnosticExercise(pending.entry, timing);
+  completeChatFirstOnboarding(null);
+  addMentorLeadMessage(timing === 'tomorrow'
+    ? "Tomorrow works. I’ve kept the same targeted check ready; when you open Marg, say “start the check” and we’ll use it before changing your plan."
+    : "Later today works. I’ve kept the same targeted check ready; say “start the check” whenever you’re ready and we’ll continue from here.");
 }
 
 function detectMentorIntent(message) {
@@ -2581,7 +2719,7 @@ function limitMentorResponseLength(text, maxWords) {
 }
 
 function applyMentorResponseGuard(response, diagnosis) {
-  var text = correctCalendarReferences(String(response || '')).trim();
+  var text = enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))).trim();
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
@@ -2775,6 +2913,24 @@ async function handleConversationalResponse(answer, context) {
     if (!isGuestMode) saveChatMessage('user', answer);
     await handleRememberedDiagnostic(answer);
 
+  } else if (context === 'prediction_exercise_timing') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await handlePredictionExerciseTiming(answer);
+
+  } else if (context === 'start_dilr_validation') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    loadPendingDiagnosticExercise();
+    var dilrEntry = pendingDiagnosticExercise && pendingDiagnosticExercise.entry;
+    savePendingDiagnosticExercise(null);
+    if (dilrEntry) await runPredictionValidationExercise(dilrEntry);
+
+  } else if (context === 'topic_sectional_timing') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    handleTopicSectionalTiming(answer);
+
   } else if (context === 'mock_start_choice') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
@@ -2879,7 +3035,7 @@ async function sendConversationalMessage(userMessage, context) {
   systemAddition += getGeneratedExerciseMemoryContext(userMessage);
   systemAddition += getBehavioralMemoryContext();
   systemAddition += mentorAnalysis.directive;
-  systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction and ask for confirmation. Do not generate an exercise before confirmation. After Exactly or Mostly, create a targeted exercise whose result can support, reject, or leave the prediction inconclusive. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
+  systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction in natural mentor language and ask for confirmation. Do not say "My prediction:". After Exactly or Mostly, explain the clue behind your read, ask when they want to verify it, and wait for their timing choice. Do not generate or launch an exercise in the same reply. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
 
   if (context === 'pattern_confirmed') {
     systemAddition += '\n\nThe student just confirmed the diagnosis pattern. Do not repeat it and do not ask another intake question. Move straight to the next useful action.';
@@ -2902,7 +3058,7 @@ async function sendConversationalMessage(userMessage, context) {
       })
     }, 45000);
     var data = await res.json();
-    var response = data.content && data.content[0] ? applyMentorResponseGuard(data.content[0].text, mentorAnalysis.diagnosis) : null;
+    var response = data.content && data.content[0] ? applyMentorResponseGuard(preventStructuredOutputLeak(data.content.map(function(block) { return block.text || ''; }).join('')), mentorAnalysis.diagnosis) : null;
     hideTyping();
     if (response) {
       applyPredictionValidationVerdict(response);
@@ -3095,18 +3251,19 @@ function checkAndLogPracticeVolume(response) {
   var key = section + '::' + topic.toLowerCase();
   practiceTopicLog[key] = (practiceTopicLog[key] || 0) + count;
   practiceTopicDisplayName[key] = topic;
+  recordTopicProgress(section, topic, { conceptQuestions:count });
   savePracticeTopicLog();
 }
 
 function getPracticeThresholdNote() {
   for (var key in practiceTopicLog) {
-    if (practiceTopicLog[key] >= 15 && !practiceTopicFlagged[key]) {
+    if (practiceTopicLog[key] >= 20 && !practiceTopicFlagged[key]) {
       practiceTopicFlagged[key] = true;
       savePracticeTopicLog();
       var section = key.split('::')[0];
       var topic = practiceTopicDisplayName[key] || key.split('::')[1];
       var defaultCount = section === 'qa' ? 10 : 12;
-      return '\n\nPRACTICE THRESHOLD REACHED: The student has now done approximately ' + practiceTopicLog[key] + ' practice questions on ' + topic + ' (' + section.toUpperCase() + ') across this conversation. In your very next reply, proactively suggest testing this topic properly with a timed sectional instead of continuing to drill it — say it the way you\'d actually say it, like "you\'ve done solid practice on ' + topic + ' now — want to test it with a timed sectional?" — and end that message with [START_TEST: ' + section + '|' + topic + '|' + defaultCount + ']. Do this once, naturally, not as a mechanical tag dump.';
+      return '\n\nPRACTICE THRESHOLD REACHED: The student has now done approximately ' + practiceTopicLog[key] + ' concept-practice questions on ' + topic + ' (' + section.toUpperCase() + '). Lead the next move: explain that another worksheet will reveal little and recommend a timed sectional. Ask when they want it—right now, later today, or tomorrow. Do not launch it automatically and do not choose the timing for them. If they choose now, use [START_TEST: ' + section + '|' + topic + '|' + defaultCount + '].';
     }
   }
   return '';
@@ -3299,6 +3456,84 @@ function buildActivitySummary() {
 
 function sendQuick(text) { if (isLoading || !onboardingComplete) return; document.getElementById('user-input').value = text; sendMessage(); }
 
+function timetableRoutineStorageKey() {
+  return 'marg_timetable_routine_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function timetableAwaitingStorageKey() {
+  return 'marg_timetable_awaiting_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function getSavedTimetableRoutine() {
+  try { return localStorage.getItem(timetableRoutineStorageKey()) || ''; } catch(e) { return ''; }
+}
+
+function maybeHandleTimetableIntake(text) {
+  var awaiting = false;
+  try { awaiting = localStorage.getItem(timetableAwaitingStorageKey()) === '1'; } catch(e) {}
+  if (awaiting) {
+    try {
+      localStorage.setItem(timetableRoutineStorageKey(), text);
+      localStorage.removeItem(timetableAwaitingStorageKey());
+    } catch(e) {}
+    window._timetableRoutineJustCaptured = true;
+    return false;
+  }
+  if (!/\b(timetable|daily schedule|study schedule|plan my day|build.*study plan)\b/i.test(text) || getSavedTimetableRoutine()) return false;
+  try { localStorage.setItem(timetableAwaitingStorageKey(), '1'); } catch(e) {}
+  addMentorLeadMessage("I can definitely do that. If you're comfortable sharing your daily routine, I'll build it around your actual schedule. In one line, tell me your fixed commitments, earliest realistic start, latest finish, and how much CAT time you can genuinely protect.");
+  return true;
+}
+
+async function maybeStartSavedDiagnosticCheck(text) {
+  if (!/\b(start|begin|do|launch)\b.*\b(check|exercise|set)\b|\bstart the check\b/i.test(text)) return false;
+  loadPendingDiagnosticExercise();
+  if (!pendingDiagnosticExercise || !pendingDiagnosticExercise.entry) return false;
+  var entry = pendingDiagnosticExercise.entry;
+  savePendingDiagnosticExercise(null);
+  if (entry.topic === 'dilr') {
+    addMentorLeadMessage(getDILROpeningLesson(entry));
+    savePendingDiagnosticExercise(entry, 'ready_after_lesson');
+    showConversationalOptions(['Start the set'], 'start_dilr_validation');
+  } else {
+    await runPredictionValidationExercise(entry);
+  }
+  return true;
+}
+
+var pendingSectionalRecommendation = null;
+
+function maybeLeadWithProgression(text) {
+  if (!/\b(qa|quant|dilr|questions?|practice|worksheet|sectional)\b/i.test(text)) return false;
+  var recommendation = bestSectionalRecommendation();
+  if (!recommendation) return false;
+  var mentionsSection = new RegExp('\\b' + (recommendation.section === 'qa' ? '(qa|quant|quants)' : '(dilr|lrdi)') + '\\b', 'i').test(text);
+  var mentionsTopic = String(text).toLowerCase().indexOf(String(recommendation.topic).toLowerCase()) !== -1;
+  if (!mentionsSection && !mentionsTopic) return false;
+  pendingSectionalRecommendation = recommendation;
+  addMentorLeadMessage("You've already completed " + recommendation.conceptQuestionsCompleted + ' ' + recommendation.topic + " questions. Another worksheet will not tell us much now. I think it is time to pressure-test the topic with a timed sectional. When do you want to do it?");
+  showConversationalOptions(['Right now', 'Later today', 'Tomorrow'], 'topic_sectional_timing');
+  return true;
+}
+
+function handleTopicSectionalTiming(answer) {
+  var item = pendingSectionalRecommendation || bestSectionalRecommendation();
+  if (!item) return;
+  var normalized = String(answer || '').toLowerCase();
+  if (/right now|now/.test(normalized)) {
+    item.sectionalSuggested = true;
+    saveTopicProgression();
+    startTimedTest(item.section, item.topic, item.section === 'qa' ? 10 : 12);
+    return;
+  }
+  item.sectionalSuggested = true;
+  item.scheduledSectional = /tomorrow/.test(normalized) ? 'tomorrow' : 'later_today';
+  saveTopicProgression();
+  addMentorLeadMessage(item.scheduledSectional === 'tomorrow'
+    ? 'Done. Tomorrow, I’ll bring you back to the ' + item.topic + ' timed sectional—not another worksheet.'
+    : 'Done. Later today, I’ll keep the ' + item.topic + ' timed sectional as the next move.');
+}
+
 async function sendMessage() {
   if (isLoading) return;
 
@@ -3324,9 +3559,15 @@ async function sendMessage() {
   var predictionValidationReply = isPredictionValidationReply(text);
   if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
 
+  if (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text)) {
+    isLoading = false;
+    document.getElementById('send-btn').disabled = false;
+    return;
+  }
+
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
-  if (await maybeStartGuidedExperienceFromMessage(text)) {
+  if (!window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
     isLoading = false;
     document.getElementById('send-btn').disabled = false;
     return;
@@ -3348,6 +3589,7 @@ async function sendMessage() {
     (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
     (studentProfile.mockHistory && studentProfile.mockHistory.length > 0 ? '\n- Mock history: ' + studentProfile.mockHistory.slice(-5).map(function(m) { return m.date + ' (VARC ' + m.varc + ', DILR ' + m.dilr + ', QA ' + m.qa + ', total ' + m.total + ')'; }).join('; ') : '') +
     (studentProfile.sessionsCount ? '\n- Total sessions with Marg: ' + studentProfile.sessionsCount : '') +
+    (getSavedTimetableRoutine() ? '\n- Daily routine for timetable: ' + getSavedTimetableRoutine() + '\nTIMETABLE RULE: The routine is known. Build the personalised timetable now and do not ask for it again.' : '') +
     (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0 ?
       '\n\nRECENT MISTAKES (last ' + studentProfile.recentMistakes.length + ' wrong answers — USE THESE to target practice):\n' +
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
@@ -3357,7 +3599,7 @@ async function sendMessage() {
   try {
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) }, 45000);
     const data = await response.json();
-    const reply = applyMentorResponseGuard((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.', mentorAnalysis.diagnosis);
+    const reply = applyMentorResponseGuard(preventStructuredOutputLeak((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.'), mentorAnalysis.diagnosis);
     hideTyping();
     applyPredictionValidationVerdict(reply);
     if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(text).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
@@ -3389,6 +3631,7 @@ async function sendMessage() {
     if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
   }
   isLoading = false; document.getElementById('send-btn').disabled = false; input.focus();
+  window._timetableRoutineJustCaptured = false;
 }
 
 document.getElementById('user-input').addEventListener('input', function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; });
@@ -3795,6 +4038,32 @@ async function initSession() {
     });
   } catch(e) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); }
 }
+function getDaysUntilCAT() {
+  var today = getIndiaCalendarDate(0).iso;
+  var todayDate = new Date(today + 'T00:00:00+05:30');
+  var catDate = new Date('2026-11-29T00:00:00+05:30');
+  return Math.max(0, Math.ceil((catDate.getTime() - todayDate.getTime()) / 86400000));
+}
+
+function buildDailyMentorBrief() {
+  loadTopicProgression();
+  loadPendingDiagnosticExercise();
+  var days = getDaysUntilCAT();
+  var recommendation = bestSectionalRecommendation();
+  var pieces = ['CAT is ' + days + ' days away.'];
+  if (recommendation) {
+    pieces.push('You have completed ' + recommendation.conceptQuestionsCompleted + ' ' + recommendation.topic + ' questions; the next useful step is a timed ' + recommendation.topic + ' sectional, not another worksheet.');
+  } else {
+    var recent = Object.keys(topicProgression).map(function(key) { return topicProgression[key]; }).filter(Boolean).sort(function(a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); })[0];
+    if (recent) pieces.push('Your latest tracked topic is ' + recent.topic + ' at ' + (recent.lastAccuracy === null ? 'an unmeasured accuracy' : recent.lastAccuracy + '% accuracy') + '.');
+    pieces.push('Today, one RC and one DILR set will give better evidence than passive revision.');
+  }
+  if (pendingDiagnosticExercise && pendingDiagnosticExercise.entry) {
+    pieces.push('The targeted ' + diagnosticExerciseLabel(pendingDiagnosticExercise.entry) + ' you chose for ' + String(pendingDiagnosticExercise.timing || '').replace('_', ' ') + ' is still ready.');
+  }
+  return pieces.join(' ');
+}
+
 async function sendReturningUserGreeting() {
   showBottomNav();
   if (typeof checkAndShowTour === 'function') checkAndShowTour();
@@ -3832,6 +4101,7 @@ async function sendReturningUserGreeting() {
 
   const hour = getIndiaHour();
   const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+  const dailyMentorBrief = buildDailyMentorBrief();
 
   let situationLine = '';
   if (lastSession && lastSession.last_task && lastSession.last_session_date) {
@@ -3846,7 +4116,8 @@ async function sendReturningUserGreeting() {
   const greetingContext = getDateContext() +
     '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') +
     '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours +
-    '\n\nRETURNING GREETING: ' + (name || 'This student') + ' just opened the app after being away — it is ' + timeOfDay + '. ' + situationLine + ' Write ONE opening message in your own voice, 1 to 3 sentences. It must contain continuity plus a prediction/insight before any question. Do not list their profile, say "ready to continue?", or open with a generic welcome.';
+    '\n\nDAILY MENTOR BRIEF: ' + dailyMentorBrief +
+    '\n\nRETURNING GREETING: ' + (name || 'This student') + ' just opened the app after being away — it is ' + timeOfDay + '. ' + situationLine + ' Use the daily brief to create urgency and recommend the best next action from actual progression. If you suggest practice, ask whether they want it right now, later today, or tomorrow; never select tomorrow yourself. Write ONE compact opening message in your own voice. It must contain continuity plus a prediction/insight before any question. Do not list their profile, say "ready to continue?", or open with a generic welcome.';
 
   let greeting = '';
   try {
@@ -3861,11 +4132,11 @@ async function sendReturningUserGreeting() {
       })
     }, 45000);
     const data = await res.json();
-    greeting = data.content && data.content[0] ? correctCalendarReferences(data.content[0].text) : '';
+    greeting = data.content && data.content[0] ? enforceIndiaTimeGreeting(correctCalendarReferences(data.content[0].text)) : '';
   } catch(e) {}
 
   if (!greeting) {
-    greeting = (name ? name + ', ' : '') + 'good to have you back — what\'s on your mind today?';
+    greeting = getTimeGreeting() + (name ? ', ' + name : '') + '. ' + dailyMentorBrief;
   }
 
   addMargMessage(greeting);
@@ -4093,6 +4364,9 @@ async function saveCognitivePattern(varc, dilr, qa) {
 }
 
 async function saveMockScore(varc, dilr, qa) {
+  recordTopicProgress('varc', 'Mock performance', { mockPerformance:varc });
+  recordTopicProgress('dilr', 'Mock performance', { mockPerformance:dilr });
+  recordTopicProgress('qa', 'Mock performance', { mockPerformance:qa });
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
 
@@ -4110,6 +4384,7 @@ async function saveMockScore(varc, dilr, qa) {
       total: varc + dilr + qa
     };
     const updated = [...existing, newEntry].slice(-20);
+    studentProfile.mockHistory = updated;
 
     await fetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
@@ -4538,6 +4813,7 @@ var selectedPracticeTopic = null;
 var practiceLoadSeq = 0;
 var practiceLoadInFlight = false;
 var practiceLoadTarget = null;
+var practiceAuditRetry = {};
 
 var practiceTopics = {
   dilr: ['Arrangements & Rankings', 'Scheduling & Allocation', 'Distribution & Grouping', 'Games & Tournaments', 'Routes & Networks', 'Tables, Charts & DI Caselets', 'Venn Diagrams & Set Data', 'Mixed — surprise me']
@@ -4563,6 +4839,56 @@ var timedTestSecondsTotal = 0;
 var timedTestSecondsLeft = 0;
 var timedTestTimerHandle = null;
 var timedTestSubmitted = false;
+var timedTestDiagnosticEntry = null;
+var timedTestRequestedCount = 0;
+var topicProgression = {};
+
+function topicProgressionStorageKey() {
+  return 'marg_topic_progression_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function loadTopicProgression() {
+  try { topicProgression = JSON.parse(localStorage.getItem(topicProgressionStorageKey()) || '{}') || {}; }
+  catch(e) { topicProgression = {}; }
+  return topicProgression;
+}
+
+function saveTopicProgression() {
+  try { localStorage.setItem(topicProgressionStorageKey(), JSON.stringify(topicProgression)); } catch(e) {}
+}
+
+function getTopicProgress(section, topic) {
+  loadTopicProgression();
+  var key = String(section || '').toLowerCase() + '::' + String(topic || 'mixed').toLowerCase();
+  if (!topicProgression[key]) topicProgression[key] = {
+    section:String(section || '').toLowerCase(), topic:topic || 'Mixed', conceptQuestionsCompleted:0,
+    timedPracticeCompleted:0, timedSectionalsCompleted:0, lastAccuracy:null,
+    lastAttempt:null, mockPerformance:null, sectionalSuggested:false
+  };
+  return topicProgression[key];
+}
+
+function recordTopicProgress(section, topic, event) {
+  if (!section || !topic) return;
+  var item = getTopicProgress(section, topic);
+  event = event || {};
+  item.conceptQuestionsCompleted += event.conceptQuestions || 0;
+  item.timedPracticeCompleted += event.timedPractice || 0;
+  item.timedSectionalsCompleted += event.timedSectionals || 0;
+  if (typeof event.accuracy === 'number') item.lastAccuracy = Math.round(event.accuracy);
+  if (event.mockPerformance !== undefined) item.mockPerformance = event.mockPerformance;
+  item.lastAttempt = event.attempt || new Date().toISOString();
+  item.updatedAt = new Date().toISOString();
+  saveTopicProgression();
+}
+
+function bestSectionalRecommendation() {
+  loadTopicProgression();
+  var candidates = Object.keys(topicProgression).map(function(key) { return topicProgression[key]; }).filter(function(item) {
+    return item && (item.section === 'qa' || item.section === 'dilr') && item.conceptQuestionsCompleted >= 20 && item.timedSectionalsCompleted === 0;
+  }).sort(function(a, b) { return b.conceptQuestionsCompleted - a.conceptQuestionsCompleted; });
+  return candidates[0] || null;
+}
 
 function switchTab(tab) {
   currentTab = tab;
@@ -4745,7 +5071,36 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
   }
 
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
-  return 'Generate exactly ' + setsCount + ' independent CAT-level DILR sets, each with 5-7 entities and exactly 4 questions, all centered on ' + topic + '.' + difficultyGuard + ' Match the reasoning character of CAT DILR PYQs without copying them: a compact setup in which 4-6 constraints interact, at least one inference appears only after combining conditions, and multiple possibilities remain until a decisive deduction. Do not create a school-style puzzle that fills mechanically from direct clues. Across each set, at least 2 questions must require fresh work after the base arrangement: must/cannot be true, number of valid cases, maximum/minimum, or a local hypothetical condition. At most one question may be a direct lookup. Make the sets structurally different from one another even though the topic is shared.' + DILR_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure the setup is consistent, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Keep each setup under 180 words and explanations/diagnostic fields to one short sentence to preserve valid JSON. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Medium-Hard or Hard","constraint_types":["' + topic + '"],"setup":"complete compact setup","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
+  var dilrTopicInstruction = /mixed set selection/i.test(topic)
+    ? 'Use structurally different set families. Make one look familiar but have a weak entry point, while another looks less familiar but has a clean representation and two interacting starting constraints; this must reveal set-selection quality.'
+    : 'Center every set on ' + topic + ', while keeping the mechanics distinct.';
+  return 'Generate exactly ' + setsCount + ' independent CAT-level DILR sets, each with 5-7 entities and exactly 4 questions. ' + dilrTopicInstruction + difficultyGuard + ' Match the reasoning character of CAT DILR PYQs without copying them: a compact setup in which 4-6 constraints interact, at least one inference appears only after combining conditions, and multiple possibilities remain until a decisive deduction. Do not create a school-style puzzle that fills mechanically from direct clues. Across each set, at least 2 questions must require fresh work after the base arrangement: must/cannot be true, number of valid cases, maximum/minimum, or a local hypothetical condition. At most one question may be a direct lookup. Make the sets structurally different from one another.' + DILR_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure the setup is consistent, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Keep each setup under 180 words and explanations/diagnostic fields to one short sentence to preserve valid JSON. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Medium-Hard or Hard","constraint_types":["' + topic + '"],"setup":"complete compact setup","questions":[{"q":"question text","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short sentence","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
+}
+
+function getVerifiedFallbackPractice(section, questionCount) {
+  if (section === 'qa' && (questionCount || 3) <= 3) {
+    return { difficulty:'Medium-Hard', topics_combined:['Mixed QA'], questions:[
+      { q:'A two-digit number is four times the sum of its digits. Reversing its digits increases the number by 18. What is the number?', options:['A. 24','B. 36','C. 42','D. 48'], correct:0, solution:'Let the digits be a,b. Then 10a+b=4(a+b), so b=2a; also 9(b-a)=18, giving a=2,b=4.', common_mistake:'Using the reversal condition without the digit-sum constraint', concept_check:'Algebra and digits', marg_insight:'The entry point is translating both verbal conditions before calculating.' },
+      { q:'A rectangle has positive integer side lengths and perimeter 34. Its area is at least 60 but less than 72. How many distinct unordered pairs of side lengths are possible?', options:['A. 2','B. 3','C. 4','D. 5'], correct:1, solution:'If sides are a≤b, then a+b=17. Areas 60≤a(17−a)<72 occur for a=5,6,7 only.', common_mistake:'Including 8×9 although the upper bound is strict', concept_check:'Inequalities', marg_insight:'The hidden move is bounding integer cases, not solving a formula.' },
+      { q:'For a positive real number x, x + 1/x = 3. What is x^5 + 1/x^5?', options:['A. 99','B. 111','C. 123','D. 135'], correct:2, solution:'With Sₙ=xⁿ+x⁻ⁿ, Sₙ=3Sₙ₋₁−Sₙ₋₂. From S₀=2,S₁=3, obtain S₅=123.', common_mistake:'Expanding the fifth power directly', concept_check:'Algebraic recurrence', marg_insight:'Recognition of a recurrence is the speed-saving insight.' }
+    ] };
+  }
+  if (section === 'dilr' && (questionCount || 4) <= 4) {
+    return { sets:[{ set_title:'Six Presentations', difficulty:'Medium-Hard', constraint_types:['Sequencing','Conditional ordering'], setup:'Six people A, B, C, D, E and F give one presentation each in six consecutive slots. C presents immediately after A. B presents before D. E and F are not in consecutive slots. Exactly one of B and E presents before A. F presents before C.', questions:[
+      { q:'Which of the following must be true?', options:['A. B presents before F','B. F presents before A','C. D presents after E','D. E presents last'], correct:1, explanation:'Since C is immediately after A and F is before C, F cannot fit between A and C and must be before A.', common_mistake:'Treating “before C” as allowing the occupied slot after A', marg_insight:'Use the fixed AC block before testing the other constraints.' },
+      { q:'Which of the following is the complete set of slots in which D can present?', options:['A. {2,3,5}','B. {2,3,5,6}','C. {3,4,5,6}','D. {2,4,5,6}'], correct:1, explanation:'Enumerating placements around the AC block gives D in slots 2, 3, 5 or 6, and each is feasible.', common_mistake:'Eliminating slot 2 without testing B in slot 1', marg_insight:'Track feasible slots across cases instead of committing to one arrangement.' },
+      { q:'If E presents in slot 6, which person must present in slot 3?', options:['A. A','B. B','C. D','D. F'], correct:0, explanation:'With E last, the only feasible orders are BFACDE and FBACDE, so A is third.', common_mistake:'Ignoring the exactly-one-of-B-and-E condition', marg_insight:'A local condition can collapse several cases at once.' },
+      { q:'If D presents immediately before A, how many complete schedules are possible?', options:['A. 1','B. 2','C. 3','D. 4'], correct:2, explanation:'The feasible schedules are BDFACE, BFDACE and FBDACE.', common_mistake:'Counting a schedule where E and F are consecutive', marg_insight:'Re-check every global constraint after adding the hypothetical.' }
+    ] }] };
+  }
+  if (section === 'rc') {
+    return { sets:[{ difficulty:'Medium-Hard', topic:'Measurement and institutions', passage:'Public indicators are often treated as passive descriptions of social reality. A ranking of universities, a measure of hospital efficiency, or a national index of innovation appears merely to condense facts that already exist. Yet once such an indicator becomes consequential, the institutions being measured reorganise themselves around it. Universities redirect effort toward countable publications; hospitals may prefer cases that protect reported outcomes; governments fund activities that move an index even when those activities are only weakly connected to the index’s stated purpose.\n\nThis does not make measurement useless. Decisions made without common measures can be opaque, inconsistent and vulnerable to private judgment. The problem is instead that an indicator participates in the world it claims only to observe. Its categories reward some forms of work, render others invisible, and encourage people to substitute success on the measure for success in the underlying activity. Better statistical design can reduce these distortions, but cannot eliminate them, because every measure selects a limited representation of a more complex goal.\n\nThe appropriate response is therefore neither blind trust nor abandonment. Indicators should be treated as institutional interventions whose effects require scrutiny. A useful measure is not merely accurate at the moment of construction; it must also remain informative after people begin adapting to it. That requires revising measures, comparing them with qualitative evidence, and asking who bears the cost when organisations optimise what can be counted.', questions:[
+      { q:'Which option best captures the primary purpose of the passage?', options:['A. To show that statistical indicators should be abandoned in public institutions','B. To argue that consequential indicators reshape behaviour and therefore require continuing institutional scrutiny','C. To compare the accuracy of university, hospital and innovation rankings','D. To claim that qualitative judgment is always more reliable than measurement'], correct:1, explanation:'The passage accepts the value of indicators but argues that their behavioural effects must be monitored.', trap_type:'Extreme conclusion', marg_insight:'The author qualifies measurement; the author does not reject it.' },
+      { q:'The author’s attitude toward public indicators is best described as:', options:['A. unqualified enthusiasm','B. indifference to their design','C. cautious acceptance combined with scepticism about their neutrality','D. hostility based on a preference for private judgment'], correct:2, explanation:'The author sees measures as useful but not passive or neutral.', trap_type:'Tone overstatement', marg_insight:'Hold both sides of the author’s qualified position.' },
+      { q:'Which inference is most strongly supported by the passage?', options:['A. An indicator can become less informative when institutions successfully optimise for it','B. A sufficiently complex indicator can represent every aspect of its underlying goal','C. Institutions respond strategically only when an indicator is statistically inaccurate','D. Qualitative evidence is immune to adaptation and private judgment'], correct:0, explanation:'Adaptation can replace the underlying goal with performance on the measure, reducing informativeness.', trap_type:'Scope shift', marg_insight:'The key distinction is between improving the score and improving the real activity.' }
+    ] }] };
+  }
+  return null;
 }
 
 function getSectionalTestMaxTokens(section, questionCount) {
@@ -4762,7 +5117,60 @@ function parseGeneratedJson(text) {
     if (firstBrace >= 0 && lastBrace > firstBrace) clean = clean.slice(firstBrace, lastBrace + 1);
   }
   clean = clean.replace(/,\s*([}\]])/g, '$1');
+  // Some models emit literal line breaks inside passage strings. Repair only
+  // control characters that occur while a JSON string is open.
+  var repaired = '', inString = false, escaped = false;
+  for (var i = 0; i < clean.length; i++) {
+    var ch = clean.charAt(i);
+    if (escaped) { repaired += ch; escaped = false; continue; }
+    if (ch === '\\' && inString) { repaired += ch; escaped = true; continue; }
+    if (ch === '"') { inString = !inString; repaired += ch; continue; }
+    if (inString && ch === '\n') { repaired += '\\n'; continue; }
+    if (inString && ch === '\r') { repaired += '\\r'; continue; }
+    if (inString && ch === '\t') { repaired += '\\t'; continue; }
+    repaired += ch;
+  }
+  clean = repaired;
   return JSON.parse(clean);
+}
+
+function preventStructuredOutputLeak(text) {
+  var raw = String(text || '').trim();
+  if (!/^(?:```(?:json)?\s*)?\{/i.test(raw)) return raw;
+  try {
+    var parsed = parseGeneratedJson(raw);
+    var rc = normalizePracticeAnswers(parsed, 'rc');
+    if (validateRCPracticeSet(rc)) return formatGuidedExerciseForChat('rc', rc, null);
+    if (parsed && (parsed.questions || parsed.sets || parsed.varc || parsed.dilr || parsed.qa)) {
+      return 'The generated practice did not enter the correct interface, so I hid the internal response. Let me rebuild it in the proper exercise view.';
+    }
+  } catch(e) {
+    return 'The generated practice did not render cleanly, so I discarded the internal response instead of showing broken data.';
+  }
+  return raw;
+}
+
+async function auditGeneratedCATContent(section, generatedData) {
+  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. Check that every condition is mutually consistent and sufficient, every question is answerable, exactly one option is correct, the stored correct index points to that option, and the explanation/solution actually reaches it. For QA, recompute all quantities and reject impossible or contradictory data. For DILR, verify feasible cases rather than trusting the supplied key. For RC, verify each key from the passage and reject ambiguous alternatives. If everything passes, return ONLY {"valid":true,"issues":[]}. If anything fails, repair only the faulty items while preserving the exact schema and item count, independently re-solve the repairs, and return ONLY {"valid":false,"issues":["specific issue"],"corrected_data":<the complete corrected material>}. Never return prose or markdown.\n\nMATERIAL:\n' + JSON.stringify(generatedData);
+  try {
+    var auditResponse = await fetchWithTimeout(WORKER_URL, {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({
+        model:'claude-haiku-4-5-20251001', max_tokens:section === 'dilr' ? 6500 : section === 'rc' ? 4200 : 5200,
+        system:'You are a strict CAT question-set auditor and repairer. A plausible-looking but flawed item must fail. When repairing, change the minimum necessary data, options, key, or explanation and verify the result. Return only valid JSON.' + getDateContext(),
+        messages:[{ role:'user', content:auditPrompt }]
+      })
+    }, 45000);
+    if (!auditResponse.ok) return { valid:false, issues:['Audit service failed'] };
+    var auditPayload = await auditResponse.json();
+    var auditText = auditPayload.content && auditPayload.content.map(function(block) { return block.text || ''; }).join('');
+    var audit = parseGeneratedJson(auditText || '');
+    return audit && audit.valid === true
+      ? { valid:true, issues:[], correctedData:null }
+      : { valid:false, issues:(audit && audit.issues) || ['Semantic audit failed'], correctedData:audit && audit.corrected_data ? normalizePracticeAnswers(audit.corrected_data, section) : null };
+  } catch(e) {
+    return { valid:false, issues:['Semantic audit could not verify this set'] };
+  }
 }
 
 function normalizeCorrectIndex(q) {
@@ -4948,7 +5356,7 @@ function buildStudyPlanValidationExercise(entry) {
       'Keep only the two tasks that directly repair a repeated score leak.'
     ],
     unrealistic:[
-      'Write tomorrow’s planned study blocks with start times.',
+      'Write your next planned study day with start times.',
       'Add the real transition or recovery time each block usually needs.',
       'Remove the lowest-value block until the plan fits the day without borrowing time.'
     ]
@@ -4974,11 +5382,15 @@ function generateStudyPlanValidationExercise(entry) {
 async function runPredictionValidationExercise(entry) {
   if (!entry) return false;
   if (entry.topic === 'varc') {
-    var sub = String(entry.subcategory || '').toLowerCase();
-    return generateGuidedDiagnosticExercise(sub.indexOf('verbal') !== -1 ? 'va' : sub.indexOf('both') !== -1 ? 'varc_mixed' : 'rc', entry);
+    var sub = String(entry.subcategoryId || entry.subcategory || '').toLowerCase();
+    return generateGuidedDiagnosticExercise(sub === 'va' || sub.indexOf('verbal') !== -1 ? 'va' : sub === 'both' || sub.indexOf('both') !== -1 ? 'varc_mixed' : 'rc', entry);
   }
-  if (entry.topic === 'dilr' && entry.patternId === 'selection') return generateGuidedDiagnosticExercise('dilr_selection', entry);
-  if (entry.topic === 'qa' || entry.topic === 'dilr' || entry.topic === 'strategy') return generateGuidedDiagnosticExercise(entry.topic, entry);
+  if (entry.topic === 'qa') {
+    var qaTopic = entry.subcategory && entry.subcategory !== 'mixed' ? String(entry.subcategory).replace(/_/g, ' ') : 'Mixed QA';
+    return startTimedTest('qa', qaTopic, 3, entry);
+  }
+  if (entry.topic === 'dilr') return startTimedTest('dilr', entry.patternId === 'selection' ? 'Mixed Set Selection' : 'Diagnostic Set', entry.patternId === 'selection' ? 8 : 4, entry);
+  if (entry.topic === 'strategy') return generateGuidedDiagnosticExercise(entry.topic, entry);
   if (entry.topic === 'mock') return generateGuidedMiniMock(entry);
   if (entry.topic === 'confidence') return generateConfidenceValidationExercise(entry);
   if (entry.topic === 'study_plan') return generateStudyPlanValidationExercise(entry);
@@ -5047,7 +5459,7 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   try {
     var response = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:maxTokens, system:'You are an expert CAT exam question generator. Return only valid JSON, with independently verified answer keys.' + getDateContext(), messages:[{ role:'user', content:prompt }] })
+      body:JSON.stringify({ model:QUESTION_GENERATION_MODEL, max_tokens:maxTokens, system:'You are an expert CAT exam question generator. Return only valid JSON, with independently verified answer keys.' + getDateContext(), messages:[{ role:'user', content:prompt }] })
     }, 90000);
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
@@ -5127,7 +5539,7 @@ async function generateGuidedMiniMock(diagnosticEntry) {
   addMentorLeadMessage("This six-question mini mock is built to test the mock-behaviour prediction we just agreed on. Record order and skips—the decisions matter as much as the score.");
   showTyping();
   try {
-    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:4200, system:'You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), messages:[{ role:'user', content:buildGuidedMiniMockPrompt(diagnosticEntry) }] }) }, 90000);
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ model:QUESTION_GENERATION_MODEL, max_tokens:4200, system:'You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), messages:[{ role:'user', content:buildGuidedMiniMockPrompt(diagnosticEntry) }] }) }, 90000);
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
     var raw = payload.content && payload.content[0] ? payload.content[0].text : '';
@@ -5150,9 +5562,11 @@ async function generateGuidedMiniMock(diagnosticEntry) {
   return true;
 }
 
-async function startTimedTest(section, topic, questionCount) {
+async function startTimedTest(section, topic, questionCount, diagnosticEntry, generationAttempt) {
   timedTestSection = section;
   timedTestTopic = topic;
+  timedTestDiagnosticEntry = diagnosticEntry || null;
+  timedTestRequestedCount = questionCount || (section === 'qa' ? 10 : 12);
   timedTestQuestions = [];
   timedTestAnswers = [];
   timedTestIndex = 0;
@@ -5171,7 +5585,7 @@ async function startTimedTest(section, topic, questionCount) {
   titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + ' Sectional Test — ' + topic;
   contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is building a timed ' + (section === 'qa' ? 'QA' : 'DILR') + ' test on ' + topic + ' — CAT-level difficulty...</div></div>';
 
-  var prompt = buildSectionalTestPrompt(section, topic, questionCount);
+  var prompt = getPredictionValidationFocus(timedTestDiagnosticEntry) + buildSectionalTestPrompt(section, topic, questionCount);
   var maxTokens = getSectionalTestMaxTokens(section, questionCount);
 
   try {
@@ -5179,7 +5593,7 @@ async function startTimedTest(section, topic, questionCount) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: QUESTION_GENERATION_MODEL,
         max_tokens: maxTokens,
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
         messages: [{ role: 'user', content: prompt }]
@@ -5205,11 +5619,26 @@ async function startTimedTest(section, topic, questionCount) {
       console.error('Timed test failed count/options validation. Parsed shape:', parsed, 'Raw model output:', text);
       throw new Error('Generated test failed structural validation');
     }
+    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is checking every answer and condition before showing the test...</div></div>';
+    var semanticAudit = await auditGeneratedCATContent(section, parsed);
+    if (!semanticAudit.valid) {
+      console.error('Timed test failed semantic audit:', semanticAudit.issues);
+      var correctedQuestions = semanticAudit.correctedData ? flattenTimedTestQuestions(section, semanticAudit.correctedData) : [];
+      if (correctedQuestions.length === expectedQuestionCount && correctedQuestions.every(isValidTimedTestQuestion)) {
+        parsed = semanticAudit.correctedData;
+        timedTestQuestions = correctedQuestions;
+      } else if ((generationAttempt || 0) < 1) {
+        contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">One draft failed the answer-key audit. Marg is replacing it automatically...</div></div>';
+        return startTimedTest(section, topic, questionCount, diagnosticEntry, 1);
+      } else {
+        throw new Error('Generated test failed semantic validation: ' + semanticAudit.issues.join('; '));
+      }
+    }
 
     timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
     timedTestSecondsTotal = timedTestQuestions.length * 120;
     timedTestSecondsLeft = timedTestSecondsTotal;
-    storeActiveGeneratedExercise({ type:section, source:'sectional', title:topic + ' sectional', purpose:'Timed CAT sectional diagnosis for ' + topic, content:{ questions:timedTestQuestions } });
+    storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation' : 'sectional', title:topic + ' sectional', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Timed CAT sectional diagnosis for ' + topic, hypothesis:timedTestDiagnosticEntry || null, content:{ questions:timedTestQuestions } });
 
     renderTimedTestQuestionNav();
     qnavEl.style.display = 'flex';
@@ -5218,9 +5647,26 @@ async function startTimedTest(section, topic, questionCount) {
 
   } catch(e) {
     console.error('Timed test generation error:', e);
+    var verifiedFallback = getVerifiedFallbackPractice(section, questionCount);
+    if (verifiedFallback) {
+      timedTestQuestions = flattenTimedTestQuestions(section, verifiedFallback);
+      timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
+      timedTestSecondsTotal = timedTestQuestions.length * 120;
+      timedTestSecondsLeft = timedTestSecondsTotal;
+      storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation-fallback' : 'sectional-fallback', title:topic + ' verified fallback', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Reliable timed CAT practice for ' + topic, hypothesis:timedTestDiagnosticEntry || null, content:{ questions:timedTestQuestions } });
+      renderTimedTestQuestionNav();
+      qnavEl.style.display = 'flex';
+      renderTimedTestQuestion();
+      startTimedTestTimer();
+      return;
+    }
     var isTimeout = e && e.name === 'AbortError';
-    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + (isTimeout ? 'This is taking longer than expected — try again in a moment.' : 'Having trouble building this test right now. Try again in a moment.') + '</div><button class="pcard-nav-btn primary" onclick="startTimedTest(\'' + section + '\', \'' + topic.replace(/'/g, "\\'") + '\', ' + questionCount + ')" style="margin-top:12px;max-width:200px;">Try again</button></div>';
+    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + (isTimeout ? 'This is taking longer than expected — try again in a moment.' : 'Having trouble building this test right now. Try again in a moment.') + '</div><button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
   }
+}
+
+function retryTimedTest() {
+  startTimedTest(timedTestSection, timedTestTopic, timedTestRequestedCount || (timedTestSection === 'qa' ? 10 : 4), timedTestDiagnosticEntry, 0);
 }
 
 function renderTimedTestQuestionNav() {
@@ -5325,6 +5771,8 @@ function submitTimedTest(isAutoSubmit) {
 
   var total = timedTestQuestions.length;
   var maxMarks = total * 3;
+  var accuracy = total ? (correct / total) * 100 : 0;
+  recordTopicProgress(timedTestSection, timedTestTopic, { timedPractice:1, timedSectionals:1, accuracy:accuracy });
 
   if (activeGeneratedExercise) {
     activeGeneratedExercise.result = { correct:correct, wrong:wrong, skipped:skipped, marks:marks, maxMarks:maxMarks, answers:timedTestAnswers.slice() };
@@ -5334,7 +5782,7 @@ function submitTimedTest(isAutoSubmit) {
 
   renderTimedTestResults({ correct: correct, wrong: wrong, skipped: skipped, marks: marks, maxMarks: maxMarks, total: total, isAutoSubmit: isAutoSubmit });
 
-  window._practiceCompleteSummary = 'I just finished a timed ' + (timedTestSection === 'qa' ? 'QA' : 'DILR') + ' sectional test on ' + timedTestTopic + ' on Marg. Scored ' + marks + '/' + maxMarks + ' marks — ' + correct + ' correct, ' + wrong + ' wrong, ' + skipped + ' skipped out of ' + total + ' questions' + (isAutoSubmit ? ' (time ran out before I finished)' : '') + '. Based on this, give me a real diagnostic — am I actually ready to move past ' + timedTestTopic + ', or do I need more work here specifically? Be direct.';
+  window._practiceCompleteSummary = 'I just finished a timed ' + (timedTestSection === 'qa' ? 'QA' : 'DILR') + ' sectional test on ' + timedTestTopic + ' on Marg. Scored ' + marks + '/' + maxMarks + ' marks — ' + correct + ' correct, ' + wrong + ' wrong, ' + skipped + ' skipped out of ' + total + ' questions' + (isAutoSubmit ? ' (time ran out before I finished)' : '') + '.' + (timedTestDiagnosticEntry ? ' This was designed to test the working diagnosis: ' + timedTestDiagnosticEntry.confirmedDiagnosis + '. Say whether the evidence SUPPORTS, REJECTS, or is INCONCLUSIVE for that diagnosis, then give one next move.' : ' Based on this, tell me whether I am ready to move past ' + timedTestTopic + ' or what specifically still needs work.');
 }
 
 function renderTimedTestResults(stats) {
@@ -5414,7 +5862,7 @@ async function loadDailyPractice() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: QUESTION_GENERATION_MODEL,
         max_tokens: maxTokens,
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
         messages: [{ role: 'user', content: prompt }]
@@ -5447,6 +5895,26 @@ async function loadDailyPractice() {
     } else if (currentPracticeType === 'rc') {
       if (!validateRCPracticeSet(practiceJson)) throw new Error('Generated RC set failed structural validation');
     }
+    content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is checking every answer and condition before showing your practice...</div></div>';
+    var practiceAudit = await auditGeneratedCATContent(currentPracticeType, practiceJson);
+    if (!practiceAudit.valid) {
+      console.error('Practice failed semantic audit:', practiceAudit.issues);
+      var repairedPractice = practiceAudit.correctedData;
+      var repairedValid = currentPracticeType === 'qa' ? validateQASetShape(repairedPractice)
+        : currentPracticeType === 'dilr' ? validateDILRPracticeSet(repairedPractice)
+        : validateRCPracticeSet(repairedPractice);
+      if (repairedValid) {
+        practiceJson = repairedPractice;
+      } else if (!practiceAuditRetry[loadTarget]) {
+        practiceAuditRetry[loadTarget] = 1;
+        practiceLoadInFlight = false;
+        content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">One draft failed the answer-key audit. Marg is replacing it automatically...</div></div>';
+        return loadDailyPractice();
+      } else {
+        throw new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
+      }
+    }
+    practiceAuditRetry[loadTarget] = 0;
     practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
     practiceData[currentPracticeType] = practiceJson;
@@ -5461,6 +5929,17 @@ async function loadDailyPractice() {
     practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
     console.error('Practice error:', e);
+    var fallbackPractice = getVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4);
+    if (fallbackPractice) {
+      practiceData[currentPracticeType] = fallbackPractice;
+      storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-fallback', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Reliable CAT practice used after a generated draft failed validation', content:fallbackPractice });
+      currentSetIndex = 0;
+      currentQuestionIndex = 0;
+      practiceAnswered = false;
+      practiceSessionCounted = false;
+      renderPractice(fallbackPractice);
+      return;
+    }
     var isTimeout = e && e.name === 'AbortError';
     var errorMessage = isTimeout
       ? 'This is taking longer than expected — the question set may still be generating in the background. Try again in a moment.'
@@ -5756,13 +6235,18 @@ function prevQuestion() {
 
 function showPracticeSummary() {
   markPracticeDoneToday(currentPracticeType);
+  var progressTopic = selectedPracticeTopic || sessionResults.passageTitle || (currentPracticeType === 'rc' ? 'RC' : 'Mixed');
+  recordTopicProgress(currentPracticeType === 'rc' ? 'varc' : currentPracticeType, progressTopic, {
+    conceptQuestions:sessionResults.total,
+    accuracy:sessionResults.total ? (sessionResults.correct / sessionResults.total) * 100 : 0
+  });
   if (!practiceSessionCounted) {
     practiceSessionCounted = true;
     incrementSessionCount();
   }
   var content = document.getElementById('practice-content');
   var type = currentPracticeType.toUpperCase();
-  content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">Marg has updated your cognitive profile. Tomorrow\'s questions will be more targeted.</div><button class="pcard-nav-btn primary" onclick="switchTab(\'chat\')" style="max-width:200px;margin:0 auto;">Talk to Marg about today</button><button class="pcard-nav-btn" onclick="switchPracticeTab(\'' + currentPracticeType + '\')" style="max-width:200px;margin:8px auto 0;">Practice Again</button></div></div></div>';
+  content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">Marg has updated your progression and will use this attempt to choose the next useful step.</div><button class="pcard-nav-btn primary" onclick="switchTab(\'chat\')" style="max-width:200px;margin:0 auto;">Talk to Marg about today</button><button class="pcard-nav-btn" onclick="switchPracticeTab(\'' + currentPracticeType + '\')" style="max-width:200px;margin:8px auto 0;">Practice Again</button></div></div></div>';
   var _pattern = type === 'rc' ? studentProfile.varcCognitivePattern : type === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern;
   var _patternText = (_pattern && _pattern !== 'undefined' && _pattern !== 'null' && _pattern.trim() !== '') ? _pattern : 'still building from your answers today';
   var _resultsText = sessionResults.total > 0 ? 'Got ' + sessionResults.correct + ' out of ' + sessionResults.total + ' correct. ' : '';
@@ -5923,7 +6407,7 @@ function showDailyLimitCard(type) {
   content.innerHTML = '<div class="daily-limit-card">' +
     '<div class="daily-limit-icon">✅</div>' +
     '<div class="daily-limit-title">Today\'s ' + typeName + ' practice — done</div>' +
-    '<div class="daily-limit-body">You\'ve completed 3 ' + typeName + ' sessions today. Come back tomorrow for fresh practice targeting your updated patterns.</div>' +
+    '<div class="daily-limit-body">You\'ve completed 3 ' + typeName + ' sessions today. Fresh targeted practice will unlock in the next daily cycle.</div>' +
     '<div class="daily-limit-stat">🔥 ' + sessionsCount + ' sessions completed with Marg</div>' +
     '<div style="font-size:12px;color:var(--text-dim);">Try a different section, or chat with Marg about today\'s mistakes</div>' +
     '</div>';
