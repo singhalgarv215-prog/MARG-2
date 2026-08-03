@@ -253,11 +253,11 @@
       <div style="display:flex;flex-direction:column;gap:0;">
         <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;border-bottom:1px solid #1A1A1A;">
           <div style="width:36px;height:36px;border-radius:50%;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#C9A84C;font-weight:700;flex-shrink:0;">1</div>
-          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Start directly in chat</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Choose VARC, DILR or QA. Marg generates a short CAT-level exercise immediately—no form and no profile interview.</div></div>
+          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Start directly in chat</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Choose the area that feels broken. Marg asks one or two focused questions, then predicts the hidden issue—no form and no profile interview.</div></div>
         </div>
         <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;border-bottom:1px solid #1A1A1A;">
           <div style="width:36px;height:36px;border-radius:50%;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#C9A84C;font-weight:700;flex-shrink:0;">2</div>
-          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Marg diagnoses live performance</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Your choices reveal the actual leak: comprehension, selection, representation, recognition or execution.</div></div>
+          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Test the prediction</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">After you confirm Marg’s read, it creates a CAT-level exercise designed to support or reject that exact diagnosis.</div></div>
         </div>
         <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;border-bottom:1px solid #1A1A1A;">
           <div style="width:36px;height:36px;border-radius:50%;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#C9A84C;font-weight:700;flex-shrink:0;">3</div>
@@ -1001,7 +1001,7 @@ When the narrow topic you're flagging is a QA or DILR one specifically — not V
 
 Every conversation should leave a clear next move, not homework or a vague request. Lead with "Let's test that pattern with one harder question next" so the student never has to invent the next step. Students return because the thread is useful, not because they were assigned a report.
 
-LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. If the student mentions VARC, QA or DILR without usable evidence already present, say "let's do" or "I'll generate" and start a live CAT-level exercise. For mock analysis, request sectional numbers only after the student says they already have them; otherwise offer a mini mock. The student should always know what happens next.
+LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction, and ask for confirmation. Generate an exercise only after the student confirms Exactly or Mostly. That exercise must be designed to validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should always know what happens next.
 
 One technical note, separate from all of this: when you want the student to pick from a short list of options during a section switch, wrap it as [OPTIONS: opt1|opt2|opt3][CONTEXT: type] — one set per message, and only when it genuinely helps.
 
@@ -1472,10 +1472,10 @@ function detectExplicitDiagnosticTopic(message) {
   if (/\b(varc|reading comprehension|verbal ability|\brc\b)/.test(text)) return 'varc';
   if (/\b(dilr|data interpretation|logical reasoning|\blr\b)/.test(text)) return 'dilr';
   if (/\b(qa|quants?|quantitative aptitude|arithmetic|algebra|geometry)\b/.test(text)) return 'qa';
+  if (/\b(confidence|confident|self doubt|self-doubt|want to quit|cant clear cat|cannot clear cat)\b/.test(text)) return 'confidence';
   if (/\b(mock|mock analysis|mock test|percentile)\b/.test(text)) return 'mock';
   if (/\b(study plan|study schedule|timetable|backlog|what to study|planning|plan my study|prepare a plan)\b/.test(text)) return 'study_plan';
   if (/\b(time management|manage time|run out of time|too slow|pacing)\b/.test(text)) return 'time';
-  if (/\b(confidence|confident|self doubt|self-doubt|want to quit|cant clear cat|cannot clear cat)\b/.test(text)) return 'confidence';
   if (/\b(strategy|attempt order|question selection|revision strategy)\b/.test(text)) return 'strategy';
   return null;
 }
@@ -1505,6 +1505,7 @@ async function maybeStartGuidedExperienceFromMessage(message) {
     else if (/^(dilr|lrdi)$/.test(shortTopic)) topic = 'dilr';
     else if (/^(mock|mock analysis)$/.test(shortTopic)) topic = 'mock';
     else if (/^(confidence|low confidence)$/.test(shortTopic)) topic = 'confidence';
+    else if (/^(strategy|cat strategy)$/.test(shortTopic)) topic = 'strategy';
   }
   if (!topic) return false;
   if ((topic === 'varc' || topic === 'dilr' || topic === 'qa') && activeGeneratedExercise && activeGeneratedExercise.awaitingAnswers) {
@@ -1513,7 +1514,7 @@ async function maybeStartGuidedExperienceFromMessage(message) {
     if (activeType === requestedType) return false;
   }
   if (topic === 'mock' && /varc\s*[:=\-]?\s*\d/i.test(message) && /dilr\s*[:=\-]?\s*\d/i.test(message) && /qa\s*[:=\-]?\s*\d/i.test(message)) return false;
-  if (['varc','dilr','qa','mock','confidence'].indexOf(topic) === -1) return false;
+  if (['varc','dilr','qa','mock','confidence','strategy'].indexOf(topic) === -1) return false;
   var oldChoices = document.getElementById('conv-options-chat_first_onboarding');
   if (oldChoices) oldChoices.remove();
   await beginChatFirstTopic(topic);
@@ -1521,7 +1522,7 @@ async function maybeStartGuidedExperienceFromMessage(message) {
 }
 
 function getDiagnosticMemoryContext() {
-  var entries = Object.keys(diagnosticMemory).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && entry.confirmedDiagnosis; });
+  var entries = Object.keys(diagnosticMemory).filter(hasConfirmedDiagnostic).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && entry.confirmedDiagnosis; });
   if (!entries.length) return '';
   return '\n\nCONFIRMED DIAGNOSTIC MEMORY (reuse it; do not repeat this flow):\n' + entries.map(function(entry) {
     return '- ' + entry.selectedSection + (entry.subcategory ? ' / ' + entry.subcategory.toUpperCase() : '') + ': ' + entry.confirmedDiagnosis + ' Confirmation=' + entry.confirmation + ', confidence=' + entry.confidence + '.';
@@ -1602,9 +1603,19 @@ function loadActiveGeneratedExercise() {
 
 function isAnswerReviewRequest(message) {
   var text = String(message || '').toLowerCase();
+  var answerPairs = String(message || '').match(/\d{1,2}\s*[-:.)]?\s*[abcd]/gi) || [];
   return /\b(check|evaluate|verify|analyse|analyze|review)\b.{0,30}\b(my\s+)?answers?\b/.test(text) ||
     /\b(my\s+)?answers?\b.{0,30}\b(correct|right|wrong|check)\b/.test(text) ||
-    /^\s*\d{1,2}\s*[-:.)]?\s*[abcd](?:\s*[,;|/]\s*\d{1,2}\s*[-:.)]?\s*[abcd])*\s*$/i.test(message || '');
+    /^\s*\d{1,2}\s*[-:.)]?\s*[abcd](?:\s*[,;|/]\s*\d{1,2}\s*[-:.)]?\s*[abcd])*\s*$/i.test(message || '') || answerPairs.length >= 2;
+}
+
+function isPredictionValidationReply(message) {
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  if (!activeGeneratedExercise || activeGeneratedExercise.source !== 'prediction-validation' || !activeGeneratedExercise.awaitingAnswers) return false;
+  var text = String(message || '').trim();
+  if (!text) return false;
+  var explicitSwitch = /\b(switch|change topic|now help|help me with|want help with|work on|focus on|weak in)\b/i.test(text) && detectExplicitDiagnosticTopic(text);
+  return !explicitSwitch;
 }
 
 function getActiveExerciseQuestions() {
@@ -1659,27 +1670,72 @@ function buildLocalAnswerCheck(message) {
     }
   });
   if (!lines.length) return '';
-  if (!wrongPatterns.length) return lines.join('\n') + '\n\nDiagnosis: Your choices match the stored key. Keep the same evidence-first process.';
+  if (!wrongPatterns.length) {
+    var cleanResult = lines.join('\n') + '\n\nDiagnosis: Your choices match the stored key. Keep the same evidence-first process.';
+    if (activeGeneratedExercise && activeGeneratedExercise.hypothesis) cleanResult += '\nPrediction verdict: INCONCLUSIVE locally—the predicted error did not appear in the answers, but process or timing evidence may still be needed.';
+    return cleanResult;
+  }
   var pattern = wrongPatterns[0];
-  return lines.join('\n') + '\n\nDiagnosis: ' + pattern + '\nEvidence: The wrong choice moved away from the condition or scope the question actually tested.\nFix: Before marking, name the exact evidence that makes your option necessary.';
+  var result = lines.join('\n') + '\n\nDiagnosis: ' + pattern + '\nEvidence: The wrong choice moved away from the condition or scope the question actually tested.\nFix: Before marking, name the exact evidence that makes your option necessary.';
+  if (activeGeneratedExercise && activeGeneratedExercise.hypothesis) result += '\nPrediction verdict: INCONCLUSIVE locally—the full review should compare this error with the stored hypothesis rather than infer from score alone.';
+  return result;
+}
+
+function buildPredictionValidationFallback(message) {
+  if (!activeGeneratedExercise || activeGeneratedExercise.source !== 'prediction-validation' || !activeGeneratedExercise.hypothesis) return '';
+  var localCheck = buildLocalAnswerCheck(message);
+  if (localCheck) return localCheck;
+  return 'INCONCLUSIVE — I saved your response, but I could not complete the evidence check cleanly. I will not treat the prediction as proven; retry the review and I’ll test the same hypothesis.';
 }
 
 function getGeneratedExerciseMemoryContext(message) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
   var text = String(message || '').toLowerCase();
   var isFollowUp = isAnswerReviewRequest(message) || /\b(?:q(?:uestion)?\s*\d+|why\s+(?:is|was)|explain\s+(?:this|the|q|question|answer|option)|this\s+(?:question|set|passage)|the\s+(?:question|set|passage))\b/.test(text);
-  if (!activeGeneratedExercise || !isFollowUp) return '';
+  var isValidationFollowUp = activeGeneratedExercise && activeGeneratedExercise.source === 'prediction-validation' &&
+    (activeGeneratedExercise.awaitingAnswers || activeGeneratedExercise.lastSubmittedAnswers === String(message || '').substring(0, 1000));
+  if (!activeGeneratedExercise || (!isFollowUp && !isValidationFollowUp)) return '';
   var memoryJson = JSON.stringify(activeGeneratedExercise);
   if (memoryJson.length > 24000) memoryJson = memoryJson.substring(0, 24000) + '...';
-  return '\n\nACTIVE GENERATED EXERCISE MEMORY — this was created by Marg. Never ask the student to resend it. Check submitted answers now:\n' + memoryJson;
+  return '\n\nACTIVE GENERATED EXERCISE MEMORY — this was created by Marg. Never ask the student to resend it. Check the current response against it now:\n' + memoryJson +
+    (activeGeneratedExercise.hypothesis ? '\nThis exercise was built to test the stored hypothesis. Lead with exactly one verdict: SUPPORTED, REJECTED, or INCONCLUSIVE. Then give the decisive evidence and one next action. Do not protect the original prediction if the evidence contradicts it.' : '');
 }
 
-function markActiveExerciseAttempt(answerText) {
-  if (!activeGeneratedExercise || !isAnswerReviewRequest(answerText)) return;
+function markActiveExerciseAttempt(answerText, force) {
+  if (!activeGeneratedExercise || (!force && !isAnswerReviewRequest(answerText))) return;
   activeGeneratedExercise.lastSubmittedAnswers = String(answerText || '').substring(0, 1000);
   activeGeneratedExercise.lastAttemptAt = new Date().toISOString();
   activeGeneratedExercise.awaitingAnswers = false;
   storeActiveGeneratedExercise(activeGeneratedExercise);
+}
+
+function applyPredictionValidationVerdict(responseText) {
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  if (!activeGeneratedExercise || activeGeneratedExercise.source !== 'prediction-validation' || !activeGeneratedExercise.hypothesis) return null;
+  var match = String(responseText || '').match(/\b(SUPPORTED|REJECTED|INCONCLUSIVE)\b/i);
+  if (!match) return null;
+  var verdict = match[1].toUpperCase();
+  var hypothesis = activeGeneratedExercise.hypothesis;
+  activeGeneratedExercise.validationVerdict = verdict;
+  activeGeneratedExercise.validatedAt = new Date().toISOString();
+  activeGeneratedExercise.awaitingAnswers = false;
+  var entry = diagnosticMemory[hypothesis.topic] || hypothesis;
+  entry.validationVerdict = verdict;
+  entry.validatedAt = activeGeneratedExercise.validatedAt;
+  if (verdict === 'SUPPORTED') {
+    entry.confidence = Math.max(entry.confidence || 0, 0.98);
+    recordBehaviorPattern(hypothesis.topic, hypothesis.confirmedDiagnosis, hypothesis.selectedPattern, 'validated-diagnostic');
+  } else if (verdict === 'REJECTED') {
+    entry.confirmation = 'Rejected';
+    entry.confidence = 0.2;
+  } else {
+    entry.confirmation = 'Inconclusive';
+    entry.confidence = 0.55;
+  }
+  diagnosticMemory[hypothesis.topic] = entry;
+  saveDiagnosticMemory();
+  storeActiveGeneratedExercise(activeGeneratedExercise);
+  return verdict;
 }
 
 function recordActiveExerciseSelection(position, selectedIndex, correctIndex) {
@@ -2232,14 +2288,15 @@ function addMentorLeadMessage(text) {
 function startChatFirstOnboarding() {
   if (chatFirstOnboardingStarted) return;
   chatFirstOnboardingStarted = true;
-  var opening = "Let's find the problem by watching you solve—not by making you fill a profile. Pick where you want to start; I'll generate the first exercise and diagnose the pattern from how you handle it.";
+  var opening = "Tell me where preparation feels broken. I'll ask at most two quick questions, make a specific prediction about what is actually happening, and only then build an exercise to test that prediction.";
   addMentorLeadMessage(opening);
   showConversationalOptions([
-    'VARC — diagnose me live',
-    'QA — find my concept gaps',
-    'DILR — test my set approach',
+    'VARC',
+    'QA',
+    'DILR',
     'Analyse a mock',
-    'Confidence after a bad mock',
+    'Confidence',
+    'Strategy',
     'Something else'
   ], 'chat_first_onboarding');
   var input = document.getElementById('user-input');
@@ -2258,46 +2315,171 @@ function completeChatFirstOnboarding(section) {
   saveProfile();
 }
 
-async function beginChatFirstTopic(answer) {
+var chatDiagnosticState = { active:false, topic:null, subcategory:null, pattern:null, revisedPrediction:null, rejectedCount:0 };
+
+function normalizeChatDiagnosticTopic(answer) {
   var text = String(answer || '').toLowerCase();
-  if (/varc|reading|\brc\b/.test(text)) {
-    await generateGuidedDiagnosticExercise('rc');
-  } else if (/\bqa\b|quant|math/.test(text)) {
-    await generateGuidedDiagnosticExercise('qa');
-  } else if (/dilr|lrdi|logical|data interpretation/.test(text)) {
-    await generateGuidedDiagnosticExercise('dilr');
-  } else if (/mock/.test(text)) {
-    addMentorLeadMessage("We'll use evidence, not a long intake. If you already have sectional scores, type them here. If not, I'll generate a short mini mock now.");
-    showConversationalOptions(['I have my sectional scores', 'Start a mini mock'], 'mock_start_choice');
-  } else if (/confidence|quit|clear cat|hopeless|bad mock/.test(text)) {
-    startConfidenceConversation();
+  if (/varc|reading|\brc\b|verbal/.test(text)) return 'varc';
+  if (/\bqa\b|quant|math|arithmetic|algebra|geometry/.test(text)) return 'qa';
+  if (/dilr|lrdi|logical|data interpretation/.test(text)) return 'dilr';
+  if (/confidence|quit|clear cat|hopeless|bad mock|self.doubt/.test(text)) return 'confidence';
+  if (/mock|percentile|scorecard/.test(text)) return 'mock';
+  if (/strategy|attempt order|question selection|revision/.test(text)) return 'strategy';
+  return null;
+}
+
+async function beginChatFirstTopic(answer) {
+  var topic = normalizeChatDiagnosticTopic(answer);
+  if (topic) {
+    startPredictionFirstDiagnostic(topic);
   } else {
     addMentorLeadMessage("The problem is probably broader than one section. Tell me the one moment in your preparation that keeps repeating; I'll make a first read and choose the next step for us.");
   }
 }
 
-function startConfidenceConversation() {
-  completeChatFirstOnboarding('confidence');
-  addMentorLeadMessage("My first read: the last mock has started behaving like a prediction of your CAT result, not one piece of training data. Let's separate the score from what actually broke. What hit hardest?");
-  showConversationalOptions(['The total score', 'One section collapsed', 'My preparation did not show up'], 'confidence_experience');
-}
-
-function respondToConfidenceExperience(answer) {
-  var text = String(answer || '').toLowerCase();
-  var reply;
-  if (/total/.test(text)) reply = "That's score-to-identity thinking: one number became a verdict on your ability. We'll reverse it by splitting the mock into selection, concept and execution losses—the largest bucket is the real problem, not the total.";
-  else if (/section/.test(text)) reply = "Then confidence is the symptom. One sectional process collapsed and contaminated how you read the entire mock. We'll isolate that section first instead of rebuilding your whole preparation.";
-  else reply = "That usually means pressure changed your decisions, not that your preparation disappeared. The useful comparison is practice behaviour versus mock behaviour—especially selection, exits and answer changes.";
-  addMentorLeadMessage(reply + " Start with the first moment the mock felt out of control; we'll diagnose from there.");
-}
-
-async function handleMockStartChoice(answer) {
-  if (/have/.test(String(answer).toLowerCase())) {
-    completeChatFirstOnboarding('mock');
-    addMentorLeadMessage("Good. Type only the sectional numbers—VARC, DILR and QA, plus attempts if you know them. No screenshot needed; I'll tell you what broke first.");
-  } else {
-    await generateGuidedMiniMock();
+function startPredictionFirstDiagnostic(topic, force) {
+  if (!DIAGNOSTIC_TOPICS[topic]) return false;
+  loadDiagnosticMemory();
+  var remembered = diagnosticMemory[topic];
+  chatDiagnosticState = { active:true, topic:topic, subcategory:null, pattern:null, revisedPrediction:null, rejectedCount:0 };
+  activeDiagnosticTopic = topic;
+  removeConversationalOptions();
+  if (!force && remembered && hasConfirmedDiagnostic(topic)) {
+    chatDiagnosticState.pattern = {
+      id:remembered.patternId || 'remembered',
+      label:remembered.selectedPattern || 'the earlier pattern',
+      prediction:remembered.confirmedDiagnosis,
+      action:remembered.action || ''
+    };
+    chatDiagnosticState.subcategory = remembered.subcategory || null;
+    addMentorLeadMessage("I remember our working diagnosis: " + remembered.confirmedDiagnosis + " Before I build anything, is that still accurate?");
+    showConversationalOptions(['Still accurate', 'It has changed'], 'prediction_diag_memory');
+    return true;
   }
+  askChatDiagnosticFirstQuestion();
+  return true;
+}
+
+function askChatDiagnosticFirstQuestion() {
+  var topic = chatDiagnosticState.topic;
+  if (topic === 'varc') {
+    addMentorLeadMessage('Is it mainly Reading Comprehension, Verbal Ability, or both?');
+    showConversationalOptions(DIAGNOSTIC_TOPICS.varc.subcategories.map(function(item) { return item.label; }), 'prediction_diag_subcategory');
+    return;
+  }
+  if (topic === 'qa') {
+    addMentorLeadMessage('Where does this show up most often?');
+    showConversationalOptions(['Arithmetic', 'Algebra', 'Geometry', 'Number Systems', 'Mixed or unsure'], 'prediction_diag_subcategory');
+    return;
+  }
+  askChatDiagnosticPatternQuestion();
+}
+
+function selectChatDiagnosticSubcategory(answer) {
+  if (chatDiagnosticState.topic === 'varc') {
+    var match = DIAGNOSTIC_TOPICS.varc.subcategories.find(function(item) { return item.label === answer; });
+    chatDiagnosticState.subcategory = match ? match.id : 'both';
+  } else {
+    chatDiagnosticState.subcategory = String(answer || '').toLowerCase().replace(/\s+or\s+unsure/, '').replace(/\s+/g, '_');
+  }
+  askChatDiagnosticPatternQuestion();
+}
+
+function getChatDiagnosticPatterns() {
+  var config = DIAGNOSTIC_TOPICS[chatDiagnosticState.topic];
+  if (!config) return [];
+  if (chatDiagnosticState.topic === 'varc') return config.patterns[chatDiagnosticState.subcategory] || config.patterns.both;
+  return config.patterns || [];
+}
+
+function askChatDiagnosticPatternQuestion() {
+  var config = DIAGNOSTIC_TOPICS[chatDiagnosticState.topic];
+  var question = chatDiagnosticState.topic === 'varc' ? 'Which feels closest?' : config.question;
+  addMentorLeadMessage(question);
+  showConversationalOptions(getChatDiagnosticPatterns().map(function(pattern) { return pattern.label; }).concat(['Something else']), 'prediction_diag_pattern');
+}
+
+function selectChatDiagnosticPattern(answer) {
+  var patterns = getChatDiagnosticPatterns();
+  var pattern = patterns.find(function(item) { return item.label === answer; });
+  if (!pattern) {
+    addMentorLeadMessage("The listed patterns are too neat for what you're experiencing. Describe the moment it usually breaks in one sentence; I'll make a prediction from that before we test anything.");
+    chatDiagnosticState.active = false;
+    completeChatFirstOnboarding(null);
+    return;
+  }
+  chatDiagnosticState.pattern = pattern;
+  addMentorLeadMessage('My prediction:\n\n' + pattern.prediction + '\n\nDoes that sound accurate?');
+  showConversationalOptions(['Exactly', 'Mostly', 'Not Really'], 'prediction_diag_confirm');
+}
+
+function buildRevisedDiagnosticPrediction() {
+  var pattern = chatDiagnosticState.pattern;
+  return 'The symptom you chose—“' + pattern.label + '”—is real, but my explanation was too narrow. It is more likely a context-sensitive decision pattern that appears when the task becomes unfamiliar or pressured, rather than a fixed ability gap.';
+}
+
+function saveChatDiagnosticEntry(level, prediction) {
+  var topic = chatDiagnosticState.topic;
+  var pattern = chatDiagnosticState.pattern;
+  var confidence = level === 'Exactly' ? 0.95 : 0.75;
+  var subcategoryLabel = chatDiagnosticState.subcategory;
+  if (topic === 'varc') {
+    var sub = DIAGNOSTIC_TOPICS.varc.subcategories.find(function(item) { return item.id === chatDiagnosticState.subcategory; });
+    subcategoryLabel = sub ? sub.label : chatDiagnosticState.subcategory;
+  }
+  var entry = {
+    selectedSection:getDiagnosticTopicLabel(topic), topic:topic,
+    subcategory:subcategoryLabel || null,
+    patternId:pattern.id, selectedPattern:pattern.label,
+    confirmedDiagnosis:prediction || pattern.prediction,
+    originalPrediction:pattern.prediction,
+    confirmation:level, confidence:confidence,
+    action:pattern.action,
+    updatedAt:new Date().toISOString()
+  };
+  diagnosticMemory[topic] = entry;
+  diagnosticSessionAttempted[topic] = true;
+  activeDiagnosticTopic = topic;
+  saveDiagnosticMemory();
+  return entry;
+}
+
+async function confirmChatDiagnosticPrediction(level) {
+  if (!chatDiagnosticState.pattern) return;
+  if (level === 'Not Really') {
+    chatDiagnosticState.rejectedCount++;
+    if (chatDiagnosticState.rejectedCount > 1) {
+      addMentorLeadMessage("Then I won't force a diagnosis. The useful fact is that the obvious explanation does not fit you. Tell me what I missed in one sentence; I'll make a new read before generating anything.");
+      chatDiagnosticState.active = false;
+      completeChatFirstOnboarding(null);
+      return;
+    }
+    chatDiagnosticState.revisedPrediction = buildRevisedDiagnosticPrediction();
+    addMentorLeadMessage('Good correction. Revised prediction:\n\n' + chatDiagnosticState.revisedPrediction + '\n\nDoes this feel closer?');
+    showConversationalOptions(['Exactly', 'Mostly', 'Not Really'], 'prediction_diag_revised_confirm');
+    return;
+  }
+  var prediction = chatDiagnosticState.revisedPrediction || chatDiagnosticState.pattern.prediction;
+  var entry = saveChatDiagnosticEntry(level, prediction);
+  addMentorLeadMessage(level === 'Exactly'
+    ? "Good. Now I'll test that exact diagnosis—not give you generic practice."
+    : "That's enough for a working hypothesis. I'll build a contrastive exercise that can support or reject it.");
+  chatDiagnosticState.active = false;
+  await runPredictionValidationExercise(entry);
+}
+
+async function handleRememberedDiagnostic(answer) {
+  var topic = chatDiagnosticState.topic;
+  if (/changed/.test(String(answer).toLowerCase())) {
+    delete diagnosticMemory[topic];
+    delete diagnosticSessionAttempted[topic];
+    saveDiagnosticMemory();
+    startPredictionFirstDiagnostic(topic, true);
+    return;
+  }
+  var entry = diagnosticMemory[topic];
+  addMentorLeadMessage("Good. I won't ask you to explain it again. Let's test whether that pattern is still showing up today.");
+  await runPredictionValidationExercise(entry);
 }
 
 function detectMentorIntent(message) {
@@ -2372,7 +2554,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
-  if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY. Check every submitted answer immediately. Never ask for the passage or questions again. Keep each item compact, then end with one Diagnosis / Evidence / Fix pattern across the mistakes. Ask no intake question.';
+  if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY. Check every submitted answer immediately. Never ask for the passage or questions again. If the exercise stores a hypothesis, lead with SUPPORTED, REJECTED, or INCONCLUSIVE and use the actual choice pattern as evidence; do not preserve the prediction when the evidence contradicts it. Keep each item compact, then end with one Diagnosis / Evidence / Fix pattern. Ask no intake question.';
   return { diagnosis: diagnosis, directive: directive };
 }
 
@@ -2528,25 +2710,47 @@ async function handleConversationalResponse(answer, context) {
     if (!isGuestMode) saveChatMessage('user', answer);
     await beginChatFirstTopic(answer);
 
+  } else if (context === 'prediction_diag_subcategory') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    selectChatDiagnosticSubcategory(answer);
+
+  } else if (context === 'prediction_diag_pattern') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    selectChatDiagnosticPattern(answer);
+
+  } else if (context === 'prediction_diag_confirm' || context === 'prediction_diag_revised_confirm') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await confirmChatDiagnosticPrediction(answer);
+
+  } else if (context === 'prediction_diag_memory') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await handleRememberedDiagnostic(answer);
+
   } else if (context === 'mock_start_choice') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
-    await handleMockStartChoice(answer);
+    startPredictionFirstDiagnostic('mock');
 
   } else if (context === 'confidence_experience') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
-    respondToConfidenceExperience(answer);
+    startPredictionFirstDiagnostic('confidence');
 
   } else if (context.indexOf('guided_retry_') === 0) {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
-    await generateGuidedDiagnosticExercise(context.replace('guided_retry_', ''));
+    var retrySection = context.replace('guided_retry_', '');
+    var retryTopic = retrySection === 'rc' || retrySection === 'va' || retrySection === 'varc_mixed' ? 'varc' : retrySection === 'dilr_selection' ? 'dilr' : retrySection;
+    await generateGuidedDiagnosticExercise(retrySection, diagnosticMemory[retryTopic] || null);
 
   } else if (context === 'mini_mock_retry') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
-    await generateGuidedMiniMock();
+    await generateGuidedMiniMock(diagnosticMemory.mock || null);
 
   } else if (context === 'opening') {
     conversationalProfile.openingChoice = answer;
@@ -2630,7 +2834,7 @@ async function sendConversationalMessage(userMessage, context) {
   systemAddition += getGeneratedExerciseMemoryContext(userMessage);
   systemAddition += getBehavioralMemoryContext();
   systemAddition += mentorAnalysis.directive;
-  systemAddition += '\n\nCHAT-FIRST ONBOARDING MODE: There is no form or intake interview. The goal is live evidence and an accurate first insight, not profile completion. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence. If a section is named, lead with a fresh exercise Marg can generate. Use at most one confirmation after giving a prediction, then state the diagnosis and next action.';
+  systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction and ask for confirmation. Do not generate an exercise before confirmation. After Exactly or Mostly, create a targeted exercise whose result can support, reject, or leave the prediction inconclusive. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
 
   if (context === 'pattern_confirmed') {
     systemAddition += '\n\nThe student just confirmed the diagnosis pattern. Do not repeat it and do not ask another intake question. Move straight to the next useful action.';
@@ -2656,7 +2860,8 @@ async function sendConversationalMessage(userMessage, context) {
     var response = data.content && data.content[0] ? applyMentorResponseGuard(data.content[0].text, mentorAnalysis.diagnosis) : null;
     hideTyping();
     if (response) {
-      if (mentorAnalysis.diagnosis.intent === 'answer_review' && buildLocalAnswerCheck(userMessage).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
+      applyPredictionValidationVerdict(response);
+      if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(userMessage).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
 
       var cleanResponse = response
         .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
@@ -2692,7 +2897,8 @@ async function sendConversationalMessage(userMessage, context) {
     }
   } catch(e) {
     hideTyping();
-    var fallbackResponse = mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(userMessage) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis);
+    var fallbackResponse = buildPredictionValidationFallback(userMessage) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(userMessage) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
+    applyPredictionValidationVerdict(fallbackResponse);
     addMessage('marg', fallbackResponse);
     conversationHistory.push({ role: 'assistant', content: fallbackResponse });
     if (!isGuestMode) saveChatMessage('assistant', fallbackResponse);
@@ -3069,10 +3275,9 @@ async function sendMessage() {
   conversationHistory.push({ role: 'user', content: text });
   detectAndSaveMockScores(text);
   if (!isGuestMode) saveChatMessage('user', text);
-  if (isAnswerReviewRequest(text)) {
-    loadActiveGeneratedExercise();
-    markActiveExerciseAttempt(text);
-  }
+  loadActiveGeneratedExercise();
+  var predictionValidationReply = isPredictionValidationReply(text);
+  if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
@@ -3109,7 +3314,8 @@ async function sendMessage() {
     const data = await response.json();
     const reply = applyMentorResponseGuard((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.', mentorAnalysis.diagnosis);
     hideTyping();
-    if (mentorAnalysis.diagnosis.intent === 'answer_review' && buildLocalAnswerCheck(text).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
+    applyPredictionValidationVerdict(reply);
+    if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(text).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
     const cleanReply = reply
@@ -3131,7 +3337,8 @@ async function sendMessage() {
     checkAndLogPracticeVolume(reply);
   } catch (e) {
     hideTyping();
-    const fallbackReply = mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis);
+    const fallbackReply = buildPredictionValidationFallback(text) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
+    applyPredictionValidationVerdict(fallbackReply);
     addMessage('marg', fallbackReply);
     conversationHistory.push({ role: 'assistant', content: fallbackReply });
     if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
@@ -3649,8 +3856,7 @@ function showMockOnboarding() {
   if (sendButton) sendButton.disabled = false;
   showBottomNav();
   removeConversationalOptions();
-  addMentorLeadMessage("We'll analyse a mock inside this chat. If you already have sectional scores, type them here. If not, I'll generate a short mini mock and diagnose you live.");
-  showConversationalOptions(['I have my sectional scores', 'Start a mini mock'], 'mock_start_choice');
+  startPredictionFirstDiagnostic('mock');
 }
 
 function mobSetStep(n) {
@@ -4574,7 +4780,120 @@ function formatQuestionBlock(question, number) {
   }).join('\n');
 }
 
-function formatGuidedExerciseForChat(section, data) {
+function getPredictionValidationFocus(entry) {
+  if (!entry) return '';
+  var patternDesign = {
+    'varc:volatile':'Use different passage textures and close-option questions to distinguish unstable selection/second-guessing from comprehension weakness.',
+    'varc:mixed':'Combine RC and VA decisions so scope precision can be compared across both formats.',
+    'dilr:selection':'Make visible familiarity a poor proxy for solvability and make the real entry point depend on interacting constraints.',
+    'strategy:selection':'Create first-pass decisions where entry clarity, downside, and exit cost matter more than topic familiarity.',
+    last_two:'Use close final options that differ only in scope, author ownership, or logical force; do not test vocabulary recall.',
+    understand_lose:'Make the passage globally clear but make each question turn on the precise claim and task wording.',
+    forget:'Make paragraph roles and one position shift essential; distinguish structural tracking from detail memory.',
+    time:'Include one dense but non-essential detail cluster and questions that reward structural reading before rereading.',
+    focus:'Use a passage with a subtle argumentative turn so passive reading fails but active role tracking succeeds.',
+    recognition:'Use familiar concepts whose triggering relationship is disguised; calculations should be secondary.',
+    concept:'Keep the selected topic cluster consistent while varying surface form, so a real concept gap repeats across items.',
+    slow_method:'Make at least two items strongly reward options, ratios, bounds, substitution, or symmetry over full textbook work.',
+    execution:'Make setups manageable but include boundary cases or final-step traps that expose verification discipline.',
+    mixed:'Make the dominant concept or representation ambiguous at first and require the solver to identify it.',
+    cant_start:'Make the first representation decisive and ask at least one question that is hard without choosing it correctly.',
+    wrong_representation:'Provide information that can be represented in two ways, only one of which keeps interacting constraints visible.',
+    dead_set:'Include an apparent entry route that stalls and a quieter constraint combination that unlocks the set.',
+    missed_constraint:'Use one restrictive qualifier whose omission creates a plausible but wrong option.',
+    selection:'Vary visible difficulty and actual entry clarity so familiarity is a poor selection rule.',
+    overattempt:'Include plausible time sinks and record attempt order so low-quality commitment becomes observable.',
+    underattempt:'Include intimidating-looking but short-entry items and record skips so premature rejection becomes observable.',
+    volatile:'Mix task textures and require attempt order, exits, and answer changes so process stability can be observed.',
+    review:'Make wrong options map to distinct future decision rules, not merely content explanations.',
+    order:'Create scenarios where the best first-pass order follows entry clarity rather than fixed section habits.',
+    revision:'Test whether the student prioritises repeated high-cost errors over chapter-completion comfort.',
+    guessing:'Vary elimination quality and time cost so guessing versus leaving has a defensible answer.',
+    plateau:'Test whether strategy adapts to changed accuracy, speed, and selection evidence.'
+  };
+  var design = patternDesign[entry.topic + ':' + entry.patternId] || patternDesign[entry.patternId] || 'Build contrastive items whose error patterns can distinguish the working diagnosis from a general knowledge gap.';
+  return ' DIAGNOSTIC VALIDATION PURPOSE: The confirmed working prediction is: "' + entry.confirmedDiagnosis + '" The student selected this symptom: "' + entry.selectedPattern + '". ' + design + ' This is not generic practice. Across the items, make the answer patterns capable of SUPPORTING, REJECTING, or leaving this prediction INCONCLUSIVE. Diagnostic fields must name the observable decision error, not repeat the topic. ';
+}
+
+function buildVerbalValidationPrompt(entry, mixed) {
+  var mode = mixed ? 'Create one 260-320 word CAT-level RC passage with two questions, plus one independent CAT-level Verbal Ability question.' : 'Create exactly three CAT-level Verbal Ability questions. Use the selected cognitive pattern to choose among para summary, paragraph ordering, odd-sentence logic, or argument structure; keep all three as four-option MCQs for this diagnostic.';
+  return getPredictionValidationFocus(entry) + mode + ' Questions must require reasoning about structure, scope, sequence, or the central claim—not grammar trivia or vocabulary recall. Use four distinct plausible options with exactly one correct answer. Independently solve and verify every item. Return ONLY valid JSON in this exact shape: {"title":"VARC prediction check","passage":"optional passage; empty string for VA-only","questions":[{"q":"complete self-contained question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"short verifiable explanation","marg_insight":"observable cognitive signal"}]} with exactly 3 questions.';
+}
+
+function validateVerbalValidationSet(data, requirePassage) {
+  return !!(data && (!requirePassage || (typeof data.passage === 'string' && data.passage.trim().length > 0)) && Array.isArray(data.questions) && data.questions.length === 3 && data.questions.every(function(question) {
+    return isValidTimedTestQuestion(question) && typeof question.solution === 'string' && question.solution.trim();
+  }));
+}
+
+function buildStrategyValidationPrompt(entry) {
+  return getPredictionValidationFocus(entry) + 'Generate exactly 3 short CAT strategy decision scenarios specifically designed to test this prediction. These are not syllabus questions. Each scenario must force a choice about attempt order, selection, exit rules, revision priority, or guessing under realistic CAT constraints. Four options, exactly one best decision, and plausible alternatives reflecting identifiable strategy errors. Return ONLY valid JSON: {"difficulty":"CAT decision lab","questions":[{"q":"scenario and decision","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"why this decision is best","marg_insight":"observable strategy pattern"}]} with exactly 3 questions.';
+}
+
+function buildDILRSelectionValidationPrompt(entry) {
+  return getPredictionValidationFocus(entry) + 'Create exactly 3 CAT DILR set-selection scenarios. In each question, show four compact but sufficiently informative set previews from different DILR families. Ask which set should be attempted first under a stated time/skill condition. The best answer must follow actual entry clarity, constraint interaction, branching risk, and likely payoff—not surface familiarity. Make distractors reflect choosing by familiar topic, short wording, or sunk-cost instinct. Return ONLY valid JSON: {"difficulty":"CAT DILR selection lab","questions":[{"q":"four compact set previews plus the selection task","options":["A. Attempt set A first","B. Attempt set B first","C. Attempt set C first","D. Attempt set D first"],"correct":0,"solution":"brief comparison of entry point and downside","marg_insight":"observable selection rule"}]} with exactly 3 questions.';
+}
+
+function buildConfidenceValidationExercise(entry) {
+  var exercises = {
+    identity:[
+      'Write the last mock score in one line—without adding what it says about you.',
+      'Estimate the marks lost through concept, selection and execution as three separate numbers.',
+      'Finish: “This score is evidence of ___; it is not evidence of ___.”'
+    ],
+    comparison:[
+      'Name the score or person you are comparing yourself with.',
+      'Choose one process metric you both can actually compare: accuracy, exits, attempts, or consistency.',
+      'State one action that improves that metric before the next mock.'
+    ],
+    repeat:[
+      'Name one behaviour from the previous attempt that still appears now.',
+      'Write the situation that triggers it.',
+      'Choose one replacement decision you can test in the next section.'
+    ],
+    mock_fear:[
+      'Name the result you are afraid the next mock will prove.',
+      'Choose one process goal independent of percentile.',
+      'Define what a successful mock would mean if the score still stayed low.'
+    ],
+    consistency:[
+      'Write the study target you keep failing to maintain.',
+      'Reduce it to a minimum-day version you can complete even on a bad day.',
+      'Choose the next three dates on which you will collect that evidence.'
+    ]
+  };
+  return exercises[entry.patternId] || [
+    'State the event that damaged confidence without interpreting it.',
+    'Separate what was controllable from what was not.',
+    'Choose one behaviour that would count as recovery this week.'
+  ];
+}
+
+function generateConfidenceValidationExercise(entry) {
+  var prompts = buildConfidenceValidationExercise(entry);
+  var visible = '2-MINUTE PREDICTION CHECK\n\n' + prompts.map(function(prompt, index) { return (index + 1) + '. ' + prompt; }).join('\n\n') + '\n\nReply with three short lines. I’ll use your response to say whether the prediction is supported, rejected, or still inconclusive.';
+  addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  conversationHistory.push({ role:'assistant', content:visible });
+  if (!isGuestMode) saveChatMessage('assistant', visible);
+  storeActiveGeneratedExercise({ type:'confidence', source:'prediction-validation', title:'Confidence prediction check', purpose:'Validate or reject: ' + entry.confirmedDiagnosis, hypothesis:entry, content:{ reflectionPrompts:prompts } });
+  completeChatFirstOnboarding(null);
+  return true;
+}
+
+async function runPredictionValidationExercise(entry) {
+  if (!entry) return false;
+  if (entry.topic === 'varc') {
+    var sub = String(entry.subcategory || '').toLowerCase();
+    return generateGuidedDiagnosticExercise(sub.indexOf('verbal') !== -1 ? 'va' : sub.indexOf('both') !== -1 ? 'varc_mixed' : 'rc', entry);
+  }
+  if (entry.topic === 'dilr' && entry.patternId === 'selection') return generateGuidedDiagnosticExercise('dilr_selection', entry);
+  if (entry.topic === 'qa' || entry.topic === 'dilr' || entry.topic === 'strategy') return generateGuidedDiagnosticExercise(entry.topic, entry);
+  if (entry.topic === 'mock') return generateGuidedMiniMock(entry);
+  if (entry.topic === 'confidence') return generateConfidenceValidationExercise(entry);
+  return false;
+}
+
+function formatGuidedExerciseForChat(section, data, diagnosticEntry) {
   var parts = [];
   if (section === 'rc') {
     var rcSet = data.sets[0];
@@ -4584,28 +4903,54 @@ function formatGuidedExerciseForChat(section, data) {
     var dilrSet = data.sets[0];
     parts.push('CAT DILR · ' + (dilrSet.set_title || 'Diagnostic Set') + '\n\n' + dilrSet.setup);
     dilrSet.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
+  } else if (section === 'va' || section === 'varc_mixed') {
+    parts.push('CAT VARC · Prediction Check' + (data.passage ? '\n\n' + data.passage : ''));
+    data.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
+  } else if (section === 'strategy') {
+    parts.push('CAT STRATEGY · Decision Lab');
+    data.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
+  } else if (section === 'dilr_selection') {
+    parts.push('CAT DILR · Set Selection Lab');
+    data.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
   } else {
     parts.push('CAT QA · Adaptive Diagnostic');
     data.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
   }
-  parts.push('Reply in one line: 1-A, 2-C' + (section === 'dilr' ? ', 3-B, 4-D' : ', 3-B') + '. I already have the answer key; I’ll diagnose the pattern, not just mark the score.');
+  var processRequest = '';
+  if (diagnosticEntry) {
+    if (diagnosticEntry.patternId === 'slow_method' || diagnosticEntry.patternId === 'time') processRequest = ' Add the total time you took.';
+    else if (['cant_start','wrong_representation','dead_set','missed_constraint'].indexOf(diagnosticEntry.patternId) !== -1) processRequest = ' Add the first representation you used and where progress stopped.';
+    else if (['last_two','volatile','mock_pressure'].indexOf(diagnosticEntry.patternId) !== -1) processRequest = ' Add any answer you changed after your first choice.';
+  }
+  parts.push('Reply in one line: 1-A, 2-C' + (section === 'dilr' ? ', 3-B, 4-D' : ', 3-B') + '.' + processRequest + ' I already have the answer key; I’ll say whether our prediction is supported, rejected, or inconclusive.');
   return parts.join('\n\n');
 }
 
-async function generateGuidedDiagnosticExercise(section) {
+async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   section = section === 'varc' ? 'rc' : section;
-  if (['rc','qa','dilr'].indexOf(section) === -1) return false;
+  if (['rc','va','varc_mixed','qa','dilr','dilr_selection','strategy'].indexOf(section) === -1) return false;
   isLoading = true;
   var sendButton = document.getElementById('send-btn');
   if (sendButton) sendButton.disabled = true;
-  var lead = section === 'rc'
-    ? "Let's diagnose VARC from live reading, not old screenshots. I'll generate one CAT-level passage; your option choices will show whether the leak is comprehension, scope or elimination."
+  var lead = section === 'rc' || section === 'va' || section === 'varc_mixed'
+    ? "This VARC check is built around the prediction we just agreed on. The distractors are designed to expose that exact decision pattern."
     : section === 'qa'
-      ? "Let's find the QA gap instead of guessing from topic names. I'll generate three questions with different reasoning demands; the pattern across them will tell us concept, recognition or execution."
-      : "Let's test DILR through one real set. I'll watch whether the problem is set entry, representation, constraints or staying too long—not ask you to describe it in theory.";
+      ? "These three QA questions target the predicted gap and a competing explanation. The pattern across them matters more than the score."
+      : section === 'strategy'
+        ? "This is a decision lab, not a syllabus test. Your choices will show whether the strategy pattern we predicted is actually present."
+        : section === 'dilr_selection'
+          ? "This selection lab separates familiar-looking sets from genuinely workable ones. Your first-pass choices will test the exact rule we predicted."
+        : "This DILR set is built to expose the predicted failure point while keeping alternative causes visible.";
   addMentorLeadMessage(lead);
   showTyping();
-  var prompt = section === 'rc' ? buildRCPrompt() : section === 'dilr' ? buildDILRPrompt(null) : buildQAPrompt(null);
+  var focus = getPredictionValidationFocus(diagnosticEntry);
+  var prompt = section === 'rc' ? focus + buildRCPrompt()
+    : section === 'dilr' ? focus + buildDILRPrompt(null)
+    : section === 'va' ? buildVerbalValidationPrompt(diagnosticEntry, false)
+    : section === 'varc_mixed' ? buildVerbalValidationPrompt(diagnosticEntry, true)
+    : section === 'strategy' ? buildStrategyValidationPrompt(diagnosticEntry)
+    : section === 'dilr_selection' ? buildDILRSelectionValidationPrompt(diagnosticEntry)
+    : focus + buildQAPrompt(diagnosticEntry && diagnosticEntry.subcategory && diagnosticEntry.subcategory !== 'mixed' ? String(diagnosticEntry.subcategory).replace(/_/g, ' ') : null);
   var maxTokens = section === 'qa' ? 2600 : 3200;
   try {
     var response = await fetchWithTimeout(WORKER_URL, {
@@ -4615,20 +4960,27 @@ async function generateGuidedDiagnosticExercise(section) {
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
     var raw = payload.content && payload.content[0] ? payload.content[0].text : '';
-    var parsed = normalizePracticeAnswers(parseGeneratedJson(raw), section);
-    var valid = section === 'rc' ? validateRCPracticeSet(parsed) : section === 'dilr' ? validateDILRPracticeSet(parsed) : validateQASetShape(parsed);
+    var parsed = parseGeneratedJson(raw);
+    if (section === 'va' || section === 'varc_mixed' || section === 'strategy' || section === 'dilr_selection') {
+      if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(normalizeCorrectIndex);
+    } else parsed = normalizePracticeAnswers(parsed, section);
+    var valid = section === 'rc' ? validateRCPracticeSet(parsed)
+      : section === 'dilr' ? validateDILRPracticeSet(parsed)
+      : section === 'va' || section === 'varc_mixed' ? validateVerbalValidationSet(parsed, section === 'varc_mixed')
+      : validateQASetShape(parsed);
     if (!valid) throw new Error('Guided exercise failed validation');
     hideTyping();
-    var visible = formatGuidedExerciseForChat(section, parsed);
+    var visible = formatGuidedExerciseForChat(section, parsed, diagnosticEntry);
     var visibleHtml = escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
     addMessage('marg', visibleHtml, true);
     conversationHistory.push({ role:'assistant', content:visible });
     if (!isGuestMode) saveChatMessage('assistant', visible);
-    storeActiveGeneratedExercise({ type:section, source:'chat-onboarding', title:(section === 'rc' ? 'VARC' : section.toUpperCase()) + ' live diagnostic', purpose:'Diagnose the student from live CAT-level performance instead of self-report', content:parsed });
-    completeChatFirstOnboarding(section);
+    var storedType = section === 'rc' || section === 'va' || section === 'varc_mixed' ? 'varc' : section === 'dilr_selection' ? 'dilr' : section;
+    storeActiveGeneratedExercise({ type:storedType, source:'prediction-validation', title:(storedType === 'varc' ? 'VARC' : storedType.toUpperCase()) + ' prediction check', purpose:'Validate or reject: ' + (diagnosticEntry ? diagnosticEntry.confirmedDiagnosis : 'working diagnosis'), hypothesis:diagnosticEntry || null, content:parsed });
+    completeChatFirstOnboarding(storedType === 'varc' ? 'rc' : storedType);
   } catch(e) {
     hideTyping();
-    addMentorLeadMessage("That exercise did not build cleanly, so I won't give you a flawed set. Let's regenerate it once with the same CAT-level bar.");
+    addMentorLeadMessage("That prediction check did not build cleanly, so I discarded it. Regenerating should test the same hypothesis—not lower the CAT-level bar.");
     showConversationalOptions(['Regenerate the exercise'], 'guided_retry_' + section);
   }
   isLoading = false;
@@ -4638,8 +4990,8 @@ async function generateGuidedDiagnosticExercise(section) {
   return true;
 }
 
-function buildGuidedMiniMockPrompt() {
-  return 'Create a compact CAT diagnostic mini mock with exactly 6 questions: 2 VARC questions attached to one 280-330 word dense passage, 2 DILR questions attached to one self-contained set using 5-6 meaningful interacting constraints, and 2 original CAT-level QA questions requiring setup recognition rather than direct formulas. Keep it solvable in about 18 minutes. Independently solve everything and verify exactly one correct option per question. Return only valid JSON in this exact shape: {"varc":{"passage":"text","questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"short","marg_insight":"short cognitive pattern"}]},"dilr":{"setup":"complete set","questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"short","marg_insight":"short cognitive pattern"}]},"qa":{"questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"short","marg_insight":"short cognitive pattern"}]}}. Each section must have exactly 2 questions.';
+function buildGuidedMiniMockPrompt(diagnosticEntry) {
+  return getPredictionValidationFocus(diagnosticEntry) + 'Create a compact CAT diagnostic mini mock with exactly 6 questions: 2 VARC questions attached to one 280-330 word dense passage, 2 DILR questions attached to one self-contained set using 5-6 meaningful interacting constraints, and 2 original CAT-level QA questions requiring setup recognition rather than direct formulas. Keep it solvable in about 18 minutes. Vary apparent difficulty and actual entry clarity so attempt order, skips, and commitment quality can help validate the mock-behaviour prediction. Independently solve everything and verify exactly one correct option per question. Return only valid JSON in this exact shape: {"varc":{"passage":"text","questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"short","marg_insight":"short cognitive pattern"}]},"dilr":{"setup":"complete set","questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"short","marg_insight":"short cognitive pattern"}]},"qa":{"questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"short","marg_insight":"short cognitive pattern"}]}}. Each section must have exactly 2 questions.';
 }
 
 function normalizeGuidedMiniMock(data) {
@@ -4672,18 +5024,18 @@ function formatGuidedMiniMock(data) {
   data.dilr.questions.forEach(function(question) { parts.push(formatQuestionBlock(question, number++)); });
   parts.push('QA');
   data.qa.questions.forEach(function(question) { parts.push(formatQuestionBlock(question, number++)); });
-  parts.push("Reply in one line: 1-A, 2-B, 3-C, 4-D, 5-A, 6-B. I'll identify which section and decision pattern broke first.");
+  parts.push("Reply with your attempt order, any skips, and answers—for example: Order 5,1,3,2; skipped 4,6; answers 1-A, 2-B, 3-C, 5-D. I'll say whether the prediction is supported, rejected, or inconclusive.");
   return parts.join('\n\n');
 }
 
-async function generateGuidedMiniMock() {
+async function generateGuidedMiniMock(diagnosticEntry) {
   isLoading = true;
   var sendButton = document.getElementById('send-btn');
   if (sendButton) sendButton.disabled = true;
-  addMentorLeadMessage("Good—we don't need an old scorecard. I'll generate a six-question mini mock across VARC, DILR and QA, then diagnose from the pattern of your choices.");
+  addMentorLeadMessage("This six-question mini mock is built to test the mock-behaviour prediction we just agreed on. Record order and skips—the decisions matter as much as the score.");
   showTyping();
   try {
-    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:4200, system:'You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), messages:[{ role:'user', content:buildGuidedMiniMockPrompt() }] }) }, 90000);
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:4200, system:'You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), messages:[{ role:'user', content:buildGuidedMiniMockPrompt(diagnosticEntry) }] }) }, 90000);
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
     var raw = payload.content && payload.content[0] ? payload.content[0].text : '';
@@ -4694,7 +5046,7 @@ async function generateGuidedMiniMock() {
     addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
     conversationHistory.push({ role:'assistant', content:visible });
     if (!isGuestMode) saveChatMessage('assistant', visible);
-    storeActiveGeneratedExercise({ type:'mini_mock', source:'chat-onboarding', title:'6-question CAT mini mock', purpose:'Identify the first sectional and decision-pattern breakdown from live performance', content:{ questions:flattenGuidedMiniMock(parsed), sourceData:parsed } });
+    storeActiveGeneratedExercise({ type:'mini_mock', source:'prediction-validation', title:'6-question CAT mini mock prediction check', purpose:'Validate or reject: ' + (diagnosticEntry ? diagnosticEntry.confirmedDiagnosis : 'working mock diagnosis'), hypothesis:diagnosticEntry || null, content:{ questions:flattenGuidedMiniMock(parsed), sourceData:parsed } });
     completeChatFirstOnboarding(null);
   } catch(e) {
     hideTyping();
