@@ -998,6 +998,14 @@ Outside of a full timetable, when you're suggesting one specific next thing to d
 
 Your replies run one to three sentences by default. You go longer only when someone's actually asked for an explanation or a full plan — if you're writing four sentences and two of them aren't doing anything, cut them.
 
+LENGTH CONTRACT: Make ordinary mentoring replies roughly 35-80 words. This is a WhatsApp conversation, not an essay. Use short sentences and line breaks. Only a requested full timetable, a multi-question answer check, or a concept explanation may exceed 100 words. Even then, remove introductions, conclusions, repetition and generic encouragement.
+
+For a wrong-answer review, lead with the student's thinking error—not a lecture on the option. Use three compact lines when useful: "Diagnosis:" names the decision error, "Evidence:" points to the exact mismatch, and "Fix:" gives one reusable rule. This is the only exception to the usual no-headers preference. Prefer memorable language such as "You didn't miss the passage. You added a step the author never gave you."
+
+You remember exercises you generated. When ACTIVE GENERATED EXERCISE MEMORY is present, it is your own passage, set or questions, including the hidden answer key and purpose. If the student says "check my answers" or submits choices such as "1-A, 2-C", check them immediately from that memory. Never ask them to resend your passage, questions or set. Diagnose the pattern across their choices, then give the smallest useful fix.
+
+You also receive BEHAVIOURAL MEMORY. When the current error matches a stored recurring pattern, say so plainly and specifically: "same pattern as yesterday" or "this is that scope-shift leak again." Do not pretend recurrence when memory does not support it, and do not repeat the full old explanation—connect the pattern, show today's evidence, then sharpen the fix.
+
 There's a version of yourself that's easy to slip into, and it's wrong: the project manager. That version ends every message with a numbered task list and a deadline. If you ever catch yourself writing something like "Here's your plan: 1. Do percentage problems 2. Come back at 5pm 3. Report results. That's it. Go. 👇" — stop, and say the same thing as one sentence a person would actually say out loud: "percentage and ratio are the same instinct once it clicks — do five today and bring me the ones that felt weird." No bullet points, no numbered lists, no bold text, no headers, no "Here's what to do," no "That's it," no pointing emoji. You write in plain conversational text, the way you'd type a message, not the way you'd write a memo — if an answer starts turning into a structured document, stop and rewrite it as one flowing thought.
 
 You remember what this student has told you — their weakest section, their hours, what happened in your last session together, whatever the session summary says. Use it without announcing that you're using it, and don't make them repeat what you already know. "You mentioned DILR felt slow yesterday — how'd today's set go?" is memory used well; asking them to restate their whole situation from scratch is memory wasted. But never invent a memory — if you're not sure something happened, say "based on what you've told me" instead of asserting it, and never claim "last time you did X" unless it's actually sitting in your context.
@@ -1111,7 +1119,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 
 function cleanHistory(history) {
   if (!history || !history.length) return history;
-  return history.map(function(m) {
+  return history.filter(function(m) { return !isInternalMemoryMessage(m); }).map(function(m) {
     if (m.role !== 'assistant' || !m.content || typeof m.content !== 'string') return m;
     var cleaned = m.content
       .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -1431,6 +1439,7 @@ function confirmDiagnostic(level) {
   diagnosticSessionAttempted[topic] = true;
   activeDiagnosticTopic = topic;
   saveDiagnosticMemory();
+  if (level !== 'Not Really') recordBehaviorPattern(topic, entry.confirmedDiagnosis, entry.selectedPattern, 'diagnostic');
   finishDiagnosticFlow(entry);
 }
 
@@ -1545,6 +1554,244 @@ function runDiagnosticFlowTests() {
   diagnosticMemory = originalMemory;
   diagnosticSessionAttempted = originalAttempts;
   return results;
+}
+
+// --- Generated exercise + behavioural memory --------------------------------
+var INTERNAL_MEMORY_PREFIX = '[MARG_INTERNAL:';
+var activeGeneratedExercise = null;
+var behavioralMemory = { patterns:[] };
+
+function getUserScopedKey(name) {
+  return name + '_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function isInternalMemoryMessage(message) {
+  return !!(message && typeof message.content === 'string' && message.content.indexOf(INTERNAL_MEMORY_PREFIX) === 0);
+}
+
+function parseInternalMemoryMessage(message, kind) {
+  if (!message || typeof message.content !== 'string') return null;
+  var prefix = '[MARG_INTERNAL:' + kind + ']\n';
+  if (message.content.indexOf(prefix) !== 0) return null;
+  try { return JSON.parse(message.content.substring(prefix.length)); } catch(e) { return null; }
+}
+
+function saveInternalMemoryMessage(kind, payload) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  var content = '[MARG_INTERNAL:' + kind + ']\n' + JSON.stringify(payload);
+  saveChatMessage('assistant', content);
+}
+
+function storeActiveGeneratedExercise(exercise) {
+  if (!exercise) return;
+  exercise.id = exercise.id || ('exercise-' + Date.now());
+  exercise.generatedAt = exercise.generatedAt || new Date().toISOString();
+  exercise.awaitingAnswers = exercise.awaitingAnswers !== false;
+  activeGeneratedExercise = exercise;
+  try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(exercise)); } catch(e) {}
+  saveInternalMemoryMessage('EXERCISE', exercise);
+}
+
+function loadActiveGeneratedExercise() {
+  activeGeneratedExercise = null;
+  try { activeGeneratedExercise = JSON.parse(localStorage.getItem(getUserScopedKey('marg_active_exercise')) || 'null'); } catch(e) {}
+  if (!activeGeneratedExercise && conversationHistory && conversationHistory.length) {
+    for (var i = conversationHistory.length - 1; i >= 0; i--) {
+      var stored = parseInternalMemoryMessage(conversationHistory[i], 'EXERCISE');
+      if (stored) { activeGeneratedExercise = stored; break; }
+    }
+    if (activeGeneratedExercise) {
+      try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+    }
+  }
+  studentProfile.activeGeneratedExercise = activeGeneratedExercise;
+  return activeGeneratedExercise;
+}
+
+function isAnswerReviewRequest(message) {
+  var text = String(message || '').toLowerCase();
+  return /\b(check|evaluate|verify|analyse|analyze|review)\b.{0,30}\b(my\s+)?answers?\b/.test(text) ||
+    /\b(my\s+)?answers?\b.{0,30}\b(correct|right|wrong|check)\b/.test(text) ||
+    /^\s*\d{1,2}\s*[-:.)]?\s*[abcd](?:\s*[,;|/]\s*\d{1,2}\s*[-:.)]?\s*[abcd])*\s*$/i.test(message || '');
+}
+
+function getActiveExerciseQuestions() {
+  if (!activeGeneratedExercise || !activeGeneratedExercise.content) return [];
+  var content = activeGeneratedExercise.content;
+  if (Array.isArray(content.answerKey) && content.answerKey.length) {
+    return content.answerKey.map(function(answer, index) {
+      return { number:answer.question || index + 1, correct:String(answer.correct || '').toUpperCase(), explanation:answer.explanation || '', pattern:answer.trap || '' };
+    });
+  }
+  var questions = [];
+  if (Array.isArray(content.questions)) questions = content.questions;
+  else if (Array.isArray(content.sets)) content.sets.forEach(function(set) { (set.questions || []).forEach(function(question) { questions.push(question); }); });
+  return questions.map(function(question, index) {
+    return { number:index + 1, correct:typeof question.correct === 'number' ? String.fromCharCode(65 + question.correct) : String(question.correct || '').replace(/^[^A-D]*([A-D]).*$/i, '$1').toUpperCase(), explanation:question.explanation || question.solution || '', pattern:question.marg_insight || question.common_mistake || question.trap_type || '' };
+  });
+}
+
+function parseSubmittedAnswerChoices(message) {
+  var found = {};
+  String(message || '').replace(/(\d{1,2})\s*[-:.)]?\s*([abcd])/gi, function(_, number, letter) { found[Number(number)] = letter.toUpperCase(); return _; });
+  return found;
+}
+
+function findRecentSubmittedAnswerText(message) {
+  if (Object.keys(parseSubmittedAnswerChoices(message)).length) return message;
+  for (var i = conversationHistory.length - 1; i >= Math.max(0, conversationHistory.length - 8); i--) {
+    if (conversationHistory[i].role === 'user' && Object.keys(parseSubmittedAnswerChoices(conversationHistory[i].content)).length) return conversationHistory[i].content;
+  }
+  return message;
+}
+
+function buildLocalAnswerCheck(message) {
+  var questions = getActiveExerciseQuestions();
+  if (!questions.length) return '';
+  var choices = parseSubmittedAnswerChoices(findRecentSubmittedAnswerText(message));
+  if (!Object.keys(choices).length && activeGeneratedExercise.uiSelections) {
+    activeGeneratedExercise.uiSelections.forEach(function(selection, index) {
+      var number = parseInt(String(selection.position).split('.').pop(), 10) || index + 1;
+      choices[number] = typeof selection.selected === 'number' ? String.fromCharCode(65 + selection.selected) : String(selection.selected || '').toUpperCase();
+    });
+  }
+  if (!Object.keys(choices).length) return '';
+  var lines = [], wrongPatterns = [];
+  questions.forEach(function(question) {
+    var selected = choices[question.number];
+    if (!selected) return;
+    if (selected === question.correct) lines.push(question.number + ' ✓ ' + selected);
+    else {
+      lines.push(question.number + ' ✗ ' + selected + ' → ' + question.correct);
+      if (question.pattern) wrongPatterns.push(question.pattern);
+    }
+  });
+  if (!lines.length) return '';
+  if (!wrongPatterns.length) return lines.join('\n') + '\n\nDiagnosis: Your choices match the stored key. Keep the same evidence-first process.';
+  var pattern = wrongPatterns[0];
+  return lines.join('\n') + '\n\nDiagnosis: ' + pattern + '\nEvidence: The wrong choice moved away from the condition or scope the question actually tested.\nFix: Before marking, name the exact evidence that makes your option necessary.';
+}
+
+function getGeneratedExerciseMemoryContext(message) {
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  var text = String(message || '').toLowerCase();
+  var isFollowUp = isAnswerReviewRequest(message) || /\b(?:q(?:uestion)?\s*\d+|why\s+(?:is|was)|explain\s+(?:this|the|q|question|answer|option)|this\s+(?:question|set|passage)|the\s+(?:question|set|passage))\b/.test(text);
+  if (!activeGeneratedExercise || !isFollowUp) return '';
+  var memoryJson = JSON.stringify(activeGeneratedExercise);
+  if (memoryJson.length > 24000) memoryJson = memoryJson.substring(0, 24000) + '...';
+  return '\n\nACTIVE GENERATED EXERCISE MEMORY — this was created by Marg. Never ask the student to resend it. Check submitted answers now:\n' + memoryJson;
+}
+
+function markActiveExerciseAttempt(answerText) {
+  if (!activeGeneratedExercise || !isAnswerReviewRequest(answerText)) return;
+  activeGeneratedExercise.lastSubmittedAnswers = String(answerText || '').substring(0, 1000);
+  activeGeneratedExercise.lastAttemptAt = new Date().toISOString();
+  activeGeneratedExercise.awaitingAnswers = false;
+  storeActiveGeneratedExercise(activeGeneratedExercise);
+}
+
+function recordActiveExerciseSelection(position, selectedIndex, correctIndex) {
+  if (!activeGeneratedExercise) return;
+  if (!activeGeneratedExercise.uiSelections) activeGeneratedExercise.uiSelections = [];
+  activeGeneratedExercise.uiSelections.push({ position:position, selected:selectedIndex, correct:correctIndex, at:new Date().toISOString() });
+  activeGeneratedExercise.uiSelections = activeGeneratedExercise.uiSelections.slice(-30);
+  activeGeneratedExercise.awaitingAnswers = true;
+  try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+}
+
+function normalizeBehaviorPattern(section, insight) {
+  var text = String(insight || '').toLowerCase();
+  var normalizedSection = section === 'varc' ? 'rc' : section;
+  var key = 'other';
+  var label = 'repeated execution error';
+  if (/critic|recommend|alternative|next step|never said|invent|added something|author.*suggest/.test(text)) { key = 'invented_author_step'; label = 'turning criticism into an unstated recommendation'; }
+  else if (/scope|too broad|too narrow|beyond|overreach/.test(text)) { key = 'scope_shift'; label = 'accepting an option with the wrong scope'; }
+  else if (/extreme|always|never|completely|absolute/.test(text)) { key = 'extreme_language'; label = 'missing extreme-language traps'; }
+  else if (/last two|second.guess|change.*answer|option elimination/.test(text)) { key = 'final_two_options'; label = 'losing precision between the final two options'; }
+  else if (/set selection|wrong set|stay.*long|sunk cost|dead set/.test(text)) { key = 'set_selection'; label = 'overcommitting to an unproductive DILR set'; }
+  else if (/represent|table|grid|diagram|setup.*mess/.test(text)) { key = 'representation'; label = 'choosing an inefficient representation'; }
+  else if (/constraint|condition|misread/.test(text)) { key = 'missed_constraint'; label = 'dropping or misreading a constraint'; }
+  else if (/concept|formula|recall/.test(text)) { key = 'concept_recall'; label = 'a recurring concept-recall gap'; }
+  else if (/recogn|approach|which method|trigger|clue/.test(text)) { key = 'method_recognition'; label = 'knowing the concept but not recognising its trigger'; }
+  else if (/calculation|careless|final step|arithmetic|execution/.test(text)) { key = 'execution_slip'; label = 'losing marks after a correct setup'; }
+  else if (/slow|textbook|long method|speed/.test(text)) { key = 'inefficient_method'; label = 'using a correct but exam-inefficient method'; }
+  else {
+    key = text.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').substring(0, 42) || 'other';
+    label = String(insight || 'repeated execution error').substring(0, 120);
+  }
+  return { section:normalizedSection || 'general', key:key, label:label };
+}
+
+function loadBehavioralMemory() {
+  behavioralMemory = { patterns:[] };
+  try { behavioralMemory = JSON.parse(localStorage.getItem(getUserScopedKey('marg_behavioral_memory')) || '{"patterns":[]}') || { patterns:[] }; } catch(e) {}
+  if (!Array.isArray(behavioralMemory.patterns)) behavioralMemory.patterns = [];
+  if (!behavioralMemory.patterns.length && conversationHistory && conversationHistory.length) {
+    for (var i = conversationHistory.length - 1; i >= 0; i--) {
+      var stored = parseInternalMemoryMessage(conversationHistory[i], 'BEHAVIOR');
+      if (stored && Array.isArray(stored.patterns)) { behavioralMemory = stored; break; }
+    }
+  }
+  if (!behavioralMemory.patterns.length) {
+    [{ section:'rc', value:studentProfile.varcPattern }, { section:'dilr', value:studentProfile.dilrPattern }, { section:'qa', value:studentProfile.qaPattern }].forEach(function(item) {
+      String(item.value || '').split(';').map(function(value) { return value.trim(); }).filter(Boolean).forEach(function(value) {
+        var normalized = normalizeBehaviorPattern(item.section, value);
+        behavioralMemory.patterns.push({ section:normalized.section, key:normalized.key, label:normalized.label, occurrences:1, firstSeen:studentProfile.lastSessionDate || getTodayDate(), lastSeen:studentProfile.lastSessionDate || getTodayDate(), lastEvidence:value, source:'profile' });
+      });
+    });
+  }
+  studentProfile.behavioralMemory = behavioralMemory;
+  return behavioralMemory;
+}
+
+function saveBehavioralMemory() {
+  behavioralMemory.patterns = behavioralMemory.patterns.slice().sort(function(a,b) { return (b.lastSeen || '').localeCompare(a.lastSeen || ''); }).slice(0, 12);
+  studentProfile.behavioralMemory = behavioralMemory;
+  try { localStorage.setItem(getUserScopedKey('marg_behavioral_memory'), JSON.stringify(behavioralMemory)); } catch(e) {}
+  saveInternalMemoryMessage('BEHAVIOR', behavioralMemory);
+}
+
+function recordBehaviorPattern(section, insight, evidence, source) {
+  if (!insight) return null;
+  if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
+  var normalized = normalizeBehaviorPattern(section, insight);
+  var existing = behavioralMemory.patterns.find(function(pattern) { return pattern.section === normalized.section && pattern.key === normalized.key; });
+  if (!existing) {
+    existing = { section:normalized.section, key:normalized.key, label:normalized.label, occurrences:0, firstSeen:getTodayDate() };
+    behavioralMemory.patterns.push(existing);
+  }
+  if (existing.occurrences > 0 && existing.lastSeen) existing.previousSeen = existing.lastSeen;
+  existing.occurrences++;
+  existing.label = normalized.label;
+  existing.lastSeen = getTodayDate();
+  existing.lastEvidence = String(evidence || insight).substring(0, 220);
+  existing.source = source || 'practice';
+  saveBehavioralMemory();
+  return existing;
+}
+
+function getBehavioralMemoryContext() {
+  if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
+  var patterns = behavioralMemory.patterns.slice(0, 6);
+  if (!patterns.length) return '';
+  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(function(pattern) {
+    return '- ' + pattern.section.toUpperCase() + ': ' + pattern.label + '; seen ' + pattern.occurrences + ' time' + (pattern.occurrences === 1 ? '' : 's') + (pattern.previousSeen ? '; previous occurrence: ' + pattern.previousSeen : '') + '; latest: ' + pattern.lastSeen + '; latest evidence: ' + pattern.lastEvidence + '.';
+  }).join('\n') + '\nIf a current error matches a pattern seen 2+ times, explicitly call it the same recurring pattern. Otherwise treat it as a hypothesis.';
+}
+
+function loadMentorMemory() {
+  loadActiveGeneratedExercise();
+  loadBehavioralMemory();
+}
+
+function runConversationMemoryTests() {
+  var answerCases = ['Check my answers', '1-A, 2-C, 3-B, 4-D', 'Were my answers correct?'];
+  var pattern = normalizeBehaviorPattern('rc', 'You invented an alternative the author never suggested.');
+  return [
+    { name:'recognises answer-check request', passed:answerCases.every(isAnswerReviewRequest) },
+    { name:'does not treat ordinary chat as answer submission', passed:!isAnswerReviewRequest('I practised RC today') },
+    { name:'maps author invention pattern', passed:pattern.key === 'invented_author_step' }
+  ];
 }
 
 const onboardingFlow = [
@@ -1677,6 +1924,7 @@ async function loadUserData() {
     }
     loadDiagnosticMemory();
     hydrateDiagnosticMemoryFromHistory();
+    loadMentorMemory();
     return true;
   } catch(e) { return false; }
 }
@@ -1960,6 +2208,7 @@ function startConversationalOnboarding() {
 
   setTimeout(function() {
     loadDiagnosticMemory();
+    loadMentorMemory();
     openDiagnosticFlow(null, { firstTime:true });
   }, 600);
 }
@@ -1980,6 +2229,7 @@ var conversationalProfile = {
 
 function detectMentorIntent(message) {
   var text = String(message || '').toLowerCase().trim();
+  if (isAnswerReviewRequest(message)) return 'answer_review';
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
   if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
   if (/\b(varc|rc|reading comprehension|verbal)\b/.test(text)) return 'varc_diagnosis';
@@ -2003,6 +2253,7 @@ function detectEmotionalState(message) {
 
 function getLikelyHiddenProblem(intent, message) {
   var text = String(message || '').toLowerCase();
+  if (intent === 'answer_review') return activeGeneratedExercise ? 'The student is submitting answers to Marg’s active generated exercise. Check them immediately from stored questions and answer keys, then diagnose the shared decision pattern across errors.' : 'The student wants an answer check. Use the recent conversation first and never ask them to resend content Marg already generated.';
   if (intent === 'confidence_breakdown') return 'A recent score or repeated miss has been converted into a verdict about ability; the immediate need is to separate evidence from identity and restore one controllable next step.';
   if (intent === 'returning_memory') return studentProfile.lastTask ? 'The student wants continuity, not another intake question. Resume from the saved task: ' + studentProfile.lastTask : 'The student wants continuity. Use the session summary or recent conversation; state uncertainty honestly if no reliable unfinished task exists.';
   if (intent === 'vague') return studentProfile.weakestSection ? 'The student is likely overwhelmed and cannot frame the problem. Use the known weak section (' + studentProfile.weakestSection + ') to offer three concrete hypotheses.' : 'The student is overwhelmed or unsure how to frame the problem. Offer three recognisable CAT failure patterns instead of asking an open-ended question.';
@@ -2019,6 +2270,7 @@ function getConsecutiveQuestionResponses() {
   var count = 0;
   for (var i = conversationHistory.length - 1; i >= 0; i--) {
     var item = conversationHistory[i];
+    if (isInternalMemoryMessage(item)) continue;
     if (!item || item.role !== 'assistant') continue;
     if (/\?|\[OPTIONS:/i.test(item.content || '')) count++;
     else break;
@@ -2029,7 +2281,7 @@ function getConsecutiveQuestionResponses() {
 function analyzeMentorInput(message) {
   var intent = detectMentorIntent(message);
   var emotion = detectEmotionalState(message);
-  var confidence = intent === 'general_mentor' ? 0.55 : intent === 'vague' ? 0.65 : intent === 'mock_diagnosis' ? 0.72 : 0.84;
+  var confidence = intent === 'general_mentor' ? 0.55 : intent === 'vague' ? 0.65 : intent === 'mock_diagnosis' ? 0.72 : intent === 'answer_review' && activeGeneratedExercise ? 0.98 : 0.84;
   return {
     intent: intent,
     emotionalState: emotion,
@@ -2047,7 +2299,20 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
+  if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY. Check every submitted answer immediately. Never ask for the passage or questions again. Keep each item compact, then end with one Diagnosis / Evidence / Fix pattern across the mistakes. Ask no intake question.';
   return { diagnosis: diagnosis, directive: directive };
+}
+
+function limitMentorResponseLength(text, maxWords) {
+  var controls = text.match(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g) || [];
+  var visible = text.replace(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g, '').trim();
+  var words = visible.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text;
+  var shortened = words.slice(0, maxWords).join(' ');
+  var punctuationCut = Math.max(shortened.lastIndexOf('.'), shortened.lastIndexOf('!'), shortened.lastIndexOf('?'));
+  if (punctuationCut > shortened.length * .62) shortened = shortened.substring(0, punctuationCut + 1);
+  else shortened = shortened.replace(/[,;:\-–—]?\s*$/, '') + '.';
+  return shortened + (controls.length ? '\n' + controls.join('') : '');
 }
 
 function applyMentorResponseGuard(response, diagnosis) {
@@ -2059,12 +2324,20 @@ function applyMentorResponseGuard(response, diagnosis) {
     var questionCount = 0;
     text = text.replace(/\?/g, function(mark) { questionCount++; return questionCount <= 1 ? mark : '.'; });
   }
+  var visibleValue = text.replace(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g, '').trim();
+  var valueWithoutQuestions = visibleValue.replace(/[^.!?\n]*\?/g, '').trim();
+  if (valueWithoutQuestions.length < 18 && diagnosis && diagnosis.likelyHiddenProblem) {
+    text = 'My read: ' + diagnosis.likelyHiddenProblem + (text ? '\n' + text : '');
+  }
+  var maxWords = diagnosis && diagnosis.intent === 'answer_review' ? 170 : diagnosis && diagnosis.intent === 'planning' ? 150 : 90;
+  text = limitMentorResponseLength(text, maxWords);
   if (!text) text = diagnosis && diagnosis.likelyHiddenProblem ? 'My read: ' + diagnosis.likelyHiddenProblem : 'My read is that the visible problem is not the whole problem. Let us work from the last concrete thing that went wrong.';
   return text;
 }
 
 function buildMentorFallbackReply(diagnosis) {
   if (!diagnosis) return 'My read is that the visible problem is not the whole problem. Start with the last concrete question or set that went wrong and look for the decision that caused it.';
+  if (diagnosis.intent === 'answer_review') return activeGeneratedExercise ? 'I still have the exercise and your submitted choices, but the answer check did not finish loading. Your passage is not lost—retry the same message and I will check it directly.' : 'I cannot find a reliable active exercise in memory, so I will not invent an answer key. Paste only your choices and the question numbers you want checked.';
   if (diagnosis.intent === 'confidence_breakdown') return 'This sounds less like a verdict on your CAT ability and more like one bad pattern becoming your whole self-assessment. For today, shrink the problem: review the last three misses and label each one concept, selection, or execution—the repeated label is what we fix.';
   if (diagnosis.intent === 'returning_memory') return studentProfile.lastTask ? 'We left off with: ' + studentProfile.lastTask + '. My guess is the useful part now is not repeating the plan but seeing where it actually broke.' : 'I do not have a reliable saved task to pretend otherwise. The useful thread I can recover is your recent pattern, and we should restart from the last concrete result rather than another profile intake.';
   if (diagnosis.intent === 'vague') return studentProfile.weakestSection ? 'My first read is that "help" means the problem feels too tangled to name. Given your ' + studentProfile.weakestSection + ' pattern, the likely issue is either selection, execution, or not knowing the first move—which one feels closest?' : 'When someone can only say "help," it usually means one of three things: scores are stuck, the plan feels chaotic, or confidence has dropped. Pick the closest one and I will give you a read, not an interview.';
@@ -2256,6 +2529,8 @@ async function sendConversationalMessage(userMessage, context) {
 
   var systemAddition = profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
   systemAddition += getDiagnosticMemoryContext();
+  systemAddition += getGeneratedExerciseMemoryContext(userMessage);
+  systemAddition += getBehavioralMemoryContext();
   systemAddition += mentorAnalysis.directive;
   systemAddition += '\n\nMENTOR ONBOARDING MODE: The goal is an accurate-feeling first insight, not profile completion. Never ask for attempt number, daily hours, situation, coaching, score, attempts, and pace as a sequence. Infer what is not essential. If a compact choice helps confirm your read, use one [OPTIONS: choice1|choice2|choice3][CONTEXT: diagnosis_confirm] block after the diagnosis; otherwise ask one natural confirmation question. Complete onboarding after two meaningful student replies even if profile fields remain blank.';
 
@@ -2283,6 +2558,7 @@ async function sendConversationalMessage(userMessage, context) {
     var response = data.content && data.content[0] ? applyMentorResponseGuard(data.content[0].text, mentorAnalysis.diagnosis) : null;
     hideTyping();
     if (response) {
+      if (mentorAnalysis.diagnosis.intent === 'answer_review' && buildLocalAnswerCheck(userMessage).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
 
       var cleanResponse = response
         .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
@@ -2318,7 +2594,7 @@ async function sendConversationalMessage(userMessage, context) {
     }
   } catch(e) {
     hideTyping();
-    var fallbackResponse = buildMentorFallbackReply(mentorAnalysis.diagnosis);
+    var fallbackResponse = mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(userMessage) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis);
     addMessage('marg', fallbackResponse);
     conversationHistory.push({ role: 'assistant', content: fallbackResponse });
     if (!isGuestMode) saveChatMessage('assistant', fallbackResponse);
@@ -2602,7 +2878,7 @@ function restoreConversation() {
   showBottomNav();
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
-  const displayMessages = conversationHistory.slice(2);
+  const displayMessages = conversationHistory.slice(2).filter(function(message) { return !isInternalMemoryMessage(message); });
   if (displayMessages.length > 0) {
     displayMessages.forEach(function(msg) {
       const formatted = msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
@@ -2690,6 +2966,10 @@ async function sendMessage() {
   conversationHistory.push({ role: 'user', content: text });
   detectAndSaveMockScores(text);
   if (!isGuestMode) saveChatMessage('user', text);
+  if (isAnswerReviewRequest(text)) {
+    loadActiveGeneratedExercise();
+    markActiveExerciseAttempt(text);
+  }
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
@@ -2720,12 +3000,13 @@ async function sendMessage() {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary + getDiagnosticMemoryContext() + mentorAnalysis.directive + getPracticeThresholdNote();
+    activitySummary + getDiagnosticMemoryContext() + getGeneratedExerciseMemoryContext(text) + getBehavioralMemoryContext() + mentorAnalysis.directive + getPracticeThresholdNote();
   try {
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1000, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) }, 45000);
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) }, 45000);
     const data = await response.json();
     const reply = applyMentorResponseGuard((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.', mentorAnalysis.diagnosis);
     hideTyping();
+    if (mentorAnalysis.diagnosis.intent === 'answer_review' && buildLocalAnswerCheck(text).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
     const cleanReply = reply
@@ -2747,7 +3028,7 @@ async function sendMessage() {
     checkAndLogPracticeVolume(reply);
   } catch (e) {
     hideTyping();
-    const fallbackReply = buildMentorFallbackReply(mentorAnalysis.diagnosis);
+    const fallbackReply = mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis);
     addMessage('marg', fallbackReply);
     conversationHistory.push({ role: 'assistant', content: fallbackReply });
     if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
@@ -2981,23 +3262,39 @@ async function refreshArticle() {
 
 function readArticle() { if (currentArticle) window.open(currentArticle.url, '_blank'); }
 
+function parseChatGeneratedExercise(rawText) {
+  var raw = String(rawText || '');
+  var match = raw.match(/\[\[MARG_MEMORY\]\]\s*([\s\S]*?)\s*\[\[\/MARG_MEMORY\]\]/);
+  var memory = {};
+  if (match) {
+    try { memory = JSON.parse(match[1]); } catch(e) { memory = {}; }
+  }
+  return { visibleText:raw.replace(/\s*\[\[MARG_MEMORY\]\][\s\S]*?\[\[\/MARG_MEMORY\]\]\s*/g, '').trim(), memory:memory };
+}
+
 async function createRCPassage() {
   if (!currentArticle) return;
   closeVarcCard();
   const articleText = currentArticle.content || currentArticle.preview;
   const prompt = `Here is a real news article, for theme and source material only:\n\nTitle: "${currentArticle.title}" (${currentArticle.source})\n\nContent: ${articleText}\n\nYour task: write a brand-new, ORIGINAL CAT-style RC passage inspired by this article's topic and theme — entirely in your own words, not a reproduction, summary, or quotation of the real article. This is intentional, existing practice-passage functionality: the student understands the passage is original practice material written around today's news theme, not the real article. Do not refuse this task, do not question whether the article is real or say it "doesn't exist," and do not lecture about authenticity — just write the original passage.\n\nCreate a HARD CAT exam style RC exercise from this original passage. IMPORTANT: Show ONLY passage and questions, NO answers yet.\n\nPASSAGE: 450-500 words, dense and abstract, matching real CAT passage length. Structure it as 3-4 distinct paragraphs (separate with a blank line between each), not one continuous block. Use complex sentence structures, nuanced arguments, at least one subtle shift in author's position. Must require careful reading — not skimmable.\n\nQUESTIONS — 4 total, one each of: Primary purpose, Specific detail, Inference, Author's attitude.\n\nTRAP OPTIONS are mandatory for every question:\n- Wrong options must use exact words from passage but in wrong context\n- Two options per question should feel very close to correct\n- Options that are partially true but go beyond what passage actually states\n- Never make wrong options obviously wrong\n\nCRITICAL: Randomize correct answers across A B C D — do NOT default to B or C repeatedly. Mix it up naturally like real CAT papers.\n\nDifficulty: Hard enough that a student who skims will get it wrong.\n\nANSWER KEY DISTRIBUTION — STRICTLY FOLLOW THIS:\nBefore writing questions, randomly pick 4 different letters from A B C D for the correct answers — no two consecutive questions should have the same letter. Actively avoid B,C,B,C pattern. Use patterns like A,D,B,C or D,A,C,B or C,B,D,A.\n\nFormat:\nPASSAGE\n[text]\n\nQUESTIONS\n1. [question]\nA. B. C. D.\n[repeat for 4 questions]\n\nEnd with exactly: "---\nReady? Type your answers (e.g. 1-A, 2-C, 3-B, 4-D) and I'll explain each one in detail."`;
 
+  const memoryDirective = `\n\nINTERNAL MEMORY OUTPUT — after the visible Ready line, append exactly this machine-readable block. The app will hide it from the student:\n[[MARG_MEMORY]]\n{"purpose":"specific cognitive skill tested","answers":[{"question":1,"correct":"actual letter","explanation":"short evidence-based reason","trap":"short trap label"},{"question":2,"correct":"actual letter","explanation":"short evidence-based reason","trap":"short trap label"},{"question":3,"correct":"actual letter","explanation":"short evidence-based reason","trap":"short trap label"},{"question":4,"correct":"actual letter","explanation":"short evidence-based reason","trap":"short trap label"}]}\n[[/MARG_MEMORY]]\nUse the independently verified correct letters. Return nothing after the closing marker.`;
+
   addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
   showTyping();
   profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200, system: SYSTEM_PROMPT + profileContext, messages: [{ role: 'user', content: prompt }] }) }, 45000);
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1400, system: SYSTEM_PROMPT + profileContext, messages: [{ role: 'user', content: prompt + memoryDirective }] }) }, 45000);
     const data = await response.json();
     const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
+    const parsedExercise = parseChatGeneratedExercise(reply);
+    const visibleReply = parsedExercise.visibleText;
     hideTyping();
-    const formatted = reply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+    const formatted = visibleReply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
     addMessage('marg', formatted, true);
-    saveChatMessage('assistant', reply);
+    conversationHistory.push({ role:'assistant', content:visibleReply });
+    saveChatMessage('assistant', visibleReply);
+    storeActiveGeneratedExercise({ type:'rc', source:'chat', title:currentArticle.title, purpose:parsedExercise.memory.purpose || 'CAT RC comprehension and option-elimination diagnosis', content:{ exerciseText:visibleReply, answerKey:parsedExercise.memory.answers || [] } });
     localStorage.setItem('marg_rc_article', JSON.stringify({ title: currentArticle.title, source: currentArticle.source, content: articleText }));
   } catch(e) { hideTyping(); addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — try again in a moment.' : 'Connection issue. Please try again in a moment.'); }
 }
@@ -3026,6 +3323,7 @@ function startGuestMode() {
   onboardingComplete = false;
   studentProfile = { attemptNumber: 'Guest', monthsLeft: 'Unknown', weakestSection: 'Unknown', dailyHours: 'Unknown', situation: 'Guest user' };
   loadDiagnosticMemory();
+  loadMentorMemory();
   setTimeout(function() { openDiagnosticFlow(null, { firstTime:true }); }, 300);
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
@@ -3495,7 +3793,7 @@ async function generateAndSaveSessionSummary() {
   if (!currentUser || conversationHistory.length < 4) return;
   try {
 
-    const recentHistory = conversationHistory.slice(-20);
+    const recentHistory = cleanHistory(conversationHistory.slice(-20));
     const summaryPrompt = 'Summarise this CAT mentoring session in 3-4 sentences. Focus on: what topic was discussed, what specific problem or weakness was identified, what advice or task was given, and what the student should work on next. Be specific - include section names, topic names, scores if mentioned. This summary will be used to give the student continuity in their next session.';
 
     const res = await fetchWithTimeout(WORKER_URL, {
@@ -4222,6 +4520,7 @@ async function startTimedTest(section, topic, questionCount) {
     timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
     timedTestSecondsTotal = timedTestQuestions.length * 120;
     timedTestSecondsLeft = timedTestSecondsTotal;
+    storeActiveGeneratedExercise({ type:section, source:'sectional', title:topic + ' sectional', purpose:'Timed CAT sectional diagnosis for ' + topic, content:{ questions:timedTestQuestions } });
 
     renderTimedTestQuestionNav();
     qnavEl.style.display = 'flex';
@@ -4265,6 +4564,7 @@ function renderTimedTestQuestion() {
 
 function selectTimedTestAnswer(idx) {
   timedTestAnswers[timedTestIndex] = idx;
+  recordActiveExerciseSelection(timedTestIndex + 1, idx, timedTestQuestions[timedTestIndex] ? timedTestQuestions[timedTestIndex].correct : null);
   renderTimedTestQuestionNav();
   renderTimedTestQuestion();
 }
@@ -4336,6 +4636,12 @@ function submitTimedTest(isAutoSubmit) {
 
   var total = timedTestQuestions.length;
   var maxMarks = total * 3;
+
+  if (activeGeneratedExercise) {
+    activeGeneratedExercise.result = { correct:correct, wrong:wrong, skipped:skipped, marks:marks, maxMarks:maxMarks, answers:timedTestAnswers.slice() };
+    activeGeneratedExercise.awaitingAnswers = false;
+    storeActiveGeneratedExercise(activeGeneratedExercise);
+  }
 
   renderTimedTestResults({ correct: correct, wrong: wrong, skipped: skipped, marks: marks, maxMarks: maxMarks, total: total, isAutoSubmit: isAutoSubmit });
 
@@ -4455,6 +4761,7 @@ async function loadDailyPractice() {
     practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
     practiceData[currentPracticeType] = practiceJson;
+    storeActiveGeneratedExercise({ type:currentPracticeType, source:'practice-tab', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' practice', purpose:'Targeted CAT practice based on the student’s current mistake patterns', content:practiceJson });
     currentSetIndex = 0;
     currentQuestionIndex = 0;
     practiceAnswered = false;
@@ -4542,6 +4849,7 @@ function selectAnswer(selectedIndex) {
   var q = setObj.questions[currentQuestionIndex];
   var correct = q.correct;
   var isCorrect = selectedIndex === correct;
+  recordActiveExerciseSelection((usesSets(currentPracticeType) ? (currentSetIndex + 1) + '.' : '') + (currentQuestionIndex + 1), selectedIndex, correct);
 
   document.querySelectorAll('.pcard-option').forEach(function(btn, i) {
     if (i === correct) btn.classList.add('correct');
@@ -4639,6 +4947,7 @@ function storeWrongAnswer(type, question, insight) {
     existing = existing.slice(0, 10);
     localStorage.setItem(key, JSON.stringify(existing));
     studentProfile.recentMistakes = existing;
+    recordBehaviorPattern(type, insight, question.q || entry.questionText, 'practice');
   } catch(e) {}
 }
 
