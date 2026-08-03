@@ -163,43 +163,7 @@
 .fb-opt:hover { border-color: #C9A84C; color: #C8C4BC; }
 .fb-opt.selected { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,77,0.06); }
 
-/* Reusable diagnostic flow: a brief, prediction-first layer before mentoring. */
-#diagnostic-flow-overlay { position:fixed;inset:0;z-index:10001;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.9);backdrop-filter:blur(8px); }
-#diagnostic-flow-overlay.visible { display:flex; }
-.diagnostic-card { width:min(100%,520px);max-height:min(760px,calc(100vh - 40px));overflow-y:auto;border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:22px;background:#111;box-shadow:0 24px 80px rgba(0,0,0,.55);animation:fadeUp .25s ease; }
-.diagnostic-topline { display:flex;align-items:center;gap:10px;margin-bottom:22px; }
-.diagnostic-mark { width:9px;height:9px;border-radius:50%;background:#4CAF7D;box-shadow:0 0 14px rgba(76,175,125,.45); }
-#diagnostic-progress { font-size:11px;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;flex:1; }
-#diagnostic-close { border:0;background:transparent;color:var(--text-dim);font-size:22px;line-height:1;cursor:pointer;padding:2px 5px; }
-#diagnostic-close:hover { color:var(--text); }
-#diagnostic-title { font-family:'Playfair Display',serif;font-size:24px;font-weight:500;line-height:1.3;color:var(--text);margin-bottom:8px; }
-#diagnostic-copy { font-size:13px;line-height:1.6;color:var(--text-muted);margin-bottom:18px; }
-#diagnostic-options { display:flex;flex-direction:column;gap:9px; }
-.diagnostic-option { width:100%;border:1.5px solid var(--border2);border-radius:12px;padding:13px 15px;background:#181818;color:#D5D1C8;text-align:left;font:400 14px/1.45 'DM Sans',sans-serif;cursor:pointer;transition:border-color .16s,background .16s,transform .16s; }
-.diagnostic-option:hover,.diagnostic-option:focus-visible { border-color:var(--gold);background:var(--gold-dim2);transform:translateY(-1px);outline:none; }
-.diagnostic-option.secondary { color:var(--text-muted);background:transparent; }
-.diagnostic-prediction { border-left:3px solid var(--gold);border-radius:10px;padding:15px 16px;background:var(--gold-dim2);font-size:15px;line-height:1.65;color:var(--text);margin:4px 0 18px; }
-.diagnostic-confirmations { display:grid;grid-template-columns:repeat(3,1fr);gap:8px; }
-.diagnostic-confirmations .diagnostic-option { text-align:center;padding:11px 8px;font-size:13px; }
-.diagnostic-back { margin-top:14px;border:0;background:transparent;color:var(--text-dim);font:400 12px 'DM Sans',sans-serif;cursor:pointer;padding:4px 0; }
-.diagnostic-back:hover { color:var(--text-muted); }
-@media(max-width:540px) { #diagnostic-flow-overlay { align-items:flex-end;padding:0; } .diagnostic-card { width:100%;max-height:92vh;border-radius:20px 20px 0 0;padding:20px 18px calc(22px + env(safe-area-inset-bottom)); } #diagnostic-title { font-size:22px; } }
 </style>
-
-
-<div id="diagnostic-flow-overlay" role="dialog" aria-modal="true" aria-labelledby="diagnostic-title">
-  <div class="diagnostic-card">
-    <div class="diagnostic-topline">
-      <span class="diagnostic-mark" aria-hidden="true"></span>
-      <span id="diagnostic-progress">Quick diagnosis</span>
-      <button id="diagnostic-close" type="button" aria-label="Close diagnostic" onclick="closeDiagnosticFlow()">&times;</button>
-    </div>
-    <h2 id="diagnostic-title">What would you like help with today?</h2>
-    <p id="diagnostic-copy">Pick the area that feels most urgent. Marg will narrow down the likely pattern before the conversation starts.</p>
-    <div id="diagnostic-options"></div>
-    <button id="diagnostic-back" class="diagnostic-back" type="button" onclick="diagnosticBack()" style="display:none;">&larr; Back</button>
-  </div>
-</div>
 
 <div id="loading-screen">
   <div id="loading-logo"><img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png" alt="Marg"></div>
@@ -289,11 +253,11 @@
       <div style="display:flex;flex-direction:column;gap:0;">
         <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;border-bottom:1px solid #1A1A1A;">
           <div style="width:36px;height:36px;border-radius:50%;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#C9A84C;font-weight:700;flex-shrink:0;">1</div>
-          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Tell Marg where you are</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Marg asks you simple questions in chat — your weak section, daily time, attempt number. No forms. Just conversation.</div></div>
+          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Start directly in chat</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Choose VARC, DILR or QA. Marg generates a short CAT-level exercise immediately—no form and no profile interview.</div></div>
         </div>
         <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;border-bottom:1px solid #1A1A1A;">
           <div style="width:36px;height:36px;border-radius:50%;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#C9A84C;font-weight:700;flex-shrink:0;">2</div>
-          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Marg diagnoses your specific problem</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Not "VARC is weak." But "you're answering RC from memory instead of finding the line in the passage." That specific.</div></div>
+          <div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Marg diagnoses live performance</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Your choices reveal the actual leak: comprehension, selection, representation, recognition or execution.</div></div>
         </div>
         <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;border-bottom:1px solid #1A1A1A;">
           <div style="width:36px;height:36px;border-radius:50%;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#C9A84C;font-weight:700;flex-shrink:0;">3</div>
@@ -903,7 +867,8 @@ function tourNext() {
   if (btn && tourStep === totalTourSteps - 1) btn.textContent = 'Lets go';
 }
 function checkAndShowTour() {
-  if (!localStorage.getItem('marg_tour_v3')) setTimeout(showTour, 1500);
+  // Onboarding now happens entirely inside chat. Keep the old tour code dormant.
+  return;
 }
 var feedbackSelected = null;
 var feedbackShown = false;
@@ -990,7 +955,7 @@ When a student asks why something works — why ratio and percentage are basical
 
 When a student decides something you wouldn't have — skipping a topic, taking a day off two weeks out, whatever it is — you say what you actually think, once, plainly, and then you let it go. You don't bring it up again three messages later. You're their mentor, not their parent, and repeating a concern doesn't change a mind — it just makes you sound like you don't trust them.
 
-When a student finishes a set, you never ask for a report. You ask what was hard. "Bring me the two toughest ones, we'll go through them together" beats "come back at 5pm with your results" every time — one gives them a reason to actually want to talk to you again, the other makes them feel like they're clocking in. Never say "come back at [time]." Never demand a summary of what they did. Never assign homework as the closing line of every single message.
+When a student finishes a set, you never ask for a report. Diagnose what their choices already reveal and lead the next move: "Let's look at the two that exposed the pattern" beats "come back at 5pm with your results." Never say "come back at [time]." Never demand a summary of what they did. Never assign homework as the closing line of every single message.
 
 If a student asks for a timetable, give them one immediately, in plain sentences specific enough to act on today. "Tomorrow morning, eight percentage problems from Arun Sharma. Afternoon, one timed RC passage. Evening, go back over whatever you got wrong." That's the whole plan — you never refuse to give one, and you never pad it out with caveats about how plans don't really work.
 
@@ -1006,7 +971,7 @@ You remember exercises you generated. When ACTIVE GENERATED EXERCISE MEMORY is p
 
 You also receive BEHAVIOURAL MEMORY. When the current error matches a stored recurring pattern, say so plainly and specifically: "same pattern as yesterday" or "this is that scope-shift leak again." Do not pretend recurrence when memory does not support it, and do not repeat the full old explanation—connect the pattern, show today's evidence, then sharpen the fix.
 
-There's a version of yourself that's easy to slip into, and it's wrong: the project manager. That version ends every message with a numbered task list and a deadline. If you ever catch yourself writing something like "Here's your plan: 1. Do percentage problems 2. Come back at 5pm 3. Report results. That's it. Go. 👇" — stop, and say the same thing as one sentence a person would actually say out loud: "percentage and ratio are the same instinct once it clicks — do five today and bring me the ones that felt weird." No bullet points, no numbered lists, no bold text, no headers, no "Here's what to do," no "That's it," no pointing emoji. You write in plain conversational text, the way you'd type a message, not the way you'd write a memo — if an answer starts turning into a structured document, stop and rewrite it as one flowing thought.
+There's a version of yourself that's easy to slip into, and it's wrong: the project manager. That version ends every message with a numbered task list and a deadline. If you ever catch yourself writing something like "Here's your plan: 1. Do percentage problems 2. Come back at 5pm 3. Report results. That's it. Go. 👇" — stop, and say the same thing as one sentence a person would actually say out loud: "percentage and ratio are the same instinct once it clicks—let's test it with five questions now." No bullet points, no numbered lists, no bold text, no headers, no "Here's what to do," no "That's it," no pointing emoji. You write in plain conversational text, the way you'd type a message, not the way you'd write a memo — if an answer starts turning into a structured document, stop and rewrite it as one flowing thought.
 
 You remember what this student has told you — their weakest section, their hours, what happened in your last session together, whatever the session summary says. Use it without announcing that you're using it, and don't make them repeat what you already know. "You mentioned DILR felt slow yesterday — how'd today's set go?" is memory used well; asking them to restate their whole situation from scratch is memory wasted. But never invent a memory — if you're not sure something happened, say "based on what you've told me" instead of asserting it, and never claim "last time you did X" unless it's actually sitting in your context.
 
@@ -1034,7 +999,9 @@ There's also an actual practice counter running behind the scenes for QA and DIL
 
 When the narrow topic you're flagging is a QA or DILR one specifically — not VARC, which doesn't have this feature yet — end that suggestion with a tag so the student can actually start the test right there: [START_TEST: qa|Percentages|10] or [START_TEST: dilr|Seating Arrangement|12], using the real topic name and a sensible question count (8-12 is typical). Only include this tag in the exact message where you're genuinely suggesting a timed sectional, never as a reflex tacked onto unrelated replies, and never more than one per message.
 
-Every conversation should end with something unfinished on purpose — not homework, an actual open thread between the two of you. "Bring me the hardest one tomorrow" works because it's specific to what just happened and because it's for them, not for you. Students don't come back out of obligation. They come back because something's still open.
+Every conversation should leave a clear next move, not homework or a vague request. Lead with "Let's test that pattern with one harder question next" so the student never has to invent the next step. Students return because the thread is useful, not because they were assigned a report.
+
+LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. If the student mentions VARC, QA or DILR without usable evidence already present, say "let's do" or "I'll generate" and start a live CAT-level exercise. For mock analysis, request sectional numbers only after the student says they already have them; otherwise offer a mini mock. The student should always know what happens next.
 
 One technical note, separate from all of this: when you want the student to pick from a short list of options during a section switch, wrap it as [OPTIONS: opt1|opt2|opt3][CONTEXT: type] — one set per message, and only when it genuinely helps.
 
@@ -1461,7 +1428,7 @@ function finishDiagnosticFlow(entry) {
   var reply;
   if (entry.confirmation === 'Exactly') reply = 'Good — then we do not need more diagnosis. ' + entry.action;
   else if (entry.confirmation === 'Mostly') reply = 'Close enough to work with, but I will keep it as a hypothesis. ' + entry.action;
-  else reply = 'Good correction — I will not lock that diagnosis. Bring me the last concrete question, set, or mock moment where the problem showed up; I will work from that evidence.';
+  else reply = 'Good correction — I will not lock that diagnosis. Let us create one fresh example and work from what actually happens there.';
   addMessage('marg', reply, true);
   conversationHistory.push({ role:'assistant', content:reply });
   if (!isGuestMode) { saveChatMessage('user', contextMessage); saveChatMessage('assistant', reply); }
@@ -1526,6 +1493,31 @@ function maybeLaunchDiagnosticFromMessage(message) {
   var topic = detectExplicitDiagnosticTopic(message);
   if (!topic || !shouldLaunchDiagnosticTopic(topic)) return false;
   return openDiagnosticFlow(topic, { firstTime:false });
+}
+
+async function maybeStartGuidedExperienceFromMessage(message) {
+  if (isAnswerReviewRequest(message)) return false;
+  var topic = detectExplicitDiagnosticTopic(message);
+  if (!topic) {
+    var shortTopic = String(message || '').toLowerCase().trim();
+    if (/^(varc|rc|reading comprehension)$/.test(shortTopic)) topic = 'varc';
+    else if (/^(qa|quant|quants)$/.test(shortTopic)) topic = 'qa';
+    else if (/^(dilr|lrdi)$/.test(shortTopic)) topic = 'dilr';
+    else if (/^(mock|mock analysis)$/.test(shortTopic)) topic = 'mock';
+    else if (/^(confidence|low confidence)$/.test(shortTopic)) topic = 'confidence';
+  }
+  if (!topic) return false;
+  if ((topic === 'varc' || topic === 'dilr' || topic === 'qa') && activeGeneratedExercise && activeGeneratedExercise.awaitingAnswers) {
+    var activeType = activeGeneratedExercise.type === 'varc' ? 'rc' : activeGeneratedExercise.type;
+    var requestedType = topic === 'varc' ? 'rc' : topic;
+    if (activeType === requestedType) return false;
+  }
+  if (topic === 'mock' && /varc\s*[:=\-]?\s*\d/i.test(message) && /dilr\s*[:=\-]?\s*\d/i.test(message) && /qa\s*[:=\-]?\s*\d/i.test(message)) return false;
+  if (['varc','dilr','qa','mock','confidence'].indexOf(topic) === -1) return false;
+  var oldChoices = document.getElementById('conv-options-chat_first_onboarding');
+  if (oldChoices) oldChoices.remove();
+  await beginChatFirstTopic(topic);
+  return true;
 }
 
 function getDiagnosticMemoryContext() {
@@ -2139,7 +2131,7 @@ async function startFromAttemptContext(attempt) {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
-        system: SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: This user just signed up after attempting a practice question on the daily practice page. Start by acknowledging what their attempt reveals about their thinking pattern. Then after 2-3 exchanges, naturally ask them to complete their profile setup saying something like "To make tomorrow\'s practice even more targeted — tell me quickly: is this your first CAT attempt or have you given it before?"',
+        system: SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: This user arrived after attempting a practice question. Lead with one specific inference from that live attempt, explain the next correction briefly, and give one immediate follow-up action. Do not start profile setup or ask for background details.',
         messages: cleanHistory(conversationHistory)
       })
     }, 45000);
@@ -2152,7 +2144,10 @@ async function startFromAttemptContext(attempt) {
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', e && e.name === 'AbortError' ? 'That took a bit long — but hey, I saw you just attempted today\'s practice. Tell me, was that question type familiar or did the approach feel new?' : 'Hey! I saw you just attempted today\'s practice. Tell me — was that question type familiar or did the approach feel new?');
+    var fallbackInsight = attempt.correct
+      ? 'You converted the setup correctly. The next thing I want to test is whether that method survives a less familiar version—let\'s do one variation now.'
+      : 'The miss gives us useful evidence: the first suspect is your setup choice, not your ability. Let\'s rebuild the same decision on one cleaner variation now.';
+    addMentorLeadMessage(fallbackInsight);
   }
 }
 
@@ -2177,7 +2172,6 @@ async function savePracticeAttempt(attempt) {
 function showWelcomeMarg() {
 
   startConversationalOnboarding();
-  checkAndShowTour();
 }
 
 function showPreviewScreen() {
@@ -2209,7 +2203,7 @@ function startConversationalOnboarding() {
   setTimeout(function() {
     loadDiagnosticMemory();
     loadMentorMemory();
-    openDiagnosticFlow(null, { firstTime:true });
+    startChatFirstOnboarding();
   }, 600);
 }
 var conversationalProfile = {
@@ -2226,6 +2220,85 @@ var conversationalProfile = {
   patternConfirmed: false,
   awaitingPatternCorrection: false
 };
+
+var chatFirstOnboardingStarted = false;
+
+function addMentorLeadMessage(text) {
+  addMessage('marg', String(text).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  conversationHistory.push({ role:'assistant', content:String(text) });
+  if (!isGuestMode) saveChatMessage('assistant', String(text));
+}
+
+function startChatFirstOnboarding() {
+  if (chatFirstOnboardingStarted) return;
+  chatFirstOnboardingStarted = true;
+  var opening = "Let's find the problem by watching you solve—not by making you fill a profile. Pick where you want to start; I'll generate the first exercise and diagnose the pattern from how you handle it.";
+  addMentorLeadMessage(opening);
+  showConversationalOptions([
+    'VARC — diagnose me live',
+    'QA — find my concept gaps',
+    'DILR — test my set approach',
+    'Analyse a mock',
+    'Confidence after a bad mock',
+    'Something else'
+  ], 'chat_first_onboarding');
+  var input = document.getElementById('user-input');
+  if (input) { input.disabled = false; input.focus(); }
+}
+
+function completeChatFirstOnboarding(section) {
+  onboardingComplete = true;
+  if (section === 'rc' || section === 'dilr' || section === 'qa') {
+    studentProfile.weakestSection = section.toUpperCase();
+    conversationalProfile.weakSection = section.toUpperCase();
+  }
+  if (!studentProfile.monthsLeft) studentProfile.monthsLeft = calculateMonthsLeftForCAT();
+  try { localStorage.setItem('marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest'), '1'); } catch(e) {}
+  showBottomNav();
+  saveProfile();
+}
+
+async function beginChatFirstTopic(answer) {
+  var text = String(answer || '').toLowerCase();
+  if (/varc|reading|\brc\b/.test(text)) {
+    await generateGuidedDiagnosticExercise('rc');
+  } else if (/\bqa\b|quant|math/.test(text)) {
+    await generateGuidedDiagnosticExercise('qa');
+  } else if (/dilr|lrdi|logical|data interpretation/.test(text)) {
+    await generateGuidedDiagnosticExercise('dilr');
+  } else if (/mock/.test(text)) {
+    addMentorLeadMessage("We'll use evidence, not a long intake. If you already have sectional scores, type them here. If not, I'll generate a short mini mock now.");
+    showConversationalOptions(['I have my sectional scores', 'Start a mini mock'], 'mock_start_choice');
+  } else if (/confidence|quit|clear cat|hopeless|bad mock/.test(text)) {
+    startConfidenceConversation();
+  } else {
+    addMentorLeadMessage("The problem is probably broader than one section. Tell me the one moment in your preparation that keeps repeating; I'll make a first read and choose the next step for us.");
+  }
+}
+
+function startConfidenceConversation() {
+  completeChatFirstOnboarding('confidence');
+  addMentorLeadMessage("My first read: the last mock has started behaving like a prediction of your CAT result, not one piece of training data. Let's separate the score from what actually broke. What hit hardest?");
+  showConversationalOptions(['The total score', 'One section collapsed', 'My preparation did not show up'], 'confidence_experience');
+}
+
+function respondToConfidenceExperience(answer) {
+  var text = String(answer || '').toLowerCase();
+  var reply;
+  if (/total/.test(text)) reply = "That's score-to-identity thinking: one number became a verdict on your ability. We'll reverse it by splitting the mock into selection, concept and execution losses—the largest bucket is the real problem, not the total.";
+  else if (/section/.test(text)) reply = "Then confidence is the symptom. One sectional process collapsed and contaminated how you read the entire mock. We'll isolate that section first instead of rebuilding your whole preparation.";
+  else reply = "That usually means pressure changed your decisions, not that your preparation disappeared. The useful comparison is practice behaviour versus mock behaviour—especially selection, exits and answer changes.";
+  addMentorLeadMessage(reply + " Start with the first moment the mock felt out of control; we'll diagnose from there.");
+}
+
+async function handleMockStartChoice(answer) {
+  if (/have/.test(String(answer).toLowerCase())) {
+    completeChatFirstOnboarding('mock');
+    addMentorLeadMessage("Good. Type only the sectional numbers—VARC, DILR and QA, plus attempts if you know them. No screenshot needed; I'll tell you what broke first.");
+  } else {
+    await generateGuidedMiniMock();
+  }
+}
 
 function detectMentorIntent(message) {
   var text = String(message || '').toLowerCase().trim();
@@ -2450,7 +2523,32 @@ function showConversationalOptions(options, context) {
 async function handleConversationalResponse(answer, context) {
   conversationalProfile.lastAnswer = answer;
 
-  if (context === 'opening') {
+  if (context === 'chat_first_onboarding') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await beginChatFirstTopic(answer);
+
+  } else if (context === 'mock_start_choice') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await handleMockStartChoice(answer);
+
+  } else if (context === 'confidence_experience') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    respondToConfidenceExperience(answer);
+
+  } else if (context.indexOf('guided_retry_') === 0) {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await generateGuidedDiagnosticExercise(context.replace('guided_retry_', ''));
+
+  } else if (context === 'mini_mock_retry') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await generateGuidedMiniMock();
+
+  } else if (context === 'opening') {
     conversationalProfile.openingChoice = answer;
 
     if (answer.includes('weak in')) studentProfile.weakestSection = null;
@@ -2532,10 +2630,10 @@ async function sendConversationalMessage(userMessage, context) {
   systemAddition += getGeneratedExerciseMemoryContext(userMessage);
   systemAddition += getBehavioralMemoryContext();
   systemAddition += mentorAnalysis.directive;
-  systemAddition += '\n\nMENTOR ONBOARDING MODE: The goal is an accurate-feeling first insight, not profile completion. Never ask for attempt number, daily hours, situation, coaching, score, attempts, and pace as a sequence. Infer what is not essential. If a compact choice helps confirm your read, use one [OPTIONS: choice1|choice2|choice3][CONTEXT: diagnosis_confirm] block after the diagnosis; otherwise ask one natural confirmation question. Complete onboarding after two meaningful student replies even if profile fields remain blank.';
+  systemAddition += '\n\nCHAT-FIRST ONBOARDING MODE: There is no form or intake interview. The goal is live evidence and an accurate first insight, not profile completion. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence. If a section is named, lead with a fresh exercise Marg can generate. Use at most one confirmation after giving a prediction, then state the diagnosis and next action.';
 
   if (context === 'pattern_confirmed') {
-    systemAddition += '\n\nThe student just confirmed the diagnosis pattern you gave them is accurate. Do not repeat or re-explain it. Move straight to your next onboarding question.';
+    systemAddition += '\n\nThe student just confirmed the diagnosis pattern. Do not repeat it and do not ask another intake question. Move straight to the next useful action.';
   }
   if (conversationalProfile.awaitingPatternCorrection) {
     systemAddition += '\n\nThe student just explained what happened with a specific wrong answer, after you asked one clarifying question following a diagnosis they said was not quite right. Do not ask another open-ended question. State a one-sentence read on their actual pattern based on what they just told you, then move on to your next onboarding question.';
@@ -2815,7 +2913,12 @@ function skipToOnboarding() {
 
 function showProfileSetup() {
   var overlay = document.getElementById('profile-setup-overlay');
-  if (overlay) overlay.style.display = 'flex';
+  if (overlay) overlay.style.display = 'none';
+  var diagnosis = document.getElementById('diagnosis-overlay');
+  if (diagnosis) diagnosis.style.display = 'none';
+  var app = document.getElementById('chat-app');
+  if (app) app.style.display = 'flex';
+  startConversationalOnboarding();
 }
 
 function hideProfileSetup() {
@@ -2973,7 +3076,7 @@ async function sendMessage() {
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
-  if (maybeLaunchDiagnosticFromMessage(text)) {
+  if (await maybeStartGuidedExperienceFromMessage(text)) {
     isLoading = false;
     document.getElementById('send-btn').disabled = false;
     return;
@@ -3324,7 +3427,7 @@ function startGuestMode() {
   studentProfile = { attemptNumber: 'Guest', monthsLeft: 'Unknown', weakestSection: 'Unknown', dailyHours: 'Unknown', situation: 'Guest user' };
   loadDiagnosticMemory();
   loadMentorMemory();
-  setTimeout(function() { openDiagnosticFlow(null, { firstTime:true }); }, 300);
+  setTimeout(startChatFirstOnboarding, 300);
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
   document.getElementById('user-input').focus();
@@ -3528,9 +3631,6 @@ function startMockOnboardingLogin() {
 
   if (currentUser) {
     showMockOnboarding();
-
-    document.getElementById('landing').style.display = 'none';
-    document.getElementById('app').style.display = 'flex';
     return;
   }
 
@@ -3539,10 +3639,18 @@ function startMockOnboardingLogin() {
 }
 
 function showMockOnboarding() {
-
-  onboardingComplete = true;
-  document.getElementById('mock-onboarding-overlay').style.display = 'flex';
-  mobSetStep(1);
+  var overlay = document.getElementById('mock-onboarding-overlay');
+  if (overlay) overlay.style.display = 'none';
+  var app = document.getElementById('chat-app');
+  if (app) app.style.display = 'flex';
+  var input = document.getElementById('user-input');
+  var sendButton = document.getElementById('send-btn');
+  if (input) { input.disabled = false; input.focus(); }
+  if (sendButton) sendButton.disabled = false;
+  showBottomNav();
+  removeConversationalOptions();
+  addMentorLeadMessage("We'll analyse a mock inside this chat. If you already have sectional scores, type them here. If not, I'll generate a short mini mock and diagnose you live.");
+  showConversationalOptions(['I have my sectional scores', 'Start a mini mock'], 'mock_start_choice');
 }
 
 function mobSetStep(n) {
@@ -4011,7 +4119,13 @@ async function submitMockScores() {
 let newUserProfile = {};
 
 function showProfileSetup() {
-  document.getElementById('profile-setup-overlay').style.display = 'flex';
+  var overlay = document.getElementById('profile-setup-overlay');
+  if (overlay) overlay.style.display = 'none';
+  var diagnosis = document.getElementById('diagnosis-overlay');
+  if (diagnosis) diagnosis.style.display = 'none';
+  var app = document.getElementById('chat-app');
+  if (app) app.style.display = 'flex';
+  startConversationalOnboarding();
 }
 
 function hideProfileSetup() {
@@ -4020,7 +4134,7 @@ function hideProfileSetup() {
 
 function skipProfileSetup() {
   hideProfileSetup();
-  startChat();
+  startConversationalOnboarding();
 }
 
 function submitProfileSetup() {
@@ -4060,7 +4174,9 @@ function submitProfileSetup() {
 
 function showDiagnosis(profile) {
   var overlay = document.getElementById('diagnosis-overlay');
-  if (!overlay) { startOnboardingQuestions(); return; }
+  if (overlay) overlay.style.display = 'none';
+  startConversationalOnboarding();
+  return;
 
   var targets = { general: 99.0, obc: 96.0, sc: 88.0, st: 80.0, ews: 97.0 };
   var target = targets[profile.category] || 99.0;
@@ -4104,39 +4220,25 @@ function showDiagnosis(profile) {
 }
 
 function startOnboardingQuestions() {
-  document.getElementById('diagnosis-overlay').style.display = 'none';
+  var overlay = document.getElementById('diagnosis-overlay');
+  if (overlay) overlay.style.display = 'none';
 
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
-  startOnboardingChat();
+  startConversationalOnboarding();
 }
 
 function skipToChat() {
-  document.getElementById('diagnosis-overlay').style.display = 'none';
-  studentProfile.weakestSection = newUserProfile.weak === 'All' ? 'All sections' : newUserProfile.weak;
-  studentProfile.situation = 'CAT aspirant';
-  studentProfile.dailyHours = '3-4 hours';
-  studentProfile.monthsLeft = calculateMonthsLeftForCAT();
-  studentProfile.attemptNumber = '1st attempt';
-  finishOnboarding();
+  var overlay = document.getElementById('diagnosis-overlay');
+  if (overlay) overlay.style.display = 'none';
+  startConversationalOnboarding();
 }
 function startDiagnosisChat(type) {
-  document.getElementById('diagnosis-overlay').style.display = 'none';
-
-
-  const weak = newUserProfile.weak || 'VARC';
-  const mock = newUserProfile.mock || 'none';
-
-  let firstMessage = '';
-  if (type === 'primary') {
-    firstMessage = 'I just completed my profile setup. My weakest section is ' + weak + ' and I want to fix it specifically. Based on my diagnosis, what should I do first?';
-  } else {
-    firstMessage = 'I want to analyze my last mock score. My current mock percentile is ' + mock + ' and my weakest section is ' + weak + '. Help me understand what to fix.';
-  }
-
-
-  localStorage.setItem('marg_first_message', firstMessage);
-  startChat();
+  var overlay = document.getElementById('diagnosis-overlay');
+  if (overlay) overlay.style.display = 'none';
+  startConversationalOnboarding();
+  if (type === 'primary') beginChatFirstTopic(newUserProfile.weak || 'VARC');
+  else beginChatFirstTopic('mock');
 }
 
 function prefillMessage(text) {
@@ -4459,6 +4561,149 @@ function flattenTimedTestQuestions(section, data) {
     });
   }
   return flat;
+}
+
+function escapeGuidedExerciseText(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function formatQuestionBlock(question, number) {
+  return number + '. ' + question.q + '\n' + question.options.map(function(option, index) {
+    var clean = String(option).replace(/^[A-D]\.\s*/, '');
+    return String.fromCharCode(65 + index) + '. ' + clean;
+  }).join('\n');
+}
+
+function formatGuidedExerciseForChat(section, data) {
+  var parts = [];
+  if (section === 'rc') {
+    var rcSet = data.sets[0];
+    parts.push('CAT RC · ' + (rcSet.difficulty || 'Medium-Hard') + '\n\n' + rcSet.passage);
+    rcSet.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
+  } else if (section === 'dilr') {
+    var dilrSet = data.sets[0];
+    parts.push('CAT DILR · ' + (dilrSet.set_title || 'Diagnostic Set') + '\n\n' + dilrSet.setup);
+    dilrSet.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
+  } else {
+    parts.push('CAT QA · Adaptive Diagnostic');
+    data.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
+  }
+  parts.push('Reply in one line: 1-A, 2-C' + (section === 'dilr' ? ', 3-B, 4-D' : ', 3-B') + '. I already have the answer key; I’ll diagnose the pattern, not just mark the score.');
+  return parts.join('\n\n');
+}
+
+async function generateGuidedDiagnosticExercise(section) {
+  section = section === 'varc' ? 'rc' : section;
+  if (['rc','qa','dilr'].indexOf(section) === -1) return false;
+  isLoading = true;
+  var sendButton = document.getElementById('send-btn');
+  if (sendButton) sendButton.disabled = true;
+  var lead = section === 'rc'
+    ? "Let's diagnose VARC from live reading, not old screenshots. I'll generate one CAT-level passage; your option choices will show whether the leak is comprehension, scope or elimination."
+    : section === 'qa'
+      ? "Let's find the QA gap instead of guessing from topic names. I'll generate three questions with different reasoning demands; the pattern across them will tell us concept, recognition or execution."
+      : "Let's test DILR through one real set. I'll watch whether the problem is set entry, representation, constraints or staying too long—not ask you to describe it in theory.";
+  addMentorLeadMessage(lead);
+  showTyping();
+  var prompt = section === 'rc' ? buildRCPrompt() : section === 'dilr' ? buildDILRPrompt(null) : buildQAPrompt(null);
+  var maxTokens = section === 'qa' ? 2600 : 3200;
+  try {
+    var response = await fetchWithTimeout(WORKER_URL, {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:maxTokens, system:'You are an expert CAT exam question generator. Return only valid JSON, with independently verified answer keys.' + getDateContext(), messages:[{ role:'user', content:prompt }] })
+    }, 90000);
+    if (!response.ok) throw new Error('Worker status ' + response.status);
+    var payload = await response.json();
+    var raw = payload.content && payload.content[0] ? payload.content[0].text : '';
+    var parsed = normalizePracticeAnswers(parseGeneratedJson(raw), section);
+    var valid = section === 'rc' ? validateRCPracticeSet(parsed) : section === 'dilr' ? validateDILRPracticeSet(parsed) : validateQASetShape(parsed);
+    if (!valid) throw new Error('Guided exercise failed validation');
+    hideTyping();
+    var visible = formatGuidedExerciseForChat(section, parsed);
+    var visibleHtml = escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+    addMessage('marg', visibleHtml, true);
+    conversationHistory.push({ role:'assistant', content:visible });
+    if (!isGuestMode) saveChatMessage('assistant', visible);
+    storeActiveGeneratedExercise({ type:section, source:'chat-onboarding', title:(section === 'rc' ? 'VARC' : section.toUpperCase()) + ' live diagnostic', purpose:'Diagnose the student from live CAT-level performance instead of self-report', content:parsed });
+    completeChatFirstOnboarding(section);
+  } catch(e) {
+    hideTyping();
+    addMentorLeadMessage("That exercise did not build cleanly, so I won't give you a flawed set. Let's regenerate it once with the same CAT-level bar.");
+    showConversationalOptions(['Regenerate the exercise'], 'guided_retry_' + section);
+  }
+  isLoading = false;
+  if (sendButton) sendButton.disabled = false;
+  var input = document.getElementById('user-input');
+  if (input) input.focus();
+  return true;
+}
+
+function buildGuidedMiniMockPrompt() {
+  return 'Create a compact CAT diagnostic mini mock with exactly 6 questions: 2 VARC questions attached to one 280-330 word dense passage, 2 DILR questions attached to one self-contained set using 5-6 meaningful interacting constraints, and 2 original CAT-level QA questions requiring setup recognition rather than direct formulas. Keep it solvable in about 18 minutes. Independently solve everything and verify exactly one correct option per question. Return only valid JSON in this exact shape: {"varc":{"passage":"text","questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"short","marg_insight":"short cognitive pattern"}]},"dilr":{"setup":"complete set","questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"short","marg_insight":"short cognitive pattern"}]},"qa":{"questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"short","marg_insight":"short cognitive pattern"}]}}. Each section must have exactly 2 questions.';
+}
+
+function normalizeGuidedMiniMock(data) {
+  ['varc','dilr','qa'].forEach(function(section) {
+    if (data && data[section] && Array.isArray(data[section].questions)) data[section].questions.forEach(normalizeCorrectIndex);
+  });
+  return data;
+}
+
+function validateGuidedMiniMock(data) {
+  return !!(data && data.varc && typeof data.varc.passage === 'string' && data.dilr && typeof data.dilr.setup === 'string' && data.qa &&
+    ['varc','dilr','qa'].every(function(section) { return Array.isArray(data[section].questions) && data[section].questions.length === 2 && data[section].questions.every(isValidTimedTestQuestion); }));
+}
+
+function flattenGuidedMiniMock(data) {
+  var questions = [];
+  ['varc','dilr','qa'].forEach(function(section) {
+    data[section].questions.forEach(function(question) {
+      questions.push({ q:question.q, options:question.options, correct:question.correct, explanation:question.explanation || question.solution || '', marg_insight:question.marg_insight || '', section:section });
+    });
+  });
+  return questions;
+}
+
+function formatGuidedMiniMock(data) {
+  var number = 1, parts = ['MINI CAT DIAGNOSTIC · 6 questions · about 18 minutes'];
+  parts.push('VARC\n\n' + data.varc.passage);
+  data.varc.questions.forEach(function(question) { parts.push(formatQuestionBlock(question, number++)); });
+  parts.push('DILR\n\n' + data.dilr.setup);
+  data.dilr.questions.forEach(function(question) { parts.push(formatQuestionBlock(question, number++)); });
+  parts.push('QA');
+  data.qa.questions.forEach(function(question) { parts.push(formatQuestionBlock(question, number++)); });
+  parts.push("Reply in one line: 1-A, 2-B, 3-C, 4-D, 5-A, 6-B. I'll identify which section and decision pattern broke first.");
+  return parts.join('\n\n');
+}
+
+async function generateGuidedMiniMock() {
+  isLoading = true;
+  var sendButton = document.getElementById('send-btn');
+  if (sendButton) sendButton.disabled = true;
+  addMentorLeadMessage("Good—we don't need an old scorecard. I'll generate a six-question mini mock across VARC, DILR and QA, then diagnose from the pattern of your choices.");
+  showTyping();
+  try {
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:4200, system:'You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), messages:[{ role:'user', content:buildGuidedMiniMockPrompt() }] }) }, 90000);
+    if (!response.ok) throw new Error('Worker status ' + response.status);
+    var payload = await response.json();
+    var raw = payload.content && payload.content[0] ? payload.content[0].text : '';
+    var parsed = normalizeGuidedMiniMock(parseGeneratedJson(raw));
+    if (!validateGuidedMiniMock(parsed)) throw new Error('Mini mock failed validation');
+    hideTyping();
+    var visible = formatGuidedMiniMock(parsed);
+    addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+    conversationHistory.push({ role:'assistant', content:visible });
+    if (!isGuestMode) saveChatMessage('assistant', visible);
+    storeActiveGeneratedExercise({ type:'mini_mock', source:'chat-onboarding', title:'6-question CAT mini mock', purpose:'Identify the first sectional and decision-pattern breakdown from live performance', content:{ questions:flattenGuidedMiniMock(parsed), sourceData:parsed } });
+    completeChatFirstOnboarding(null);
+  } catch(e) {
+    hideTyping();
+    addMentorLeadMessage("The mini mock failed the answer-key check, so I discarded it. Let's regenerate a clean one rather than diagnose you from flawed questions.");
+    showConversationalOptions(['Regenerate mini mock'], 'mini_mock_retry');
+  }
+  isLoading = false;
+  if (sendButton) sendButton.disabled = false;
+  return true;
 }
 
 async function startTimedTest(section, topic, questionCount) {
