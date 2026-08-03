@@ -1001,7 +1001,7 @@ When the narrow topic you're flagging is a QA or DILR one specifically — not V
 
 Every conversation should leave a clear next move, not homework or a vague request. Lead with "Let's test that pattern with one harder question next" so the student never has to invent the next step. Students return because the thread is useful, not because they were assigned a report.
 
-LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction, and ask for confirmation. Generate an exercise only after the student confirms Exactly or Mostly. That exercise must be designed to validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should always know what happens next.
+LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction, and ask for confirmation. Generate an exercise only after the student confirms Exactly or Mostly. That exercise must be designed to validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should always know what happens next.
 
 One technical note, separate from all of this: when you want the student to pick from a short list of options during a section switch, wrap it as [OPTIONS: opt1|opt2|opt3][CONTEXT: type] — one set per message, and only when it genuinely helps.
 
@@ -1505,6 +1505,7 @@ async function maybeStartGuidedExperienceFromMessage(message) {
     else if (/^(dilr|lrdi)$/.test(shortTopic)) topic = 'dilr';
     else if (/^(mock|mock analysis)$/.test(shortTopic)) topic = 'mock';
     else if (/^(confidence|low confidence)$/.test(shortTopic)) topic = 'confidence';
+    else if (/^(study plan|planning)$/.test(shortTopic)) topic = 'study_plan';
     else if (/^(strategy|cat strategy)$/.test(shortTopic)) topic = 'strategy';
   }
   if (!topic) return false;
@@ -1514,7 +1515,7 @@ async function maybeStartGuidedExperienceFromMessage(message) {
     if (activeType === requestedType) return false;
   }
   if (topic === 'mock' && /varc\s*[:=\-]?\s*\d/i.test(message) && /dilr\s*[:=\-]?\s*\d/i.test(message) && /qa\s*[:=\-]?\s*\d/i.test(message)) return false;
-  if (['varc','dilr','qa','mock','confidence','strategy'].indexOf(topic) === -1) return false;
+  if (['varc','dilr','qa','mock','study_plan','confidence','strategy'].indexOf(topic) === -1) return false;
   var oldChoices = document.getElementById('conv-options-chat_first_onboarding');
   if (oldChoices) oldChoices.remove();
   await beginChatFirstTopic(topic);
@@ -2286,17 +2287,19 @@ function addMentorLeadMessage(text) {
 }
 
 function startChatFirstOnboarding() {
-  if (chatFirstOnboardingStarted) return;
+  if (chatFirstOnboardingStarted) {
+    keepChatInteractive();
+    return;
+  }
   chatFirstOnboardingStarted = true;
   var opening = "Tell me where preparation feels broken. I'll ask at most two quick questions, make a specific prediction about what is actually happening, and only then build an exercise to test that prediction.";
   addMentorLeadMessage(opening);
   showConversationalOptions([
-    'VARC',
-    'QA',
-    'DILR',
-    'Analyse a mock',
-    'Confidence',
-    'Strategy',
+    "I'm weak in a specific section",
+    'Analyse my latest mock',
+    'Build my study plan',
+    "I'm struggling with confidence",
+    'Improve my test strategy',
     'Something else'
   ], 'chat_first_onboarding');
   var input = document.getElementById('user-input');
@@ -2324,11 +2327,18 @@ function normalizeChatDiagnosticTopic(answer) {
   if (/dilr|lrdi|logical|data interpretation/.test(text)) return 'dilr';
   if (/confidence|quit|clear cat|hopeless|bad mock|self.doubt/.test(text)) return 'confidence';
   if (/mock|percentile|scorecard/.test(text)) return 'mock';
+  if (/study plan|study schedule|timetable|backlog|planning/.test(text)) return 'study_plan';
   if (/strategy|attempt order|question selection|revision/.test(text)) return 'strategy';
   return null;
 }
 
 async function beginChatFirstTopic(answer) {
+  var text = String(answer || '').toLowerCase();
+  if (/weak in a specific section/.test(text)) {
+    addMentorLeadMessage('Which section feels like the biggest problem?');
+    showConversationalOptions(['VARC', 'DILR', 'QA'], 'onboarding_section_choice');
+    return;
+  }
   var topic = normalizeChatDiagnosticTopic(answer);
   if (topic) {
     startPredictionFirstDiagnostic(topic);
@@ -2650,7 +2660,41 @@ var FAILURE_PATTERNS = {
   }
 };
 
+function removeConversationalOptions() {
+  document.querySelectorAll('[id^="conv-options-"]').forEach(function(element) { element.remove(); });
+}
+
+function keepChatInteractive() {
+  var input = document.getElementById('user-input');
+  var sendButton = document.getElementById('send-btn');
+  if (input) { input.disabled = false; input.focus(); }
+  if (sendButton && !isLoading) sendButton.disabled = false;
+}
+
+async function dispatchConversationalQuickReply(option, context, container) {
+  if (container && container.dataset && container.dataset.handled === 'true') return;
+  if (container && container.dataset) container.dataset.handled = 'true';
+  if (container) container.remove();
+
+  // A quick reply is a normal user message first; the transition happens second.
+  addMessage('user', option);
+  keepChatInteractive();
+
+  try {
+    await handleConversationalResponse(option, context);
+  } catch(error) {
+    console.error('Onboarding transition failed:', context, error);
+    isLoading = false;
+    hideTyping();
+    addMentorLeadMessage("That step didn't complete properly, but the chat is still open. Type your choice here and I'll continue from it.");
+  } finally {
+    keepChatInteractive();
+  }
+}
+
 function showConversationalOptions(options, context) {
+  var existing = document.getElementById('conv-options-' + context);
+  if (existing) existing.remove();
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'conv-options-' + context;
   chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 0 4px 38px;max-width:100%;width:100%;';
@@ -2686,13 +2730,7 @@ function showConversationalOptions(options, context) {
       }
     };
     btn.onclick = function() {
-
-      var chips = document.getElementById('conv-options-' + context);
-      if (chips) chips.remove();
-
-      addMessage('user', opt);
-
-      handleConversationalResponse(opt, context);
+      dispatchConversationalQuickReply(opt, context, chipsDiv);
     };
     chipsDiv.appendChild(btn);
   });
@@ -2709,6 +2747,13 @@ async function handleConversationalResponse(answer, context) {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
     await beginChatFirstTopic(answer);
+
+  } else if (context === 'onboarding_section_choice') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    var selectedTopic = normalizeChatDiagnosticTopic(answer);
+    if (!selectedTopic || ['varc','dilr','qa'].indexOf(selectedTopic) === -1) throw new Error('Invalid section selection: ' + answer);
+    startPredictionFirstDiagnostic(selectedTopic);
 
   } else if (context === 'prediction_diag_subcategory') {
     conversationHistory.push({ role:'user', content:answer });
@@ -4880,6 +4925,52 @@ function generateConfidenceValidationExercise(entry) {
   return true;
 }
 
+function buildStudyPlanValidationExercise(entry) {
+  var exercises = {
+    resources:[
+      'List the resources currently active for VARC, DILR and QA—names only.',
+      'Circle the one resource per section that already contains enough work for the next two weeks.',
+      'Name the resource you will pause until that two-week cycle is complete.'
+    ],
+    inconsistent:[
+      'Write the plan you expect yourself to complete on a high-energy day.',
+      'Cut it to a minimum-day version that takes no more than 35 minutes.',
+      'Choose the trigger that starts that minimum day even when motivation is low.'
+    ],
+    priority:[
+      'List the three patterns that cost the most marks in your latest practice or mock.',
+      'Rank them by marks recoverable in the next 14 days—not by syllabus size.',
+      'Give the top pattern one protected daily block.'
+    ],
+    backlog:[
+      'Write the five oldest unfinished tasks in your backlog.',
+      'Mark each one: schedule, drop, or merge with a current weakness.',
+      'Keep only the two tasks that directly repair a repeated score leak.'
+    ],
+    unrealistic:[
+      'Write tomorrow’s planned study blocks with start times.',
+      'Add the real transition or recovery time each block usually needs.',
+      'Remove the lowest-value block until the plan fits the day without borrowing time.'
+    ]
+  };
+  return exercises[entry.patternId] || [
+    'Write the one result this week’s plan must improve.',
+    'Choose the smallest daily action that produces evidence for it.',
+    'Define the day on which Marg should review whether it worked.'
+  ];
+}
+
+function generateStudyPlanValidationExercise(entry) {
+  var prompts = buildStudyPlanValidationExercise(entry);
+  var visible = '5-MINUTE PLAN REALITY CHECK\n\n' + prompts.map(function(prompt, index) { return (index + 1) + '. ' + prompt; }).join('\n\n') + '\n\nReply with three short lines. I’ll use them to test whether the planning diagnosis is supported, rejected, or inconclusive—and then build the actual plan.';
+  addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  conversationHistory.push({ role:'assistant', content:visible });
+  if (!isGuestMode) saveChatMessage('assistant', visible);
+  storeActiveGeneratedExercise({ type:'study_plan', source:'prediction-validation', title:'Study-plan reality check', purpose:'Validate or reject: ' + entry.confirmedDiagnosis, hypothesis:entry, content:{ reflectionPrompts:prompts } });
+  completeChatFirstOnboarding(null);
+  return true;
+}
+
 async function runPredictionValidationExercise(entry) {
   if (!entry) return false;
   if (entry.topic === 'varc') {
@@ -4890,6 +4981,7 @@ async function runPredictionValidationExercise(entry) {
   if (entry.topic === 'qa' || entry.topic === 'dilr' || entry.topic === 'strategy') return generateGuidedDiagnosticExercise(entry.topic, entry);
   if (entry.topic === 'mock') return generateGuidedMiniMock(entry);
   if (entry.topic === 'confidence') return generateConfidenceValidationExercise(entry);
+  if (entry.topic === 'study_plan') return generateStudyPlanValidationExercise(entry);
   return false;
 }
 
