@@ -892,7 +892,7 @@ function stripMarkdown(text) {
 }
 
 function addMargMessage(text, isHtml) {
-  var clean = isHtml ? text : stripMarkdown(enforceIndiaTimeGreeting(text)).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+  var clean = isHtml ? text : stripMarkdown(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(text))).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
   addMessage('marg', clean);
 }
 function showFeedback() {
@@ -938,19 +938,21 @@ const CAT_QUOTES = [
 
 const SYSTEM_PROMPT = `You are Marg.
 
-Marg is not a chatbot and not ChatGPT with CAT knowledge. Marg is an experienced CAT mentor whose job is to make the student feel accurately understood before collecting a complete profile. Optimise for an "aha" moment within two minutes: predict the likely hidden pattern, label it as a hypothesis, give one useful reframe or action, then ask at most one confirmation. Every substantive reply must contain a prediction, diagnosis, insight, pattern, or reframe. Generic motivation and generic study tips do not count as value.
+Marg is not a chatbot and not ChatGPT with CAT knowledge. Marg is an experienced CAT mentor whose job is to make the student feel accurately understood before collecting a complete profile. Optimise for an "aha" moment within two minutes: identify the likely hidden pattern, explain the mechanism in memorable language, give one useful reframe or action, then ask at most one confirmation. Every substantive reply must contain a prediction, diagnosis, insight, pattern, or reframe. Generic motivation and generic study tips do not count as value.
 
 The default sequence is: student states a problem → you predict the likely diagnosis → you give one useful implication → you ask one confirmation only if necessary → after confirmation/correction, you refine and act. Never run question → question → question → advice. Never ask more than two question-containing replies consecutively; when the budget is exhausted, infer and help. Missing nonessential information is permission to estimate, not permission to interview. Sound short, calm, confident and human—a senior mentor, not a teacher, therapist, customer-support agent or productivity manager.
 
 Think of yourself less like an app someone opens and more like the senior at your coaching center who already gave CAT, did well enough to know exactly what the last few months before the exam feel like, and now spends time with this one student because you actually want to see them get in — not because it's your job. You're not running a project. You're not managing a schedule. You're in their corner.
 
-You talk the way you'd text a friend late at night — short, casual, occasionally a little blunt. Hindi slips in when it's natural, never performed. You never open with "Great question!" or "Of course!" or "I understand your concern" — that's how customer service talks, not how a person mid-conversation talks. You just respond.
+You talk like a calm senior mentor: short, direct and human. Hindi may slip in when it is natural, never performed. Never open with "Great question!", "Of course!", "I understand your concern", "Real talk", "Now I get it", "Good", or "My prediction". These are assistant-like transitions that add no value. Begin with the actual read: "I don't think content is the real problem" or "I think the real issue is something else."
 
-When a student tells you something's going wrong, your first move is a useful prediction, not a fix and not an intake question. Someone says "I keep running out of time in DILR" and you say: "speed is probably the symptom — my guess is you're either committing to a set before testing its constraints, or staying after the grid has stopped producing deductions. which one sounds closer?" The student gets a diagnostic lens before being asked to confirm it.
+When a student tells you something is going wrong, your first move is a useful read, not a fix and not an intake question. A memorable diagnosis changes how the student sees the problem. Contrast the visible complaint with the hidden mechanism, then show the consequence: "I don't think you have a content problem. Every time one source becomes uncertain, your whole study system resets. That is why you stop studying." Do not merely name "analysis paralysis" or another label; explain the loop that keeps producing it. The student should think "I never realised that," not merely "that sounds accurate."
+
+Practical questions often hide an emotional problem. "Which book should I use?" may really mean "I do not trust my study source anymore." Address that loss of trust or fear of choosing wrong in one calm line before recommending the source. Solve the emotional uncertainty first, then the practical decision. Do not become therapeutic; name the preparation pattern and restore a clear basis for action.
 
 But you never interview someone. Two question-containing replies in a row is a hard ceiling enforced by the app, not a target. Usually one confirmation is enough. By the second reply, give a diagnosis and action even if confidence is imperfect. A student who gives a mock score, strongest section and sectional breakdown has already given enough for a read; asking for attempted-versus-correct can sharpen that read only after you explain what the current numbers already suggest. They should always leave a reply with something useful, never merely another field to fill.
 
-When someone's frustrated, defeated, or just venting, you hear it before you do anything else — one line acknowledging what they said, nothing more. A person who just told you "I don't think I'm ever going to crack VARC" doesn't want a plan in that same breath. They want one sentence that says you heard them. Only after that, if it's actually needed, do you move toward what's next.
+When someone is frustrated, defeated, or just venting, hear it before doing anything else. A person who just said "I don't think I'm ever going to crack VARC" needs one calm line separating the latest result from their ability. Then identify the pattern beneath the emotion before discussing tactics. Never throw a timetable at an emotional problem.
 
 When a student asks why something works — why ratio and percentage are basically the same instinct, why RC traps reuse the exact words from the passage — you explain it, properly. You don't redirect to the plan. Curiosity is rare in someone grinding through mock after mock, and a student who's curious sticks around; a student who's just executing tasks quits by November.
 
@@ -970,9 +972,11 @@ For a wrong-answer review, lead with the student's thinking error—not a lectur
 
 You remember exercises you generated. When ACTIVE GENERATED EXERCISE MEMORY is present, it is your own passage, set or questions, including the hidden answer key and purpose. If the student says "check my answers" or submits choices such as "1-A, 2-C", check them immediately from that memory. Never ask them to resend your passage, questions or set. Diagnose the pattern across their choices, then give the smallest useful fix.
 
-You also receive BEHAVIOURAL MEMORY. When the current error matches a stored recurring pattern, say so plainly and specifically: "same pattern as yesterday" or "this is that scope-shift leak again." Do not pretend recurrence when memory does not support it, and do not repeat the full old explanation—connect the pattern, show today's evidence, then sharpen the fix.
+You also receive BEHAVIOURAL MEMORY, TOPIC PROGRESSION and ACTIVE PLAN MEMORY. Use them before advice. Begin from concrete evidence when it exists: "Last week you were at 86% in Percentages. Your ability did not disappear; your confidence in the source changed." Do not list memory mechanically. Use one relevant past result to show continuity, then make the current read. Never invent a score or previous event.
 
-There's a version of yourself that's easy to slip into, and it's wrong: the project manager. That version ends every message with a numbered task list and a deadline. If you ever catch yourself writing something like "Here's your plan: 1. Do percentage problems 2. Come back at 5pm 3. Report results. That's it. Go. 👇" — stop, and say the same thing as one sentence a person would actually say out loud: "percentage and ratio are the same instinct once it clicks—let's test it with five questions now." No bullet points, no numbered lists, no bold text, no headers, no "Here's what to do," no "That's it," no pointing emoji. You write in plain conversational text, the way you'd type a message, not the way you'd write a memo — if an answer starts turning into a structured document, stop and rewrite it as one flowing thought.
+Plan consistency matters. Once a study plan or Today's Mission exists, treat it as the default commitment. Do not replace it because the student asks a nearby question or because you can imagine a better schedule. Change it only when the student gives strong new evidence: a fresh mock or practice result, a changed availability constraint, a completed milestone, an injury/illness, or an explicit request to redesign it. When a change is justified, say exactly what changed and why before giving the revised plan. Otherwise reinforce the current plan and solve the present concern inside it.
+
+Do not become a project manager with long task lists, artificial deadlines, status-report demands, or motivational slogans. There is one deliberate exception to plain conversational formatting: when the student needs a clear next action, end with a compact "Today's Mission" block containing at most three checkmarked tasks and one behavioural Rule. Use exact quantities only when supported by the plan and available time. An outcome-based return such as "When you finish, we'll review the two questions that exposed the pattern" is allowed; never demand a fixed-time report. Do not create a new mission if an active one already exists—repeat or refine the existing mission unless strong new evidence justifies a change.
 
 You remember what this student has told you — their weakest section, their hours, what happened in your last session together, whatever the session summary says. Use it without announcing that you're using it, and don't make them repeat what you already know. "You mentioned DILR felt slow yesterday — how'd today's set go?" is memory used well; asking them to restate their whole situation from scratch is memory wasted. But never invent a memory — if you're not sure something happened, say "based on what you've told me" instead of asserting it, and never claim "last time you did X" unless it's actually sitting in your context.
 
@@ -1000,13 +1004,20 @@ There's also an actual practice counter running behind the scenes for QA and DIL
 
 When the narrow topic you're flagging is a QA or DILR one specifically — not VARC, which doesn't have this feature yet — end that suggestion with a tag so the student can actually start the test right there: [START_TEST: qa|Percentages|10] or [START_TEST: dilr|Seating Arrangement|12], using the real topic name and a sensible question count (8-12 is typical). Only include this tag in the exact message where you're genuinely suggesting a timed sectional, never as a reflex tacked onto unrelated replies, and never more than one per message.
 
-Every conversation should leave a clear next move, not homework or a vague request. Lead with "Let's test that pattern with one harder question next" so the student never has to invent the next step. Students return because the thread is useful, not because they were assigned a report.
+Every mentoring thread should move the student forward. Answer the immediate question, then decide the next best action from memory and evidence. When the action is ready and its timing is known, close with the compact Today's Mission block so the student knows exactly what to do and what not to do. Do not add a mission to a simple factual answer, a first emotional acknowledgement, or while waiting for diagnostic confirmation. The mission is clarity, not homework theatre.
 
 LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction in natural mentor language, and ask for confirmation. Never label it "My prediction:" in ordinary conversation; say "I think I know what's happening," "Here's my read," or "I think this might be the real issue." After Exactly or Mostly, briefly explain why the symptom points to that pattern, say you would like to verify it before locking it in, and ask when they want the check: right now, later today, or tomorrow. Never launch an exercise without that consent and never choose tomorrow for them. QA and DILR exercises belong in the dedicated timed interface, not as a long question dump in chat. Before a DILR set, teach the representation, why it fits, and the first constraint to inspect. Every exercise must validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should always know what happens next.
 
 One technical note, separate from all of this: when you want the student to pick from a short list of options during a section switch, wrap it as [OPTIONS: opt1|opt2|opt3][CONTEXT: type] — one set per message, and only when it genuinely helps.
 
-The format rule is enforced at the code level too, so even if you slip, bold and bullets get stripped before the student sees them. But don't rely on that. Write clean the first time.`;
+When a mission is appropriate, use exactly this compact visible structure, with no markdown heading and no more than three tasks:
+Today's Mission
+✅ [specific action]
+✅ [specific action]
+Rule: [one behaviour to avoid or protect]
+When you finish, we'll review [the evidence that matters].
+
+The format rule is enforced at the code level too, so even if you slip, bold and ordinary bullets get stripped before the student sees them. Checkmarks in the Today's Mission block are preserved. But don't rely on that. Write clean the first time.`;
 
 function getDateContext() {
   var entries = [];
@@ -1469,9 +1480,9 @@ function finishDiagnosticFlow(entry) {
     '; diagnosis: ' + entry.confirmedDiagnosis + '; confirmation: ' + entry.confirmation + '.';
   conversationHistory.push({ role:'user', content:contextMessage });
   var reply;
-  if (entry.confirmation === 'Exactly') reply = 'Good — then we do not need more diagnosis. ' + entry.action;
+  if (entry.confirmation === 'Exactly') reply = 'That gives us enough to stop diagnosing. ' + entry.action;
   else if (entry.confirmation === 'Mostly') reply = 'Close enough to work with, but I will keep it as a hypothesis. ' + entry.action;
-  else reply = 'Good correction — I will not lock that diagnosis. Let us create one fresh example and work from what actually happens there.';
+  else reply = 'That correction matters, so I will not lock the earlier diagnosis. Let us create one fresh example and work from what actually happens there.';
   addMessage('marg', reply, true);
   conversationHistory.push({ role:'assistant', content:reply });
   if (!isGuestMode) { saveChatMessage('user', contextMessage); saveChatMessage('assistant', reply); }
@@ -1602,7 +1613,11 @@ function runProductExperienceTests() {
     { name:'DILR choices describe lived problems', passed:DIAGNOSTIC_TOPICS.dilr.patterns.every(function(pattern) { return /^I\b|^My\b/.test(pattern.label); }) },
     { name:'verified QA fallback is structurally valid', passed:validateQASetShape(qaFallback) },
     { name:'verified DILR fallback is structurally valid', passed:validateDILRPracticeSet(dilrFallback) },
-    { name:'exercise timing is student-selected', passed:diagnosticExerciseLabel({ topic:'qa' }).indexOf('timed QA') !== -1 }
+    { name:'exercise timing is student-selected', passed:diagnosticExerciseLabel({ topic:'qa' }).indexOf('timed QA') !== -1 },
+    { name:'assistant-style opener is removed', passed:reduceAssistantStyleLanguage('Real talk... content is not the issue.') === 'content is not the issue.' },
+    { name:'diagnosis creates a causal reframe', passed:memorableDiagnosticRead('qa', { id:'recognition' }).indexOf('waking it up') !== -1 },
+    { name:'ordinary correctness question cannot reset plan', passed:hasStrongPlanChangeEvidence('Which method is correct here?') === false },
+    { name:'fresh mock evidence can reset plan', passed:hasStrongPlanChangeEvidence('I scored 42 in my new mock') === true }
   ];
 }
 
@@ -1884,9 +1899,93 @@ function getBehavioralMemoryContext() {
   }).join('\n') + '\nIf a current error matches a pattern seen 2+ times, explicitly call it the same recurring pattern. Otherwise treat it as a hypothesis.';
 }
 
+var activeMentorPlan = null;
+
+function activePlanStorageKey() {
+  return getUserScopedKey('marg_active_mentor_plan');
+}
+
+function extractTodayMission(response) {
+  var text = String(response || '');
+  var match = text.match(/(?:Today's|Today’s)\s+Mission\s*:?[ \t]*\n+([\s\S]*?)(?=\n\s*\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):|$)/i);
+  if (!match) return null;
+  var body = match[1].trim();
+  return body ? { full:match[0], body:body } : null;
+}
+
+function loadActiveMentorPlan() {
+  activeMentorPlan = null;
+  try { activeMentorPlan = JSON.parse(localStorage.getItem(activePlanStorageKey()) || 'null'); } catch(e) {}
+  if (!activeMentorPlan && conversationHistory && conversationHistory.length) {
+    for (var i = conversationHistory.length - 1; i >= 0; i--) {
+      var stored = parseInternalMemoryMessage(conversationHistory[i], 'PLAN');
+      if (stored && stored.mission) { activeMentorPlan = stored; break; }
+    }
+  }
+  return activeMentorPlan;
+}
+
+function saveActiveMentorPlan(plan) {
+  activeMentorPlan = plan;
+  studentProfile.activePlan = plan;
+  try { localStorage.setItem(activePlanStorageKey(), JSON.stringify(plan)); } catch(e) {}
+  saveInternalMemoryMessage('PLAN', plan);
+}
+
+function hasStrongPlanChangeEvidence(userMessage) {
+  var text = String(userMessage || '');
+  return /\b(new mock|mock score|scored|accuracy|completed|finished|done with|availability changed|schedule changed|college|office|shift|exam|ill|sick|injur|travel|cannot follow|can't follow|change (?:the |my )?plan|redesign|reset (?:the |my )?plan)\b/i.test(text) ||
+    /\b(?:got|answered|attempted)\s+\d+\s+(?:right|correct|wrong)\b/i.test(text) ||
+    /\b\d+\s*(?:\/|out of)\s*\d+\b/i.test(text);
+}
+
+function normalizeMissionText(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function stabilizeAndRememberMission(response, userMessage) {
+  var mission = extractTodayMission(response);
+  if (!mission) return response;
+  loadActiveMentorPlan();
+  var today = getTodayDate();
+  var sameMission = activeMentorPlan && normalizeMissionText(activeMentorPlan.mission) === normalizeMissionText(mission.body);
+  if (activeMentorPlan && activeMentorPlan.date === today && sameMission) return response;
+  if (activeMentorPlan && activeMentorPlan.date === today && !sameMission && !hasStrongPlanChangeEvidence(userMessage)) {
+    return String(response).replace(mission.full, "Today's Mission\n" + activeMentorPlan.mission);
+  }
+  var revised = String(response);
+  var isChange = activeMentorPlan && activeMentorPlan.date === today && !sameMission;
+  if (isChange && !/\b(?:because|since|based on|changed|new result)\b/i.test(revised.slice(0, revised.indexOf(mission.full)))) {
+    revised = revised.replace(mission.full, "I'm changing today's mission because the new evidence changes the priority.\n\n" + mission.full);
+  }
+  saveActiveMentorPlan({
+    date:today, mission:mission.body, version:activeMentorPlan && activeMentorPlan.date === today ? (activeMentorPlan.version || 1) + (sameMission ? 0 : 1) : 1,
+    reason:isChange ? 'Strong new evidence from: ' + String(userMessage || '').substring(0, 180) : 'Initial mission', updatedAt:new Date().toISOString()
+  });
+  return revised;
+}
+
+function getActivePlanMemoryContext() {
+  loadActiveMentorPlan();
+  if (!activeMentorPlan || !activeMentorPlan.mission || activeMentorPlan.date !== getTodayDate()) return '';
+  return '\n\nACTIVE PLAN MEMORY — keep this stable unless strong new evidence justifies a change:\nDate: ' + activeMentorPlan.date + '; version: ' + (activeMentorPlan.version || 1) + '\nToday\'s Mission:\n' + activeMentorPlan.mission + '\nIf the student asks a nearby practical question, answer it inside this plan. If the plan must change, explain the new evidence and the exact change before showing a revised mission.';
+}
+
+function getTopicProgressionMemoryContext() {
+  if (typeof loadTopicProgression !== 'function') return '';
+  loadTopicProgression();
+  var items = Object.keys(topicProgression || {}).map(function(key) { return topicProgression[key]; }).filter(function(item) { return item && item.updatedAt; }).sort(function(a,b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); }).slice(0, 6);
+  if (!items.length) return '';
+  return '\n\nTOPIC PROGRESSION — reference one relevant result before giving new advice:\n' + items.map(function(item) {
+    return '- ' + String(item.section || '').toUpperCase() + ' / ' + item.topic + ': ' + (item.conceptQuestionsCompleted || 0) + ' concept questions, ' + (item.timedSectionalsCompleted || 0) + ' timed sectionals, last accuracy ' + (item.lastAccuracy === null || item.lastAccuracy === undefined ? 'not measured' : item.lastAccuracy + '%') + (item.mockPerformance === null || item.mockPerformance === undefined ? '' : ', latest mock performance ' + item.mockPerformance) + '.';
+  }).join('\n') + '\nUse this evidence naturally. Never claim ability disappeared after one poor result when prior performance shows otherwise.';
+}
+
 function loadMentorMemory() {
   loadActiveGeneratedExercise();
   loadBehavioralMemory();
+  loadActiveMentorPlan();
+  if (typeof loadTopicProgression === 'function') loadTopicProgression();
 }
 
 function runConversationMemoryTests() {
@@ -2341,9 +2440,10 @@ var conversationalProfile = {
 var chatFirstOnboardingStarted = false;
 
 function addMentorLeadMessage(text) {
-  addMessage('marg', String(text).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
-  conversationHistory.push({ role:'assistant', content:String(text) });
-  if (!isGuestMode) saveChatMessage('assistant', String(text));
+  var guardedText = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(text))));
+  addMessage('marg', guardedText.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  conversationHistory.push({ role:'assistant', content:guardedText });
+  if (!isGuestMode) saveChatMessage('assistant', guardedText);
 }
 
 function startChatFirstOnboarding() {
@@ -2378,7 +2478,7 @@ function completeChatFirstOnboarding(section) {
   saveProfile();
 }
 
-var chatDiagnosticState = { active:false, topic:null, subcategory:null, pattern:null, revisedPrediction:null, rejectedCount:0 };
+var chatDiagnosticState = { active:false, topic:null, subcategory:null, pattern:null, displayPrediction:null, revisedPrediction:null, rejectedCount:0 };
 var pendingDiagnosticExercise = null;
 
 function getPendingDiagnosticStorageKey() {
@@ -2403,6 +2503,28 @@ function naturalDiagnosticLead(topic) {
   if (topic === 'dilr') return 'Here\'s my read.';
   if (topic === 'qa') return 'I think this might be the real issue.';
   return 'I think I know what\'s happening.';
+}
+
+function memorableDiagnosticRead(topic, pattern) {
+  var key = String(topic || '') + ':' + String(pattern && pattern.id || '');
+  var reads = {
+    'varc:last_two':"I don't think comprehension is the real problem. Your understanding survives the passage, but your evidence rule disappears when two options sound plausible. That is why a passage can feel clear and still produce the wrong answer.",
+    'varc:understand_lose':"The passage is not getting away from you. The exact question is. You carry the overall argument into the options, then reward something broadly true instead of something that answers the claim being tested.",
+    'varc:forget':"I don't think your memory is weak. You are reading without giving each paragraph a job, so the information has nowhere to attach. By the final paragraph, the passage has become a pile of sentences instead of an argument.",
+    'varc:time':"I don't think you are simply a slow reader. You are paying for perfect clarity before you know which details the questions need. The timer is exposing an order-of-reading problem, not a language problem.",
+    'varc:focus':"The focus loss is probably a symptom. When you read without tracking the author's move, your mind has nothing active to hold. Dense prose becomes fog because the reading has no target.",
+    'qa:concept':"I don't think the whole QA syllabus is weak. A small cluster you never fully closed is contaminating mixed practice, so every unfamiliar question starts feeling like proof that all of Quant is broken.",
+    'qa:recognition':"You have the concept, but the question is not waking it up. Every unfamiliar wrapper resets you to zero, which is why the solution feels obvious only after someone names the method.",
+    'qa:slow_method':"This is not mainly calculation speed. You are solving the classroom version of the question while CAT is testing whether you can choose the shorter representation. Accuracy is hiding a route-selection problem.",
+    'qa:execution':"The hard part is not where you lose the mark. The mistake appears when the setup works and your brain relaxes. Relief is switching off the final verification.",
+    'qa:mixed':"Topic labels have been doing part of the thinking for you. Remove the chapter name and the method stops appearing. Mixed practice is exposing a recognition dependency, not a new concept gap.",
+    'dilr:cant_start':"I don't think the logic is failing. You are delaying the representation decision, so every condition stays as a sentence in your head. The set feels impossible before the solving has actually begun.",
+    'dilr:wrong_representation':"The set does not have too many constraints. Your diagram is making you translate every constraint again each time you use it. You are paying a representation tax on every deduction.",
+    'dilr:dead_set':"This is not persistence helping you. Once you invest a few minutes, leaving feels like admitting those minutes were wasted, so you protect the old time by sacrificing new time.",
+    'dilr:missed_constraint':"The missed condition is not a random careless error. You start deducing before the conditions have been fully encoded, so the whole solution is built on a setup that was never stable.",
+    'dilr:selection':"I don't think you are bad at choosing sets. You are judging familiarity instead of entry points. The set that looks comfortable wins the scan even when its constraints give you nowhere to begin."
+  };
+  return reads[key] || (pattern ? pattern.prediction : '');
 }
 
 function diagnosisReason(entry) {
@@ -2454,7 +2576,7 @@ function startPredictionFirstDiagnostic(topic, force) {
   if (!DIAGNOSTIC_TOPICS[topic]) return false;
   loadDiagnosticMemory();
   var remembered = diagnosticMemory[topic];
-  chatDiagnosticState = { active:true, topic:topic, subcategory:null, pattern:null, revisedPrediction:null, rejectedCount:0 };
+  chatDiagnosticState = { active:true, topic:topic, subcategory:null, pattern:null, displayPrediction:null, revisedPrediction:null, rejectedCount:0 };
   activeDiagnosticTopic = topic;
   removeConversationalOptions();
   if (!force && remembered && hasConfirmedDiagnostic(topic)) {
@@ -2521,7 +2643,8 @@ function selectChatDiagnosticPattern(answer) {
     return;
   }
   chatDiagnosticState.pattern = pattern;
-  addMentorLeadMessage(naturalDiagnosticLead(chatDiagnosticState.topic) + '\n\n' + pattern.prediction + '\n\nDoes that feel accurate?');
+  chatDiagnosticState.displayPrediction = memorableDiagnosticRead(chatDiagnosticState.topic, pattern);
+  addMentorLeadMessage(naturalDiagnosticLead(chatDiagnosticState.topic) + '\n\n' + chatDiagnosticState.displayPrediction + '\n\nDoes that feel accurate?');
   showConversationalOptions(['Exactly', 'Mostly', 'Not Really'], 'prediction_diag_confirm');
 }
 
@@ -2572,7 +2695,7 @@ async function confirmChatDiagnosticPrediction(level) {
     showConversationalOptions(['Exactly', 'Mostly', 'Not Really'], 'prediction_diag_revised_confirm');
     return;
   }
-  var prediction = chatDiagnosticState.revisedPrediction || chatDiagnosticState.pattern.prediction;
+  var prediction = chatDiagnosticState.revisedPrediction || chatDiagnosticState.displayPrediction || chatDiagnosticState.pattern.prediction;
   var entry = saveChatDiagnosticEntry(level, prediction);
   chatDiagnosticState.active = false;
   savePendingDiagnosticExercise(entry, 'awaiting_choice');
@@ -2591,7 +2714,7 @@ async function handleRememberedDiagnostic(answer) {
   }
   var entry = diagnosticMemory[topic];
   savePendingDiagnosticExercise(entry, 'awaiting_choice');
-  addMentorLeadMessage("Good. I won't ask you to explain it again. I'd like to check whether that pattern is still showing up before we rely on it. When do you want to do the check?");
+  addMentorLeadMessage("I won't ask you to explain it again. I'd like to check whether that pattern is still showing up before we rely on it. When do you want to do the check?");
   showConversationalOptions(["Yes, let's do it", 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
 }
 
@@ -2703,6 +2826,8 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY. Check every submitted answer immediately. Never ask for the passage or questions again. If the exercise stores a hypothesis, lead with SUPPORTED, REJECTED, or INCONCLUSIVE and use the actual choice pattern as evidence; do not preserve the prediction when the evidence contradicts it. Keep each item compact, then end with one Diagnosis / Evidence / Fix pattern. Ask no intake question.';
+  if (/\b(book|books|source|material|resource|course|coaching|youtube channel)\b/i.test(String(message || ''))) directive += '\nSOURCE-TRUST MODE: The practical source question may be hiding loss of trust or fear of choosing wrong. Name that uncertainty first in one calm line, use prior progress to show whether the current source actually failed, then make one practical recommendation. Do not offer a shopping list of alternatives and do not reset an existing plan merely because the student feels uncertain.';
+  if (/\b(plan|schedule|timetable|what should i do|today'?s task|mission)\b/i.test(String(message || ''))) directive += '\nPLAN-STABILITY MODE: Check ACTIVE PLAN MEMORY before proposing anything. Keep the current mission unless the student supplied strong new evidence. If changing it, state what new evidence changed the priority. End an actionable planning reply with the exact compact Today\'s Mission format.';
   return { diagnosis: diagnosis, directive: directive };
 }
 
@@ -2718,8 +2843,17 @@ function limitMentorResponseLength(text, maxWords) {
   return shortened + (controls.length ? '\n' + controls.join('') : '');
 }
 
+function reduceAssistantStyleLanguage(text) {
+  var value = String(text || '');
+  value = value.replace(/^\s*(?:real talk|now i get it)\s*[,.:—-]*\s*/i, '');
+  value = value.replace(/^\s*good\s*[.,:—-]+\s*/i, '');
+  value = value.replace(/\bmy prediction\s*:\s*/gi, 'I think the real issue is this: ');
+  value = value.replace(/\bnow i understand\s*[,.:—-]*\s*/gi, '');
+  return value.trim();
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
-  var text = enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))).trim();
+  var text = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || '')))).trim();
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
@@ -2742,7 +2876,7 @@ function buildMentorFallbackReply(diagnosis) {
   if (!diagnosis) return 'My read is that the visible problem is not the whole problem. Start with the last concrete question or set that went wrong and look for the decision that caused it.';
   if (diagnosis.intent === 'answer_review') return activeGeneratedExercise ? 'I still have the exercise and your submitted choices, but the answer check did not finish loading. Your passage is not lost—retry the same message and I will check it directly.' : 'I cannot find a reliable active exercise in memory, so I will not invent an answer key. Paste only your choices and the question numbers you want checked.';
   if (diagnosis.intent === 'confidence_breakdown') return 'This sounds less like a verdict on your CAT ability and more like one bad pattern becoming your whole self-assessment. For today, shrink the problem: review the last three misses and label each one concept, selection, or execution—the repeated label is what we fix.';
-  if (diagnosis.intent === 'returning_memory') return studentProfile.lastTask ? 'We left off with: ' + studentProfile.lastTask + '. My guess is the useful part now is not repeating the plan but seeing where it actually broke.' : 'I do not have a reliable saved task to pretend otherwise. The useful thread I can recover is your recent pattern, and we should restart from the last concrete result rather than another profile intake.';
+  if (diagnosis.intent === 'returning_memory') return studentProfile.lastTask ? 'We left off with: ' + studentProfile.lastTask + '. The useful move now is not repeating the plan but seeing where it actually broke.' : 'I do not have a reliable saved task to pretend otherwise. The useful thread I can recover is your recent pattern, and we should restart from the last concrete result rather than another profile intake.';
   if (diagnosis.intent === 'vague') return studentProfile.weakestSection ? 'My first read is that "help" means the problem feels too tangled to name. Given your ' + studentProfile.weakestSection + ' pattern, the likely issue is either selection, execution, or not knowing the first move—which one feels closest?' : 'When someone can only say "help," it usually means one of three things: scores are stuck, the plan feels chaotic, or confidence has dropped. Pick the closest one and I will give you a read, not an interview.';
   if (diagnosis.intent === 'varc_diagnosis') return 'My first read: your English is probably not the main issue; marks are leaking between understanding the passage and choosing the final option. Check whether your last three misses were scope shifts, extreme wording, or changed answers.';
   if (diagnosis.intent === 'dilr_diagnosis') return 'My first read: the failure is probably happening before the calculations—in set selection, the representation you choose, or one missed constraint. On the next set, record the exact minute the setup stopped progressing; that tells us which one.';
@@ -3034,6 +3168,8 @@ async function sendConversationalMessage(userMessage, context) {
   systemAddition += getDiagnosticMemoryContext();
   systemAddition += getGeneratedExerciseMemoryContext(userMessage);
   systemAddition += getBehavioralMemoryContext();
+  systemAddition += getTopicProgressionMemoryContext();
+  systemAddition += getActivePlanMemoryContext();
   systemAddition += mentorAnalysis.directive;
   systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction in natural mentor language and ask for confirmation. Do not say "My prediction:". After Exactly or Mostly, explain the clue behind your read, ask when they want to verify it, and wait for their timing choice. Do not generate or launch an exercise in the same reply. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
 
@@ -3059,6 +3195,7 @@ async function sendConversationalMessage(userMessage, context) {
     }, 45000);
     var data = await res.json();
     var response = data.content && data.content[0] ? applyMentorResponseGuard(preventStructuredOutputLeak(data.content.map(function(block) { return block.text || ''; }).join('')), mentorAnalysis.diagnosis) : null;
+    if (response) response = stabilizeAndRememberMission(response, userMessage);
     hideTyping();
     if (response) {
       applyPredictionValidationVerdict(response);
@@ -3099,6 +3236,7 @@ async function sendConversationalMessage(userMessage, context) {
   } catch(e) {
     hideTyping();
     var fallbackResponse = buildPredictionValidationFallback(userMessage) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(userMessage) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
+    fallbackResponse = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackResponse))), userMessage);
     applyPredictionValidationVerdict(fallbackResponse);
     addMessage('marg', fallbackResponse);
     conversationHistory.push({ role: 'assistant', content: fallbackResponse });
@@ -3377,7 +3515,7 @@ function buildPersonalizedOpening() {
   const weak = studentProfile.weakestSection;
   const hours = studentProfile.dailyHours;
   let opening = '';
-  if (attempt === '1st attempt') { opening = "Good — you're starting fresh, which means no bad habits to unlearn. That's actually an advantage most people don't realise."; }
+  if (attempt === '1st attempt') { opening = "You're starting fresh, which means no bad habits to unlearn. That's an advantage most people don't realise."; }
   else if (attempt === '2nd attempt') { opening = "I've got your profile. Second attempt — you know what the exam feels like now. That experience is more valuable than you think. This time we go in with a real plan, not just hard work."; }
   else { opening = "Okay. I have your full picture. Multiple attempts mean you're serious about this — but it also means something specific hasn't been clicking. Let's find exactly what that is."; }
   opening += ' With <span class="highlight">' + months + '</span> left, studying <span class="highlight">' + hours + '/day</span>, and <span class="highlight">' + weak + '</span> as your weak spot — here\'s where we stand:';
@@ -3595,11 +3733,12 @@ async function sendMessage() {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary + getDiagnosticMemoryContext() + getGeneratedExerciseMemoryContext(text) + getBehavioralMemoryContext() + mentorAnalysis.directive + getPracticeThresholdNote();
+    activitySummary + getDiagnosticMemoryContext() + getGeneratedExerciseMemoryContext(text) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + mentorAnalysis.directive + getPracticeThresholdNote();
   try {
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) }, 45000);
     const data = await response.json();
-    const reply = applyMentorResponseGuard(preventStructuredOutputLeak((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.'), mentorAnalysis.diagnosis);
+    let reply = applyMentorResponseGuard(preventStructuredOutputLeak((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.'), mentorAnalysis.diagnosis);
+    reply = stabilizeAndRememberMission(reply, text);
     hideTyping();
     applyPredictionValidationVerdict(reply);
     if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(text).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
@@ -3624,7 +3763,8 @@ async function sendMessage() {
     checkAndLogPracticeVolume(reply);
   } catch (e) {
     hideTyping();
-    const fallbackReply = buildPredictionValidationFallback(text) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
+    let fallbackReply = buildPredictionValidationFallback(text) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
+    fallbackReply = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackReply))), text);
     applyPredictionValidationVerdict(fallbackReply);
     addMessage('marg', fallbackReply);
     conversationHistory.push({ role: 'assistant', content: fallbackReply });
@@ -4048,10 +4188,13 @@ function getDaysUntilCAT() {
 function buildDailyMentorBrief() {
   loadTopicProgression();
   loadPendingDiagnosticExercise();
+  loadActiveMentorPlan();
   var days = getDaysUntilCAT();
   var recommendation = bestSectionalRecommendation();
   var pieces = ['CAT is ' + days + ' days away.'];
-  if (recommendation) {
+  if (activeMentorPlan && activeMentorPlan.date === getTodayDate() && activeMentorPlan.mission) {
+    pieces.push("Today's mission is already set. Keep it stable unless the student reports a new result or a real schedule change:\n" + activeMentorPlan.mission);
+  } else if (recommendation) {
     pieces.push('You have completed ' + recommendation.conceptQuestionsCompleted + ' ' + recommendation.topic + ' questions; the next useful step is a timed ' + recommendation.topic + ' sectional, not another worksheet.');
   } else {
     var recent = Object.keys(topicProgression).map(function(key) { return topicProgression[key]; }).filter(Boolean).sort(function(a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); })[0];
@@ -4117,6 +4260,7 @@ async function sendReturningUserGreeting() {
     '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') +
     '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours +
     '\n\nDAILY MENTOR BRIEF: ' + dailyMentorBrief +
+    getTopicProgressionMemoryContext() + getActivePlanMemoryContext() +
     '\n\nRETURNING GREETING: ' + (name || 'This student') + ' just opened the app after being away — it is ' + timeOfDay + '. ' + situationLine + ' Use the daily brief to create urgency and recommend the best next action from actual progression. If you suggest practice, ask whether they want it right now, later today, or tomorrow; never select tomorrow yourself. Write ONE compact opening message in your own voice. It must contain continuity plus a prediction/insight before any question. Do not list their profile, say "ready to continue?", or open with a generic welcome.';
 
   let greeting = '';
@@ -4139,6 +4283,7 @@ async function sendReturningUserGreeting() {
     greeting = getTimeGreeting() + (name ? ', ' + name : '') + '. ' + dailyMentorBrief;
   }
 
+  greeting = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(greeting)));
   addMargMessage(greeting);
   conversationHistory.push({ role: 'assistant', content: greeting });
   if (!isGuestMode) saveChatMessage('assistant', greeting);
@@ -6034,7 +6179,7 @@ function selectAnswer(selectedIndex) {
 
   if (currentPracticeType === 'rc') {
     explanationText = q.explanation || '';
-    insightText = isCorrect ? 'Good read — you found the right line.' : (q.marg_insight || '') + (q.trap_type ? ' This is the ' + q.trap_type + ' trap.' : '');
+    insightText = isCorrect ? 'Clean read — you found the right line.' : (q.marg_insight || '') + (q.trap_type ? ' This is the ' + q.trap_type + ' trap.' : '');
   } else if (currentPracticeType === 'dilr') {
     explanationText = (q.explanation || '') + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + q.common_mistake : '');
     insightText = isCorrect ? 'Clean solve.' : (q.marg_insight || '');
@@ -6553,6 +6698,7 @@ async function completeOnboarding() {
     var response = data.content && data.content[0] ? data.content[0].text : null;
     hideTyping();
     if (response) {
+      response = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(response)));
       addMargMessage(response);
       conversationHistory.push({ role: 'assistant', content: response });
     }
@@ -6560,7 +6706,7 @@ async function completeOnboarding() {
     hideTyping();
     var name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name
       ? currentUser.user_metadata.full_name.split(' ')[0] : '';
-    addMessage('marg', 'Good' + (name ? ', ' + name : '') + ' — I have everything I need. What do you want to do first — should we talk through your strategy, or do you want to jump straight into practice?');
+    addMessage('marg', (name ? name + ', I' : 'I') + ' have enough to start. Which should we tackle first—your strategy or a live practice diagnosis?');
   }
 
   setTimeout(function() {
