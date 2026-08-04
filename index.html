@@ -1138,6 +1138,8 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 }
 
 function buildGeminiRequest(systemInstruction, messages, maxOutputTokens) {
+  var requestedOutputTokens = Number(maxOutputTokens) || 500;
+  var effectiveOutputTokens = Math.max(requestedOutputTokens, 1000);
   var contents = [];
   (messages || []).forEach(function(message) {
     if (!message) return;
@@ -1155,8 +1157,8 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens) {
   var request = {
     contents:contents,
     generationConfig:{
-      maxOutputTokens:Number(maxOutputTokens) || 500,
-      thinkingConfig:{ thinkingLevel:'medium' }
+      maxOutputTokens:effectiveOutputTokens,
+      thinkingConfig:{ thinkingLevel:requestedOutputTokens >= 1200 ? 'medium' : 'minimal' }
     }
   };
   if (systemInstruction) request.systemInstruction = { parts:[{ text:String(systemInstruction) }] };
