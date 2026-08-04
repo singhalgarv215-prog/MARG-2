@@ -1156,7 +1156,7 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens) {
     contents:contents,
     generationConfig:{
       maxOutputTokens:Number(maxOutputTokens) || 500,
-      thinkingConfig:{ thinkingBudget:0 }
+      thinkingConfig:{ thinkingLevel:'medium' }
     }
   };
   if (systemInstruction) request.systemInstruction = { parts:[{ text:String(systemInstruction) }] };
