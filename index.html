@@ -909,7 +909,6 @@ window._showFeedback = function() {
 const SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkdXF0cnVtaHZldGV5amt5bHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNjc0MzMsImV4cCI6MjA5NDc0MzQzM30.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
 const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
-const QUESTION_GENERATION_MODEL = 'claude-haiku-4-5-20251001';
 const LOGO_ICON = 'https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png';
 let SUPABASE_TOKEN = null;
 
@@ -1136,6 +1135,39 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     clearTimeout(timeoutId);
     throw e;
   }
+}
+
+function buildGeminiRequest(systemInstruction, messages, maxOutputTokens) {
+  var contents = [];
+  (messages || []).forEach(function(message) {
+    if (!message) return;
+    var role = message.role === 'assistant' || message.role === 'model' ? 'model' : 'user';
+    var text = typeof message.content === 'string'
+      ? message.content
+      : Array.isArray(message.content)
+        ? message.content.map(function(part) { return typeof part === 'string' ? part : part && part.text ? part.text : ''; }).join('\n')
+        : String(message.content || '');
+    if (!text.trim()) return;
+    var previous = contents[contents.length - 1];
+    if (previous && previous.role === role) previous.parts[0].text += '\n\n' + text;
+    else contents.push({ role:role, parts:[{ text:text }] });
+  });
+  var request = {
+    contents:contents,
+    generationConfig:{
+      maxOutputTokens:Number(maxOutputTokens) || 500,
+      thinkingConfig:{ thinkingBudget:0 }
+    }
+  };
+  if (systemInstruction) request.systemInstruction = { parts:[{ text:String(systemInstruction) }] };
+  return request;
+}
+
+function getGeminiText(payload) {
+  if (!payload || !Array.isArray(payload.candidates) || !payload.candidates.length) return '';
+  var parts = payload.candidates[0] && payload.candidates[0].content && payload.candidates[0].content.parts;
+  if (!Array.isArray(parts)) return '';
+  return parts.filter(function(part) { return part && !part.thought && typeof part.text === 'string'; }).map(function(part) { return part.text; }).join('');
 }
 
 function cleanHistory(history) {
@@ -2282,15 +2314,14 @@ function showPathChoiceScreen() {
         var res = await fetchWithTimeout(WORKER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 1500,
-            system: SYSTEM_PROMPT + getDateContext() + profileContext,
-            messages: cleanHistory(conversationHistory)
-          })
+          body: JSON.stringify(buildGeminiRequest(
+            SYSTEM_PROMPT + getDateContext() + profileContext,
+            cleanHistory(conversationHistory),
+            1500
+          ))
         }, 45000);
         var data = await res.json();
-        var reply = data.content && data.content[0] ? data.content[0].text : null;
+        var reply = getGeminiText(data);
         hideTyping();
         if (reply) {
           var cleanReply = reply.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/^#{1,3}\s+/gm, '').replace(/^[-•*]\s+/gm, '').replace(/---+/g, '').trim();
@@ -2344,15 +2375,14 @@ async function startFromAttemptContext(attempt) {
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        system: SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: This user arrived after attempting a practice question. Lead with one specific inference from that live attempt, explain the next correction briefly, and give one immediate follow-up action. Do not start profile setup or ask for background details.',
-        messages: cleanHistory(conversationHistory)
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: This user arrived after attempting a practice question. Lead with one specific inference from that live attempt, explain the next correction briefly, and give one immediate follow-up action. Do not start profile setup or ask for background details.',
+        cleanHistory(conversationHistory),
+        400
+      ))
     }, 45000);
     var data = await res.json();
-    var response = data.content && data.content[0] ? correctCalendarReferences(data.content[0].text) : null;
+    var response = correctCalendarReferences(getGeminiText(data));
     hideTyping();
     if (response) {
       addMargMessage(response);
@@ -3186,15 +3216,15 @@ async function sendConversationalMessage(userMessage, context) {
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        system: SYSTEM_PROMPT + getDateContext() + systemAddition,
-        messages: cleanHistory(conversationHistory)
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        SYSTEM_PROMPT + getDateContext() + systemAddition,
+        cleanHistory(conversationHistory),
+        400
+      ))
     }, 45000);
     var data = await res.json();
-    var response = data.content && data.content[0] ? applyMentorResponseGuard(preventStructuredOutputLeak(data.content.map(function(block) { return block.text || ''; }).join('')), mentorAnalysis.diagnosis) : null;
+    var geminiText = getGeminiText(data);
+    var response = geminiText ? applyMentorResponseGuard(preventStructuredOutputLeak(geminiText), mentorAnalysis.diagnosis) : null;
     if (response) response = stabilizeAndRememberMission(response, userMessage);
     hideTyping();
     if (response) {
@@ -3266,15 +3296,14 @@ async function sendPatternGuess(section, subissueAnswer) {
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        system: SYSTEM_PROMPT + getDateContext() + instruction,
-        messages: cleanHistory(conversationHistory)
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        SYSTEM_PROMPT + getDateContext() + instruction,
+        cleanHistory(conversationHistory),
+        200
+      ))
     }, 45000);
     var data = await res.json();
-    var response = data.content && data.content[0] ? data.content[0].text : null;
+    var response = getGeminiText(data);
     hideTyping();
 
     var guessText = response ? stripMarkdown(response) : ('my guess — ' + patternContent + (isFallback ? '' : '. sound familiar?'));
@@ -3311,15 +3340,14 @@ async function sendPatternFallbackQuestion() {
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        system: SYSTEM_PROMPT + getDateContext() + instruction,
-        messages: cleanHistory(conversationHistory)
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        SYSTEM_PROMPT + getDateContext() + instruction,
+        cleanHistory(conversationHistory),
+        200
+      ))
     }, 45000);
     var data = await res.json();
-    var response = data.content && data.content[0] ? data.content[0].text : null;
+    var response = getGeminiText(data);
     hideTyping();
 
     var guessText = response ? stripMarkdown(response) : ('no worries — ' + FAILURE_PATTERN_FALLBACK);
@@ -3735,9 +3763,9 @@ async function sendMessage() {
       }).join('\n') : '') +
     activitySummary + getDiagnosticMemoryContext() + getGeneratedExerciseMemoryContext(text) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + mentorAnalysis.directive + getPracticeThresholdNote();
   try {
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, system: SYSTEM_PROMPT + profileContext, messages: cleanHistory(conversationHistory) }) }, 45000);
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, cleanHistory(conversationHistory), 500)) }, 45000);
     const data = await response.json();
-    let reply = applyMentorResponseGuard(preventStructuredOutputLeak((data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.'), mentorAnalysis.diagnosis);
+    let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data) || 'Something went wrong. Please try again.'), mentorAnalysis.diagnosis);
     reply = stabilizeAndRememberMission(reply, text);
     hideTyping();
     applyPredictionValidationVerdict(reply);
@@ -4022,9 +4050,9 @@ async function createRCPassage() {
   showTyping();
   profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1400, system: SYSTEM_PROMPT + profileContext, messages: [{ role: 'user', content: prompt + memoryDirective }] }) }, 45000);
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, [{ role: 'user', content: prompt + memoryDirective }], 1400)) }, 45000);
     const data = await response.json();
-    const reply = (data.content && data.content.map(function(b) { return b.text || ''; }).join('')) || 'Something went wrong. Please try again.';
+    const reply = getGeminiText(data) || 'Something went wrong. Please try again.';
     const parsedExercise = parseChatGeneratedExercise(reply);
     const visibleReply = parsedExercise.visibleText;
     hideTyping();
@@ -4268,15 +4296,14 @@ async function sendReturningUserGreeting() {
     const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        system: SYSTEM_PROMPT + greetingContext,
-        messages: cleanHistory(conversationHistory).concat([{ role: 'user', content: '[the student just opened the app — greet them]' }])
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        SYSTEM_PROMPT + greetingContext,
+        cleanHistory(conversationHistory).concat([{ role: 'user', content: '[the student just opened the app — greet them]' }]),
+        200
+      ))
     }, 45000);
     const data = await res.json();
-    greeting = data.content && data.content[0] ? enforceIndiaTimeGreeting(correctCalendarReferences(data.content[0].text)) : '';
+    greeting = enforceIndiaTimeGreeting(correctCalendarReferences(getGeminiText(data)));
   } catch(e) {}
 
   if (!greeting) {
@@ -4381,16 +4408,15 @@ Based on these scores, give a mentor-style diagnosis in 2-3 sentences. Sound lik
     const response = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 150,
-        system: 'You are Marg, a warm and direct CAT mentor. Give a 2-3 sentence mentor-style diagnosis based on mock scores. State hypothesis as question not fact. Be specific and personal.' + getDateContext(),
-        messages: [{ role: 'user', content: prompt }]
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        'You are Marg, a warm and direct CAT mentor. Give a 2-3 sentence mentor-style diagnosis based on mock scores. State hypothesis as question not fact. Be specific and personal.' + getDateContext(),
+        [{ role: 'user', content: prompt }],
+        150
+      ))
     }, 45000);
 
     const data = await response.json();
-    const diagnosis = data.content && data.content[0] ? data.content[0].text : null;
+    const diagnosis = getGeminiText(data);
     if (!diagnosis) throw new Error('No response');
 
     diagnosisEl.className = 'mob-diagnosis';
@@ -4467,15 +4493,15 @@ async function finishMockOnboarding() {
     const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 600,
-        system: SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
-        messages: cleanHistory(conversationHistory)
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
+        cleanHistory(conversationHistory),
+        600
+      ))
     }, 45000);
     const data = await res.json();
-    const response = data.content && data.content[0] ? applyMentorResponseGuard(data.content[0].text, mentorAnalysis.diagnosis) : null;
+    const geminiText = getGeminiText(data);
+    const response = geminiText ? applyMentorResponseGuard(geminiText, mentorAnalysis.diagnosis) : null;
     hideTyping();
     if (response) {
       addMargMessage(response);
@@ -4578,15 +4604,14 @@ async function generateAndSaveSessionSummary() {
     const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        system: 'You are a helpful assistant that summarises tutoring sessions concisely.' + getDateContext(),
-        messages: [...recentHistory, { role: 'user', content: summaryPrompt }]
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        'You are a helpful assistant that summarises tutoring sessions concisely.' + getDateContext(),
+        [...recentHistory, { role: 'user', content: summaryPrompt }],
+        200
+      ))
     }, 45000);
     const data = await res.json();
-    const summary = data.content && data.content[0] ? data.content[0].text : null;
+    const summary = getGeminiText(data);
     if (summary) {
       await saveSessionSummary(summary);
     }
@@ -4766,15 +4791,15 @@ async function submitMockScores() {
     const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        system: SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
-        messages: cleanHistory(conversationHistory)
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
+        cleanHistory(conversationHistory),
+        400
+      ))
     }, 45000);
     const data = await res.json();
-    const response = data.content && data.content[0] ? applyMentorResponseGuard(data.content[0].text, mentorAnalysis.diagnosis) : null;
+    const geminiText = getGeminiText(data);
+    const response = geminiText ? applyMentorResponseGuard(geminiText, mentorAnalysis.diagnosis) : null;
     hideTyping();
     if (response) {
       addMargMessage(response);
@@ -5300,15 +5325,15 @@ async function auditGeneratedCATContent(section, generatedData) {
   try {
     var auditResponse = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify({
-        model:'claude-haiku-4-5-20251001', max_tokens:section === 'dilr' ? 6500 : section === 'rc' ? 4200 : 5200,
-        system:'You are a strict CAT question-set auditor and repairer. A plausible-looking but flawed item must fail. When repairing, change the minimum necessary data, options, key, or explanation and verify the result. Return only valid JSON.' + getDateContext(),
-        messages:[{ role:'user', content:auditPrompt }]
-      })
+      body:JSON.stringify(buildGeminiRequest(
+        'You are a strict CAT question-set auditor and repairer. A plausible-looking but flawed item must fail. When repairing, change the minimum necessary data, options, key, or explanation and verify the result. Return only valid JSON.' + getDateContext(),
+        [{ role:'user', content:auditPrompt }],
+        section === 'dilr' ? 6500 : section === 'rc' ? 4200 : 5200
+      ))
     }, 45000);
     if (!auditResponse.ok) return { valid:false, issues:['Audit service failed'] };
     var auditPayload = await auditResponse.json();
-    var auditText = auditPayload.content && auditPayload.content.map(function(block) { return block.text || ''; }).join('');
+    var auditText = getGeminiText(auditPayload);
     var audit = parseGeneratedJson(auditText || '');
     return audit && audit.valid === true
       ? { valid:true, issues:[], correctedData:null }
@@ -5604,11 +5629,11 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   try {
     var response = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify({ model:QUESTION_GENERATION_MODEL, max_tokens:maxTokens, system:'You are an expert CAT exam question generator. Return only valid JSON, with independently verified answer keys.' + getDateContext(), messages:[{ role:'user', content:prompt }] })
+      body:JSON.stringify(buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON, with independently verified answer keys.' + getDateContext(), [{ role:'user', content:prompt }], maxTokens))
     }, 90000);
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
-    var raw = payload.content && payload.content[0] ? payload.content[0].text : '';
+    var raw = getGeminiText(payload);
     var parsed = parseGeneratedJson(raw);
     if (section === 'va' || section === 'varc_mixed' || section === 'strategy' || section === 'dilr_selection') {
       if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(normalizeCorrectIndex);
@@ -5684,10 +5709,10 @@ async function generateGuidedMiniMock(diagnosticEntry) {
   addMentorLeadMessage("This six-question mini mock is built to test the mock-behaviour prediction we just agreed on. Record order and skips—the decisions matter as much as the score.");
   showTyping();
   try {
-    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ model:QUESTION_GENERATION_MODEL, max_tokens:4200, system:'You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), messages:[{ role:'user', content:buildGuidedMiniMockPrompt(diagnosticEntry) }] }) }, 90000);
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), [{ role:'user', content:buildGuidedMiniMockPrompt(diagnosticEntry) }], 4200)) }, 90000);
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
-    var raw = payload.content && payload.content[0] ? payload.content[0].text : '';
+    var raw = getGeminiText(payload);
     var parsed = normalizeGuidedMiniMock(parseGeneratedJson(raw));
     if (!validateGuidedMiniMock(parsed)) throw new Error('Mini mock failed validation');
     hideTyping();
@@ -5737,18 +5762,17 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: QUESTION_GENERATION_MODEL,
-        max_tokens: maxTokens,
-        system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
-        messages: [{ role: 'user', content: prompt }]
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
+        [{ role: 'user', content: prompt }],
+        maxTokens
+      ))
     }, 90000);
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
     var data = await res.json();
-    var text = data.content && data.content[0] ? data.content[0].text : null;
+    var text = getGeminiText(data);
     if (!text) throw new Error('No response');
 
     var parsed;
@@ -6006,18 +6030,17 @@ async function loadDailyPractice() {
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: QUESTION_GENERATION_MODEL,
-        max_tokens: maxTokens,
-        system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
-        messages: [{ role: 'user', content: prompt }]
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
+        [{ role: 'user', content: prompt }],
+        maxTokens
+      ))
     }, 90000);
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
     var data = await res.json();
-    var text = data.content && data.content[0] ? data.content[0].text : null;
+    var text = getGeminiText(data);
     if (!text) throw new Error('No response');
 
     var clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -6687,15 +6710,14 @@ async function completeOnboarding() {
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
-        system: SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: A new student just completed their profile. Give a warm 2-3 sentence opening that: 1) acknowledges ONE specific thing from their profile (attempt number or weak section), 2) shares your hypothesis in one line, 3) asks what they want to do first — discuss strategy or start practicing. Keep it conversational and warm, not robotic. Do NOT list all their profile details back at them.',
-        messages: cleanHistory(conversationHistory)
-      })
+      body: JSON.stringify(buildGeminiRequest(
+        SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: A new student just completed their profile. Give a warm 2-3 sentence opening that: 1) acknowledges ONE specific thing from their profile (attempt number or weak section), 2) shares your hypothesis in one line, 3) asks what they want to do first — discuss strategy or start practicing. Keep it conversational and warm, not robotic. Do NOT list all their profile details back at them.',
+        cleanHistory(conversationHistory),
+        300
+      ))
     }, 45000);
     var data = await res.json();
-    var response = data.content && data.content[0] ? data.content[0].text : null;
+    var response = getGeminiText(data);
     hideTyping();
     if (response) {
       response = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(response)));
