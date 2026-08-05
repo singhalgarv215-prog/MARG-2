@@ -43,17 +43,22 @@
 #attach-image-btn:hover{border-color:var(--gold);color:var(--gold);background:var(--gold-dim2);}
 #attach-image-btn:disabled{opacity:.35;cursor:not-allowed;transform:none;}
 #attach-image-btn svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
-#image-attachment-preview{display:none;margin:0 0 10px 48px;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border2);border-radius:12px;padding:8px;max-width:280px;}
-#image-attachment-preview.visible{display:flex;}
-#image-attachment-thumbnail{width:58px;height:58px;object-fit:cover;border-radius:8px;background:#111;}
-.image-attachment-info{min-width:0;flex:1;}
-.image-attachment-name{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.image-attachment-note{font-size:10px;color:var(--text-dim);margin-top:3px;}
-#remove-image-btn{width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:transparent;color:var(--text-muted);font-size:18px;line-height:1;cursor:pointer;flex-shrink:0;}
-#remove-image-btn:hover{border-color:#E05C5C;color:#E05C5C;}
+#image-attachment-preview{display:none;margin:0 0 10px 48px;background:var(--surface2);border:1px solid var(--border2);border-radius:12px;padding:9px;max-width:430px;}
+#image-attachment-preview.visible{display:block;}
+.image-attachment-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;}
+.image-attachment-title{font-size:11px;color:var(--text-muted);}
+.image-attachment-note{font-size:10px;color:var(--text-dim);}
+#image-attachment-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;}
+.image-attachment-item{position:relative;flex:0 0 76px;}
+.image-attachment-thumbnail{display:block;width:76px;height:76px;object-fit:cover;border-radius:9px;background:#111;border:1px solid rgba(255,255,255,.08);}
+.image-attachment-page{position:absolute;left:5px;bottom:5px;border-radius:10px;padding:2px 6px;background:rgba(0,0,0,.78);color:#fff;font-size:9px;}
+.remove-image-btn{position:absolute;right:4px;top:4px;width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:rgba(0,0,0,.8);color:#fff;font-size:15px;line-height:18px;cursor:pointer;padding:0;}
+.remove-image-btn:hover{border-color:#E05C5C;color:#ff8d8d;}
 .sent-image-preview{display:block;max-width:220px;max-height:260px;width:auto;height:auto;object-fit:contain;border-radius:10px;margin-bottom:7px;border:1px solid rgba(255,255,255,.1);}
+.sent-image-grid{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:7px;}
+.sent-image-grid .sent-image-preview{width:auto;max-width:180px;max-height:230px;margin-bottom:0;}
 .sent-image-caption{font-size:13px;line-height:1.5;}
-@media(max-width:600px){#image-attachment-preview{margin-left:0;max-width:100%;}.sent-image-preview{max-width:min(220px,65vw);}}
+@media(max-width:600px){#image-attachment-preview{margin-left:0;max-width:100%;}.sent-image-preview{max-width:min(220px,65vw);}.sent-image-grid .sent-image-preview{max-width:min(150px,42vw);max-height:210px;}}
 </style>
 </head>
 <body>
@@ -716,15 +721,14 @@
   </div>
   <div id="input-area">
     <div id="image-attachment-preview" aria-live="polite">
-      <img id="image-attachment-thumbnail" alt="Selected image preview">
-      <div class="image-attachment-info">
-        <div class="image-attachment-name" id="image-attachment-name">Image selected</div>
-        <div class="image-attachment-note">Ready to send with your message</div>
+      <div class="image-attachment-header">
+        <div class="image-attachment-title" id="image-attachment-title">Photos ready to send</div>
+        <div class="image-attachment-note">Up to 4 pages</div>
       </div>
-      <button id="remove-image-btn" type="button" onclick="removePendingImageAttachment()" aria-label="Remove selected image">×</button>
+      <div id="image-attachment-list"></div>
     </div>
     <div id="input-row">
-      <input id="image-upload-input" type="file" accept="image/*" capture="environment" onchange="handleImageSelection(event)" hidden>
+      <input id="image-upload-input" type="file" accept="image/*" capture="environment" multiple onchange="handleImageSelection(event)" hidden>
       <button id="attach-image-btn" type="button" onclick="openImagePicker()" aria-label="Take or choose a photo" title="Take or choose a photo">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13" r="4"/></svg>
       </button>
@@ -996,6 +1000,8 @@ Your replies run one to three sentences by default. You go longer only when some
 
 LENGTH CONTRACT: Make ordinary mentoring replies roughly 35-80 words. This is a WhatsApp conversation, not an essay. Use short sentences and line breaks. A requested complete roadmap, full timetable, multi-question answer check, or concept explanation may exceed 100 words because completeness matters more than artificial brevity there. Even then, remove introductions, repetition and generic encouragement. Never stop mid-component or mid-sentence merely to satisfy the usual short-response target.
 
+If the student says only "continue", "go on", "finish it", or an equivalent after an incomplete reply, treat the immediately preceding Marg message as an interrupted response. Resume from its exact endpoint and provide only what is missing. Never restart the solution, repeat earlier steps, re-explain the passage/set, reproduce completed roadmap sections, apologize, summarize, or add a fresh introduction. The conversation history is the source of truth for the exact continuation point.
+
 For a wrong-answer review, lead with the student's thinking error—not a lecture on the option. Use three compact lines when useful: "Diagnosis:" names the decision error, "Evidence:" points to the exact mismatch, and "Fix:" gives one reusable rule. This is the only exception to the usual no-headers preference. Prefer memorable language such as "You didn't miss the passage. You added a step the author never gave you."
 
 When reviewing multiple answers, readability is mandatory. Give every question its own block with a blank line before the next one: Q[number], Your Answer, Correct Answer, Diagnosis, and Fix when needed. Finish with "Pattern Check: X/Y right." Never combine several RC, DILR, QA or sectional answers into one dense paragraph, and do not use a wide table on mobile.
@@ -1028,7 +1034,7 @@ You always know what day it is — it's handed to you at the start of every sing
 
 This holds for anything else objectively checkable too — not opinions, not their own experience of their own prep, but hard facts like dates, numbers you were given, or something you calculated. If a student states one confidently and it contradicts what you actually know, hold your position and ask for clarification instead of folding just because they sounded sure. Being agreeable isn't the same as being right, and a mentor who caves under pushback isn't useful to anyone.
 
-You can receive images. Inspect them directly and use only what is genuinely visible; never pretend an unreadable number is clear. For a mock or sectional screenshot, identify the provider/header when visible, then extract VARC, DILR and QA values together with their exact displayed meaning: marks/score, correct, attempted, accuracy, percentile, or time. Do not convert one into another and do not assume that the largest-looking number is a score. If the labels are ambiguous, state the legible values, give one useful first observation, and ask only whether they represent marks, correct counts, or attempts before completing the diagnosis. For photographed questions, passages, workings or schedules, answer from the visible material and explicitly flag any cropped or unreadable part.
+You can receive one or several images in the same message. Inspect every image, not only the first. Multiple images normally represent ordered pages of one continuous RC passage, DILR set, scorecard or question, so reconstruct and analyse them in page order unless the student says they are separate. Use only what is genuinely visible; never pretend an unreadable number is clear. For a mock or sectional screenshot, identify the provider/header when visible, then extract VARC, DILR and QA values together with their exact displayed meaning: marks/score, correct, attempted, accuracy, percentile, or time. Do not convert one into another and do not assume that the largest-looking number is a score. If the labels are ambiguous, state the legible values, give one useful first observation, and ask only whether they represent marks, correct counts, or attempts before completing the diagnosis. For photographed questions, passages, workings or schedules, answer from the visible material and explicitly flag any cropped or unreadable part.
 
 The other direction matters just as much: when a student corrects you and you actually were wrong, that correction is now the truth for the rest of this conversation — don't drift back to your old assumption on the next calculation just because it's the default in your head. Acknowledging a correction and then repeating the same mistake two messages later is worse than never acknowledging it at all, because it teaches the student you weren't actually listening. If you catch yourself about to restate something a student already corrected, stop and use what they told you instead.
 
@@ -1173,7 +1179,17 @@ function runIndiaTimeTests() {
 
 async function fetchWithTimeout(url, options, timeoutMs) {
   var controller = new AbortController();
-  var timeoutId = setTimeout(function() { controller.abort(); }, timeoutMs || 45000);
+  var effectiveTimeout = Math.max(Number(timeoutMs) || 0, 120000);
+  try {
+    var requestBody = options && typeof options.body === 'string' ? JSON.parse(options.body) : null;
+    var requestTokens = requestBody && requestBody.generationConfig ? Number(requestBody.generationConfig.maxOutputTokens) || 0 : 0;
+    var requestHasImages = !!(requestBody && Array.isArray(requestBody.contents) && requestBody.contents.some(function(message) {
+      return Array.isArray(message.parts) && message.parts.some(function(part) { return !!(part && part.inlineData); });
+    }));
+    if (requestHasImages) effectiveTimeout = Math.max(effectiveTimeout, 240000);
+    if (requestTokens >= 16000) effectiveTimeout = Math.max(effectiveTimeout, 300000);
+  } catch(e) {}
+  var timeoutId = setTimeout(function() { controller.abort(); }, effectiveTimeout);
   try {
     var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
     clearTimeout(timeoutId);
@@ -1214,7 +1230,8 @@ function getGeminiMessageParts(message) {
 
 function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType) {
   var requestedOutputTokens = Number(maxOutputTokens) || 500;
-  var effectiveOutputTokens = Math.max(requestedOutputTokens, 1000);
+  var minimumOutputTokens = responseMimeType === 'application/json' ? 16384 : 4096;
+  var effectiveOutputTokens = Math.min(32768, Math.max(requestedOutputTokens, minimumOutputTokens));
   var contents = [];
   (messages || []).forEach(function(message) {
     if (!message) return;
@@ -1280,7 +1297,9 @@ let onboardingStep = 0;
 let isLoading = false;
 let lastSentMessage = '';
 let lastSentAt = 0;
-var pendingImageAttachment = null;
+var pendingImageAttachments = [];
+var MAX_IMAGE_ATTACHMENTS = 4;
+var MAX_TOTAL_IMAGE_BASE64_LENGTH = 18 * 1024 * 1024;
 
 function escapeChatHtml(value) {
   return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -1288,6 +1307,10 @@ function escapeChatHtml(value) {
 
 function openImagePicker() {
   if (isLoading) return;
+  if (pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS) {
+    alert('You can send up to ' + MAX_IMAGE_ATTACHMENTS + ' images in one message.');
+    return;
+  }
   var input = document.getElementById('image-upload-input');
   if (input) { input.value = ''; input.click(); }
 }
@@ -1340,62 +1363,100 @@ async function prepareImageAttachment(file) {
 }
 
 async function handleImageSelection(event) {
-  var file = event && event.target && event.target.files && event.target.files[0];
-  if (!file) return;
+  var files = event && event.target && event.target.files ? Array.from(event.target.files) : [];
+  if (!files.length) return;
+  var remainingSlots = MAX_IMAGE_ATTACHMENTS - pendingImageAttachments.length;
+  if (remainingSlots <= 0) {
+    alert('You can send up to ' + MAX_IMAGE_ATTACHMENTS + ' images in one message.');
+    return;
+  }
+  var selectedFiles = files.slice(0, remainingSlots);
   var attachButton = document.getElementById('attach-image-btn');
   if (attachButton) attachButton.disabled = true;
+  var errors = [];
   try {
-    pendingImageAttachment = await prepareImageAttachment(file);
-    var preview = document.getElementById('image-attachment-preview');
-    var thumbnail = document.getElementById('image-attachment-thumbnail');
-    var name = document.getElementById('image-attachment-name');
-    if (thumbnail) thumbnail.src = pendingImageAttachment.previewUrl;
-    if (name) name.textContent = pendingImageAttachment.name;
-    if (preview) preview.classList.add('visible');
-    var send = document.getElementById('send-btn');
-    if (send) send.disabled = false;
-  } catch(error) {
-    pendingImageAttachment = null;
-    alert(error && error.message ? error.message : 'Could not prepare this image.');
+    for (var i = 0; i < selectedFiles.length; i++) {
+      try {
+        var preparedAttachment = await prepareImageAttachment(selectedFiles[i]);
+        var currentPayloadSize = pendingImageAttachments.reduce(function(total, item) { return total + item.data.length; }, 0);
+        if (currentPayloadSize + preparedAttachment.data.length > MAX_TOTAL_IMAGE_BASE64_LENGTH) {
+          throw new Error('The combined images are too large. Use screenshots or lower-resolution photos.');
+        }
+        pendingImageAttachments.push(preparedAttachment);
+      } catch(error) {
+        errors.push((selectedFiles[i].name || 'Image') + ': ' + (error && error.message ? error.message : 'Could not prepare this image.'));
+      }
+    }
+    renderPendingImageAttachments();
+    if (files.length > selectedFiles.length) errors.push('Only the first ' + remainingSlots + ' additional image' + (remainingSlots === 1 ? '' : 's') + ' could be added.');
+    if (errors.length) alert(errors.join('\n'));
+  } finally {
+    if (event && event.target) event.target.value = '';
+    if (attachButton) attachButton.disabled = pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS;
   }
-  if (attachButton) attachButton.disabled = false;
 }
 
-function removePendingImageAttachment() {
-  pendingImageAttachment = null;
+function renderPendingImageAttachments() {
   var preview = document.getElementById('image-attachment-preview');
-  var thumbnail = document.getElementById('image-attachment-thumbnail');
+  var list = document.getElementById('image-attachment-list');
+  var title = document.getElementById('image-attachment-title');
+  var attachButton = document.getElementById('attach-image-btn');
+  if (list) {
+    list.innerHTML = pendingImageAttachments.map(function(attachment, index) {
+      return '<div class="image-attachment-item">' +
+        '<img class="image-attachment-thumbnail" src="' + attachment.previewUrl + '" alt="Selected page ' + (index + 1) + '">' +
+        '<span class="image-attachment-page">Page ' + (index + 1) + '</span>' +
+        '<button class="remove-image-btn" type="button" onclick="removePendingImageAttachment(' + index + ')" aria-label="Remove page ' + (index + 1) + '">×</button>' +
+      '</div>';
+    }).join('');
+  }
+  if (title) title.textContent = pendingImageAttachments.length + ' photo' + (pendingImageAttachments.length === 1 ? '' : 's') + ' ready to send';
+  if (preview) preview.classList.toggle('visible', pendingImageAttachments.length > 0);
+  if (attachButton) attachButton.disabled = pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS;
+  var send = document.getElementById('send-btn');
+  var input = document.getElementById('user-input');
+  if (send) send.disabled = !pendingImageAttachments.length && !(input && input.value.trim());
+}
+
+function removePendingImageAttachment(index) {
+  if (typeof index === 'number' && index >= 0 && index < pendingImageAttachments.length) pendingImageAttachments.splice(index, 1);
+  else pendingImageAttachments = [];
   var input = document.getElementById('image-upload-input');
-  if (preview) preview.classList.remove('visible');
-  if (thumbnail) thumbnail.removeAttribute('src');
   if (input) input.value = '';
+  renderPendingImageAttachments();
 }
 
-function buildImageUserMessageHtml(text, attachment) {
-  var image = attachment ? '<img class="sent-image-preview" src="' + attachment.previewUrl + '" alt="Uploaded image">' : '';
+function buildImageUserMessageHtml(text, attachments) {
+  var list = Array.isArray(attachments) ? attachments : attachments ? [attachments] : [];
+  var images = list.length ? '<div class="sent-image-grid">' + list.map(function(attachment, index) {
+    return '<img class="sent-image-preview" src="' + attachment.previewUrl + '" alt="Uploaded page ' + (index + 1) + '">';
+  }).join('') + '</div>' : '';
   var caption = text ? '<div class="sent-image-caption">' + escapeChatHtml(text).replace(/\n/g, '<br>') + '</div>' : '';
-  return image + caption;
+  return images + caption;
 }
 
-function buildHistoryWithImageAttachment(history, attachment, userText) {
+function buildHistoryWithImageAttachment(history, attachments, userText) {
   var requestHistory = cleanHistory(history || []).slice();
-  if (!attachment) return requestHistory;
+  var list = Array.isArray(attachments) ? attachments : attachments ? [attachments] : [];
+  if (!list.length) return requestHistory;
+  var imageParts = list.map(function(attachment) {
+    return { inlineData:{ mimeType:attachment.mimeType, data:attachment.data } };
+  });
+  var multimodalParts = imageParts.concat([{ text:userText || 'Please analyze these images in page order.' }]);
   for (var i = requestHistory.length - 1; i >= 0; i--) {
     if (requestHistory[i] && requestHistory[i].role === 'user') {
-      requestHistory[i] = { role:'user', parts:[
-        { inlineData:{ mimeType:attachment.mimeType, data:attachment.data } },
-        { text:userText || 'Please analyze this image.' }
-      ] };
+      requestHistory[i] = { role:'user', parts:multimodalParts };
       return requestHistory;
     }
   }
-  requestHistory.push({ role:'user', parts:[{ inlineData:{ mimeType:attachment.mimeType, data:attachment.data } }, { text:userText || 'Please analyze this image.' }] });
+  requestHistory.push({ role:'user', parts:multimodalParts });
   return requestHistory;
 }
 
-function getImageAnalysisDirective(attachment) {
-  if (!attachment) return '';
-  return '\n\nIMAGE INPUT MODE: The current user message includes an image. Inspect the image itself before responding; do not claim you cannot see it. Extract only text and numbers that are genuinely legible, and say exactly what is unclear rather than guessing. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
+function getImageAnalysisDirective(attachments) {
+  var count = Array.isArray(attachments) ? attachments.length : attachments ? 1 : 0;
+  if (!count) return '';
+  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. Inspect every image before responding; do not claim you cannot see them. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text and numbers that are genuinely legible, and say exactly what is unclear rather than guessing. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
 }
 
 // --- Reusable Diagnostic Flow -------------------------------------------------
@@ -3095,6 +3156,7 @@ function needsFreshPracticeSourceCheck(message) {
 
 function detectMentorIntent(message) {
   var text = String(message || '').toLowerCase().trim();
+  if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
   if (isAnswerReviewRequest(message)) return 'answer_review';
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
   if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
@@ -3119,6 +3181,7 @@ function detectEmotionalState(message) {
 
 function getLikelyHiddenProblem(intent, message) {
   var text = String(message || '').toLowerCase();
+  if (intent === 'seamless_continuation') return 'The previous Marg response ended before the thought or deliverable was complete. Resume from its exact endpoint without repeating any earlier explanation.';
   if (intent === 'answer_review') return activeGeneratedExercise ? 'The student is submitting answers to Marg’s active generated exercise. Check them immediately from stored questions and answer keys, then diagnose the shared decision pattern across errors.' : 'The student wants an answer check. Use the recent conversation first and never ask them to resend content Marg already generated.';
   if (intent === 'confidence_breakdown') return 'A recent score or repeated miss has been converted into a verdict about ability; the immediate need is to separate evidence from identity and restore one controllable next step.';
   if (intent === 'returning_memory') return studentProfile.lastTask ? 'The student wants continuity, not another intake question. Resume from the saved task: ' + studentProfile.lastTask : 'The student wants continuity. Use the session summary or recent conversation; state uncertainty honestly if no reliable unfinished task exists.';
@@ -3170,6 +3233,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
+  if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. If the exercise stores a hypothesis, lead with SUPPORTED, REJECTED, or INCONCLUSIVE and use the actual choice pattern as evidence; do not preserve the prediction when the evidence contradicts it. Format every reviewed item as its own block separated by a blank line: Q[number], then Your Answer:, Correct Answer:, Diagnosis:, and Fix: when the answer is wrong. End with “Pattern Check: X/Y right.” Never compress multiple questions into one paragraph or table. Ask no diagnostic intake question.';
   if (diagnosis.freshPracticeSourceCheck) directive += '\nFRESH PASTED MATERIAL: The student pasted a new passage/questions and answers without an established source. Review what can be reviewed first. Then add one light source check: ask whether it came from their own material, a shared source, or somewhere they want clarified. The source question must not block or replace the answer review.';
   if (diagnosis.comprehensivePlanning) directive += '\nCOMPREHENSIVE ROADMAP MODE: This is a broad planning request, not a single-section diagnostic. Do not launch or simulate a VARC, DILR, or QA diagnostic. Address every explicitly requested component in this one response: ' + (diagnosis.requestedPlanningComponents.length ? diagnosis.requestedPlanningComponents.join(', ') : 'all preparation areas named by the student') + '. A complete CAT roadmap must distinguish phases or milestones, balance VARC/DILR/QA, state when topic practice graduates to sectionals, include full-mock cadence and mock-analysis/revision loops, and explain how the student’s named resources fit. Do not substitute only a daily timetable. If exact routine data are missing, give the complete strategic framework now and ask for routine details only after it; never omit requested sectionals or mocks.';
@@ -3177,18 +3241,6 @@ function buildDiagnosisDirective(message) {
   if (/\b(book|books|source|material|resource|course|coaching|youtube channel)\b/i.test(String(message || ''))) directive += '\nSOURCE-TRUST MODE: The practical source question may be hiding loss of trust or fear of choosing wrong. Name that uncertainty first in one calm line, use prior progress to show whether the current source actually failed, then make one practical recommendation. Do not offer a shopping list of alternatives and do not reset an existing plan merely because the student feels uncertain.';
   if (/\b(plan|schedule|timetable|what should i do|today'?s task|mission)\b/i.test(String(message || ''))) directive += '\nPLAN-STABILITY MODE: Check ACTIVE PLAN MEMORY before proposing anything. Keep the current mission unless the student supplied strong new evidence. If changing it, state what new evidence changed the priority. End an actionable planning reply with the exact compact Today\'s Mission format.';
   return { diagnosis: diagnosis, directive: directive };
-}
-
-function limitMentorResponseLength(text, maxWords) {
-  var controls = text.match(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g) || [];
-  var visible = text.replace(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g, '').trim();
-  var words = visible.split(/\s+/).filter(Boolean);
-  if (words.length <= maxWords) return text;
-  var shortened = words.slice(0, maxWords).join(' ');
-  var punctuationCut = Math.max(shortened.lastIndexOf('.'), shortened.lastIndexOf('!'), shortened.lastIndexOf('?'));
-  if (punctuationCut > shortened.length * .62) shortened = shortened.substring(0, punctuationCut + 1);
-  else shortened = shortened.replace(/[,;:\-–—]?\s*$/, '') + '.';
-  return shortened + (controls.length ? '\n' + controls.join('') : '');
 }
 
 function reduceAssistantStyleLanguage(text) {
@@ -3226,19 +3278,19 @@ function applyMentorResponseGuard(response, diagnosis) {
     text = 'My read: ' + diagnosis.likelyHiddenProblem + (text ? '\n' + text : '');
   }
   text = formatMultiAnswerReview(text, diagnosis);
-  var answerReviewWords = diagnosis && diagnosis.intent === 'answer_review' ? Math.min(650, Math.max(220, 90 + (diagnosis.answerCount || 3) * 70)) : 0;
-  var maxWords = answerReviewWords || (diagnosis && diagnosis.comprehensivePlanning ? 650 : diagnosis && diagnosis.intent === 'planning' ? 320 : 90);
-  text = limitMentorResponseLength(text, maxWords);
+  // Do not mechanically slice model output. The prompt controls normal reply
+  // length; hard word caps were capable of manufacturing mid-answer cutoffs.
   if (!text) text = diagnosis && diagnosis.likelyHiddenProblem ? 'My read: ' + diagnosis.likelyHiddenProblem : 'My read is that the visible problem is not the whole problem. Let us work from the last concrete thing that went wrong.';
   return text;
 }
 
 function getMentorResponseMaxTokens(diagnosis) {
-  if (diagnosis && diagnosis.comprehensivePlanning) return 5000;
-  if (diagnosis && diagnosis.intent === 'planning') return 3000;
-  if (diagnosis && diagnosis.intent === 'answer_review') return Math.min(6000, Math.max(2200, 1200 + (diagnosis.answerCount || 3) * 450));
-  if (diagnosis && diagnosis.hasImage) return 2600;
-  return 900;
+  if (diagnosis && diagnosis.comprehensivePlanning) return 16384;
+  if (diagnosis && diagnosis.hasImage) return 12288;
+  if (diagnosis && diagnosis.intent === 'seamless_continuation') return 12288;
+  if (diagnosis && diagnosis.intent === 'planning') return 8192;
+  if (diagnosis && diagnosis.intent === 'answer_review') return Math.min(16384, Math.max(8192, 4096 + (diagnosis.answerCount || 3) * 800));
+  return 4096;
 }
 
 function buildMentorFallbackReply(diagnosis) {
@@ -3519,7 +3571,7 @@ async function handleConversationalResponse(answer, context) {
   saveProfileProgressively();
 }
 
-async function sendConversationalMessage(userMessage, context, imageAttachment) {
+async function sendConversationalMessage(userMessage, context, imageAttachments) {
   if (context !== 'typed') {
     conversationHistory.push({ role: 'user', content: userMessage });
     if (!isGuestMode) saveChatMessage('user', userMessage);
@@ -3527,9 +3579,9 @@ async function sendConversationalMessage(userMessage, context, imageAttachment) 
   showTyping();
 
   var mentorAnalysis = buildDiagnosisDirective(userMessage);
-  if (imageAttachment) {
+  if (Array.isArray(imageAttachments) && imageAttachments.length) {
     mentorAnalysis.diagnosis.hasImage = true;
-    mentorAnalysis.directive += getImageAnalysisDirective(imageAttachment);
+    mentorAnalysis.directive += getImageAnalysisDirective(imageAttachments);
   }
   var profileSoFar = '';
   if (conversationalProfile.weakSection) profileSoFar += 'Weak section: ' + conversationalProfile.weakSection + '. ';
@@ -3568,7 +3620,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachment) 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildGeminiRequest(
         SYSTEM_PROMPT + getDateContext() + systemAddition,
-        buildHistoryWithImageAttachment(conversationHistory, imageAttachment, userMessage),
+        buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage),
         mentorMaxTokens
       ))
     }, mentorTimeout);
@@ -4066,26 +4118,28 @@ async function sendMessage() {
   if (!checkGuestLimit()) return;
   const input = document.getElementById('user-input');
   const typedText = input.value.trim();
-  const imageAttachment = pendingImageAttachment;
-  if (!typedText && !imageAttachment) return;
-  const text = typedText || 'Please analyze this image.';
-  if (!imageAttachment && text === lastSentMessage && (Date.now() - lastSentAt) < 4000) return;
+  const imageAttachments = pendingImageAttachments.slice();
+  const hasImages = imageAttachments.length > 0;
+  if (!typedText && !hasImages) return;
+  const text = typedText || (imageAttachments.length > 1 ? 'Please analyze these images in page order.' : 'Please analyze this image.');
+  if (!hasImages && text === lastSentMessage && (Date.now() - lastSentAt) < 4000) return;
   lastSentMessage = text; lastSentAt = Date.now();
   input.value = ''; input.style.height = 'auto';
   isLoading = true; document.getElementById('send-btn').disabled = true;
   if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
-  addMessage('user', imageAttachment ? buildImageUserMessageHtml(typedText, imageAttachment) : escapeChatHtml(text).replace(/\n/g, '<br>'));
-  var storedUserText = text + (imageAttachment ? '\n[Image attached: ' + imageAttachment.name + ']' : '');
+  addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
+  var storedImageMarker = hasImages ? '\n[' + imageAttachments.length + ' images attached in page order: ' + imageAttachments.map(function(item) { return item.name; }).join(', ') + ']' : '';
+  var storedUserText = text + storedImageMarker;
   conversationHistory.push({ role: 'user', content: storedUserText });
   capturePersonalGoalDetails(text);
   detectAndSaveMockScores(text);
   if (!isGuestMode) saveChatMessage('user', storedUserText);
-  if (imageAttachment) removePendingImageAttachment();
+  if (hasImages) removePendingImageAttachment();
   loadActiveGeneratedExercise();
   var predictionValidationReply = isPredictionValidationReply(text);
   if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
 
-  if (!imageAttachment && (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!hasImages && (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     isLoading = false;
     document.getElementById('send-btn').disabled = false;
     return;
@@ -4093,14 +4147,14 @@ async function sendMessage() {
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
-  if (!imageAttachment && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
+  if (!hasImages && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
     isLoading = false;
     document.getElementById('send-btn').disabled = false;
     return;
   }
 
   if (!onboardingComplete && conversationHistory.length <= 10) {
-    await sendConversationalMessage(text, 'typed', imageAttachment);
+    await sendConversationalMessage(text, 'typed', imageAttachments);
     isLoading = false;
     document.getElementById('send-btn').disabled = false;
     return;
@@ -4109,9 +4163,9 @@ async function sendMessage() {
   showTyping();
   const activitySummary = buildActivitySummary();
   const mentorAnalysis = buildDiagnosisDirective(text);
-  if (imageAttachment) {
+  if (hasImages) {
     mentorAnalysis.diagnosis.hasImage = true;
-    mentorAnalysis.directive += getImageAnalysisDirective(imageAttachment);
+    mentorAnalysis.directive += getImageAnalysisDirective(imageAttachments);
   }
   profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
@@ -4129,7 +4183,7 @@ async function sendMessage() {
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
-    const requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachment, text);
+    const requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, text);
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens)) }, mentorTimeout);
     const data = await response.json();
     let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data) || 'Something went wrong. Please try again.'), mentorAnalysis.diagnosis);
@@ -4418,7 +4472,7 @@ async function createRCPassage() {
   showTyping();
   profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, [{ role: 'user', content: prompt + memoryDirective }], 1400)) }, 45000);
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, [{ role: 'user', content: prompt + memoryDirective }], 12288)) }, 180000);
     const data = await response.json();
     const reply = getGeminiText(data) || 'Something went wrong. Please try again.';
     const parsedExercise = parseChatGeneratedExercise(reply);
@@ -5711,9 +5765,9 @@ function getVerifiedFallbackPractice(section, questionCount, topic) {
 }
 
 function getSectionalTestMaxTokens(section, questionCount) {
-  if (section === 'qa') return Math.min(16000, Math.max(8000, (questionCount || 10) * 850));
+  if (section === 'qa') return Math.min(24576, Math.max(16384, (questionCount || 10) * 1500));
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
-  return Math.min(20000, Math.max(9000, setsCount * 5000));
+  return Math.min(32768, Math.max(20480, setsCount * 8000));
 }
 
 function parseGeneratedJson(text) {
@@ -5766,7 +5820,7 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic) {
       : ' QA LEVEL: reject formula-identification drills, visible arithmetic pipelines, redundant data, or questions whose setup is obvious within a few seconds.';
   var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. Check that every condition is mutually consistent and sufficient, every question is answerable, exactly one option is correct, the stored correct index points to that option, and the explanation/solution actually reaches it.' + topicAudit + levelAudit + ' If everything passes, return ONLY {"valid":true,"issues":[]}. If anything fails, repair only the faulty items while preserving the exact schema and item count, independently re-solve the repairs, and return ONLY {"valid":false,"issues":["specific issue"],"corrected_data":<the complete corrected material>}. Never return prose or markdown.\n\nMATERIAL:\n' + JSON.stringify(generatedData);
   var setCount = generatedData && Array.isArray(generatedData.sets) ? generatedData.sets.length : 1;
-  var auditMaxTokens = section === 'dilr' ? Math.min(16000, 6000 + setCount * 3000) : section === 'rc' ? 6500 : 9000;
+  var auditMaxTokens = section === 'dilr' ? Math.min(32768, 16384 + setCount * 5000) : section === 'rc' ? 16384 : 20480;
   try {
     var auditResponse = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' },
@@ -6072,7 +6126,7 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
     : section === 'strategy' ? buildStrategyValidationPrompt(diagnosticEntry)
     : section === 'dilr_selection' ? buildDILRSelectionValidationPrompt(diagnosticEntry)
     : focus + buildQAPrompt(qaExpectedTopic);
-  var maxTokens = section === 'qa' ? 4000 : section === 'rc' ? 5000 : 5500;
+  var maxTokens = section === 'qa' ? 12288 : section === 'rc' ? 16384 : 20480;
   try {
     var response = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' },
@@ -6156,7 +6210,7 @@ async function generateGuidedMiniMock(diagnosticEntry) {
   addMentorLeadMessage("This six-question mini mock is built to test the mock-behaviour prediction we just agreed on. Record order and skips—the decisions matter as much as the score.");
   showTyping();
   try {
-    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), [{ role:'user', content:buildGuidedMiniMockPrompt(diagnosticEntry) }], 4200, 'application/json')) }, 90000);
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), [{ role:'user', content:buildGuidedMiniMockPrompt(diagnosticEntry) }], 16384, 'application/json')) }, 240000);
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
     var raw = getGeminiText(payload);
@@ -6479,7 +6533,7 @@ async function loadDailyPractice() {
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
   else prompt = buildQAPrompt(selectedPracticeTopic);
 
-  var maxTokens = currentPracticeType === 'dilr' ? 5500 : currentPracticeType === 'rc' ? 5000 : 4000;
+  var maxTokens = currentPracticeType === 'dilr' ? 20480 : currentPracticeType === 'rc' ? 16384 : 12288;
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
