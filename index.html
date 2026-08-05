@@ -38,6 +38,23 @@
 ::-webkit-scrollbar-thumb{background:#2A2A2A;border-radius:4px;}
 ::-webkit-scrollbar-thumb:hover{background:#C9A84C;}
 #messages{scroll-behavior:smooth;}</style>
+<style>
+#attach-image-btn{width:38px;height:38px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;padding:0;}
+#attach-image-btn:hover{border-color:var(--gold);color:var(--gold);background:var(--gold-dim2);}
+#attach-image-btn:disabled{opacity:.35;cursor:not-allowed;transform:none;}
+#attach-image-btn svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+#image-attachment-preview{display:none;margin:0 0 10px 48px;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border2);border-radius:12px;padding:8px;max-width:280px;}
+#image-attachment-preview.visible{display:flex;}
+#image-attachment-thumbnail{width:58px;height:58px;object-fit:cover;border-radius:8px;background:#111;}
+.image-attachment-info{min-width:0;flex:1;}
+.image-attachment-name{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.image-attachment-note{font-size:10px;color:var(--text-dim);margin-top:3px;}
+#remove-image-btn{width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:transparent;color:var(--text-muted);font-size:18px;line-height:1;cursor:pointer;flex-shrink:0;}
+#remove-image-btn:hover{border-color:#E05C5C;color:#E05C5C;}
+.sent-image-preview{display:block;max-width:220px;max-height:260px;width:auto;height:auto;object-fit:contain;border-radius:10px;margin-bottom:7px;border:1px solid rgba(255,255,255,.1);}
+.sent-image-caption{font-size:13px;line-height:1.5;}
+@media(max-width:600px){#image-attachment-preview{margin-left:0;max-width:100%;}.sent-image-preview{max-width:min(220px,65vw);}}
+</style>
 </head>
 <body>
 
@@ -698,7 +715,19 @@
     </button>
   </div>
   <div id="input-area">
+    <div id="image-attachment-preview" aria-live="polite">
+      <img id="image-attachment-thumbnail" alt="Selected image preview">
+      <div class="image-attachment-info">
+        <div class="image-attachment-name" id="image-attachment-name">Image selected</div>
+        <div class="image-attachment-note">Ready to send with your message</div>
+      </div>
+      <button id="remove-image-btn" type="button" onclick="removePendingImageAttachment()" aria-label="Remove selected image">×</button>
+    </div>
     <div id="input-row">
+      <input id="image-upload-input" type="file" accept="image/*" capture="environment" onchange="handleImageSelection(event)" hidden>
+      <button id="attach-image-btn" type="button" onclick="openImagePicker()" aria-label="Take or choose a photo" title="Take or choose a photo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13" r="4"/></svg>
+      </button>
       <textarea id="user-input" rows="1" placeholder="Ask Marg anything about CAT..." disabled></textarea>
       <button id="send-btn" onclick="sendMessage()" disabled><svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
     </div>
@@ -999,6 +1028,8 @@ You always know what day it is — it's handed to you at the start of every sing
 
 This holds for anything else objectively checkable too — not opinions, not their own experience of their own prep, but hard facts like dates, numbers you were given, or something you calculated. If a student states one confidently and it contradicts what you actually know, hold your position and ask for clarification instead of folding just because they sounded sure. Being agreeable isn't the same as being right, and a mentor who caves under pushback isn't useful to anyone.
 
+You can receive images. Inspect them directly and use only what is genuinely visible; never pretend an unreadable number is clear. For a mock or sectional screenshot, identify the provider/header when visible, then extract VARC, DILR and QA values together with their exact displayed meaning: marks/score, correct, attempted, accuracy, percentile, or time. Do not convert one into another and do not assume that the largest-looking number is a score. If the labels are ambiguous, state the legible values, give one useful first observation, and ask only whether they represent marks, correct counts, or attempts before completing the diagnosis. For photographed questions, passages, workings or schedules, answer from the visible material and explicitly flag any cropped or unreadable part.
+
 The other direction matters just as much: when a student corrects you and you actually were wrong, that correction is now the truth for the rest of this conversation — don't drift back to your old assumption on the next calculation just because it's the default in your head. Acknowledging a correction and then repeating the same mistake two messages later is worse than never acknowledging it at all, because it teaches the student you weren't actually listening. If you catch yourself about to restate something a student already corrected, stop and use what they told you instead.
 
 When a student switches from talking to you into practice, or from one section to another, follow them there immediately — no guilt trip about what they were doing a minute ago, no "but we were just discussing X."
@@ -1153,6 +1184,34 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
+function normalizeGeminiInlineImagePart(part) {
+  if (!part || typeof part !== 'object') return null;
+  var inline = part.inlineData || part.inline_data || part.image ||
+    (part.type === 'image' && part.source && part.source.type === 'base64' ? part.source : null);
+  if (!inline || !inline.data) return null;
+  var mimeType = inline.mimeType || inline.mime_type || inline.media_type || part.mimeType || part.mime_type;
+  if (!mimeType || !/^image\//i.test(String(mimeType))) return null;
+  return { inlineData:{ mimeType:String(mimeType), data:String(inline.data) } };
+}
+
+function getGeminiMessageParts(message) {
+  var source = Array.isArray(message && message.parts)
+    ? message.parts
+    : Array.isArray(message && message.content)
+      ? message.content
+      : [message && message.content];
+  var parts = [];
+  source.forEach(function(part) {
+    if (typeof part === 'string' && part.trim()) parts.push({ text:part });
+    else if (part && typeof part.text === 'string' && part.text.trim()) parts.push({ text:part.text });
+    else {
+      var imagePart = normalizeGeminiInlineImagePart(part);
+      if (imagePart) parts.push(imagePart);
+    }
+  });
+  return parts;
+}
+
 function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType) {
   var requestedOutputTokens = Number(maxOutputTokens) || 500;
   var effectiveOutputTokens = Math.max(requestedOutputTokens, 1000);
@@ -1160,15 +1219,13 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
   (messages || []).forEach(function(message) {
     if (!message) return;
     var role = message.role === 'assistant' || message.role === 'model' ? 'model' : 'user';
-    var text = typeof message.content === 'string'
-      ? message.content
-      : Array.isArray(message.content)
-        ? message.content.map(function(part) { return typeof part === 'string' ? part : part && part.text ? part.text : ''; }).join('\n')
-        : String(message.content || '');
-    if (!text.trim()) return;
+    var parts = getGeminiMessageParts(message);
+    if (!parts.length) return;
     var previous = contents[contents.length - 1];
-    if (previous && previous.role === role) previous.parts[0].text += '\n\n' + text;
-    else contents.push({ role:role, parts:[{ text:text }] });
+    if (previous && previous.role === role) {
+      if (previous.parts.length && previous.parts[previous.parts.length - 1].text && parts[0].text) previous.parts.push({ text:'\n\n' });
+      Array.prototype.push.apply(previous.parts, parts);
+    } else contents.push({ role:role, parts:parts });
   });
   var request = {
     contents:contents,
@@ -1223,6 +1280,123 @@ let onboardingStep = 0;
 let isLoading = false;
 let lastSentMessage = '';
 let lastSentAt = 0;
+var pendingImageAttachment = null;
+
+function escapeChatHtml(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function openImagePicker() {
+  if (isLoading) return;
+  var input = document.getElementById('image-upload-input');
+  if (input) { input.value = ''; input.click(); }
+}
+
+function readImageFileAsDataUrl(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() { resolve(String(reader.result || '')); };
+    reader.onerror = function() { reject(new Error('Could not read this image')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageForResize(dataUrl) {
+  return new Promise(function(resolve, reject) {
+    var image = new Image();
+    image.onload = function() { resolve(image); };
+    image.onerror = function() { reject(new Error('This image format could not be opened')); };
+    image.src = dataUrl;
+  });
+}
+
+async function prepareImageAttachment(file) {
+  if (!file || !/^image\//i.test(file.type || '')) throw new Error('Choose an image file');
+  if (file.size > 15 * 1024 * 1024) throw new Error('That image is too large. Choose one under 15 MB.');
+  var originalUrl = await readImageFileAsDataUrl(file);
+  var mimeType = file.type || 'image/jpeg';
+  var supportedDirectly = /^image\/(?:jpeg|jpg|png|webp)$/i.test(mimeType);
+  var finalUrl = originalUrl;
+  // Preserve screenshots exactly when practical. Large camera photos are
+  // resized client-side so the Worker request remains fast and reliable.
+  if (!supportedDirectly || file.size > 4 * 1024 * 1024) {
+    var image = await loadImageForResize(originalUrl);
+    var maxSide = 2400;
+    var scale = Math.min(1, maxSide / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+    var canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+    canvas.height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+    var context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    finalUrl = canvas.toDataURL('image/jpeg', 0.9);
+    mimeType = 'image/jpeg';
+  }
+  var comma = finalUrl.indexOf(',');
+  var base64Data = comma >= 0 ? finalUrl.substring(comma + 1) : '';
+  if (!base64Data || base64Data.length > 14 * 1024 * 1024) throw new Error('The processed image is still too large. Try a screenshot or a closer photo.');
+  return { name:file.name || 'photo', mimeType:mimeType, data:base64Data, previewUrl:finalUrl };
+}
+
+async function handleImageSelection(event) {
+  var file = event && event.target && event.target.files && event.target.files[0];
+  if (!file) return;
+  var attachButton = document.getElementById('attach-image-btn');
+  if (attachButton) attachButton.disabled = true;
+  try {
+    pendingImageAttachment = await prepareImageAttachment(file);
+    var preview = document.getElementById('image-attachment-preview');
+    var thumbnail = document.getElementById('image-attachment-thumbnail');
+    var name = document.getElementById('image-attachment-name');
+    if (thumbnail) thumbnail.src = pendingImageAttachment.previewUrl;
+    if (name) name.textContent = pendingImageAttachment.name;
+    if (preview) preview.classList.add('visible');
+    var send = document.getElementById('send-btn');
+    if (send) send.disabled = false;
+  } catch(error) {
+    pendingImageAttachment = null;
+    alert(error && error.message ? error.message : 'Could not prepare this image.');
+  }
+  if (attachButton) attachButton.disabled = false;
+}
+
+function removePendingImageAttachment() {
+  pendingImageAttachment = null;
+  var preview = document.getElementById('image-attachment-preview');
+  var thumbnail = document.getElementById('image-attachment-thumbnail');
+  var input = document.getElementById('image-upload-input');
+  if (preview) preview.classList.remove('visible');
+  if (thumbnail) thumbnail.removeAttribute('src');
+  if (input) input.value = '';
+}
+
+function buildImageUserMessageHtml(text, attachment) {
+  var image = attachment ? '<img class="sent-image-preview" src="' + attachment.previewUrl + '" alt="Uploaded image">' : '';
+  var caption = text ? '<div class="sent-image-caption">' + escapeChatHtml(text).replace(/\n/g, '<br>') + '</div>' : '';
+  return image + caption;
+}
+
+function buildHistoryWithImageAttachment(history, attachment, userText) {
+  var requestHistory = cleanHistory(history || []).slice();
+  if (!attachment) return requestHistory;
+  for (var i = requestHistory.length - 1; i >= 0; i--) {
+    if (requestHistory[i] && requestHistory[i].role === 'user') {
+      requestHistory[i] = { role:'user', parts:[
+        { inlineData:{ mimeType:attachment.mimeType, data:attachment.data } },
+        { text:userText || 'Please analyze this image.' }
+      ] };
+      return requestHistory;
+    }
+  }
+  requestHistory.push({ role:'user', parts:[{ inlineData:{ mimeType:attachment.mimeType, data:attachment.data } }, { text:userText || 'Please analyze this image.' }] });
+  return requestHistory;
+}
+
+function getImageAnalysisDirective(attachment) {
+  if (!attachment) return '';
+  return '\n\nIMAGE INPUT MODE: The current user message includes an image. Inspect the image itself before responding; do not claim you cannot see it. Extract only text and numbers that are genuinely legible, and say exactly what is unclear rather than guessing. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
+}
 
 // --- Reusable Diagnostic Flow -------------------------------------------------
 // Stored separately from the database profile so this can ship without a schema
@@ -3063,6 +3237,7 @@ function getMentorResponseMaxTokens(diagnosis) {
   if (diagnosis && diagnosis.comprehensivePlanning) return 5000;
   if (diagnosis && diagnosis.intent === 'planning') return 3000;
   if (diagnosis && diagnosis.intent === 'answer_review') return Math.min(6000, Math.max(2200, 1200 + (diagnosis.answerCount || 3) * 450));
+  if (diagnosis && diagnosis.hasImage) return 2600;
   return 900;
 }
 
@@ -3344,7 +3519,7 @@ async function handleConversationalResponse(answer, context) {
   saveProfileProgressively();
 }
 
-async function sendConversationalMessage(userMessage, context) {
+async function sendConversationalMessage(userMessage, context, imageAttachment) {
   if (context !== 'typed') {
     conversationHistory.push({ role: 'user', content: userMessage });
     if (!isGuestMode) saveChatMessage('user', userMessage);
@@ -3352,6 +3527,10 @@ async function sendConversationalMessage(userMessage, context) {
   showTyping();
 
   var mentorAnalysis = buildDiagnosisDirective(userMessage);
+  if (imageAttachment) {
+    mentorAnalysis.diagnosis.hasImage = true;
+    mentorAnalysis.directive += getImageAnalysisDirective(imageAttachment);
+  }
   var profileSoFar = '';
   if (conversationalProfile.weakSection) profileSoFar += 'Weak section: ' + conversationalProfile.weakSection + '. ';
   if (conversationalProfile.hours) profileSoFar += 'Daily hours: ' + conversationalProfile.hours + '. ';
@@ -3383,13 +3562,13 @@ async function sendConversationalMessage(userMessage, context) {
 
   try {
     var mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
-    var mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
+    var mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildGeminiRequest(
         SYSTEM_PROMPT + getDateContext() + systemAddition,
-        cleanHistory(conversationHistory),
+        buildHistoryWithImageAttachment(conversationHistory, imageAttachment, userMessage),
         mentorMaxTokens
       ))
     }, mentorTimeout);
@@ -3886,23 +4065,27 @@ async function sendMessage() {
   if (!onboardingComplete && !mockVisible && !inConversationalOnboarding) return;
   if (!checkGuestLimit()) return;
   const input = document.getElementById('user-input');
-  const text = input.value.trim();
-  if (!text) return;
-  if (text === lastSentMessage && (Date.now() - lastSentAt) < 4000) return;
+  const typedText = input.value.trim();
+  const imageAttachment = pendingImageAttachment;
+  if (!typedText && !imageAttachment) return;
+  const text = typedText || 'Please analyze this image.';
+  if (!imageAttachment && text === lastSentMessage && (Date.now() - lastSentAt) < 4000) return;
   lastSentMessage = text; lastSentAt = Date.now();
   input.value = ''; input.style.height = 'auto';
   isLoading = true; document.getElementById('send-btn').disabled = true;
   if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
-  addMessage('user', text);
-  conversationHistory.push({ role: 'user', content: text });
+  addMessage('user', imageAttachment ? buildImageUserMessageHtml(typedText, imageAttachment) : escapeChatHtml(text).replace(/\n/g, '<br>'));
+  var storedUserText = text + (imageAttachment ? '\n[Image attached: ' + imageAttachment.name + ']' : '');
+  conversationHistory.push({ role: 'user', content: storedUserText });
   capturePersonalGoalDetails(text);
   detectAndSaveMockScores(text);
-  if (!isGuestMode) saveChatMessage('user', text);
+  if (!isGuestMode) saveChatMessage('user', storedUserText);
+  if (imageAttachment) removePendingImageAttachment();
   loadActiveGeneratedExercise();
   var predictionValidationReply = isPredictionValidationReply(text);
   if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
 
-  if (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text)) {
+  if (!imageAttachment && (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     isLoading = false;
     document.getElementById('send-btn').disabled = false;
     return;
@@ -3910,14 +4093,14 @@ async function sendMessage() {
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
-  if (!window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
+  if (!imageAttachment && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
     isLoading = false;
     document.getElementById('send-btn').disabled = false;
     return;
   }
 
   if (!onboardingComplete && conversationHistory.length <= 10) {
-    await sendConversationalMessage(text, 'typed');
+    await sendConversationalMessage(text, 'typed', imageAttachment);
     isLoading = false;
     document.getElementById('send-btn').disabled = false;
     return;
@@ -3926,6 +4109,10 @@ async function sendMessage() {
   showTyping();
   const activitySummary = buildActivitySummary();
   const mentorAnalysis = buildDiagnosisDirective(text);
+  if (imageAttachment) {
+    mentorAnalysis.diagnosis.hasImage = true;
+    mentorAnalysis.directive += getImageAnalysisDirective(imageAttachment);
+  }
   profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
     (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
@@ -3941,8 +4128,9 @@ async function sendMessage() {
     activitySummary + getDiagnosticMemoryContext() + getGeneratedExerciseMemoryContext(text) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + getPersonalGoalMemoryContext() + mentorAnalysis.directive + getPracticeThresholdNote();
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
-    const mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, cleanHistory(conversationHistory), mentorMaxTokens)) }, mentorTimeout);
+    const mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
+    const requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachment, text);
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens)) }, mentorTimeout);
     const data = await response.json();
     let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data) || 'Something went wrong. Please try again.'), mentorAnalysis.diagnosis);
     reply = stabilizeAndRememberMission(reply, text);
