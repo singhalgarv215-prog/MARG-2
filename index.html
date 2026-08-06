@@ -58,7 +58,14 @@
 .sent-image-grid{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:7px;}
 .sent-image-grid .sent-image-preview{width:auto;max-width:180px;max-height:230px;margin-bottom:0;}
 .sent-image-caption{font-size:13px;line-height:1.5;}
-@media(max-width:600px){#image-attachment-preview{margin-left:0;max-width:100%;}.sent-image-preview{max-width:min(220px,65vw);}.sent-image-grid .sent-image-preview{max-width:min(150px,42vw);max-height:210px;}}
+#composer-status{display:none;margin:7px 8px 0 48px;font-size:11px;line-height:1.4;color:var(--text-muted);}
+#composer-status.visible{display:block;}
+#composer-status.info{color:var(--gold-light);}
+#composer-status.success{color:var(--green);}
+#composer-status.error{color:#E05C5C;}
+.practice-submit-note{margin:10px 16px 0;padding:9px 12px;border:1px solid rgba(201,168,76,.18);border-radius:9px;background:rgba(201,168,76,.06);font-size:12px;color:var(--gold-light);line-height:1.45;}
+.pcard-submit-hint{font-size:11px;color:var(--gold-light);margin:0 0 9px;}
+@media(max-width:600px){#image-attachment-preview{margin-left:0;max-width:100%;}#composer-status{margin-left:4px;}.sent-image-preview{max-width:min(220px,65vw);}.sent-image-grid .sent-image-preview{max-width:min(150px,42vw);max-height:210px;}}
 </style>
 </head>
 <body>
@@ -735,6 +742,7 @@
       <textarea id="user-input" rows="1" placeholder="Ask Marg anything about CAT..." disabled></textarea>
       <button id="send-btn" onclick="sendMessage()" disabled><svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
     </div>
+    <div id="composer-status" role="status" aria-live="polite"></div>
     <div id="hint">Press Enter to send · Shift+Enter for new line</div>
   </div>
 </div>
@@ -751,6 +759,7 @@
       <button class="ptab-btn" onclick="switchPracticeTab('dilr')" id="ptab-dilr">🧩 DILR</button>
       <button class="ptab-btn" onclick="switchPracticeTab('qa')" id="ptab-qa">🔢 QA</button>
     </div>
+    <div class="practice-submit-note">Tap an option to submit your answer. Chat messages do not select an option in Practice.</div>
   </div>
   <div class="practice-content" id="practice-content">
     <div class="practice-loading" id="practice-loading">
@@ -910,7 +919,7 @@ var onboardingComplete = false;
 
 function stripMarkdown(text) {
   if (!text || typeof text !== 'string') return text;
-  return text
+  return convertLatexToPlainText(text)
     .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
     .replace(/\[CONTEXT:[^\]]*\]/g, '')
     .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -922,6 +931,57 @@ function stripMarkdown(text) {
     .replace(/===+/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function convertLatexToPlainText(text) {
+  if (text === null || text === undefined) return text;
+  var value = String(text);
+
+  // Remove display/inline math wrappers while preserving ordinary currency
+  // such as "$100". Paired dollar signs are treated as math only when their
+  // contents look like an expression rather than a sentence between prices.
+  value = value
+    .replace(/\$\$([\s\S]*?)\$\$/g, '$1')
+    .replace(/\\\[([\s\S]*?)\\\]/g, '$1')
+    .replace(/\\\(([\s\S]*?)\\\)/g, '$1')
+    .replace(/\$([^$\n]+)\$/g, function(match, inner) {
+      return /\\|[=+*/^<>]|^\s*[A-Za-z0-9.,]+\s*$/.test(inner) ? inner : match;
+    });
+
+  // Unwrap nested formatting commands before translating arithmetic. A few
+  // passes handle forms such as \mathbf{\text{Rs. } 500} safely.
+  for (var pass = 0; pass < 6; pass++) {
+    var previous = value;
+    value = value
+      .replace(/\\(?:text|mathrm|mathbf|textbf|operatorname|boxed|emph)\s*\{([^{}]*)\}/g, '$1')
+      .replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, function(_, numerator, denominator) {
+        return numerator.trim() + ' ÷ ' + denominator.trim();
+      })
+      .replace(/\\sqrt\s*\{([^{}]*)\}/g, '√($1)');
+    if (value === previous) break;
+  }
+
+  value = value
+    .replace(/\\begin\s*\{[^{}]*\}|\\end\s*\{[^{}]*\}/g, '')
+    .replace(/\\left|\\right/g, '')
+    .replace(/\\times\b|\\cdot\b/g, '×')
+    .replace(/\\div\b/g, '÷')
+    .replace(/\\leq?\b/g, '≤')
+    .replace(/\\geq?\b/g, '≥')
+    .replace(/\\neq\b/g, '≠')
+    .replace(/\\approx\b/g, '≈')
+    .replace(/\\pm\b/g, '±')
+    .replace(/\\infty\b/g, '∞')
+    .replace(/\\%/g, '%')
+    .replace(/\\(?:quad|qquad)\b|\\[,;!]/g, ' ')
+    .replace(/\^\{([^{}]+)\}/g, '^$1')
+    .replace(/_\{([^{}]+)\}/g, '$1')
+    .replace(/\\([{}_#$%&])/g, '$1')
+    .replace(/\\[A-Za-z]+\b/g, '')
+    .replace(/[ \t]+([,.;:])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ');
+
+  return value.trim();
 }
 
 function addMargMessage(text, isHtml) {
@@ -999,6 +1059,8 @@ When you're suggesting one specific next thing to do, you don't get to decide th
 Your replies run one to three sentences by default. You go longer only when someone's actually asked for an explanation or a full plan — if you're writing four sentences and two of them aren't doing anything, cut them.
 
 LENGTH CONTRACT: Make ordinary mentoring replies roughly 35-80 words. This is a WhatsApp conversation, not an essay. Use short sentences and line breaks. A requested complete roadmap, full timetable, multi-question answer check, or concept explanation may exceed 100 words because completeness matters more than artificial brevity there. Even then, remove introductions, repetition and generic encouragement. Never stop mid-component or mid-sentence merely to satisfy the usual short-response target.
+
+PLAIN-TEXT MATH CONTRACT: Never output LaTeX or TeX notation anywhere—not in chat, solutions, answer reviews, generated practice, or JSON string fields. Do not use dollar-sign math delimiters, \\(...\\), \\[...\\], \\frac, \\mathbf, \\text, \\times, or similar commands. The interface does not render LaTeX. Write every calculation as readable plain text using =, +, −, ×, ÷, %, ^, √, parentheses, and Rs. or ₹. Example: "Number of Shares = 11,000 ÷ 110 = 100 shares" and "Dividend = 100 × Rs. 5 = Rs. 500". Before sending, silently rewrite any remaining backslash math command or paired math delimiter into plain text.
 
 If the student says only "continue", "go on", "finish it", or an equivalent after an incomplete reply, treat the immediately preceding Marg message as an interrupted response. Resume from its exact endpoint and provide only what is missing. Never restart the solution, repeat earlier steps, re-explain the passage/set, reproduce completed roadmap sections, apologize, summarize, or add a fresh introduction. The conversation history is the source of truth for the exact continuation point.
 
@@ -1228,6 +1290,8 @@ function getGeminiMessageParts(message) {
   return parts;
 }
 
+const GEMINI_PLAIN_TEXT_MATH_INSTRUCTION = '\n\nOUTPUT FORMAT — PLAIN-TEXT MATH ONLY: Never use LaTeX/TeX, dollar-sign math delimiters, \\(...\\), \\[...\\], \\frac, \\mathbf, \\text, \\times, or related commands. Use readable plain arithmetic with =, +, −, ×, ÷, %, ^, √, parentheses, and Rs. or ₹. This rule also applies inside JSON string fields.';
+
 function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType) {
   var requestedOutputTokens = Number(maxOutputTokens) || 500;
   var minimumOutputTokens = responseMimeType === 'application/json' ? 16384 : 4096;
@@ -1252,7 +1316,7 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
     }
   };
   if (responseMimeType) request.generationConfig.responseMimeType = responseMimeType;
-  if (systemInstruction) request.systemInstruction = { parts:[{ text:String(systemInstruction) }] };
+  request.systemInstruction = { parts:[{ text:String(systemInstruction || '') + GEMINI_PLAIN_TEXT_MATH_INSTRUCTION }] };
   return request;
 }
 
@@ -1300,13 +1364,129 @@ let lastSentAt = 0;
 var pendingImageAttachments = [];
 var MAX_IMAGE_ATTACHMENTS = 4;
 var MAX_TOTAL_IMAGE_BASE64_LENGTH = 18 * 1024 * 1024;
+var queuedOutgoingMessage = null;
+var composerStatusTimer = null;
 
 function escapeChatHtml(value) {
   return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
+function getMessageSubmissionDecision(state) {
+  if (!state || !state.hasContent) return state && state.isLoading ? 'loading_empty' : 'empty';
+  if (state.isLoading) return state.queueFull ? 'queue_full' : 'queue';
+  if (!state.chatReady) return 'chat_not_ready';
+  if (state.duplicate && !state.fromQueue) return 'duplicate';
+  return 'send';
+}
+
+function getChatDraftStorageKey() {
+  return 'marg_chat_draft_' + (currentUser && currentUser.id ? currentUser.id : isGuestMode ? 'guest' : 'anonymous');
+}
+
+function saveCurrentChatDraft() {
+  var input = document.getElementById('user-input');
+  if (!input) return;
+  try {
+    if (input.value) localStorage.setItem(getChatDraftStorageKey(), input.value);
+    else localStorage.removeItem(getChatDraftStorageKey());
+  } catch(e) {}
+}
+
+function restoreCurrentChatDraft() {
+  var input = document.getElementById('user-input');
+  if (!input || input.value || queuedOutgoingMessage) return;
+  try { input.value = localStorage.getItem(getChatDraftStorageKey()) || ''; } catch(e) {}
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  updateComposerControls();
+}
+
+function showComposerStatus(message, type, persist) {
+  var status = document.getElementById('composer-status');
+  if (!status) return;
+  if (composerStatusTimer) { clearTimeout(composerStatusTimer); composerStatusTimer = null; }
+  status.textContent = message || '';
+  status.className = message ? 'visible ' + (type || 'info') : '';
+  if (message && !persist) {
+    composerStatusTimer = setTimeout(function() {
+      status.textContent = '';
+      status.className = '';
+      composerStatusTimer = null;
+    }, 4500);
+  }
+}
+
+function composerHasContent() {
+  var input = document.getElementById('user-input');
+  return !!((input && input.value.trim()) || pendingImageAttachments.length);
+}
+
+function updateComposerControls() {
+  var input = document.getElementById('user-input');
+  var sendButton = document.getElementById('send-btn');
+  var attachButton = document.getElementById('attach-image-btn');
+  var queueLocked = !!(isLoading && queuedOutgoingMessage);
+  if (input) {
+    if (queueLocked) {
+      input.dataset.queueLocked = 'true';
+      input.disabled = true;
+    } else if (input.dataset.queueLocked === 'true') {
+      input.disabled = false;
+      delete input.dataset.queueLocked;
+    }
+  }
+  if (sendButton) sendButton.disabled = queueLocked || !composerHasContent();
+  if (attachButton) attachButton.disabled = queueLocked || pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS;
+}
+
+function queueCurrentComposerMessage() {
+  var input = document.getElementById('user-input');
+  var typedText = input ? input.value.trim() : '';
+  var attachments = pendingImageAttachments.slice();
+  if (queuedOutgoingMessage) {
+    showComposerStatus('One message is already queued. Marg will send it as soon as the current reply finishes.', 'info', true);
+    updateComposerControls();
+    return false;
+  }
+  if (!typedText && !attachments.length) {
+    showComposerStatus('Marg is still responding. Type your next message and it can be queued.', 'info');
+    return false;
+  }
+  queuedOutgoingMessage = { typedText:typedText, imageAttachments:attachments };
+  if (input) { input.value = ''; input.style.height = 'auto'; }
+  pendingImageAttachments = [];
+  renderPendingImageAttachments();
+  saveCurrentChatDraft();
+  showComposerStatus('Message queued — it will send automatically after Marg finishes this reply.', 'success', true);
+  updateComposerControls();
+  return true;
+}
+
+function flushQueuedComposerMessage() {
+  if (!queuedOutgoingMessage || isLoading) { updateComposerControls(); return; }
+  var queued = queuedOutgoingMessage;
+  queuedOutgoingMessage = null;
+  var input = document.getElementById('user-input');
+  if (input) {
+    input.disabled = false;
+    delete input.dataset.queueLocked;
+    input.value = queued.typedText || '';
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  }
+  pendingImageAttachments = queued.imageAttachments || [];
+  renderPendingImageAttachments();
+  saveCurrentChatDraft();
+  showComposerStatus('Sending your queued message now…', 'success');
+  updateComposerControls();
+  setTimeout(function() { sendMessage(true); }, 0);
+}
+
 function openImagePicker() {
-  if (isLoading) return;
+  if (isLoading && queuedOutgoingMessage) {
+    showComposerStatus('One message is already queued. Wait for it to send before attaching another image.', 'info', true);
+    return;
+  }
   if (pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS) {
     alert('You can send up to ' + MAX_IMAGE_ATTACHMENTS + ' images in one message.');
     return;
@@ -1392,7 +1572,7 @@ async function handleImageSelection(event) {
     if (errors.length) alert(errors.join('\n'));
   } finally {
     if (event && event.target) event.target.value = '';
-    if (attachButton) attachButton.disabled = pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS;
+    updateComposerControls();
   }
 }
 
@@ -1400,7 +1580,6 @@ function renderPendingImageAttachments() {
   var preview = document.getElementById('image-attachment-preview');
   var list = document.getElementById('image-attachment-list');
   var title = document.getElementById('image-attachment-title');
-  var attachButton = document.getElementById('attach-image-btn');
   if (list) {
     list.innerHTML = pendingImageAttachments.map(function(attachment, index) {
       return '<div class="image-attachment-item">' +
@@ -1412,10 +1591,7 @@ function renderPendingImageAttachments() {
   }
   if (title) title.textContent = pendingImageAttachments.length + ' photo' + (pendingImageAttachments.length === 1 ? '' : 's') + ' ready to send';
   if (preview) preview.classList.toggle('visible', pendingImageAttachments.length > 0);
-  if (attachButton) attachButton.disabled = pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS;
-  var send = document.getElementById('send-btn');
-  var input = document.getElementById('user-input');
-  if (send) send.disabled = !pendingImageAttachments.length && !(input && input.value.trim());
+  updateComposerControls();
 }
 
 function removePendingImageAttachment(index) {
@@ -1863,11 +2039,25 @@ function maybeLaunchDiagnosticFromMessage(message) {
   return openDiagnosticFlow(topic, { firstTime:false });
 }
 
+function shouldDeferDiagnosticRoutingToGemini(message) {
+  var text = String(message || '').trim();
+  var normalized = text.toLowerCase();
+  var wordCount = text.split(/\s+/).filter(Boolean).length;
+  var sectionCount = [/(?:\bvarc\b|reading comprehension|verbal ability|\brc\b)/, /(?:\bdilr\b|\blrdi\b|data interpretation|logical reasoning)/, /(?:\bqa\b|\bquants?\b|quantitative aptitude)/].filter(function(pattern) { return pattern.test(normalized); }).length;
+  if (sectionCount >= 2) return true;
+  if (wordCount >= 12) return true;
+  if (wordCount >= 8 && /\?|\b(?:because|but|however|although|while|instead|actually|except)\b/.test(normalized)) return true;
+  return false;
+}
+
 async function maybeStartGuidedExperienceFromMessage(message) {
   if (isAnswerReviewRequest(message)) return false;
   // A detailed multi-section roadmap request already contains enough context.
   // It should be answered as planning, not collapsed into one section's flow.
   if (isComprehensiveRoadmapRequest(message)) return false;
+  // Rule-based diagnostics are only for short, explicit topic switches. Richer
+  // messages must reach Gemini intact so their causal detail is not discarded.
+  if (shouldDeferDiagnosticRoutingToGemini(message)) return false;
   var topic = detectExplicitDiagnosticTopic(message);
   if (!topic) {
     var shortTopic = String(message || '').toLowerCase().trim();
@@ -1911,6 +2101,9 @@ function runDiagnosticFlowTests() {
     { name:'explicit DILR switch', passed:detectExplicitDiagnosticTopic('My DILR is terrible') === 'dilr' },
     { name:'multi-section roadmap is planning, not first-mentioned VARC', passed:detectExplicitDiagnosticTopic('I am on my third attempt and use different resources for VARC, DILR and QA. Build a complete roadmap with sectionals and mocks.') === 'study_plan' },
     { name:'ordinary mentoring is not interrupted', passed:detectExplicitDiagnosticTopic('I solved two RC passages today') === null },
+    { name:'nuanced VARC message reaches Gemini', passed:shouldDeferDiagnosticRoutingToGemini('I need help with VARC because I understand passages but keep changing the right answer under mock pressure') === true },
+    { name:'multi-section message reaches Gemini', passed:shouldDeferDiagnosticRoutingToGemini('VARC and QA both feel weak') === true },
+    { name:'short explicit section switch keeps fast routing', passed:shouldDeferDiagnosticRoutingToGemini('My DILR is terrible') === false },
     { name:'new topic launches', passed:shouldLaunchDiagnosticTopic('qa') === true }
   ];
   diagnosticMemory.qa = { confirmation:'Exactly', confidence:.95 };
@@ -1946,6 +2139,19 @@ function runProductExperienceTests() {
     { name:'multi-answer review formatter separates question blocks', passed:formatMultiAnswerReview('Q1 Your Answer: D Correct Answer: A Diagnosis: Scope. Fix: Verify. Q2 Your Answer: C Correct Answer: C Diagnosis: Correct. Pattern Check: 1/2 right.', { intent:'answer_review' }).indexOf('Q1\nYour Answer: D') !== -1 && formatMultiAnswerReview('Q1 Your Answer: D Correct Answer: A Diagnosis: Scope. Fix: Verify. Q2 Your Answer: C Correct Answer: C Diagnosis: Correct. Pattern Check: 1/2 right.', { intent:'answer_review' }).indexOf('\n\nQ2\n') !== -1 }
   ];
 }
+
+function runSubmissionStateTests() {
+  return [
+    { name:'normal mobile tap sends', passed:getMessageSubmissionDecision({ hasContent:true, isLoading:false, queueFull:false, chatReady:true, duplicate:false, fromQueue:false }) === 'send' },
+    { name:'tap while Marg responds queues once', passed:getMessageSubmissionDecision({ hasContent:true, isLoading:true, queueFull:false, chatReady:true, duplicate:false, fromQueue:false }) === 'queue' },
+    { name:'second queued tap is explained', passed:getMessageSubmissionDecision({ hasContent:true, isLoading:true, queueFull:true, chatReady:true, duplicate:false, fromQueue:false }) === 'queue_full' },
+    { name:'early onboarding tap preserves draft', passed:getMessageSubmissionDecision({ hasContent:true, isLoading:false, queueFull:false, chatReady:false, duplicate:false, fromQueue:false }) === 'chat_not_ready' },
+    { name:'duplicate tap is not silently resent', passed:getMessageSubmissionDecision({ hasContent:true, isLoading:false, queueFull:false, chatReady:true, duplicate:true, fromQueue:false }) === 'duplicate' },
+    { name:'queued duplicate can flush', passed:getMessageSubmissionDecision({ hasContent:true, isLoading:false, queueFull:false, chatReady:true, duplicate:true, fromQueue:true }) === 'send' },
+    { name:'empty tap is explained', passed:getMessageSubmissionDecision({ hasContent:false, isLoading:false, queueFull:false, chatReady:true, duplicate:false, fromQueue:false }) === 'empty' }
+  ];
+}
+window.runMargSubmissionStateTests = runSubmissionStateTests;
 
 // --- Generated exercise + behavioural memory --------------------------------
 var INTERNAL_MEMORY_PREFIX = '[MARG_INTERNAL:';
@@ -2522,6 +2728,7 @@ function showLanding() {
 
 function addMessage(role, html, showAvatar) {
   if (showAvatar === undefined) showAvatar = true;
+  if (role === 'marg' && typeof html === 'string') html = convertLatexToPlainText(html);
   // Strip markdown from ALL Marg responses at the source
   if (role === 'marg' && html && typeof html === 'string' && !html.includes('<div') && !html.includes('<button')) {
     html = html
@@ -3264,7 +3471,7 @@ function formatMultiAnswerReview(text, diagnosis) {
 }
 
 function applyMentorResponseGuard(response, diagnosis) {
-  var text = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || '')))).trim();
+  var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
@@ -3359,9 +3566,8 @@ function removeConversationalOptions() {
 
 function keepChatInteractive() {
   var input = document.getElementById('user-input');
-  var sendButton = document.getElementById('send-btn');
   if (input) { input.disabled = false; input.focus(); }
-  if (sendButton && !isLoading) sendButton.disabled = false;
+  updateComposerControls();
 }
 
 async function dispatchConversationalQuickReply(option, context, container) {
@@ -3966,6 +4172,7 @@ function restoreConversation() {
     });
   }
   if (displayMessages.length === 0) addSuggestionChips();
+  restoreCurrentChatDraft();
   document.getElementById('user-input').focus();
   checkAndShowTour();
 }
@@ -4023,7 +4230,17 @@ function buildActivitySummary() {
   return summary;
 }
 
-function sendQuick(text) { if (isLoading || !onboardingComplete) return; document.getElementById('user-input').value = text; sendMessage(); }
+function sendQuick(text) {
+  var input = document.getElementById('user-input');
+  if (!input) return;
+  if (!onboardingComplete && !conversationHistory.length) {
+    showComposerStatus('Marg is still opening the conversation. Try this again once the first message appears.', 'info', true);
+    return;
+  }
+  input.value = text;
+  input.dispatchEvent(new Event('input'));
+  sendMessage();
+}
 
 function timetableRoutineStorageKey() {
   return 'marg_timetable_routine_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
@@ -4107,56 +4324,81 @@ function handleTopicSectionalTiming(answer) {
     : 'Done. Later today, I’ll keep the ' + item.topic + ' timed sectional as the next move.');
 }
 
-async function sendMessage() {
-  if (isLoading) return;
-
+async function sendMessage(fromQueue) {
   const mockOverlay = document.getElementById('mock-onboarding-overlay');
   const mockVisible = mockOverlay && mockOverlay.style.display === 'flex';
-
   var inConversationalOnboarding = !onboardingComplete && conversationHistory.length > 0;
-  if (!onboardingComplete && !mockVisible && !inConversationalOnboarding) return;
-  if (!checkGuestLimit()) return;
   const input = document.getElementById('user-input');
   const typedText = input.value.trim();
   const imageAttachments = pendingImageAttachments.slice();
   const hasImages = imageAttachments.length > 0;
-  if (!typedText && !hasImages) return;
+  const hasContent = !!(typedText || hasImages);
   const text = typedText || (imageAttachments.length > 1 ? 'Please analyze these images in page order.' : 'Please analyze this image.');
-  if (!hasImages && text === lastSentMessage && (Date.now() - lastSentAt) < 4000) return;
+  const duplicate = !hasImages && text === lastSentMessage && (Date.now() - lastSentAt) < 4000;
+  const chatReady = !!(onboardingComplete || mockVisible || inConversationalOnboarding);
+  const submissionDecision = getMessageSubmissionDecision({
+    hasContent:hasContent,
+    isLoading:isLoading,
+    queueFull:!!queuedOutgoingMessage,
+    chatReady:chatReady,
+    duplicate:duplicate,
+    fromQueue:!!fromQueue
+  });
+
+  if (submissionDecision === 'queue' || submissionDecision === 'queue_full' || submissionDecision === 'loading_empty') {
+    queueCurrentComposerMessage();
+    return;
+  }
+  if (submissionDecision === 'empty') {
+    showComposerStatus('Type a message or attach an image before sending.', 'info');
+    return;
+  }
+  if (submissionDecision === 'chat_not_ready') {
+    saveCurrentChatDraft();
+    showComposerStatus('Marg is still opening the conversation. Your draft is saved—send it once the first message appears.', 'info', true);
+    return;
+  }
+  if (submissionDecision === 'duplicate') {
+    showComposerStatus('That message was already sent. Marg is working on it.', 'info');
+    return;
+  }
+  if (!checkGuestLimit()) {
+    showComposerStatus('The guest-message limit has been reached. Sign in to keep this conversation going.', 'info', true);
+    return;
+  }
+
+  showComposerStatus('', 'info');
   lastSentMessage = text; lastSentAt = Date.now();
   input.value = ''; input.style.height = 'auto';
-  isLoading = true; document.getElementById('send-btn').disabled = true;
-  if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
-  addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
-  var storedImageMarker = hasImages ? '\n[' + imageAttachments.length + ' images attached in page order: ' + imageAttachments.map(function(item) { return item.name; }).join(', ') + ']' : '';
-  var storedUserText = text + storedImageMarker;
-  conversationHistory.push({ role: 'user', content: storedUserText });
-  capturePersonalGoalDetails(text);
-  detectAndSaveMockScores(text);
-  if (!isGuestMode) saveChatMessage('user', storedUserText);
-  if (hasImages) removePendingImageAttachment();
-  loadActiveGeneratedExercise();
-  var predictionValidationReply = isPredictionValidationReply(text);
-  if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
+  saveCurrentChatDraft();
+  try {
+    isLoading = true;
+    updateComposerControls();
+    if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
+    addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
+    var storedImageMarker = hasImages ? '\n[' + imageAttachments.length + ' images attached in page order: ' + imageAttachments.map(function(item) { return item.name; }).join(', ') + ']' : '';
+    var storedUserText = text + storedImageMarker;
+    conversationHistory.push({ role: 'user', content: storedUserText });
+    capturePersonalGoalDetails(text);
+    detectAndSaveMockScores(text);
+    if (!isGuestMode) saveChatMessage('user', storedUserText);
+    if (hasImages) removePendingImageAttachment();
+    loadActiveGeneratedExercise();
+    var predictionValidationReply = isPredictionValidationReply(text);
+    if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
 
   if (!hasImages && (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
-    isLoading = false;
-    document.getElementById('send-btn').disabled = false;
     return;
   }
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
   if (!hasImages && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
-    isLoading = false;
-    document.getElementById('send-btn').disabled = false;
     return;
   }
 
   if (!onboardingComplete && conversationHistory.length <= 10) {
     await sendConversationalMessage(text, 'typed', imageAttachments);
-    isLoading = false;
-    document.getElementById('send-btn').disabled = false;
     return;
   }
 
@@ -4220,11 +4462,26 @@ async function sendMessage() {
     conversationHistory.push({ role: 'assistant', content: fallbackReply });
     if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
   }
-  isLoading = false; document.getElementById('send-btn').disabled = false; input.focus();
-  window._timetableRoutineJustCaptured = false;
+  } catch (sendStateError) {
+    hideTyping();
+    console.error('Message submission state failed:', sendStateError);
+    addMentorLeadMessage('That message hit a temporary send problem, but the chat is unlocked and your message is still visible above. Try once more—I will continue from it.');
+    showComposerStatus('The send failed, but the composer has recovered. You can try again now.', 'error', true);
+  } finally {
+    isLoading = false;
+    window._timetableRoutineJustCaptured = false;
+    updateComposerControls();
+    if (queuedOutgoingMessage) setTimeout(flushQueuedComposerMessage, 0);
+    else if (input && !input.disabled) input.focus();
+  }
 }
 
-document.getElementById('user-input').addEventListener('input', function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; });
+document.getElementById('user-input').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  saveCurrentChatDraft();
+  updateComposerControls();
+});
 document.getElementById('user-input').addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 
 let checkinStudied = null;
@@ -4514,7 +4771,8 @@ function startGuestMode() {
   loadMentorMemory();
   setTimeout(startChatFirstOnboarding, 300);
   document.getElementById('user-input').disabled = false;
-  document.getElementById('send-btn').disabled = false;
+  restoreCurrentChatDraft();
+  updateComposerControls();
   document.getElementById('user-input').focus();
 }
 
@@ -5483,6 +5741,7 @@ function bestSectionalRecommendation() {
 }
 
 function switchTab(tab) {
+  if (currentTab === 'chat') saveCurrentChatDraft();
   currentTab = tab;
   document.querySelectorAll('.tab-section').forEach(function(s) { s.classList.remove('active'); });
   document.querySelectorAll('.bnav-btn').forEach(function(b) { b.classList.remove('active'); });
@@ -5495,6 +5754,7 @@ function switchTab(tab) {
       if (el) el.style.display = '';
     });
     document.getElementById('bnav-chat').classList.add('active');
+    restoreCurrentChatDraft();
     if (window._practiceCompleteSummary) {
       setTimeout(function() {
         prefillMessage(window._practiceCompleteSummary);
@@ -6638,7 +6898,7 @@ function getMorningPromptHtml() {
 
 function getOptionsHtml(options) {
   return options.map(function(opt, i) {
-    return '<button class="pcard-option" onclick="selectAnswer(' + i + ')" data-index="' + i + '">' + opt + '</button>';
+    return '<button class="pcard-option" onclick="selectAnswer(' + i + ')" data-index="' + i + '">' + convertLatexToPlainText(opt) + '</button>';
   }).join('');
 }
 
@@ -6657,9 +6917,9 @@ function renderPractice(data) {
     total = setObj.questions.length;
     headerLabel = 'RC — Set ' + (currentSetIndex + 1) + ' of ' + totalSets + ' · Question ' + qNum + ' of ' + total;
     diffLabel = (setObj.difficulty || 'Medium') + ' · ' + (setObj.topic || 'General');
-    var passageParas = (setObj.passage || '').split(/\n\s*\n/).map(function(p) { return '<p>' + p.trim().replace(/\n/g, '<br>') + '</p>'; }).join('');
+    var passageParas = convertLatexToPlainText(setObj.passage || '').split(/\n\s*\n/).map(function(p) { return '<p>' + p.trim().replace(/\n/g, '<br>') + '</p>'; }).join('');
     var passageHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage">' + passageParas + '</div>' : '';
-    bodyHtml = passageHtml + '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+    bodyHtml = passageHtml + '<div class="pcard-question">' + convertLatexToPlainText(q.q) + '</div><div class="pcard-submit-hint">Tap an option to submit your answer.</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
     hasPrev = currentSetIndex > 0 || currentQuestionIndex > 0;
     isLastOverall = currentSetIndex === totalSets - 1 && currentQuestionIndex === total - 1;
   } else if (currentPracticeType === 'dilr') {
@@ -6670,8 +6930,8 @@ function renderPractice(data) {
     total = setObj.questions.length;
     headerLabel = 'DILR — Set ' + (currentSetIndex + 1) + ' of ' + totalSets + ' · Question ' + qNum + ' of ' + total;
     diffLabel = (setObj.difficulty || 'Medium') + ' · ' + (setObj.constraint_types || []).join(' + ');
-    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong> ' + setObj.setup + '</div>' : '';
-    bodyHtml = setupHtml + '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong> ' + convertLatexToPlainText(setObj.setup) + '</div>' : '';
+    bodyHtml = setupHtml + '<div class="pcard-question">' + convertLatexToPlainText(q.q) + '</div><div class="pcard-submit-hint">Tap an option to submit your answer.</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
     hasPrev = currentSetIndex > 0 || currentQuestionIndex > 0;
     isLastOverall = currentSetIndex === totalSets - 1 && currentQuestionIndex === total - 1;
   } else {
@@ -6680,7 +6940,7 @@ function renderPractice(data) {
     total = data.questions.length;
     headerLabel = 'QA — Question ' + qNum + ' of ' + total;
     diffLabel = (data.difficulty || 'Medium') + ' · ' + (data.topics_combined || []).join(' + ');
-    bodyHtml = '<div class="pcard-question">' + q.q + '</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
+    bodyHtml = '<div class="pcard-question">' + convertLatexToPlainText(q.q) + '</div><div class="pcard-submit-hint">Tap an option to submit your answer.</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
     hasPrev = currentQuestionIndex > 0;
     isLastOverall = currentQuestionIndex === total - 1;
   }
@@ -6726,8 +6986,8 @@ function selectAnswer(selectedIndex) {
     insightText = isCorrect ? 'Correct approach.' : (q.marg_insight || '') + (q.concept_check ? ' (Topic: ' + q.concept_check + ')' : '');
   }
 
-  body.innerHTML = explanationText;
-  insight.textContent = insightText;
+  body.innerHTML = convertLatexToPlainText(explanationText);
+  insight.textContent = convertLatexToPlainText(insightText);
   box.classList.add('visible');
 
   var nextBtn = document.getElementById('next-btn');
