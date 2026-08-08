@@ -916,6 +916,117 @@ var feedbackSelected = null;
 var feedbackShown = false;
 var isGuestMode = false;
 var onboardingComplete = false;
+var pendingDeepLinkQuestion = null;
+var deepLinkQuestionDispatchScheduled = false;
+var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question';
+var DEEP_LINK_QUESTION_MAX_LENGTH = 8000;
+
+function normalizeDeepLinkQuestion(value) {
+  return String(value || '').replace(/\u0000/g, '').trim().slice(0, DEEP_LINK_QUESTION_MAX_LENGTH);
+}
+
+function getDeepLinkDispatchDecision(state) {
+  if (!state || !state.hasQuestion) return 'none';
+  if (!state.authenticated) return 'wait_auth';
+  if (!state.onboarded || !state.chatVisible || state.inputDisabled) return 'wait_onboarding';
+  if (state.loading || state.queueFull) return 'wait_loading';
+  if (state.hasDraft) return 'draft_conflict';
+  return 'dispatch';
+}
+
+function savePendingDeepLinkQuestion(text) {
+  pendingDeepLinkQuestion = normalizeDeepLinkQuestion(text);
+  if (!pendingDeepLinkQuestion) return false;
+  try {
+    localStorage.setItem(DEEP_LINK_QUESTION_STORAGE_KEY, JSON.stringify({
+      text:pendingDeepLinkQuestion,
+      createdAt:Date.now()
+    }));
+  } catch(e) {}
+  return true;
+}
+
+function loadPendingDeepLinkQuestion() {
+  if (pendingDeepLinkQuestion) return pendingDeepLinkQuestion;
+  try {
+    var stored = JSON.parse(localStorage.getItem(DEEP_LINK_QUESTION_STORAGE_KEY) || 'null');
+    if (!stored || !stored.text || !stored.createdAt || Date.now() - Number(stored.createdAt) > 86400000) {
+      localStorage.removeItem(DEEP_LINK_QUESTION_STORAGE_KEY);
+      return null;
+    }
+    pendingDeepLinkQuestion = normalizeDeepLinkQuestion(stored.text);
+  } catch(e) {
+    try { localStorage.removeItem(DEEP_LINK_QUESTION_STORAGE_KEY); } catch(ignore) {}
+  }
+  return pendingDeepLinkQuestion;
+}
+
+function captureDeepLinkQuestionFromUrl() {
+  var params;
+  try { params = new URLSearchParams(window.location.search); } catch(e) { return loadPendingDeepLinkQuestion(); }
+  if (params.has('q')) {
+    var question = normalizeDeepLinkQuestion(params.get('q'));
+    if (question) savePendingDeepLinkQuestion(question);
+    params.delete('q');
+    try {
+      var remainingQuery = params.toString();
+      var cleanedUrl = window.location.pathname + (remainingQuery ? '?' + remainingQuery : '') + window.location.hash;
+      window.history.replaceState({}, document.title, cleanedUrl);
+    } catch(e) {}
+  }
+  return loadPendingDeepLinkQuestion();
+}
+
+function hasPendingDeepLinkQuestion() {
+  return !!loadPendingDeepLinkQuestion();
+}
+
+function tryDispatchPendingDeepLinkQuestion() {
+  var question = loadPendingDeepLinkQuestion();
+  var input = document.getElementById('user-input');
+  var chatApp = document.getElementById('chat-app');
+  var decision = getDeepLinkDispatchDecision({
+    hasQuestion:!!question,
+    authenticated:!!(currentUser && SUPABASE_TOKEN && !isGuestMode),
+    onboarded:!!onboardingComplete,
+    chatVisible:!!(chatApp && chatApp.style.display !== 'none'),
+    inputDisabled:!!(!input || input.disabled),
+    loading:!!isLoading,
+    queueFull:!!queuedOutgoingMessage,
+    hasDraft:!!(input && input.value.trim())
+  });
+
+  if (decision === 'none') return true;
+  if (decision === 'draft_conflict') {
+    showComposerStatus('Your linked question is ready. Send or clear the draft already in the composer first.', 'info', true);
+    return false;
+  }
+  if (decision !== 'dispatch') return false;
+
+  // Clear durable state before sending so auth callbacks, reloads and repeated
+  // readiness hooks cannot submit the same external question twice.
+  pendingDeepLinkQuestion = null;
+  try { localStorage.removeItem(DEEP_LINK_QUESTION_STORAGE_KEY); } catch(e) {}
+  if (currentTab !== 'chat') switchTab('chat');
+  input.value = question;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  input.dispatchEvent(new Event('input'));
+  showComposerStatus('Sending the question from your link…', 'success');
+  setTimeout(function() { sendMessage(); }, 0);
+  return true;
+}
+
+function schedulePendingDeepLinkQuestionDispatch(delayMs) {
+  if (!hasPendingDeepLinkQuestion()) return false;
+  if (deepLinkQuestionDispatchScheduled) return true;
+  deepLinkQuestionDispatchScheduled = true;
+  setTimeout(function() {
+    deepLinkQuestionDispatchScheduled = false;
+    tryDispatchPendingDeepLinkQuestion();
+  }, Math.max(0, Number(delayMs) || 0));
+  return true;
+}
 
 function stripMarkdown(text) {
   if (!text || typeof text !== 'string') return text;
@@ -2800,7 +2911,7 @@ async function finishOnboarding() {
   onboardingComplete = true;
   await saveProfile();
   showBottomNav();
-  showPathChoiceScreen();
+  if (!schedulePendingDeepLinkQuestionDispatch(300)) showPathChoiceScreen();
 }
 
 function showPathChoiceScreen() {
@@ -3009,6 +3120,7 @@ function completeChatFirstOnboarding(section) {
   try { localStorage.setItem('marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest'), '1'); } catch(e) {}
   showBottomNav();
   saveProfile();
+  schedulePendingDeepLinkQuestionDispatch(250);
 }
 
 var chatDiagnosticState = { active:false, topic:null, subcategory:null, pattern:null, displayPrediction:null, revisedPrediction:null, rejectedCount:0 };
@@ -3870,6 +3982,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
         studentProfile.monthsLeft = calculateMonthsLeftForCAT();
         await saveProfile();
         await saveLastTask('Complete CAT prep plan from onboarding conversation', 'Initial diagnosis done');
+        schedulePendingDeepLinkQuestionDispatch(250);
       }
     }
   } catch(e) {
@@ -4173,6 +4286,7 @@ function restoreConversation() {
   }
   if (displayMessages.length === 0) addSuggestionChips();
   restoreCurrentChatDraft();
+  schedulePendingDeepLinkQuestionDispatch(250);
   document.getElementById('user-input').focus();
   checkAndShowTour();
 }
@@ -4472,6 +4586,7 @@ async function sendMessage(fromQueue) {
     window._timetableRoutineJustCaptured = false;
     updateComposerControls();
     if (queuedOutgoingMessage) setTimeout(flushQueuedComposerMessage, 0);
+    else if (hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(150);
     else if (input && !input.disabled) input.focus();
   }
 }
@@ -4481,6 +4596,7 @@ document.getElementById('user-input').addEventListener('input', function() {
   this.style.height = Math.min(this.scrollHeight, 120) + 'px';
   saveCurrentChatDraft();
   updateComposerControls();
+  if (!this.value.trim() && hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(100);
 });
 document.getElementById('user-input').addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 
@@ -4797,6 +4913,7 @@ function showGuestLimitModal() {
 
 async function initSession() {
   showRandomQuote();
+  captureDeepLinkQuestionFromUrl();
   const hash = window.location.hash;
   if (hash && hash.includes('access_token')) {
     const params = new URLSearchParams(hash.substring(1));
@@ -4807,7 +4924,7 @@ async function initSession() {
       localStorage.setItem('marg_token', token);
       if (refreshToken) localStorage.setItem('marg_refresh_token', refreshToken);
       if (expiresIn) localStorage.setItem('marg_token_expiry', Date.now() + (parseInt(expiresIn) * 1000));
-      window.history.replaceState({}, document.title, window.location.pathname);
+      window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
     }
   }
   let token = localStorage.getItem('marg_token');
@@ -4845,27 +4962,30 @@ async function initSession() {
       const onboardingKey2 = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
       const prevOnboarded2 = localStorage.getItem(onboardingKey2);
       if (hasHistory || prevOnboarded2) {
+        var arrivedWithDeepLinkQuestion = hasPendingDeepLinkQuestion();
         restoreConversation();
         loadStreakData();
         setTimeout(function() { const btn = document.getElementById('varc-toggle-btn'); if (btn) btn.style.display = 'inline-flex'; }, 500);
 
+        // A linked question takes priority over greetings, check-ins and cards,
+        // so the external link opens directly into the promised conversation.
+        if (!arrivedWithDeepLinkQuestion) {
+          var greetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
+          var todayDate = getTodayDate();
+          if (localStorage.getItem(greetKey) !== todayDate) {
+            setTimeout(async function() {
+              await sendReturningUserGreeting();
+            }, 600);
+          }
 
-        // Only send greeting once per day
-        var greetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
-        var todayDate = getTodayDate();
-        if (localStorage.getItem(greetKey) !== todayDate) {
-          setTimeout(async function() {
-            await sendReturningUserGreeting();
-          }, 600);
+          const alreadyCheckedIn = await hasCheckedInToday();
+          if (!alreadyCheckedIn) {
+            const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
+            setTimeout(function() { showCheckin(name); }, 2000);
+          }
+          const varcShown = await checkVarcShownToday();
+          if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 3000); }
         }
-
-        const alreadyCheckedIn = await hasCheckedInToday();
-        if (!alreadyCheckedIn) {
-          const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
-          setTimeout(function() { showCheckin(name); }, 2000);
-        }
-        const varcShown = await checkVarcShownToday();
-        if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 3000); }
         document.getElementById('landing-page').style.display = 'none';
         document.getElementById('chat-app').style.display = 'flex';
         showBottomNav();
@@ -7507,7 +7627,7 @@ async function completeOnboarding() {
   }
 
   setTimeout(function() {
-    showPathChoiceScreen();
+    if (!tryDispatchPendingDeepLinkQuestion()) showPathChoiceScreen();
   }, 800);
 }
 
