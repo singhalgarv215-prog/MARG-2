@@ -1139,7 +1139,7 @@ const CAT_QUOTES = [
   { quote: "Think clearer. Move better.", author: "— Marg" }
 ];
 
-const SYSTEM_PROMPT = `You are Marg.
+const SYSTEM_PROMPT_LEGACY_REFERENCE = `You are Marg.
 
 Marg is not a chatbot and not ChatGPT with CAT knowledge. Marg is an experienced CAT mentor whose job is to make the student feel accurately understood before collecting a complete profile. Optimise for an "aha" moment within two minutes: identify the likely hidden pattern, explain the mechanism in memorable language, give one useful reframe or action, then ask at most one confirmation. Every substantive reply must contain a prediction, diagnosis, insight, pattern, or reframe. Generic motivation and generic study tips do not count as value.
 
@@ -1155,7 +1155,17 @@ Practical questions often hide an emotional problem. "Which book should I use?" 
 
 But you never interview someone. Two question-containing replies in a row is a hard ceiling enforced by the app, not a target. Usually one confirmation is enough. By the second reply, give a diagnosis and action even if confidence is imperfect. A student who gives a mock score, strongest section and sectional breakdown has already given enough for a read; asking for attempted-versus-correct can sharpen that read only after you explain what the current numbers already suggest. They should always leave a reply with something useful, never merely another field to fill.
 
-When someone is frustrated, defeated, or just venting, hear it before doing anything else. A person who just said "I don't think I'm ever going to crack VARC" needs one calm line separating the latest result from their ability. Then identify the pattern beneath the emotion before discussing tactics. Never throw a timetable at an emotional problem.
+EVIDENCE BEFORE REASSURANCE: A score is an outcome, not an explanation and not a capability measurement. Never confidently declare why a low score happened, call it an "execution cascade," or assure the student that their baseline/capability is solid before examining attempts, accuracy, selection, timing, errors, and the student’s own account. Do not use comfort as a substitute for diagnosis. A sound opening is: "A score of 34 does not tell us much by itself. Your description reveals three separate execution problems—let’s separate them instead of treating this as one bad mock." Distinguish observations from hypotheses explicitly: "The score shows X; your description suggests Y; we still need to test Z." Reassure only with evidence already present, such as prior results or a correctly executed part of this mock.
+
+MECHANISM, NOT CATEGORY LABEL: "Time management," "carelessness," "low confidence," and "practice more" are categories, not diagnoses. When the student describes an execution failure, reconstruct the causal sequence and name the specific mechanism that generated it: commitment escalation/sunk-cost lock-in, missing exit rule or kill-switch, decision paralysis, representation failure, constraint misread, working-memory overload, cognitive fatigue, panic-driven rushing, or answer-change without new evidence. Tie every mechanism to an observed clue and its consequence. Example: spending 20+ minutes after a clue misread and still insisting on finishing suggests a missing kill-switch; a duplicate-entry error immediately afterward is evidence that sustained effort had degraded working memory. Do not reduce that chain to "manage time better." Give the corresponding decision rule, such as a visible progress checkpoint and exit condition.
+
+TEST UNCERTAIN SELF-DIAGNOSES: When a student says "I think," "maybe," "probably," or otherwise offers an uncertain cause, treat it as an unconfirmed hypothesis. Do not turn it into fact and do not prescribe fabricated precision such as "slow down 15%" unless that number is calculated from actual data they supplied. Propose the smallest comparison that could confirm or reject it. For suspected fast reading: read one passage at a deliberately comfortable pace, record time and accuracy, and compare both with the usual pace. If accuracy improves without a major time cost, speed is implicated; otherwise test comprehension or option selection next. Every numeric target, percentage, attempt count, or time cutoff must come from the student’s evidence, the test’s verified structure, or an explicitly labelled trial—not invented authority.
+
+PRACTICE-DISTRIBUTION DIAGNOSIS: When the student’s preparation is concentrated in one topic while mocks contain a broader mix, name the strategic error as a distribution mismatch—not merely "also practise Algebra." They are becoming good at the practised topic, not yet building transferable CAT QA coverage. Recommend a proportional practice architecture: protect meaningful work on the primary weak topic, add smaller recurring exposure to secondary topic families, and use a periodic mixed timed check to verify that recognition and execution transfer under exam conditions. Derive the exact split from the student’s available time and mock evidence; if those data are missing, describe the proportions qualitatively or label a proposed split as a short trial rather than a proven prescription.
+
+When someone is frustrated, defeated, or just venting, hear it before doing anything else. A person who just said "I don't think I'm ever going to crack VARC" needs one calm line separating the latest result from an identity verdict, without making an unsupported claim about their capability. Then identify the pattern beneath the emotion from evidence before discussing tactics. Never throw a timetable at an emotional problem.
+
+FRESH-MOCK STATE AWARENESS: A full CAT-style mock is a two-hour cognitive load. If the student says they just finished/completed/gave a mock, or explicitly sounds tired or exhausted, do not immediately dump a dense multi-part diagnosis or Today's Mission. Do not assume they are incapable of continuing either—check. Give at most one evidence-bounded first observation, then ask whether they want the full breakdown now, a short first read now, or to rest and revisit it later. Example: "You just finished a two-hour mock. I can break it down properly now, or we can protect the quality of the review and return after you’ve rested—which is better?" If they explicitly requested the full analysis now and sound ready, proceed without asking again. If they choose rest, preserve the evidence and close cleanly; do not manufacture homework or an engagement hook.
 
 When a student asks why something works — why ratio and percentage are basically the same instinct, why RC traps reuse the exact words from the passage — you explain it, properly. You don't redirect to the plan. Curiosity is rare in someone grinding through mock after mock, and a student who's curious sticks around; a student who's just executing tasks quits by November.
 
@@ -1215,6 +1225,8 @@ When a student switches from talking to you into practice, or from one section t
 
 CAT patterns can change by year, slot, or mock provider, so never invent or assume a fixed section-wise question count unless the student or current context provides it. For standard CAT scoring, MCQ questions are usually +3 for correct and -1 for wrong, while TITA questions are usually +3 for correct and zero for wrong; if the student is discussing a mock, verify that mock's stated rules before calculating. "Marks," "questions correct," and "questions attempted" are different numbers and must never be collapsed into one another. If a student gives you an ambiguous number, ask "is that your marks, your correct count, or how many you attempted?" before reasoning from it. Sanity-check totals only against a structure that is explicitly present in the conversation or trusted current context.
 
+VERIFIED CAT DURATION BASELINE: For non-PwD candidates, the current full CAT structure is 120 minutes total—2 hours—with three fixed 40-minute sections in this order: VARC, DILR, QA. A candidate cannot move between sections during those fixed windows. Treat a full-length CAT-pattern mock as two hours unless that mock provider explicitly states a different format. Never call CAT or a standard full CAT mock a three-hour test. Do not infer a fixed question count from the duration; question counts can change. PwD timing differs, so use the official/provider timing when that applies.
+
 When scores or practice results come in, actually work through which number belongs to which section — out loud in your head, so to speak — before you say anything about which one is weak. Getting this backwards once and having the student correct you undoes the entire premise of a mentor who's supposed to know their own numbers better than they do. Once you've got it straight, diagnose specifically instead of generically — never "VARC is weak," instead something like "you attempted 28 questions at 40% accuracy, that's over-attempting — try 22 with better selection." You know the common traps by section without being told: in VARC, people answer from memory instead of the passage, chase extreme-sounding options, or flip a right answer at the last second. In DILR, people sit too long on the wrong set, misread a constraint, or panic and rush. In QA it's almost always one of three things — a concept gap, knowing it but executing badly, or plain carelessness — and you work out which one before you say anything. When you spot the pattern, name it once, quietly, and move on. Don't lecture about it.
 
 Pacing matters as much as accuracy, and it's on you to watch it, not the student. If a conversation keeps circling back to one narrow sub-topic — percentages, para jumbles, whatever it is — for something like 15-20 questions or a few sessions running with no sign of moving on, that's your cue to suggest testing it properly instead of drilling it forever: "we've done a good chunk of percentage work — want to test it properly with a timed sectional, then move on to what's next?" Weigh this against today's actual date relative to November 29 — if it's August or later and a student is still deep in one topic while whole sections have barely been touched, say so plainly, not gently: "we've spent a lot of time on percentages — let's test where you actually stand, then make sure DILR and VARC are getting real coverage too, CAT's in [X] months." Watch the conversation itself for this too — session after session returning to the same narrow corner is the signal, and it's your job to notice it and raise it before the student runs out of runway, not wait for them to notice they're behind on their own.
@@ -1243,6 +1255,78 @@ Rule: [one behaviour to avoid or protect]
 When you finish, we'll review [the evidence that matters].
 
 The format rule is enforced at the code level too, so even if you slip, bold and ordinary bullets get stripped before the student sees them. Checkmarks in the Today's Mission block are preserved. But don't rely on that. Write clean the first time.`;
+
+// Runtime prompt: the same mentor contract as the reference above, compressed
+// so every turn does not repay for repeated examples and explanations.
+const SYSTEM_PROMPT = `You are Marg, an experienced CAT mentor—not a chatbot, teacher, therapist, cheerleader or productivity manager. Make the student feel accurately understood quickly. Sound like a calm senior mentor: short, direct, confident and human. Natural Hindi is allowed, never performed. Never open with filler such as "Great question", "Of course", "I understand your concern", "Real talk", "Now I get it", "Good", or "My prediction".
+
+CORE RESPONSE CONTRACT
+- Give value before questions. Every substantive reply must contain a diagnosis, prediction, mechanism, pattern, reframe or specific insight—not generic motivation.
+- Default flow: problem → bounded read → useful implication → at most one confirmation → refine → action. Never interview. Two question-containing replies in a row is a hard ceiling; infer nonessential missing details.
+- Answer an explicit question first. Do not replace it with a check-in or diagnostic.
+- Ordinary replies are 35-80 words and 1-3 sentences, with short lines. Go longer only for requested plans, explanations or multi-answer reviews; complete every requested component and never cut off mid-sentence.
+- Do not use assistant-like headings or long academic paragraphs. Diagnose the student's decision, not merely explain content.
+
+EVIDENCE BEFORE REASSURANCE
+A score is an outcome, not a cause or capability verdict. Never confidently explain why a score happened, call it an "execution cascade", or claim the student's baseline is solid before examining the evidence available: attempts, accuracy, selection, timing, errors and their account. Separate observation from hypothesis: "The score shows X; your description suggests Y; Z still needs testing." Reassure only from real evidence such as prior results or correctly executed work.
+
+MECHANISM, NOT CATEGORY LABEL
+"Time management", "carelessness", "low confidence" and "practice more" are categories, not diagnoses. Reconstruct the causal sequence and name the mechanism supported by the clues: commitment escalation/sunk-cost lock-in, missing kill-switch, decision paralysis, representation failure, constraint misread, working-memory overload, cognitive fatigue, panic rushing, or answer-changing without new evidence. Tie mechanism → evidence → consequence → decision rule. A long DILR commitment after progress stopped suggests a missing kill-switch; a duplicate-entry error afterward may be cognitive-fatigue evidence, not isolated carelessness.
+
+TEST UNCERTAIN SELF-DIAGNOSES
+"I think", "maybe" and "probably" introduce hypotheses, not facts. Never invent precision such as "slow down 15%". Propose the smallest comparison that can confirm or reject the claim. Every numeric target, percentage, attempt count or cutoff must come from supplied evidence, verified test structure, or an explicitly labelled trial.
+
+PRACTICE-DISTRIBUTION DIAGNOSIS
+If preparation is concentrated in one topic while the exam/mock is mixed, call it a distribution mismatch: the student is improving at that topic, not yet at CAT QA generally. Recommend meaningful primary-topic work, smaller recurring exposure to secondary topic families, and periodic mixed timed checks for transfer. Derive exact splits from availability and evidence; otherwise use qualitative proportions or label the split a trial.
+
+EMOTION AND FRESH MOCKS
+Acknowledge frustration or low confidence in one calm line, but do not make unsupported capability claims or become therapeutic. Separate evidence from identity, identify the preparation mechanism, then give one controllable move. If the student just finished a two-hour mock or says they are exhausted, give at most one evidence-bounded observation and ask whether they want the full breakdown now, a short first read now, or rest and revisit later. If they explicitly request the full analysis now and sound ready, proceed. Never dump a dense mission onto an exhausted student.
+
+DIAGNOSIS AND EXERCISE CONSENT
+For a new VARC, QA, DILR, Mock, Confidence, Strategy or Planning topic, use only 1-2 structured narrowing questions, state a natural hidden-cause read, and ask for confirmation. Say "Here's my read" or "I think I know what's happening", never "My prediction:". After Exactly or Mostly, explain briefly why the symptom points there, say it should be verified before being locked in, and ask when: right now, later today or tomorrow. Never choose tomorrow or launch an exercise without consent. QA and DILR use their timed interfaces, not long chat dumps. Before DILR, teach the representation, why it fits and the first constraint to inspect. Reviews of prediction checks must say SUPPORTED, REJECTED or INCONCLUSIVE.
+
+MEMORY AND CONTINUITY
+Use SESSION, ACTIVE EXERCISE, BEHAVIOURAL, TOPIC PROGRESSION, ACTIVE PLAN and PERSONAL GOAL memory before advising. Refer naturally to one relevant prior fact; never list memory or invent it. Never ask the student to resend an exercise Marg generated. If they submit answers, use the stored passage/questions/key immediately. Preserve an active plan unless a fresh result, changed constraint, completed milestone, illness or explicit redesign request justifies a change; state what changed and why.
+
+If the user says only "continue", "go on" or equivalent after an incomplete reply, resume from the exact endpoint. Do not restart, summarize, repeat, re-derive, apologize or add an introduction.
+
+ANSWER REVIEWS
+Lead with the thinking error. For multiple answers, use separate blocks with blank lines:
+Q[number]
+Your Answer:
+Correct Answer:
+Diagnosis:
+Fix: (when wrong)
+End with "Pattern Check: X/Y right." Never compress several reviews into a wall of text or wide mobile table.
+
+PLANNING AND PERSONALIZATION
+A broad multi-section story asking for a roadmap is planning, not a single-section diagnostic. Cover every named component in the first response: balanced VARC/DILR/QA work, phases, when topics graduate to sectionals, full-mock cadence, analysis/revision loops and how named resources fit. A timetable alone is not a roadmap. For a personal timetable, ask once for only fixed commitments, earliest realistic start, latest finish and realistic CAT time; reuse saved routine. Notice attempt number, dream college, job/family constraints and stated goals. Fulfil the main request first, then ask one light unanswered personal follow-up at a natural point.
+
+PRACTICE LEADERSHIP
+Do not default to "bring me", "upload" or "send me" when Marg can create the evidence. Lead with "Let's do" or "I'll generate". Respect topic switches. When enough QA/DILR concept practice is logged, recommend a timed sectional instead of another worksheet. Never force fixed-time reporting. If a fresh externally sourced passage/set with answers is pasted, review first, then lightly ask whether it is their material, a shared source or something needing clarification; never ask this for Marg-generated material.
+
+IMAGES
+Inspect every attached image. Treat multiple images as ordered pages unless told otherwise. Never guess unreadable text. For scorecards, identify provider and preserve labels: marks/score, correct, attempted, accuracy, percentile and time are different. Extract VARC/DILR/QA with their displayed meanings. If units are ambiguous, state legible values, give one useful observation, then ask only whether they are marks, correct counts or attempts.
+
+FACT AND CAT SAFETY
+Use the authoritative IST calendar/clock supplied in context; never guess dates, weekdays or greeting. Verify objective arithmetic and retain valid student corrections. CAT patterns and question counts can change. Standard scoring is usually MCQ +3/−1 and TITA +3/0, but verify a mock's rules. Never collapse marks, correct and attempted. For non-PwD CAT, use 120 minutes total: VARC, DILR and QA in fixed 40-minute sections with no switching. A standard CAT-pattern mock is two hours unless its provider says otherwise; never call it three hours. PwD timing follows the official/provider rule.
+
+PLAIN-TEXT MATH CONTRACT
+Never output LaTeX/TeX, dollar math delimiters, \\(...\\), \\[...\\], \\frac, \\mathbf, \\text or \\times. Use readable plain arithmetic with =, +, −, ×, ÷, %, ^, √, parentheses and Rs./₹, including inside JSON.
+
+MISSIONS AND CLOSING
+Use Today's Mission only when a concrete plan is genuinely needed and timing is known. Maximum three checkmarked tasks plus one Rule; do not manufacture missions for factual answers, first emotional acknowledgements or pending diagnoses. Do not create a new mission when one is active without strong new evidence.
+Normal closes should add one light forward thread without a forced question, homework or engagement bait. When disengaging is best—sleep, exhaustion or genuine completion—end cleanly with no hook. Optimise for the student, not engagement.
+
+TECHNICAL TAGS
+When a short option list helps, output one [OPTIONS: opt1|opt2|opt3][CONTEXT: type]. When the student reports completed QA/DILR practice, silently add [PRACTICE_LOG: section|Stable Topic Name|new count]. When genuinely recommending a timed QA/DILR sectional, add one [START_TEST: section|Topic|count]. Never explain these tags.
+
+When a mission is appropriate, use exactly:
+Today's Mission
+✅ [specific action]
+✅ [specific action]
+Rule: [one behaviour]
+When you finish, we'll review [relevant evidence].`;
 
 function getDateContext() {
   var entries = [];
@@ -1350,27 +1434,77 @@ function runIndiaTimeTests() {
   ];
 }
 
+var geminiRetryBlockedUntil = 0;
+var geminiRetryBlockedStatus = 429;
+
 async function fetchWithTimeout(url, options, timeoutMs) {
+  if (url === WORKER_URL && Date.now() < geminiRetryBlockedUntil) {
+    var cooldownError = new Error('A controlled retry already failed; waiting before another Gemini request');
+    cooldownError.name = 'GeminiAPIError';
+    cooldownError.status = geminiRetryBlockedStatus;
+    cooldownError.code = 'CLIENT_RETRY_COOLDOWN';
+    cooldownError.retryable = true;
+    cooldownError.retryAfter = String(Math.max(1, Math.ceil((geminiRetryBlockedUntil - Date.now()) / 1000)));
+    console.warn('Gemini request blocked by retry cooldown:', { status:cooldownError.status, retryAfter:cooldownError.retryAfter });
+    throw cooldownError;
+  }
   var controller = new AbortController();
-  var effectiveTimeout = Math.max(Number(timeoutMs) || 0, 120000);
-  try {
-    var requestBody = options && typeof options.body === 'string' ? JSON.parse(options.body) : null;
-    var requestTokens = requestBody && requestBody.generationConfig ? Number(requestBody.generationConfig.maxOutputTokens) || 0 : 0;
-    var requestHasImages = !!(requestBody && Array.isArray(requestBody.contents) && requestBody.contents.some(function(message) {
-      return Array.isArray(message.parts) && message.parts.some(function(part) { return !!(part && part.inlineData); });
-    }));
-    if (requestHasImages) effectiveTimeout = Math.max(effectiveTimeout, 240000);
-    if (requestTokens >= 16000) effectiveTimeout = Math.max(effectiveTimeout, 300000);
-  } catch(e) {}
+  // The caller owns the timeout budget. Long generation call sites already pass
+  // 120-240 seconds; ordinary chat really must stop at its requested 45 seconds.
+  var requestedTimeout = Number(timeoutMs);
+  var effectiveTimeout = Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? requestedTimeout : 45000;
   var timeoutId = setTimeout(function() { controller.abort(); }, effectiveTimeout);
   try {
     var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
     clearTimeout(timeoutId);
+    if (!res.ok) {
+      var errorPayload = null;
+      try { errorPayload = await res.clone().json(); } catch(parseError) {}
+      var errorInfo = errorPayload && errorPayload.error ? errorPayload.error : {};
+      var requestError = new Error(String(errorInfo.message || ('Request failed with status ' + res.status)));
+      requestError.name = 'GeminiAPIError';
+      requestError.status = Number(errorInfo.code) || res.status;
+      requestError.code = String(errorInfo.status || ('HTTP_' + res.status));
+      requestError.requestId = String(errorInfo.request_id || res.headers.get('X-Marg-Request-Id') || '');
+      requestError.retryable = errorInfo.retryable === true || res.status === 429 || res.status === 503;
+      requestError.attempts = Number(errorInfo.attempts || res.headers.get('X-Marg-Upstream-Calls')) || 1;
+      requestError.retryAfter = res.headers.get('Retry-After') || '';
+      if (requestError.status === 429 || requestError.status === 503) {
+        var retryAfterSeconds = Number(requestError.retryAfter);
+        geminiRetryBlockedStatus = requestError.status;
+        geminiRetryBlockedUntil = Date.now() + (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? Math.min(30000, retryAfterSeconds * 1000) : 8000);
+      }
+      console.error('Gemini request failed:', {
+        status:requestError.status,
+        code:requestError.code,
+        message:requestError.message,
+        requestId:requestError.requestId,
+        attempts:requestError.attempts
+      });
+      throw requestError;
+    }
     return res;
   } catch (e) {
     clearTimeout(timeoutId);
+    if (e && e.name === 'AbortError') console.error('Gemini request timed out:', { timeoutMs:effectiveTimeout, url:url });
     throw e;
   }
+}
+
+function isGeminiServiceError(error) {
+  return !!(error && (error.name === 'GeminiAPIError' || error.name === 'GeminiEmptyResponseError' || error.name === 'AbortError'));
+}
+
+function getGeminiErrorMessage(error) {
+  if (error && error.name === 'AbortError') return 'Marg took too long to respond. Your message is safe—please try it once more.';
+  var status = Number(error && error.status) || 0;
+  if (status === 429) return 'Gemini is at its current request limit. Please wait a moment before trying again.';
+  if (status === 503) return 'Gemini is under high demand right now. Please wait a moment before trying again.';
+  if (status === 401 || status === 403) return 'Marg’s AI connection is not authorised right now. The API key or project access needs checking.';
+  if (status === 400 || status === 404) return 'Marg’s AI request configuration was rejected. This needs a configuration fix—not repeated retries.';
+  if (status >= 500) return 'Marg’s AI connection failed temporarily. Please try once more in a moment.';
+  if (error && error.name === 'GeminiEmptyResponseError') return 'Gemini returned no usable answer for this request. Please try once more.';
+  return 'Marg could not complete that request. Please try once more.';
 }
 
 function normalizeGeminiInlineImagePart(part) {
@@ -1423,7 +1557,9 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
     contents:contents,
     generationConfig:{
       maxOutputTokens:effectiveOutputTokens,
-      thinkingConfig:{ thinkingLevel:requestedOutputTokens >= 1200 ? 'medium' : 'minimal' }
+      // Ordinary mentor chat is short and does not need paid medium reasoning.
+      // Preserve medium reasoning for plans, images, answer reviews and content generation.
+      thinkingConfig:{ thinkingLevel:requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
     }
   };
   if (responseMimeType) request.generationConfig.responseMimeType = responseMimeType;
@@ -1432,10 +1568,46 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
 }
 
 function getGeminiText(payload) {
-  if (!payload || !Array.isArray(payload.candidates) || !payload.candidates.length) return '';
+  if (payload && payload.error) {
+    var apiError = new Error(String(payload.error.message || 'Gemini request failed'));
+    apiError.name = 'GeminiAPIError';
+    apiError.status = Number(payload.error.code) || 0;
+    apiError.code = String(payload.error.status || 'GEMINI_ERROR');
+    apiError.requestId = String(payload.error.request_id || '');
+    apiError.retryable = payload.error.retryable === true;
+    throw apiError;
+  }
+  if (!payload || !Array.isArray(payload.candidates) || !payload.candidates.length) {
+    var emptyError = new Error(payload && payload.promptFeedback && payload.promptFeedback.blockReason
+      ? 'Gemini blocked the response: ' + payload.promptFeedback.blockReason
+      : 'Gemini returned no candidates');
+    emptyError.name = 'GeminiEmptyResponseError';
+    emptyError.status = 0;
+    console.error('Gemini returned no usable candidate:', payload && payload.promptFeedback ? payload.promptFeedback : payload);
+    throw emptyError;
+  }
+  if (payload.usageMetadata || payload.margRequest) {
+    console.info('Gemini usage:', {
+      requestId:payload.margRequest && payload.margRequest.requestId || '',
+      upstreamCalls:payload.margRequest && payload.margRequest.upstreamCalls || 1,
+      promptTokens:payload.usageMetadata && payload.usageMetadata.promptTokenCount || 0,
+      outputTokens:payload.usageMetadata && payload.usageMetadata.candidatesTokenCount || 0,
+      thinkingTokens:payload.usageMetadata && payload.usageMetadata.thoughtsTokenCount || 0,
+      totalTokens:payload.usageMetadata && payload.usageMetadata.totalTokenCount || 0,
+      cachedTokens:payload.usageMetadata && payload.usageMetadata.cachedContentTokenCount || 0
+    });
+  }
   var parts = payload.candidates[0] && payload.candidates[0].content && payload.candidates[0].content.parts;
-  if (!Array.isArray(parts)) return '';
-  return parts.filter(function(part) { return part && !part.thought && typeof part.text === 'string'; }).map(function(part) { return part.text; }).join('');
+  var text = Array.isArray(parts) ? parts.filter(function(part) { return part && !part.thought && typeof part.text === 'string'; }).map(function(part) { return part.text; }).join('') : '';
+  if (!text) {
+    var finishReason = payload.candidates[0] && payload.candidates[0].finishReason || 'UNKNOWN';
+    var noTextError = new Error('Gemini returned no visible text (finish reason: ' + finishReason + ')');
+    noTextError.name = 'GeminiEmptyResponseError';
+    noTextError.status = 0;
+    console.error('Gemini candidate had no visible text:', { finishReason:finishReason, promptFeedback:payload.promptFeedback || null });
+    throw noTextError;
+  }
+  return text;
 }
 
 function cleanHistory(history) {
@@ -3480,10 +3652,14 @@ function detectMentorIntent(message) {
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
   if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
   if (isComprehensiveRoadmapRequest(message) || /\b(plan|schedule|timetable|roadmap|what should i study|where.*start)\b/.test(text)) return 'planning';
+  // A mock narrative often contains every section name. Route the overall event
+  // before individual section keywords so one mention of VARC/DILR/QA does not
+  // shrink a multi-section review into a single-section diagnostic.
+  if (/\b(mock|mock test|percentile|scorecard)\b/.test(text)) return 'mock_diagnosis';
   if (/\b(varc|rc|reading comprehension|verbal)\b/.test(text)) return 'varc_diagnosis';
   if (/\b(dilr|lrdi|data interpretation|logical reasoning)\b/.test(text)) return 'dilr_diagnosis';
   if (/\b(qa|quant|quants|maths|mathematics)\b/.test(text)) return 'qa_diagnosis';
-  if (/\b(mock|percentile|score|marks|attempted)\b/.test(text)) return 'mock_diagnosis';
+  if (/\b(score|marks|attempted)\b/.test(text)) return 'mock_diagnosis';
   if (/time management|run out of time|too slow|speed/.test(text)) return 'pacing_diagnosis';
   if (/^(idk|i don'?t know|help|help me|bro|bhai|hey|hi|hello|stuck|confused)[.!\s]*$/.test(text) || text.length < 4) return 'vague';
   return 'general_mentor';
@@ -3546,6 +3722,7 @@ function analyzeMentorInput(message) {
 
 function buildDiagnosisDirective(message) {
   var diagnosis = analyzeMentorInput(message);
+  var messageText = String(message || '');
   var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
   directive += '\nResponse order is mandatory: (1) acknowledge emotion only if present, (2) state a specific prediction/diagnosis/pattern, (3) give one actionable insight or reframe, (4) ask at most ONE confirmation question only if it materially changes the advice. Value must appear before any question.';
   if (diagnosis.consecutiveQuestionResponses >= 2) directive += '\nQUESTION BUDGET EXHAUSTED: Ask no question and emit no [OPTIONS] tag. Make a useful best-effort diagnosis and action from existing evidence.';
@@ -3554,6 +3731,11 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. If the exercise stores a hypothesis, lead with SUPPORTED, REJECTED, or INCONCLUSIVE and use the actual choice pattern as evidence; do not preserve the prediction when the evidence contradicts it. Format every reviewed item as its own block separated by a blank line: Q[number], then Your Answer:, Correct Answer:, Diagnosis:, and Fix: when the answer is wrong. End with “Pattern Check: X/Y right.” Never compress multiple questions into one paragraph or table. Ask no diagnostic intake question.';
+  if (diagnosis.intent === 'mock_diagnosis') directive += '\nMOCK EVIDENCE-FIRST MODE: The score is an outcome, not a cause or capability measure. Begin with what the supplied numbers and narrative actually establish. Mark every causal explanation as a hypothesis until supported by attempt, accuracy, selection, timing, error, or behavioural evidence. Name the specific decision mechanism rather than a generic bucket such as time management, carelessness, or practice more.';
+  if (/\b(?:just|just now|today|right now)\b.{0,35}\b(?:finished|completed|gave|taken|attempted|done with)\b.{0,20}\bmock\b|\b(?:finished|completed|gave|taken|attempted)\b.{0,20}\bmock\b.{0,20}\b(?:just|just now|today|right now)\b/i.test(messageText) || diagnosis.emotionalState === 'drained') directive += '\nFRESH-MOCK ENERGY CHECK: Give only one evidence-bounded first observation. Do not send a dense breakdown or Today\'s Mission yet. Ask whether the student wants the full analysis now, a short first read now, or to rest and revisit it later. If they explicitly requested the full breakdown now and sound ready, proceed without repeating the timing question.';
+  if (/\b(?:i think|maybe|probably|not sure|i guess|might be)\b/i.test(messageText)) directive += '\nUNCERTAIN SELF-DIAGNOSIS: Treat the student\'s proposed cause as a hypothesis. Do not prescribe an unsupported numeric adjustment. Give a small comparison test with observable outcomes that can confirm or reject it.';
+  if (/\b(?:only|mostly|mainly|exclusively)\b.{0,45}\b(?:arithmetic|algebra|geometry|number systems?|modern math|percentages?|ratios?)\b|\bpractice\b.{0,30}\b(?:only|mostly|mainly)\b/i.test(messageText)) directive += '\nPRACTICE DISTRIBUTION CHECK: Test whether narrow practice coverage mismatches the mock/exam mix. If it does, name the distribution mismatch and recommend primary-topic work plus recurring secondary-topic exposure plus a mixed timed transfer check; do not merely name one missing chapter.';
+  if (/\b(?:dilr|lrdi|set)\b/i.test(messageText) && /\b(?:1[5-9]|2\d|3\d)\s*(?:\+\s*)?(?:minutes?|mins?)\b|\b(?:couldn\'t leave|could not leave|had to finish|kept going|stayed too long|already invested)\b/i.test(messageText)) directive += '\nDILR COMMITMENT CHECK: Reconstruct whether sunk-cost commitment or a missing kill-switch kept the student in the set. Treat errors immediately afterward as possible working-memory fatigue evidence, not automatically as isolated carelessness. Tie the diagnosis to the narrative and give an explicit progress checkpoint/exit rule.';
   if (diagnosis.freshPracticeSourceCheck) directive += '\nFRESH PASTED MATERIAL: The student pasted a new passage/questions and answers without an established source. Review what can be reviewed first. Then add one light source check: ask whether it came from their own material, a shared source, or somewhere they want clarified. The source question must not block or replace the answer review.';
   if (diagnosis.comprehensivePlanning) directive += '\nCOMPREHENSIVE ROADMAP MODE: This is a broad planning request, not a single-section diagnostic. Do not launch or simulate a VARC, DILR, or QA diagnostic. Address every explicitly requested component in this one response: ' + (diagnosis.requestedPlanningComponents.length ? diagnosis.requestedPlanningComponents.join(', ') : 'all preparation areas named by the student') + '. A complete CAT roadmap must distinguish phases or milestones, balance VARC/DILR/QA, state when topic practice graduates to sectionals, include full-mock cadence and mock-analysis/revision loops, and explain how the student’s named resources fit. Do not substitute only a daily timetable. If exact routine data are missing, give the complete strategic framework now and ask for routine details only after it; never omit requested sectionals or mocks.';
   else if (diagnosis.intent === 'planning' && diagnosis.requestedPlanningComponents.length) directive += '\nEXPLICIT REQUEST COVERAGE: Before finishing, verify that the reply directly covers every component the student named: ' + diagnosis.requestedPlanningComponents.join(', ') + '. Do not make them ask twice for an explicitly requested part.';
@@ -3987,6 +4169,12 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     }
   } catch(e) {
     hideTyping();
+    if (isGeminiServiceError(e)) {
+      var serviceMessage = getGeminiErrorMessage(e);
+      addMessage('marg', serviceMessage);
+      showComposerStatus(serviceMessage + (e.requestId ? ' Reference: ' + e.requestId : ''), 'error', true);
+      return;
+    }
     var fallbackResponse = buildPredictionValidationFallback(userMessage) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(userMessage) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
     fallbackResponse = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackResponse))), userMessage);
     applyPredictionValidationVerdict(fallbackResponse);
@@ -4542,7 +4730,7 @@ async function sendMessage(fromQueue) {
     const requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, text);
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens)) }, mentorTimeout);
     const data = await response.json();
-    let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data) || 'Something went wrong. Please try again.'), mentorAnalysis.diagnosis);
+    let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data)), mentorAnalysis.diagnosis);
     reply = stabilizeAndRememberMission(reply, text);
     markPersonalGoalFollowUpIfAsked(reply);
     hideTyping();
@@ -4569,6 +4757,12 @@ async function sendMessage(fromQueue) {
     checkAndLogPracticeVolume(reply);
   } catch (e) {
     hideTyping();
+    if (isGeminiServiceError(e)) {
+      var serviceMessage = getGeminiErrorMessage(e);
+      addMessage('marg', serviceMessage);
+      showComposerStatus(serviceMessage + (e.requestId ? ' Reference: ' + e.requestId : ''), 'error', true);
+      return;
+    }
     let fallbackReply = buildPredictionValidationFallback(text) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
     fallbackReply = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackReply))), text);
     applyPredictionValidationVerdict(fallbackReply);
@@ -4847,7 +5041,7 @@ async function createRCPassage() {
   try {
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, [{ role: 'user', content: prompt + memoryDirective }], 12288)) }, 180000);
     const data = await response.json();
-    const reply = getGeminiText(data) || 'Something went wrong. Please try again.';
+    const reply = getGeminiText(data);
     const parsedExercise = parseChatGeneratedExercise(reply);
     const visibleReply = parsedExercise.visibleText;
     hideTyping();
@@ -4857,7 +5051,7 @@ async function createRCPassage() {
     saveChatMessage('assistant', visibleReply);
     storeActiveGeneratedExercise({ type:'rc', source:'chat', title:currentArticle.title, purpose:parsedExercise.memory.purpose || 'CAT RC comprehension and option-elimination diagnosis', content:{ exerciseText:visibleReply, answerKey:parsedExercise.memory.answers || [] } });
     localStorage.setItem('marg_rc_article', JSON.stringify({ title: currentArticle.title, source: currentArticle.source, content: articleText }));
-  } catch(e) { hideTyping(); addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — try again in a moment.' : 'Connection issue. Please try again in a moment.'); }
+  } catch(e) { hideTyping(); addMessage('marg', isGeminiServiceError(e) ? getGeminiErrorMessage(e) : 'Connection issue. Please try again in a moment.'); }
 }
 
 async function checkVarcShownToday() {
@@ -5201,15 +5395,15 @@ async function submitMockOnboarding() {
     const total = varc + dilr + qa;
     const weakSection = getLowestRelativeMockSection(varc, dilr, qa);
 
-    const prompt = `A CAT aspirant just gave a mock with these scores: VARC: ${varc}/72, DILR: ${dilr}/60, QA: ${qa}/60. Total: ${total}/192.
+    const prompt = `A CAT aspirant has provided these mock scores: VARC: ${varc}/72, DILR: ${dilr}/60, QA: ${qa}/60. Total: ${total}/192.
 
-Based on these scores, give a mentor-style diagnosis in 2-3 sentences. Sound like a real mentor who has seen this pattern before — not a tool. Make an educated hypothesis about WHY the weakest section (${weakSection}) is struggling — is it a concept gap, execution/speed issue, or careless mistakes? State it as a hypothesis not a fact. End with one specific question to confirm your reading. Be warm and direct.`;
+Scores alone cannot reveal why the result happened or what the student is capable of. In 2-3 sentences, state only the observable section imbalance, explain that the cause is still unconfirmed, then offer 2-3 plausible mechanisms to distinguish (such as selection, concept recognition, exit discipline, or execution) and ask one specific confirmation question. Do not give generic reassurance, call this "time management," invent precision, or state a causal diagnosis as fact.`;
 
     const response = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildGeminiRequest(
-        'You are Marg, a warm and direct CAT mentor. Give a 2-3 sentence mentor-style diagnosis based on mock scores. State hypothesis as question not fact. Be specific and personal.' + getDateContext(),
+        SYSTEM_PROMPT + getDateContext() + '\n\nMOCK SCORECARD FIRST READ: Scores establish section balance only. They do not establish capability or cause. Separate observation from hypothesis, avoid unearned reassurance, and ask one evidence-seeking confirmation before diagnosing the mechanism.',
         [{ role: 'user', content: prompt }],
         150
       ))
@@ -5394,8 +5588,30 @@ async function saveSessionSummary(summary) {
   } catch(e) { console.error('saveSessionSummary error:', e); }
 }
 
+var sessionSummaryInFlight = false;
+var sessionSummaryScheduleTimer = null;
+
+function sessionSummarySignatureKey() {
+  return 'marg_session_summary_signature_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function getSessionSummarySignature(history) {
+  var serialized = JSON.stringify(cleanHistory((history || []).slice(-20)));
+  var hash = 2166136261;
+  for (var i = 0; i < serialized.length; i++) {
+    hash ^= serialized.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return String(hash >>> 0) + ':' + serialized.length;
+}
+
 async function generateAndSaveSessionSummary() {
-  if (!currentUser || conversationHistory.length < 4) return;
+  if (!currentUser || conversationHistory.length < 4 || sessionSummaryInFlight || isLoading) return false;
+  var signature = getSessionSummarySignature(conversationHistory);
+  try {
+    if (localStorage.getItem(sessionSummarySignatureKey()) === signature) return false;
+  } catch(e) {}
+  sessionSummaryInFlight = true;
   try {
 
     const recentHistory = cleanHistory(conversationHistory.slice(-20));
@@ -5414,8 +5630,15 @@ async function generateAndSaveSessionSummary() {
     const summary = getGeminiText(data);
     if (summary) {
       await saveSessionSummary(summary);
+      try { localStorage.setItem(sessionSummarySignatureKey(), signature); } catch(e) {}
+      return true;
     }
-  } catch(e) { console.error('generateAndSaveSessionSummary error:', e && e.name === 'AbortError' ? 'timed out' : e); }
+  } catch(e) {
+    console.error('generateAndSaveSessionSummary error:', e && e.name === 'AbortError' ? 'timed out' : e);
+  } finally {
+    sessionSummaryInFlight = false;
+  }
+  return false;
 }
 
 async function saveLastTask(task, insight) {
@@ -5783,7 +6006,6 @@ var selectedPracticeTopic = null;
 var practiceLoadSeq = 0;
 var practiceLoadInFlight = false;
 var practiceLoadTarget = null;
-var practiceAuditRetry = {};
 
 var practiceTopics = {
   dilr: ['Arrangements & Rankings', 'Scheduling & Allocation', 'Distribution & Grouping', 'Games & Tournaments', 'Routes & Networks', 'Tables, Charts & DI Caselets', 'Venn Diagrams & Set Data', 'Mixed — surprise me']
@@ -6535,7 +6757,7 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
     completeChatFirstOnboarding(storedType === 'varc' ? 'rc' : storedType);
   } catch(e) {
     hideTyping();
-    addMentorLeadMessage("That prediction check did not build cleanly, so I discarded it. Regenerating should test the same hypothesis—not lower the CAT-level bar.");
+    addMentorLeadMessage(isGeminiServiceError(e) ? getGeminiErrorMessage(e) : "That prediction check did not build cleanly, so I discarded it. Regenerating should test the same hypothesis—not lower the CAT-level bar.");
     showConversationalOptions(['Regenerate the exercise'], 'guided_retry_' + section);
   }
   isLoading = false;
@@ -6605,7 +6827,7 @@ async function generateGuidedMiniMock(diagnosticEntry) {
     completeChatFirstOnboarding(null);
   } catch(e) {
     hideTyping();
-    addMentorLeadMessage("The mini mock failed the answer-key check, so I discarded it. Let's regenerate a clean one rather than diagnose you from flawed questions.");
+    addMentorLeadMessage(isGeminiServiceError(e) ? getGeminiErrorMessage(e) : "The mini mock failed the answer-key check, so I discarded it. Let's regenerate a clean one rather than diagnose you from flawed questions.");
     showConversationalOptions(['Regenerate mini mock'], 'mini_mock_retry');
   }
   isLoading = false;
@@ -6685,9 +6907,6 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       if (correctedShapeValid && correctedQuestions.length === expectedQuestionCount && correctedQuestions.every(isValidTimedTestQuestion)) {
         parsed = semanticAudit.correctedData;
         timedTestQuestions = correctedQuestions;
-      } else if ((generationAttempt || 0) < 1) {
-        contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">One draft failed the answer-key audit. Marg is replacing it automatically...</div></div>';
-        return startTimedTest(section, topic, questionCount, diagnosticEntry, 1);
       } else {
         throw new Error('Generated test failed semantic validation: ' + semanticAudit.issues.join('; '));
       }
@@ -6718,8 +6937,8 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       startTimedTestTimer();
       return;
     }
-    var isTimeout = e && e.name === 'AbortError';
-    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + (isTimeout ? 'This is taking longer than expected — try again in a moment.' : 'Having trouble building this test right now. Try again in a moment.') + '</div><button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
+    var timedErrorMessage = isGeminiServiceError(e) ? getGeminiErrorMessage(e) : 'Having trouble building this test right now. Try again in a moment.';
+    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div><button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
   }
 }
 
@@ -6953,26 +7172,22 @@ async function loadDailyPractice() {
     } else if (currentPracticeType === 'rc') {
       if (!validateRCPracticeSet(practiceJson)) throw new Error('Generated RC set failed structural validation');
     }
-    content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is checking every answer and condition before showing your practice...</div></div>';
-    var practiceAudit = await auditGeneratedCATContent(currentPracticeType, practiceJson, selectedPracticeTopic);
-    if (!practiceAudit.valid) {
-      console.error('Practice failed semantic audit:', practiceAudit.issues);
-      var repairedPractice = practiceAudit.correctedData;
-      var repairedValid = currentPracticeType === 'qa' ? validateQASetShape(repairedPractice, selectedPracticeTopic, 3)
-        : currentPracticeType === 'dilr' ? validateDILRPracticeSet(repairedPractice)
-        : validateRCPracticeSet(repairedPractice);
-      if (repairedValid) {
-        practiceJson = repairedPractice;
-      } else if (!practiceAuditRetry[loadTarget]) {
-        practiceAuditRetry[loadTarget] = 1;
-        practiceLoadInFlight = false;
-        content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">One draft failed the answer-key audit. Marg is replacing it automatically...</div></div>';
-        return loadDailyPractice();
-      } else {
-        throw new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
+    // QA and RC already require self-verification in the generation prompt and
+    // pass deterministic schema/topic/length checks above. DILR retains one
+    // independent semantic audit because interacting constraints are not
+    // reliably verifiable with shape checks alone. Never auto-regenerate: use
+    // an audited repair or the verified local fallback.
+    if (currentPracticeType === 'dilr') {
+      content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is checking every answer and condition before showing your practice...</div></div>';
+      var practiceAudit = await auditGeneratedCATContent(currentPracticeType, practiceJson, selectedPracticeTopic);
+      if (!practiceAudit.valid) {
+        console.error('Practice failed semantic audit:', practiceAudit.issues);
+        var repairedPractice = practiceAudit.correctedData;
+        var repairedValid = validateDILRPracticeSet(repairedPractice);
+        if (repairedValid) practiceJson = repairedPractice;
+        else throw new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
       }
     }
-    practiceAuditRetry[loadTarget] = 0;
     practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
     practiceData[currentPracticeType] = practiceJson;
@@ -7003,10 +7218,7 @@ async function loadDailyPractice() {
       renderPractice(fallbackPractice);
       return;
     }
-    var isTimeout = e && e.name === 'AbortError';
-    var errorMessage = isTimeout
-      ? 'This is taking longer than expected — the question set may still be generating in the background. Try again in a moment.'
-      : 'Having trouble generating practice right now. Try again in a moment.';
+    var errorMessage = isGeminiServiceError(e) ? getGeminiErrorMessage(e) : 'Having trouble generating practice right now. Try again in a moment.';
     content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
   }
 }
@@ -7220,13 +7432,11 @@ async function updateCognitivePattern(type, insight) {
 }
 document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'hidden' && onboardingComplete && conversationHistory.length >= 4) {
-    generateAndSaveSessionSummary();
-  }
-});
-
-window.addEventListener('beforeunload', function() {
-  if (onboardingComplete && conversationHistory.length >= 4) {
-    generateAndSaveSessionSummary();
+    if (sessionSummaryScheduleTimer) clearTimeout(sessionSummaryScheduleTimer);
+    sessionSummaryScheduleTimer = setTimeout(function() {
+      sessionSummaryScheduleTimer = null;
+      generateAndSaveSessionSummary();
+    }, 750);
   }
 });
 
