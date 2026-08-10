@@ -6,6 +6,22 @@
   <meta name="theme-color" content="#0D0D0D">
   <meta name="description" content="Join Marg's CAT preparation community for focused practice, honest strategy, and daily accountability.">
   <title>Join the Marg CAT Community</title>
+  <!-- Meta Pixel Code -->
+  <script>
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window,document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init','1587402726183960');
+    fbq('track','PageView');
+  </script>
+  <noscript><img height="1" width="1" style="display:none" alt=""
+    src="https://www.facebook.com/tr?id=1587402726183960&amp;ev=PageView&amp;noscript=1"></noscript>
+  <!-- End Meta Pixel Code -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
@@ -303,6 +319,7 @@
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkdXF0cnVtaHZldGV5amt5bHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNjc0MzMsImV4cCI6MjA5NDc0MzQzM30.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
     const SIGNUP_STORAGE_KEY = 'marg_community_signup_complete_v1';
     let isSubmitting = false;
+    let leadEventSent = false;
 
     function cleanValue(value, maxLength) {
       return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
@@ -315,6 +332,21 @@
 
     function setFormStatus(message) {
       document.getElementById('form-status').textContent = message || '';
+    }
+
+    function trackCommunityLead(payload) {
+      if (leadEventSent || typeof window.fbq !== 'function') return;
+      leadEventSent = true;
+      try {
+        window.fbq('track','Lead',{
+          content_name:'Marg CAT Community Signup',
+          content_category:'CAT Community',
+          target_percentile:payload.target_percentile,
+          biggest_struggle:payload.biggest_struggle
+        });
+      } catch(error) {
+        console.warn('Meta Lead event could not be sent:', error);
+      }
     }
 
     async function submitCommunitySignup(event) {
@@ -354,6 +386,7 @@
           try { detail = (await response.json()).message || ''; } catch(error) {}
           throw new Error('Signup failed (' + response.status + ')' + (detail ? ': ' + detail : ''));
         }
+        trackCommunityLead(payload);
         try { localStorage.setItem(SIGNUP_STORAGE_KEY, '1'); } catch(error) {}
         showSuccess();
       } catch(error) {
