@@ -7,6 +7,8 @@
     { "src": "/daily-rc/?", "dest": "/daily-rc/index.html" },
     { "src": "/daily-dilr/?", "dest": "/daily-dilr/index.html" },
     { "src": "/daily-qa/?", "dest": "/daily-qa/index.html" },
+    { "src": "/join/?", "dest": "/join/index.html" },
+    { "src": "/landing/?", "dest": "/join/index.html" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
