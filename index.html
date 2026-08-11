@@ -1208,7 +1208,9 @@ A direct question always gets answered first, no exceptions. If a student asks s
 
 A broad story is not automatically a single-section diagnosis. When the student describes several attempts, resources across VARC/DILR/QA, and asks for a complete roadmap, treat the primary intent as planning even if VARC is mentioned first. Do not collapse it into "where does VARC feel broken?" A detailed multi-section story already contains useful context. Synthesize it, identify the cross-section planning pattern, and answer the roadmap request.
 
-Explicit request coverage is a contract. If the student asks for a roadmap containing section work, sectionals and mocks, the first answer must cover section work, when it graduates to sectionals, full-mock cadence, and the review loop. A daily timetable alone is not a roadmap. Before sending, silently inventory every requested component and confirm none was omitted; never make the student ask twice for something already named.
+Explicit request coverage is a contract. Treat every separately named section, topic, phase, sectional, mock, or review request as a checklist item—including separate QA topics such as TSD and Algebra. Before sending, compare the draft against the current request and recent corrections such as “you missed DILR and Algebra.” Address every item, especially anything the student already had to repeat. If an item genuinely cannot be covered now, name it and explain why; never silently omit it. A timetable alone is not a roadmap.
+
+Do not guess the time structure of an unclear plan description. If several blocks could mean either one overloaded day or a rotation across several days and the student has not said which, ask one brief clarification before building: “Is this meant for one day, or as a rotation across several days?” Do not force the student to write a long correction after Marg assumed the literal one-day reading.
 
 Notice personal anchors, not only technical preparation details. A stated attempt number, dream college, reason for taking CAT, job constraint, or family commitment is evidence about the person and should influence the response naturally. Fulfil the main request first. Then, at a natural point, ask one light follow-up about an important unnamed anchor—for example, "Which college is the dream one, by the way?" Do not derail the answer, repeat a detail mechanically, or ask again once it is known.
 
@@ -1270,11 +1272,11 @@ IMMERSION CONTRACT
 Your method is invisible. Never explain how Marg works, announce a question budget, narrate a diagnosis process, describe conversation stages, mention prompts/models/memory/confidence scores, or say you will ask questions and then diagnose. Never say "I'll ask at most two questions", "I'll make a diagnosis", "here's how this will work", or similar process commentary. Simply understand, respond and lead. The student should experience intelligence, not hear it described.
 
 CORE RESPONSE CONTRACT
-- Give value before questions. Every substantive reply must contain a diagnosis, prediction, mechanism, pattern, reframe or specific insight—not generic motivation.
-- Default flow: problem → bounded read → useful implication → at most one confirmation → refine → action. Never interview. Two question-containing replies in a row is a hard ceiling; infer nonessential missing details.
-- Answer an explicit question first. Do not replace it with a check-in or diagnostic.
-- Ordinary replies are 35-80 words and 1-3 sentences, with short lines. Go longer only for requested plans, explanations or multi-answer reviews; complete every requested component and never cut off mid-sentence.
-- Do not use assistant-like headings or long academic paragraphs. Diagnose the student's decision, not merely explain content.
+- Give value before questions: a diagnosis, mechanism, pattern, reframe or specific insight—not generic motivation.
+- Default: problem → bounded read → implication → at most one confirmation → action. Never interview; two question-containing replies in a row is the ceiling.
+- Answer explicit questions first, never with a check-in instead.
+- Usually write 35-80 words in short lines. Go longer for requested plans, explanations or reviews; finish every component and sentence.
+- Avoid assistant-like headings and academic paragraphs. Diagnose the decision, not just the content.
 
 EVIDENCE BEFORE REASSURANCE
 A score is an outcome, not a cause or capability verdict. Never confidently explain why a score happened, call it an "execution cascade", or claim the student's baseline is solid before examining the evidence available: attempts, accuracy, selection, timing, errors and their account. Separate observation from hypothesis: "The score shows X; your description suggests Y; Z still needs testing." Reassure only from real evidence such as prior results or correctly executed work.
@@ -1312,7 +1314,7 @@ Fix: (when wrong)
 End with "Pattern Check: X/Y right." Never compress several reviews into a wall of text or wide mobile table.
 
 PLANNING AND PERSONALIZATION
-A broad multi-section roadmap request is planning, not a section diagnostic. Cover every named component immediately: VARC/DILR/QA balance, phases, graduation to sectionals, mock cadence, analysis/revision and named resources. A timetable alone is not a roadmap. For a timetable, ask once for fixed commitments and realistic CAT time; reuse saved routine. Notice attempt number, dream college and personal constraints.
+A broad multi-section roadmap request is planning, not a section diagnostic. Treat every separately named section, QA topic, phase, sectional, mock and review as a checklist. Before sending, compare the draft with the request and recent “you missed…” corrections; cover every item, especially repeated ones. If one cannot be covered now, name it and why—never omit it silently. If blocks could mean one day or a multi-day rotation, ask that one clarification before planning. A timetable alone is not a roadmap. Reuse known routine; notice attempt number, dream college and personal constraints.
 A confirmed diagnosis must control ordering, allocation, practice format and checkpoints. If the issue is syllabus-order allocation instead of score leakage, start with the largest repeated leak and organise the rest by evidence—not chapter order. Trace each plan block to the diagnosis or a stated constraint; remove contradictory generic sequencing.
 
 THIRD-PARTY KNOWLEDGE BOUNDARY
@@ -2294,15 +2296,47 @@ window.resetMargDiagnostic = resetDiagnostic;
 function getRequestedPlanningComponents(message) {
   var text = String(message || '').toLowerCase();
   var components = [];
-  if (/\b(varc|reading comprehension|verbal ability|\brc\b)/.test(text)) components.push('VARC preparation');
-  if (/\b(dilr|lrdi|data interpretation|logical reasoning)/.test(text)) components.push('DILR preparation');
-  if (/\b(qa|quants?|quantitative aptitude|arithmetic|algebra|geometry)/.test(text)) components.push('QA preparation');
+  function add(component) { if (components.indexOf(component) === -1) components.push(component); }
+  if (/\b(varc|reading comprehension|verbal ability|rc)\b/.test(text)) add('VARC preparation');
+  if (/\b(dilr|lrdi|data interpretation|logical reasoning)\b/.test(text)) add('DILR preparation');
+  if (/\b(qa|quants?|quantitative aptitude)\b/.test(text)) add('QA preparation');
+  if (/\b(tsd|time[ ,/&-]+speed[ ,/&-]+(?:and[ ,/&-]+)?distance)\b/.test(text)) add('QA — Time, Speed and Distance (TSD)');
+  if (/\balgebra\b/.test(text)) add('QA — Algebra');
+  if (/\bgeometry\b/.test(text)) add('QA — Geometry');
+  if (/\b(?:number systems?|modern math|arithmetic|percentages?|ratios?|time and work)\b/.test(text)) add('the explicitly named QA topic');
   if (/\b(sectionals?|sectional tests?)/.test(text)) components.push('sectional-test progression and cadence');
   if (/\b(mocks?|mock tests?|mock analysis)/.test(text)) components.push('full-mock cadence and analysis');
   if (/\b(resources?|books?|material|coaching|course|youtube)/.test(text)) components.push('how to use the named resources');
   if (/\b(daily|weekly|timetable|schedule|hours?|routine)/.test(text)) components.push('daily or weekly allocation');
   if (/\b(revision|revise|error log|mistake log)/.test(text)) components.push('revision and error-review loop');
   return components;
+}
+
+function isPlanCoverageCorrection(message) {
+  var text = String(message || '').toLowerCase();
+  return /\b(?:missed|missing|left out|forgot|forgotten|didn'?t include|did not include|not covered|you only covered|include this too|include these too|cover all)\b/.test(text) && getRequestedPlanningComponents(text).length > 0;
+}
+
+function getPlanningCoverageRequirements(message) {
+  var required = getRequestedPlanningComponents(message);
+  var correctionSeen = isPlanCoverageCorrection(message);
+  var recent = (conversationHistory || []).slice(-10).filter(function(item) { return item && item.role === 'user'; });
+  if (!correctionSeen) correctionSeen = recent.some(function(item) { return isPlanCoverageCorrection(item.content); });
+  if (!correctionSeen) return required;
+  recent.concat([{ content:message }]).forEach(function(item) {
+    if (!/\b(?:plan|schedule|roadmap|cover|include|missed|missing|left out|forgot|rotation|day)\b/i.test(String(item.content || ''))) return;
+    getRequestedPlanningComponents(item.content).forEach(function(component) { if (required.indexOf(component) === -1) required.push(component); });
+  });
+  return required;
+}
+
+function isPlanSequenceAmbiguous(message) {
+  var text = String(message || '').toLowerCase();
+  if (!/\b(?:plan|schedule|routine|study|do|cover|then|after that|followed by)\b/.test(text)) return false;
+  if (getRequestedPlanningComponents(text).filter(function(item) { return /^(?:VARC|DILR|QA)/.test(item); }).length < 2) return false;
+  var explicitlySingle = /\b(?:today|one day|single day|same day|in a day|every day|each day|per day|daily)\b/.test(text);
+  var explicitlyMultiple = /\b(?:rotation|rotate|alternate days?|multi[- ]day|across\s+(?:the\s+)?(?:next\s+)?(?:\d+|two|three|four|five|six|seven)\s+days?|(?:\d+|two|three|four|five|six|seven)[- ]day|day\s*[1-7]|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(text);
+  return !explicitlySingle && !explicitlyMultiple;
 }
 
 function isComprehensiveRoadmapRequest(message) {
@@ -3754,6 +3788,7 @@ function detectMentorIntent(message) {
   if (isAnswerReviewRequest(message)) return 'answer_review';
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
   if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
+  if (isPlanCoverageCorrection(message)) return 'planning';
   if (isComprehensiveRoadmapRequest(message) || /\b(plan|schedule|timetable|roadmap|what should i study|where.*start)\b/.test(text)) return 'planning';
   // A mock narrative often contains every section name. Route the overall event
   // before individual section keywords so one mention of VARC/DILR/QA does not
@@ -3818,7 +3853,8 @@ function analyzeMentorInput(message) {
     confidence: confidence,
     consecutiveQuestionResponses: getConsecutiveQuestionResponses(),
     comprehensivePlanning:isComprehensiveRoadmapRequest(message),
-    requestedPlanningComponents:getRequestedPlanningComponents(message),
+    requestedPlanningComponents:getPlanningCoverageRequirements(message),
+    planSequenceAmbiguity:isPlanSequenceAmbiguous(message),
     freshPracticeSourceCheck:needsFreshPracticeSourceCheck(message),
     answerCount:answerCount
   };
@@ -3842,8 +3878,10 @@ function buildDiagnosisDirective(message) {
   if (/\b(?:only|mostly|mainly|exclusively)\b.{0,45}\b(?:arithmetic|algebra|geometry|number systems?|modern math|percentages?|ratios?)\b|\bpractice\b.{0,30}\b(?:only|mostly|mainly)\b/i.test(messageText)) directive += '\nPRACTICE DISTRIBUTION CHECK: Test whether narrow practice coverage mismatches the mock/exam mix. If it does, name the distribution mismatch and recommend primary-topic work plus recurring secondary-topic exposure plus a mixed timed transfer check; do not merely name one missing chapter.';
   if (/\b(?:dilr|lrdi|set)\b/i.test(messageText) && /\b(?:1[5-9]|2\d|3\d)\s*(?:\+\s*)?(?:minutes?|mins?)\b|\b(?:couldn\'t leave|could not leave|had to finish|kept going|stayed too long|already invested)\b/i.test(messageText)) directive += '\nDILR COMMITMENT CHECK: Reconstruct whether sunk-cost commitment or a missing kill-switch kept the student in the set. Treat errors immediately afterward as possible working-memory fatigue evidence, not automatically as isolated carelessness. Tie the diagnosis to the narrative and give an explicit progress checkpoint/exit rule.';
   if (diagnosis.freshPracticeSourceCheck) directive += '\nFRESH PASTED MATERIAL: The student pasted a new passage/questions and answers without an established source. Review what can be reviewed first. Then add one light source check: ask whether it came from their own material, a shared source, or somewhere they want clarified. The source question must not block or replace the answer review.';
-  if (diagnosis.comprehensivePlanning) directive += '\nCOMPREHENSIVE ROADMAP MODE: This is a broad planning request, not a single-section diagnostic. Do not launch or simulate a VARC, DILR, or QA diagnostic. Address every explicitly requested component in this one response: ' + (diagnosis.requestedPlanningComponents.length ? diagnosis.requestedPlanningComponents.join(', ') : 'all preparation areas named by the student') + '. A complete CAT roadmap must distinguish phases or milestones, balance VARC/DILR/QA, state when topic practice graduates to sectionals, include full-mock cadence and mock-analysis/revision loops, and explain how the student’s named resources fit. Do not substitute only a daily timetable. If exact routine data are missing, give the complete strategic framework now and ask for routine details only after it; never omit requested sectionals or mocks.';
-  else if (diagnosis.intent === 'planning' && diagnosis.requestedPlanningComponents.length) directive += '\nEXPLICIT REQUEST COVERAGE: Before finishing, verify that the reply directly covers every component the student named: ' + diagnosis.requestedPlanningComponents.join(', ') + '. Do not make them ask twice for an explicitly requested part.';
+  if (diagnosis.planSequenceAmbiguity) directive += '\nPLAN-STRUCTURE CLARIFICATION: The described blocks could mean one day or a rotation. Do not build or reinterpret the plan yet. Ask one short question only: “Is this meant for one day, or as a rotation across several days?”';
+  else if (diagnosis.comprehensivePlanning) directive += '\nCOMPREHENSIVE ROADMAP MODE: This is planning, not a section diagnostic. Treat this as a mandatory coverage checklist: ' + (diagnosis.requestedPlanningComponents.length ? diagnosis.requestedPlanningComponents.join(', ') : 'all preparation areas named by the student') + '. Cover every item before sending, including distinct QA topics. Silently compare the draft against the checklist. If an item genuinely cannot fit, name it and why; never omit it. Include phases, sectionals, mock cadence, analysis/revision and named-resource use where requested. A timetable alone is not a roadmap.';
+  else if (diagnosis.intent === 'planning' && diagnosis.requestedPlanningComponents.length) directive += '\nEXPLICIT REQUEST COVERAGE: Mandatory checklist: ' + diagnosis.requestedPlanningComponents.join(', ') + '. Compare the draft against every item before sending. Repeated/missed items get priority. If one cannot be covered now, name it and why; never silently omit it or make the student ask again.';
+  if (isPlanCoverageCorrection(messageText)) directive += '\nMISSED-ITEM REPAIR: The student is correcting an earlier omission. Acknowledge it in one short line, then supply every missing named item now. Do not repeat only the parts already covered.';
   if (diagnosis.intent === 'planning') {
     var confirmedPlanDiagnoses = Object.keys(diagnosticMemory || {}).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && (entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && entry.confirmedDiagnosis; });
     directive += '\nDIAGNOSIS-TO-PLAN TRACE: A plan must operationalise the confirmed diagnosis in its ordering, allocation, practice format and checkpoints; it must not revert to syllabus/textbook order.' + (confirmedPlanDiagnoses.length ? ' Apply these confirmed reads explicitly: ' + confirmedPlanDiagnoses.map(function(entry) { return entry.selectedSection + ' — ' + entry.confirmedDiagnosis; }).join(' | ') + '.' : ' Use the strongest established diagnosis from conversation and memory, if present.') + ' Silently verify each major plan block against that diagnosis before sending.';
@@ -4719,6 +4757,9 @@ function maybeHandleTimetableIntake(text) {
   // A complete roadmap is broader than a timetable. Answer its phases,
   // sectionals and mocks first; routine details can be requested afterwards.
   if (isComprehensiveRoadmapRequest(text)) return false;
+  // Let the mentor resolve one-day versus rotation ambiguity before collecting
+  // routine details or generating a timetable from the wrong interpretation.
+  if (isPlanSequenceAmbiguous(text)) return false;
   if (!/\b(timetable|daily schedule|study schedule|plan my day|build.*study plan)\b/i.test(text) || getSavedTimetableRoutine()) return false;
   try { localStorage.setItem(timetableAwaitingStorageKey(), '1'); } catch(e) {}
   addMentorLeadMessage("I can definitely do that. If you're comfortable sharing your daily routine, I'll build it around your actual schedule. In one line, tell me your fixed commitments, earliest realistic start, latest finish, and how much CAT time you can genuinely protect.");
