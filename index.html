@@ -356,9 +356,10 @@
     <button class="legal-back" onclick="showLandingMain()">← Back</button>
     <div class="legal-title">Privacy Policy</div>
     <div class="legal-date">Last updated: May 2026</div>
-    <h3>What we collect</h3><p>When you sign in with Google, we collect your name, email address, and profile photo. We also store your conversation history with Marg and your study profile to personalise your experience.</p>
+    <h3>What we collect</h3><p>When you sign in with Google, we collect your name, email address, and profile photo. To personalise your mentoring across sessions, we may also store your conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, and check-ins.</p>
     <h3>How we use it</h3><p>Your data is used solely to provide and improve Marg's mentoring experience.</p>
     <h3>Data storage</h3><p>Your data is stored securely on Supabase servers. We do not sell, share, or trade your personal information with any third parties.</p>
+    <h3>Deleting your data</h3><p>To request deletion of your account and associated data, email <a href="mailto:support@trymarg.com">support@trymarg.com</a> from the email linked to your Marg account. We will process the request within 7 business days. Clearing a chat or browser storage alone does not delete records stored in Supabase.</p>
     <h3>Contact</h3><p>support@trymarg.com</p>
   </section>
   <section class="legal-section" id="terms-section">
@@ -1291,10 +1292,13 @@ EMOTION AND FRESH MOCKS
 Acknowledge frustration or low confidence in one calm line, but do not make unsupported capability claims or become therapeutic. Separate evidence from identity, identify the preparation mechanism, then give one controllable move. If the student just finished a two-hour mock or says they are exhausted, give at most one evidence-bounded observation and ask whether they want the full breakdown now, a short first read now, or rest and revisit later. If they explicitly request the full analysis now and sound ready, proceed. Never dump a dense mission onto an exhausted student.
 
 DIAGNOSIS AND EXERCISE CONSENT
-For a new VARC, QA, DILR, Mock, Confidence, Strategy or Planning topic, use only 1-2 structured narrowing questions. Then use: natural hidden-cause read → brief evidence/mechanism → one confirmation → a one-line preview of the targeted next step. Say "Here's my read" or "I think I know what's happening", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?" The confirmation may be "Does that sound like you?", but the same reply must say what Marg will test or fix next if it fits. After Exactly or Mostly, immediately lead: "Then let's verify it instead of guessing," followed by the specific exercise/coaching action, its diagnostic purpose, and Right now / Later today / Tomorrow choices. Do not repeat the diagnosis, ask another intake question, or make the student invent the next message. Never choose tomorrow or launch an exercise without timing consent. QA and DILR use their timed interfaces, not long chat dumps. Before DILR, teach the representation, why it fits and the first constraint to inspect. Reviews must say SUPPORTED, REJECTED or INCONCLUSIVE.
+For a new VARC, QA, DILR, Mock, Confidence, Strategy or Planning topic, use 1-2 narrowing questions, then: natural read → evidence/mechanism → one confirmation → targeted next step. Say "Here's my read" or "I think I know what's happening", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?" Ask "Does that sound like you?"; the same reply must say what Marg will test or fix next. After Exactly/Mostly, immediately lead with the specific action, its diagnostic purpose, and Right now / Later today / Tomorrow choices. Never choose timing or launch an exercise for them. QA/DILR use timed interfaces, not chat dumps. Before DILR, teach the representation, why it fits and the first constraint. Reviews say SUPPORTED, REJECTED or INCONCLUSIVE.
 
 MEMORY AND CONTINUITY
 Use SESSION, ACTIVE EXERCISE, BEHAVIOURAL, TOPIC PROGRESSION, ACTIVE PLAN and PERSONAL GOAL memory before advising. Refer naturally to one relevant prior fact; never list memory or invent it. Never ask the student to resend an exercise Marg generated. If they submit answers, use the stored passage/questions/key immediately. Preserve an active plan unless a fresh result, changed constraint, completed milestone, illness or explicit redesign request justifies a change; state what changed and why.
+
+PRIVACY TRUTH
+Never call Marg session-only or claim clearing a chat/browser deletes account data. Chats, profiles, cognitive/behavioural patterns, mocks, practice progress and check-ins can persist in Supabase; drafts and plans may live in browser storage. For deletion, state this honestly and direct the student to support@trymarg.com from their account email; the published window is seven business days. Clearing local storage is not full deletion. Never claim completion without backend confirmation.
 
 If the user says only "continue", "go on" or equivalent after an incomplete reply, resume from the exact endpoint. Do not restart, summarize, repeat, re-derive, apologize or add an introduction.
 
@@ -1308,7 +1312,11 @@ Fix: (when wrong)
 End with "Pattern Check: X/Y right." Never compress several reviews into a wall of text or wide mobile table.
 
 PLANNING AND PERSONALIZATION
-A broad multi-section story asking for a roadmap is planning, not a single-section diagnostic. Cover every named component in the first response: balanced VARC/DILR/QA work, phases, when topics graduate to sectionals, full-mock cadence, analysis/revision loops and how named resources fit. A timetable alone is not a roadmap. For a personal timetable, ask once for only fixed commitments, earliest realistic start, latest finish and realistic CAT time; reuse saved routine. Notice attempt number, dream college, job/family constraints and stated goals. Fulfil the main request first, then ask one light unanswered personal follow-up at a natural point.
+A broad multi-section roadmap request is planning, not a section diagnostic. Cover every named component immediately: VARC/DILR/QA balance, phases, graduation to sectionals, mock cadence, analysis/revision and named resources. A timetable alone is not a roadmap. For a timetable, ask once for fixed commitments and realistic CAT time; reuse saved routine. Notice attempt number, dream college and personal constraints.
+A confirmed diagnosis must control ordering, allocation, practice format and checkpoints. If the issue is syllabus-order allocation instead of score leakage, start with the largest repeated leak and organise the rest by evidence—not chapter order. Trace each plan block to the diagnosis or a stated constraint; remove contradictory generic sequencing.
+
+THIRD-PARTY KNOWLEDGE BOUNDARY
+Never invent exact menus, categories, labels, navigation or structure for Cracku, IMS, TIME, Career Launcher or any third-party resource. Be exact only from user-supplied or verified current context. Otherwise say labels may differ and describe the general content type to find; CAT knowledge is not platform-interface knowledge.
 
 PRACTICE LEADERSHIP
 Do not default to "bring me", "upload" or "send me" when Marg can create the evidence. Lead with "Let's do" or "I'll generate". Respect topic switches. When enough QA/DILR concept practice is logged, recommend a timed sectional instead of another worksheet. Never force fixed-time reporting. If a fresh externally sourced passage/set with answers is pasted, review first, then lightly ask whether it is their material, a shared source or something needing clarification; never ask this for Marg-generated material.
@@ -3735,8 +3743,13 @@ function needsFreshPracticeSourceCheck(message) {
   return true;
 }
 
+function isDataPrivacyRequest(message) {
+  return /\b(?:delete|erase|remove|wipe|forget)\b[\s\S]{0,35}\b(?:my\s+)?(?:data|account|profile|history|chats?|information|records?|memory|everything\s+(?:about|on)\s+me)\b|\b(?:what|which)\s+(?:data|information)\b[\s\S]{0,30}\b(?:store|save|retain|keep|collect)\b|\b(?:do|does)\s+(?:marg|you)\s+(?:store|save|retain|keep)\s+(?:my\s+)?(?:data|information|history|chats?)\b|\bprivacy\s+(?:request|question|policy)\b/i.test(String(message || ''));
+}
+
 function detectMentorIntent(message) {
   var text = String(message || '').toLowerCase().trim();
+  if (isDataPrivacyRequest(message)) return 'privacy_request';
   if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
   if (isAnswerReviewRequest(message)) return 'answer_review';
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
@@ -3766,6 +3779,7 @@ function detectEmotionalState(message) {
 
 function getLikelyHiddenProblem(intent, message) {
   var text = String(message || '').toLowerCase();
+  if (intent === 'privacy_request') return 'This is a factual privacy request, not a mentoring diagnosis. State the real retention model and deletion path without minimizing what is stored.';
   if (intent === 'seamless_continuation') return 'The previous Marg response ended before the thought or deliverable was complete. Resume from its exact endpoint without repeating any earlier explanation.';
   if (intent === 'answer_review') return activeGeneratedExercise ? 'The student is submitting answers to Marg’s active generated exercise. Check them immediately from stored questions and answer keys, then diagnose the shared decision pattern across errors.' : 'The student wants an answer check. Use the recent conversation first and never ask them to resend content Marg already generated.';
   if (intent === 'confidence_breakdown') return 'A recent score or repeated miss has been converted into a verdict about ability; the immediate need is to separate evidence from identity and restore one controllable next step.';
@@ -3821,6 +3835,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. If the exercise stores a hypothesis, lead with SUPPORTED, REJECTED, or INCONCLUSIVE and use the actual choice pattern as evidence; do not preserve the prediction when the evidence contradicts it. Format every reviewed item as its own block separated by a blank line: Q[number], then Your Answer:, Correct Answer:, Diagnosis:, and Fix: when the answer is wrong. End with “Pattern Check: X/Y right.” Never compress multiple questions into one paragraph or table. Ask no diagnostic intake question.';
+  if (diagnosis.intent === 'privacy_request') directive += '\nPRIVACY REQUEST MODE: Do not diagnose or reassure. Never say Marg is session-only. State that authenticated chats, profiles, cognitive/behavioural patterns, mock history, practice progress and check-ins can persist in Supabase, with some state also in browser storage. For deletion, direct the user to support@trymarg.com from their account email and state the published seven-business-day window. Clearing a chat or local storage is not full deletion.';
   if (diagnosis.intent === 'mock_diagnosis') directive += '\nMOCK EVIDENCE-FIRST MODE: The score is an outcome, not a cause or capability measure. Begin with what the supplied numbers and narrative actually establish. Mark every causal explanation as a hypothesis until supported by attempt, accuracy, selection, timing, error, or behavioural evidence. Name the specific decision mechanism rather than a generic bucket such as time management, carelessness, or practice more. MOCK MISSION CONTRACT: if the analysis ends in a mission, it must test the diagnosed execution mechanism—not assign generic volume. State one Focus, then Why it matters from this mock, then one Action, an observable Rule and the Evidence that will support or reject the hypothesis. WHY comes before WHAT. For a full mock, use one WHY-before-WHAT weekly priority per section and compare the next two mocks before changing the plan. Never promise or validate a specific percentile from this one mock.';
   if (/\b(?:just|just now|today|right now)\b.{0,35}\b(?:finished|completed|gave|taken|attempted|done with)\b.{0,20}\bmock\b|\b(?:finished|completed|gave|taken|attempted)\b.{0,20}\bmock\b.{0,20}\b(?:just|just now|today|right now)\b/i.test(messageText) || diagnosis.emotionalState === 'drained') directive += '\nFRESH-MOCK ENERGY CHECK: Give only one evidence-bounded first observation. Do not send a dense breakdown or Today\'s Mission yet. Ask whether the student wants the full analysis now, a short first read now, or to rest and revisit it later. If they explicitly requested the full breakdown now and sound ready, proceed without repeating the timing question.';
   if (/\b(?:i think|maybe|probably|not sure|i guess|might be)\b/i.test(messageText)) directive += '\nUNCERTAIN SELF-DIAGNOSIS: Treat the student\'s proposed cause as a hypothesis. Do not prescribe an unsupported numeric adjustment. Give a small comparison test with observable outcomes that can confirm or reject it.';
@@ -3829,6 +3844,11 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.freshPracticeSourceCheck) directive += '\nFRESH PASTED MATERIAL: The student pasted a new passage/questions and answers without an established source. Review what can be reviewed first. Then add one light source check: ask whether it came from their own material, a shared source, or somewhere they want clarified. The source question must not block or replace the answer review.';
   if (diagnosis.comprehensivePlanning) directive += '\nCOMPREHENSIVE ROADMAP MODE: This is a broad planning request, not a single-section diagnostic. Do not launch or simulate a VARC, DILR, or QA diagnostic. Address every explicitly requested component in this one response: ' + (diagnosis.requestedPlanningComponents.length ? diagnosis.requestedPlanningComponents.join(', ') : 'all preparation areas named by the student') + '. A complete CAT roadmap must distinguish phases or milestones, balance VARC/DILR/QA, state when topic practice graduates to sectionals, include full-mock cadence and mock-analysis/revision loops, and explain how the student’s named resources fit. Do not substitute only a daily timetable. If exact routine data are missing, give the complete strategic framework now and ask for routine details only after it; never omit requested sectionals or mocks.';
   else if (diagnosis.intent === 'planning' && diagnosis.requestedPlanningComponents.length) directive += '\nEXPLICIT REQUEST COVERAGE: Before finishing, verify that the reply directly covers every component the student named: ' + diagnosis.requestedPlanningComponents.join(', ') + '. Do not make them ask twice for an explicitly requested part.';
+  if (diagnosis.intent === 'planning') {
+    var confirmedPlanDiagnoses = Object.keys(diagnosticMemory || {}).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && (entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && entry.confirmedDiagnosis; });
+    directive += '\nDIAGNOSIS-TO-PLAN TRACE: A plan must operationalise the confirmed diagnosis in its ordering, allocation, practice format and checkpoints; it must not revert to syllabus/textbook order.' + (confirmedPlanDiagnoses.length ? ' Apply these confirmed reads explicitly: ' + confirmedPlanDiagnoses.map(function(entry) { return entry.selectedSection + ' — ' + entry.confirmedDiagnosis; }).join(' | ') + '.' : ' Use the strongest established diagnosis from conversation and memory, if present.') + ' Silently verify each major plan block against that diagnosis before sending.';
+  }
+  if (/\b(?:cracku|ims|career launcher|cl portal|time portal|time coaching|rodha|2iim|unacademy|byju'?s|hitbullseye|anastasis|takshzila)\b/i.test(messageText)) directive += '\nTHIRD-PARTY PLATFORM SAFETY: Do not invent exact category names, menus, tabs, navigation paths, labels or course structure. Use exact platform-specific details only if the student supplied them in this conversation or they appear in verified current context. Otherwise say labels may differ and describe the general content type to look for.';
   if (/\b(book|books|source|material|resource|course|coaching|youtube channel)\b/i.test(String(message || ''))) directive += '\nSOURCE-TRUST MODE: The practical source question may be hiding loss of trust or fear of choosing wrong. Name that uncertainty first in one calm line, use prior progress to show whether the current source actually failed, then make one practical recommendation. Do not offer a shopping list of alternatives and do not reset an existing plan merely because the student feels uncertain.';
   if (/\b(plan|schedule|timetable|what should i do|today'?s task|mission)\b/i.test(String(message || ''))) directive += '\nPLAN-STABILITY MODE: Check ACTIVE PLAN MEMORY before proposing anything. Keep the current mission unless the student supplied strong new evidence. If changing it, state what new evidence changed the priority. End an actionable planning reply with the exact Today\'s Mission format: Focus, Why, Action, Rule, Evidence—in that order. A diagnosed execution problem requires a hypothesis-testing mission, never a generic question-count task.';
   return { diagnosis: diagnosis, directive: directive };
@@ -4755,6 +4775,26 @@ function handleTopicSectionalTiming(answer) {
     : 'Done. Later today, I’ll keep the ' + item.topic + ' timed sectional as the next move.');
 }
 
+function isDataDeletionRequest(message) {
+  return /\b(?:delete|erase|remove|wipe|forget)\b[\s\S]{0,35}\b(?:my\s+)?(?:data|account|profile|history|chats?|information|records?|memory|everything\s+(?:about|on)\s+me)\b/i.test(String(message || ''));
+}
+
+function buildPrivacyRequestReply(message) {
+  if (isDataDeletionRequest(message)) {
+    return 'Marg does retain data across sessions. For signed-in users, this can include conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress and check-ins in Supabase; some drafts, exercises and plan state are also stored in your browser.\n\nClearing this chat or browser storage does not delete the Supabase records. To request deletion of your account and associated data, email support@trymarg.com from the email linked to your Marg account. The published processing time is within 7 business days.';
+  }
+  return 'Marg is not session-only. Signed-in conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress and check-ins can persist in Supabase across sessions. Some drafts, exercises and plan state are also stored in your browser, and submitted content may be processed through Gemini to generate replies.\n\nFor deletion or a privacy request, email support@trymarg.com from your account email. Clearing local storage alone does not remove Supabase records.';
+}
+
+function maybeHandlePrivacyRequest(message) {
+  if (!isDataPrivacyRequest(message)) return false;
+  var reply = buildPrivacyRequestReply(message);
+  addMessage('marg', escapeChatHtml(reply).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
+  conversationHistory.push({ role:'assistant', content:reply });
+  if (!isGuestMode) saveChatMessage('assistant', reply);
+  return true;
+}
+
 async function sendMessage(fromQueue) {
   const mockOverlay = document.getElementById('mock-onboarding-overlay');
   const mockVisible = mockOverlay && mockOverlay.style.display === 'flex';
@@ -4817,6 +4857,8 @@ async function sendMessage(fromQueue) {
     loadActiveGeneratedExercise();
     var predictionValidationReply = isPredictionValidationReply(text);
     if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
+
+  if (!hasImages && maybeHandlePrivacyRequest(text)) return;
 
   if (!hasImages && (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     return;
