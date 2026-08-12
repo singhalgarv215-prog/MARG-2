@@ -356,7 +356,7 @@
     <button class="legal-back" onclick="showLandingMain()">← Back</button>
     <div class="legal-title">Privacy Policy</div>
     <div class="legal-date">Last updated: May 2026</div>
-    <h3>What we collect</h3><p>When you sign in with Google, we collect your name, email address, and profile photo. To personalise your mentoring across sessions, we may also store your conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, and check-ins.</p>
+    <h3>What we collect</h3><p>When you sign in with Google, we collect your name, email address, and profile photo. To personalise your mentoring across sessions, we may also store your conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, check-ins, and product-engagement milestones. If you request a community invite, we store the WhatsApp number you submit and the status of that request; the number is saved directly to Supabase and is not sent to Gemini or added to chat history.</p>
     <h3>How we use it</h3><p>Your data is used solely to provide and improve Marg's mentoring experience.</p>
     <h3>Data storage</h3><p>Your data is stored securely on Supabase servers. We do not sell, share, or trade your personal information with any third parties.</p>
     <h3>Deleting your data</h3><p>To request deletion of your account and associated data, email <a href="mailto:support@trymarg.com">support@trymarg.com</a> from the email linked to your Marg account. We will process the request within 7 business days. Clearing a chat or browser storage alone does not delete records stored in Supabase.</p>
@@ -875,12 +875,12 @@
     </svg>
     Progress
   </button>
-  <a href="https://chat.whatsapp.com/HNBsCxePBLcD5obswDcP5R?s=cl&amp;p=i&amp;mlu=0&amp;ilr=0" target="_blank" rel="noopener noreferrer" aria-label="Join the Marg WhatsApp group" class="bnav-btn" id="bnav-community" style="text-decoration:none;color:inherit;">
+  <button type="button" onclick="openCommunityStatus()" aria-label="View Marg community access" class="bnav-btn" id="bnav-community">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
     </svg>
     Community
-  </a>
+  </button>
 </div>
 
 <script>var tourStep = 0;
@@ -1129,6 +1129,345 @@ async function sbFetch(path, method, body) {
   return { data, error: null };
 }
 
+// --- Earned community access -------------------------------------------------
+// Eligibility is determined by product events, never by Gemini or message count.
+var COMMUNITY_QUALIFYING_EVENTS = ['diagnosis_confirmed', 'recommended_task_completed'];
+var communityInterestState = null;
+var communityInvitePending = false;
+var communityInviteRenderedSession = false;
+var engagementRecordedThisSession = {};
+
+function getEngagementSessionKey() {
+  var key = '';
+  try { key = sessionStorage.getItem('marg_engagement_session_v1') || ''; } catch(e) {}
+  if (key) return key;
+  key = 'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
+  try { sessionStorage.setItem('marg_engagement_session_v1', key); } catch(e) {}
+  return key;
+}
+
+function compactEngagementValue(value, maxLength) {
+  return String(value === undefined || value === null ? '' : value).replace(/\s+/g, ' ').trim().slice(0, maxLength || 120);
+}
+
+function simpleStableHash(value) {
+  var text = String(value || ''), hash = 2166136261;
+  for (var i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return String(hash >>> 0);
+}
+
+function stashGuestCommunityMilestone(eventType, metadata) {
+  if (COMMUNITY_QUALIFYING_EVENTS.indexOf(eventType) === -1) return;
+  try {
+    localStorage.setItem('marg_pending_earned_community_v1', JSON.stringify({
+      eventType:eventType,
+      metadata:metadata || {},
+      createdAt:new Date().toISOString()
+    }));
+  } catch(e) {}
+}
+
+async function loadCommunityInterest() {
+  if (!currentUser || !SUPABASE_TOKEN) return null;
+  try {
+    var result = await sbFetch('community_interest?select=*&user_id=eq.' + encodeURIComponent(currentUser.id) + '&limit=1', 'GET');
+    communityInterestState = result.data && result.data.length ? result.data[0] : null;
+    if (communityInterestState && communityInterestState.status === 'eligible') communityInvitePending = true;
+    return communityInterestState;
+  } catch(error) {
+    console.error('Community interest load failed:', error);
+    return null;
+  }
+}
+
+async function upsertCommunityInterest(updates) {
+  if (!currentUser || !SUPABASE_TOKEN) return false;
+  var payload = Object.assign({ user_id:currentUser.id, updated_at:new Date().toISOString() }, communityInterestState || {}, updates || {});
+  delete payload.created_at;
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/community_interest?on_conflict=user_id', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':SUPABASE_ANON_KEY,
+        'Authorization':'Bearer ' + SUPABASE_TOKEN,
+        'Prefer':'resolution=merge-duplicates,return=representation'
+      },
+      body:JSON.stringify(payload)
+    });
+    if (!response.ok) throw new Error('Community interest save failed (' + response.status + ')');
+    var rows = await response.json();
+    communityInterestState = rows && rows.length ? rows[0] : payload;
+    return true;
+  } catch(error) {
+    console.error('Community interest save failed:', error);
+    return false;
+  }
+}
+
+async function registerCommunityMilestone(signal) {
+  if (!currentUser || !SUPABASE_TOKEN || COMMUNITY_QUALIFYING_EVENTS.indexOf(signal) === -1) return false;
+  if (communityInterestState === null) await loadCommunityInterest();
+  var now = new Date().toISOString();
+  var state = communityInterestState;
+  if (!state) {
+    var created = await upsertCommunityInterest({
+      status:'eligible', eligibility_signal:signal, eligible_at:now,
+      milestone_count:1, offered_milestone_count:0, offer_count:0
+    });
+    if (created) communityInvitePending = true;
+    return created;
+  }
+
+  if (state.status === 'interested' || state.status === 'invite_sent' || state.status === 'declined') return false;
+  var milestoneCount = Number(state.milestone_count || 0) + 1;
+  var updates = { milestone_count:milestoneCount };
+  if (state.status === 'offered' && state.offered_session_key !== getEngagementSessionKey() &&
+      milestoneCount > Number(state.offered_milestone_count || 0) && Number(state.offer_count || 0) < 2) {
+    updates.status = 'eligible';
+    updates.eligibility_signal = signal;
+    updates.eligible_at = now;
+    communityInvitePending = true;
+  } else if (state.status === 'eligible') {
+    communityInvitePending = true;
+  }
+  return upsertCommunityInterest(updates);
+}
+
+async function recordEngagementEvent(eventType, metadata, idempotencySuffix) {
+  metadata = metadata || {};
+  if (!currentUser || !SUPABASE_TOKEN || isGuestMode) {
+    stashGuestCommunityMilestone(eventType, metadata);
+    return false;
+  }
+  var sessionKey = getEngagementSessionKey();
+  var suffix = compactEngagementValue(idempotencySuffix || metadata.id || metadata.topic || metadata.date || sessionKey, 140);
+  var idempotencyKey = eventType + ':' + suffix;
+  if (engagementRecordedThisSession[idempotencyKey]) return false;
+  engagementRecordedThisSession[idempotencyKey] = true;
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/engagement_events?on_conflict=user_id,idempotency_key', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':SUPABASE_ANON_KEY,
+        'Authorization':'Bearer ' + SUPABASE_TOKEN,
+        'Prefer':'resolution=ignore-duplicates,return=minimal'
+      },
+      body:JSON.stringify({
+        user_id:currentUser.id,
+        event_type:eventType,
+        session_key:sessionKey,
+        idempotency_key:idempotencyKey,
+        metadata:metadata
+      })
+    });
+    if (!response.ok) throw new Error('Engagement event save failed (' + response.status + ')');
+    if (COMMUNITY_QUALIFYING_EVENTS.indexOf(eventType) !== -1) {
+      await registerCommunityMilestone(eventType);
+      if (typeof maybePresentCommunityInvite === 'function') maybePresentCommunityInvite();
+    }
+    return true;
+  } catch(error) {
+    delete engagementRecordedThisSession[idempotencyKey];
+    console.error('Engagement event save failed:', eventType, error);
+    return false;
+  }
+}
+
+async function initializeEngagementTracking() {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  await loadCommunityInterest();
+  await recordEngagementEvent('active_day', { date:getTodayDate() }, 'day-' + getTodayDate());
+  try {
+    var pending = JSON.parse(localStorage.getItem('marg_pending_earned_community_v1') || 'null');
+    if (pending && COMMUNITY_QUALIFYING_EVENTS.indexOf(pending.eventType) !== -1) {
+      var migrated = await recordEngagementEvent(pending.eventType, pending.metadata || {}, 'guest-' + simpleStableHash(JSON.stringify(pending)));
+      if (migrated) localStorage.removeItem('marg_pending_earned_community_v1');
+    }
+  } catch(e) {}
+  maybePresentCommunityInvite();
+}
+
+function isMeaningfulCatSpecificMessage(value) {
+  var text = compactEngagementValue(value, 2000);
+  if (text.length < 12) return false;
+  if (/^(?:hi|hello|hey|bro|idk|help|okay|ok|thanks?|continue|yes|no|exactly|mostly|not really)[.!?\s]*$/i.test(text)) return false;
+  var intent = typeof detectMentorIntent === 'function' ? detectMentorIntent(text) : 'general_mentor';
+  var specificIntent = ['varc_diagnosis','dilr_diagnosis','qa_diagnosis','mock_diagnosis','answer_review','planning','strategy','confidence'].indexOf(intent) !== -1;
+  return specificIntent || /\b(?:CAT|VARC|RC|DILR|LRDI|QA|quant|mock|sectional|percentile|arithmetic|algebra|geometry|reading comprehension|para jumble|time[- ]speed[- ]distance)\b/i.test(text);
+}
+
+function normalizeCommunityPhone(value) {
+  var raw = String(value || '').trim();
+  var hadPlus = raw.charAt(0) === '+';
+  var digits = raw.replace(/\D/g, '');
+  if (!hadPlus && digits.length === 11 && digits.charAt(0) === '0') digits = digits.slice(1);
+  if (!hadPlus && digits.length === 10) return '+91' + digits;
+  if (!hadPlus && digits.length === 12 && digits.slice(0, 2) === '91') return '+' + digits;
+  if (hadPlus && digits.length >= 8 && digits.length <= 15 && digits.charAt(0) !== '0') return '+' + digits;
+  return '';
+}
+
+function maskCommunityPhone(phone) {
+  var value = String(phone || '');
+  return value.length > 6 ? value.slice(0, 3) + '•••••' + value.slice(-3) : value;
+}
+
+async function submitCommunityPhone(card, input, statusEl, submitButton) {
+  var phone = normalizeCommunityPhone(input.value);
+  if (!phone) {
+    statusEl.textContent = 'Enter a valid number with country code, or a 10-digit Indian mobile number.';
+    input.focus();
+    return;
+  }
+  submitButton.disabled = true;
+  statusEl.textContent = 'Saving securely…';
+  var saved = await upsertCommunityInterest({
+    phone_e164:phone,
+    status:'interested',
+    responded_at:new Date().toISOString()
+  });
+  if (!saved) {
+    submitButton.disabled = false;
+    statusEl.textContent = 'That could not be saved right now. Your number has not been sent—please try once more.';
+    return;
+  }
+  communityInvitePending = false;
+  card.innerHTML = '<div style="font-size:14px;color:#F0EDE6;font-weight:600;margin-bottom:6px;">Request saved.</div>' +
+    '<div style="font-size:13px;color:#AAA69E;line-height:1.55;">We’ll review it and personally send the invite to ' + escapeChatHtml(maskCommunityPhone(phone)) + '. The group link is never exposed automatically.</div>';
+}
+
+function showCommunityPhoneForm(card) {
+  card.innerHTML = '';
+  var label = document.createElement('label');
+  label.textContent = 'WhatsApp number';
+  label.style.cssText = 'display:block;font-size:12px;color:#C9A84C;margin-bottom:7px;font-weight:600;';
+  var input = document.createElement('input');
+  input.type = 'tel';
+  input.inputMode = 'tel';
+  input.autocomplete = 'tel';
+  input.placeholder = '+91 98765 43210';
+  input.setAttribute('aria-label', 'WhatsApp phone number');
+  input.style.cssText = 'width:100%;box-sizing:border-box;background:#101010;border:1px solid #343434;border-radius:10px;color:#F0EDE6;padding:12px;font:14px DM Sans,sans-serif;outline:none;';
+  var privacy = document.createElement('div');
+  privacy.textContent = 'Saved directly to your private Marg record for this invite request. It is not sent to Gemini or added to chat history.';
+  privacy.style.cssText = 'font-size:11px;color:#77736C;line-height:1.45;margin:8px 0 10px;';
+  var status = document.createElement('div');
+  status.setAttribute('role', 'status');
+  status.style.cssText = 'font-size:11px;color:#D9B95B;min-height:16px;margin-bottom:7px;';
+  var submit = document.createElement('button');
+  submit.type = 'button';
+  submit.textContent = 'Request my invite';
+  submit.style.cssText = 'background:#C9A84C;color:#111;border:0;border-radius:10px;padding:11px 14px;font:600 13px DM Sans,sans-serif;cursor:pointer;';
+  submit.onclick = function() { submitCommunityPhone(card, input, status, submit); };
+  input.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') { event.preventDefault(); submit.click(); }
+  });
+  card.appendChild(label);
+  card.appendChild(input);
+  card.appendChild(privacy);
+  card.appendChild(status);
+  card.appendChild(submit);
+  input.focus();
+}
+
+async function declineCommunityInvite(card) {
+  await upsertCommunityInterest({ status:'declined', responded_at:new Date().toISOString() });
+  communityInvitePending = false;
+  card.innerHTML = '<div style="font-size:13px;color:#AAA69E;line-height:1.55;">No problem. I won’t bring it up again automatically. If you change your mind, Community will be here.</div>';
+}
+
+async function renderCommunityInviteCard(forceByUser) {
+  if (!currentUser || !SUPABASE_TOKEN || isGuestMode || communityInviteRenderedSession) return false;
+  if (communityInterestState === null) await loadCommunityInterest();
+  if (!communityInterestState || (communityInterestState.status !== 'eligible' && !forceByUser)) return false;
+  if (!forceByUser && (!communityInvitePending || Number(communityInterestState.offer_count || 0) >= 2)) return false;
+
+  var nextOfferCount = Math.min(2, Number(communityInterestState.offer_count || 0) + 1);
+  var saved = await upsertCommunityInterest({
+    status:'offered',
+    offered_at:new Date().toISOString(),
+    offered_session_key:getEngagementSessionKey(),
+    offer_count:nextOfferCount,
+    offered_milestone_count:Number(communityInterestState.milestone_count || 0)
+  });
+  if (!saved) return false;
+  communityInvitePending = false;
+  communityInviteRenderedSession = true;
+
+  var messages = document.getElementById('messages');
+  if (!messages) return false;
+  var wrap = document.createElement('div');
+  wrap.className = 'message marg fade-in';
+  wrap.id = 'community-invite-card';
+  wrap.style.marginLeft = '38px';
+  var card = document.createElement('div');
+  card.className = 'bubble';
+  card.style.cssText = 'border:1px solid rgba(201,168,76,.28);background:linear-gradient(145deg,#191814,#151515);max-width:460px;';
+  card.innerHTML = '<div style="font-size:14px;color:#F0EDE6;line-height:1.55;margin-bottom:12px;">You’re properly getting started with Marg now.<br><br>We’re building a small WhatsApp group for serious CAT aspirants. Want an invite? No pressure either way.</div>';
+  var actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;';
+  var yes = document.createElement('button');
+  yes.type = 'button';
+  yes.textContent = 'Yes, I’d like an invite';
+  yes.style.cssText = 'background:#C9A84C;color:#111;border:0;border-radius:9px;padding:10px 12px;font:600 12px DM Sans,sans-serif;cursor:pointer;';
+  yes.onclick = function() { showCommunityPhoneForm(card); };
+  var no = document.createElement('button');
+  no.type = 'button';
+  no.textContent = 'Not now';
+  no.style.cssText = 'background:#222;color:#C8C4BC;border:1px solid #333;border-radius:9px;padding:10px 12px;font:500 12px DM Sans,sans-serif;cursor:pointer;';
+  no.onclick = function() { declineCommunityInvite(card); };
+  actions.appendChild(yes);
+  actions.appendChild(no);
+  card.appendChild(actions);
+  wrap.appendChild(card);
+  messages.appendChild(wrap);
+  messages.scrollTop = messages.scrollHeight;
+  return true;
+}
+
+function maybePresentCommunityInvite() {
+  if (!communityInvitePending || communityInviteRenderedSession || isLoading || currentTab !== 'chat') return false;
+  if (document.querySelector('[id^="conv-options-"]')) return false;
+  setTimeout(function() { renderCommunityInviteCard(false); }, 250);
+  return true;
+}
+
+async function openCommunityStatus() {
+  if (currentTab !== 'chat') switchTab('chat');
+  if (!currentUser || !SUPABASE_TOKEN || isGuestMode) {
+    addMentorLeadMessage('Community access opens after you begin real work with Marg. Sign in when you want your progress—and any future invite request—saved properly.');
+    return;
+  }
+  if (communityInterestState === null) await loadCommunityInterest();
+  var state = communityInterestState;
+  if (state && (state.status === 'interested' || state.status === 'invite_sent')) {
+    addMentorLeadMessage(state.status === 'invite_sent' ? 'Your community invite has been marked as sent.' : 'Your community request is saved. We’ll review it and personally send the invite to your WhatsApp number.');
+    return;
+  }
+  if (state && state.status === 'declined') {
+    addMentorLeadMessage('You chose not to request the community invite, so I won’t keep asking. If you’ve changed your mind, you can request it from here.');
+    communityInviteRenderedSession = false;
+    await renderCommunityInviteCard(true);
+    return;
+  }
+  if (state && state.status === 'eligible') {
+    communityInvitePending = true;
+    communityInviteRenderedSession = false;
+    await renderCommunityInviteCard(false);
+    return;
+  }
+  if (state && state.status === 'offered') {
+    addMentorLeadMessage('The community invitation has already been offered. Keep working with Marg; if you ignored it, one later offer can unlock after another real milestone—not from repeated messages.');
+    return;
+  }
+  addMentorLeadMessage('The community is earned through real work here. Once we confirm a preparation pattern or you complete a practice task, you’ll be able to request an invite—there’s no signup gate.');
+}
+
 const CAT_QUOTES = [
   { quote: "The CAT is not a test of intelligence. It is a test of preparation.", author: "— Every IIM topper ever" },
   { quote: "You don't rise to the level of your goals. You fall to the level of your systems.", author: "— James Clear" },
@@ -1205,6 +1544,8 @@ One mock cannot justify a specific percentile forecast. Never say a stated perce
 You remember what this student has told you — their weakest section, their hours, what happened in your last session together, whatever the session summary says. Use it without announcing that you're using it, and don't make them repeat what you already know. "You mentioned DILR felt slow yesterday — how'd today's set go?" is memory used well; asking them to restate their whole situation from scratch is memory wasted. But never invent a memory — if you're not sure something happened, say "based on what you've told me" instead of asserting it, and never claim "last time you did X" unless it's actually sitting in your context.
 
 A direct question always gets answered first, no exceptions. If a student asks something explicit — which mocks to take, how a concept works, anything — that gets a real answer before anything else, even if you're sitting on a check-in you genuinely want to ask about yesterday's task. Never let "did you do the RC passage we planned" replace the answer to a question they just asked you — that's not memory being used well, that's ignoring them. Answer what they actually asked, and if the check-in still matters, fold it in after or just save it for next time.
+
+COMMUNITY ACCESS IS APP-CONTROLLED: Never independently advertise, offer, promise, or reveal a WhatsApp group or invite link. Never ask the student to type a phone number into ordinary chat. The app alone determines earned eligibility from deterministic engagement milestones and, when appropriate, renders a private phone field that is not sent to you. If the student asks about Community, answer briefly that access is offered through Marg after real mentoring engagement and let the app’s Community control handle status; do not invent access or contact details.
 
 A broad story is not automatically a single-section diagnosis. When the student describes several attempts, resources across VARC/DILR/QA, and asks for a complete roadmap, treat the primary intent as planning even if VARC is mentioned first. Do not collapse it into "where does VARC feel broken?" A detailed multi-section story already contains useful context. Synthesize it, identify the cross-section planning pattern, and answer the roadmap request.
 
@@ -2232,7 +2573,10 @@ function confirmDiagnostic(level) {
   diagnosticSessionAttempted[topic] = true;
   activeDiagnosticTopic = topic;
   saveDiagnosticMemory();
-  if (level !== 'Not Really') recordBehaviorPattern(topic, entry.confirmedDiagnosis, entry.selectedPattern, 'diagnostic');
+  if (level !== 'Not Really') {
+    recordBehaviorPattern(topic, entry.confirmedDiagnosis, entry.selectedPattern, 'diagnostic');
+    recordEngagementEvent('diagnosis_confirmed', { topic:topic, pattern_id:pattern.id, confirmation:level }, 'diagnosis-' + topic + '-' + pattern.id + '-' + entry.updatedAt);
+  }
   finishDiagnosticFlow(entry);
 }
 
@@ -2654,6 +2998,11 @@ function markActiveExerciseAttempt(answerText, force) {
   activeGeneratedExercise.lastAttemptAt = new Date().toISOString();
   activeGeneratedExercise.awaitingAnswers = false;
   storeActiveGeneratedExercise(activeGeneratedExercise);
+  recordEngagementEvent('recommended_task_completed', {
+    id:activeGeneratedExercise.id,
+    type:activeGeneratedExercise.type,
+    source:activeGeneratedExercise.source || 'chat-exercise'
+  }, 'exercise-complete-' + activeGeneratedExercise.id);
 }
 
 function applyPredictionValidationVerdict(responseText) {
@@ -3197,6 +3546,7 @@ function proceedOnboarding(step) {
 async function finishOnboarding() {
   onboardingComplete = true;
   await saveProfile();
+  recordEngagementEvent('onboarding_completed', { flow:'legacy-card' }, 'onboarding-v1');
   showBottomNav();
   if (!schedulePendingDeepLinkQuestionDispatch(300)) showPathChoiceScreen();
 }
@@ -3407,6 +3757,7 @@ function completeChatFirstOnboarding(section) {
   try { localStorage.setItem('marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest'), '1'); } catch(e) {}
   showBottomNav();
   saveProfile();
+  recordEngagementEvent('onboarding_completed', { flow:'chat-first' }, 'onboarding-v1');
   schedulePendingDeepLinkQuestionDispatch(250);
 }
 
@@ -3526,6 +3877,7 @@ function startPredictionFirstDiagnostic(topic, force) {
   loadDiagnosticMemory();
   var remembered = diagnosticMemory[topic];
   chatDiagnosticState = { active:true, topic:topic, subcategory:null, pattern:null, displayPrediction:null, revisedPrediction:null, rejectedCount:0 };
+  recordEngagementEvent('diagnostic_started', { topic:topic }, 'diagnostic-start-' + topic + '-' + getEngagementSessionKey());
   activeDiagnosticTopic = topic;
   removeConversationalOptions();
   if (!force && remembered && hasConfirmedDiagnostic(topic)) {
@@ -3647,6 +3999,7 @@ async function confirmChatDiagnosticPrediction(level) {
   var prediction = chatDiagnosticState.revisedPrediction || chatDiagnosticState.displayPrediction || chatDiagnosticState.pattern.prediction;
   var entry = saveChatDiagnosticEntry(level, prediction);
   chatDiagnosticState.active = false;
+  await recordEngagementEvent('diagnosis_confirmed', { topic:entry.topic, pattern_id:entry.patternId, confirmation:level }, 'diagnosis-' + entry.topic + '-' + entry.patternId + '-' + entry.updatedAt);
   savePendingDiagnosticExercise(entry, 'awaiting_choice');
   addMentorLeadMessage(buildConfirmedDiagnosticLead(entry));
   showConversationalOptions(['Right now', 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
@@ -3700,6 +4053,7 @@ async function handlePredictionExerciseTiming(answer) {
   addMentorLeadMessage(timing === 'tomorrow'
     ? "Tomorrow works. I’ve kept the same targeted check ready; when you open Marg, say “start the check” and we’ll use it before changing your plan."
     : "Later today works. I’ve kept the same targeted check ready; say “start the check” whenever you’re ready and we’ll continue from here.");
+  maybePresentCommunityInvite();
 }
 
 var personalGoalMemory = null;
@@ -4238,6 +4592,9 @@ async function handleConversationalResponse(answer, context) {
         await updateCognitivePattern(patternType, conversationalProfile.diagnosisPattern);
       }
       conversationalProfile.patternConfirmed = true;
+      await recordEngagementEvent('diagnosis_confirmed', {
+        topic:patternType || 'general', confirmation:'Exactly', source:'legacy-pattern-confirmation'
+      }, 'legacy-diagnosis-' + (patternType || 'general') + '-' + getEngagementSessionKey());
       await sendConversationalMessage(answer, 'pattern_confirmed');
     } else {
       await sendPatternFallbackQuestion();
@@ -4350,6 +4707,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
         showBottomNav();
         studentProfile.monthsLeft = calculateMonthsLeftForCAT();
         await saveProfile();
+        recordEngagementEvent('onboarding_completed', { flow:'conversational-auto' }, 'onboarding-v1');
         await saveLastTask('Complete CAT prep plan from onboarding conversation', 'Initial diagnosis done');
         schedulePendingDeepLinkQuestionDispatch(250);
       }
@@ -4649,6 +5007,7 @@ function buildPersonalizedOpening() {
 
 function restoreConversation() {
   onboardingComplete = true;
+  recordEngagementEvent('onboarding_completed', { flow:'returning-user-backfill' }, 'onboarding-v1');
   showBottomNav();
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
@@ -4822,9 +5181,9 @@ function isDataDeletionRequest(message) {
 
 function buildPrivacyRequestReply(message) {
   if (isDataDeletionRequest(message)) {
-    return 'Marg does retain data across sessions. For signed-in users, this can include conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress and check-ins in Supabase; some drafts, exercises and plan state are also stored in your browser.\n\nClearing this chat or browser storage does not delete the Supabase records. To request deletion of your account and associated data, email support@trymarg.com from the email linked to your Marg account. The published processing time is within 7 business days.';
+    return 'Marg does retain data across sessions. For signed-in users, this can include conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, check-ins, engagement milestones and—only if submitted—a community invite phone number in Supabase; some drafts, exercises and plan state are also stored in your browser.\n\nClearing this chat or browser storage does not delete the Supabase records. To request deletion of your account and associated data, email support@trymarg.com from the email linked to your Marg account. The published processing time is within 7 business days.';
   }
-  return 'Marg is not session-only. Signed-in conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress and check-ins can persist in Supabase across sessions. Some drafts, exercises and plan state are also stored in your browser, and submitted content may be processed through Gemini to generate replies.\n\nFor deletion or a privacy request, email support@trymarg.com from your account email. Clearing local storage alone does not remove Supabase records.';
+  return 'Marg is not session-only. Signed-in conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, check-ins and engagement milestones can persist in Supabase across sessions. A community invite phone number is stored only if you choose to submit it, directly in Supabase rather than in Gemini or chat history. Some drafts, exercises and plan state are also stored in your browser, and submitted chat content may be processed through Gemini to generate replies.\n\nFor deletion or a privacy request, email support@trymarg.com from your account email. Clearing local storage alone does not remove Supabase records.';
 }
 
 function maybeHandlePrivacyRequest(message) {
@@ -4894,6 +5253,12 @@ async function sendMessage(fromQueue) {
     capturePersonalGoalDetails(text);
     detectAndSaveMockScores(text);
     if (!isGuestMode) saveChatMessage('user', storedUserText);
+    if (!hasImages && isMeaningfulCatSpecificMessage(text)) {
+      recordEngagementEvent('meaningful_cat_question', {
+        intent:detectMentorIntent(text),
+        text_hash:simpleStableHash(text)
+      }, 'question-' + simpleStableHash(text) + '-' + getEngagementSessionKey());
+    }
     if (hasImages) removePendingImageAttachment();
     loadActiveGeneratedExercise();
     var predictionValidationReply = isPredictionValidationReply(text);
@@ -4993,7 +5358,10 @@ async function sendMessage(fromQueue) {
     updateComposerControls();
     if (queuedOutgoingMessage) setTimeout(flushQueuedComposerMessage, 0);
     else if (hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(150);
-    else if (input && !input.disabled) input.focus();
+    else {
+      if (typeof maybePresentCommunityInvite === 'function') maybePresentCommunityInvite();
+      if (input && !input.disabled) input.focus();
+    }
   }
 }
 
@@ -5363,6 +5731,7 @@ async function initSession() {
     SUPABASE_TOKEN = token;
     currentUser = user;
     updateUserUI(user);
+    initializeEngagementTracking();
     showWelcome(async function() {
       const hasHistory = await loadUserData();
       const onboardingKey2 = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
@@ -6315,6 +6684,7 @@ function switchTab(tab) {
         window._practiceCompleteSummary = null;
       }, 300);
     }
+    maybePresentCommunityInvite();
   } else {
     chatElements.forEach(function(id) {
       var el = document.getElementById(id);
@@ -6865,6 +7235,11 @@ function generateStudyPlanValidationExercise(entry) {
 
 async function runPredictionValidationExercise(entry) {
   if (!entry) return false;
+  recordEngagementEvent('recommended_task_started', {
+    topic:entry.topic,
+    pattern_id:entry.patternId || 'general',
+    source:'prediction-validation'
+  }, 'task-start-' + entry.topic + '-' + (entry.patternId || 'general') + '-' + getEngagementSessionKey());
   if (entry.topic === 'varc') {
     var sub = String(entry.subcategoryId || entry.subcategory || '').toLowerCase();
     return generateGuidedDiagnosticExercise(sub === 'va' || sub.indexOf('verbal') !== -1 ? 'va' : sub === 'both' || sub.indexOf('both') !== -1 ? 'varc_mixed' : 'rc', entry);
@@ -7048,6 +7423,12 @@ async function generateGuidedMiniMock(diagnosticEntry) {
 }
 
 async function startTimedTest(section, topic, questionCount, diagnosticEntry, generationAttempt) {
+  if (!generationAttempt) {
+    recordEngagementEvent('recommended_task_started', {
+      section:section, topic:topic, question_count:questionCount || 0,
+      source:diagnosticEntry ? 'prediction-validation' : 'timed-practice'
+    }, 'timed-start-' + section + '-' + compactEngagementValue(topic, 60) + '-' + getEngagementSessionKey());
+  }
   timedTestSection = section;
   timedTestTopic = topic;
   timedTestDiagnosticEntry = diagnosticEntry || null;
@@ -7262,6 +7643,10 @@ function submitTimedTest(isAutoSubmit) {
   var maxMarks = total * 3;
   var accuracy = total ? (correct / total) * 100 : 0;
   recordTopicProgress(timedTestSection, timedTestTopic, { timedPractice:1, timedSectionals:1, accuracy:accuracy });
+  recordEngagementEvent('recommended_task_completed', {
+    section:timedTestSection, topic:timedTestTopic, question_count:total,
+    correct:correct, wrong:wrong, skipped:skipped, auto_submitted:!!isAutoSubmit
+  }, 'timed-complete-' + timedTestSection + '-' + compactEngagementValue(timedTestTopic, 60) + '-' + getEngagementSessionKey());
 
   if (activeGeneratedExercise) {
     activeGeneratedExercise.result = { correct:correct, wrong:wrong, skipped:skipped, marks:marks, maxMarks:maxMarks, answers:timedTestAnswers.slice() };
@@ -7725,6 +8110,13 @@ function showPracticeSummary() {
     conceptQuestions:sessionResults.total,
     accuracy:sessionResults.total ? (sessionResults.correct / sessionResults.total) * 100 : 0
   });
+  recordEngagementEvent('recommended_task_completed', {
+    section:currentPracticeType === 'rc' ? 'varc' : currentPracticeType,
+    topic:progressTopic,
+    question_count:sessionResults.total,
+    correct:sessionResults.correct,
+    source:'practice-tab'
+  }, 'practice-complete-' + currentPracticeType + '-' + compactEngagementValue(progressTopic, 60) + '-' + getEngagementSessionKey());
   if (!practiceSessionCounted) {
     practiceSessionCounted = true;
     incrementSessionCount();
@@ -8007,6 +8399,7 @@ function calculateMonthsLeftForCAT() {
 async function completeOnboarding() {
   studentProfile.monthsLeft = calculateMonthsLeftForCAT();
   await saveProfile();
+  recordEngagementEvent('onboarding_completed', { flow:'profile' }, 'onboarding-v1');
   showBottomNav();
   onboardingComplete = true;
   document.getElementById('user-input').disabled = false;
