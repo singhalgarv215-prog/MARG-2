@@ -3763,6 +3763,8 @@ function completeChatFirstOnboarding(section) {
 
 var chatDiagnosticState = { active:false, topic:null, subcategory:null, pattern:null, displayPrediction:null, revisedPrediction:null, rejectedCount:0 };
 var pendingDiagnosticExercise = null;
+var guidedGenerationState = null;
+var guidedGenerationProgressTimer = null;
 
 function getPendingDiagnosticStorageKey() {
   return 'marg_pending_diagnostic_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
@@ -3780,6 +3782,184 @@ function loadPendingDiagnosticExercise() {
   try { pendingDiagnosticExercise = JSON.parse(localStorage.getItem(getPendingDiagnosticStorageKey()) || 'null'); }
   catch(e) { pendingDiagnosticExercise = null; }
   return pendingDiagnosticExercise;
+}
+
+function getGuidedGenerationStorageKey() {
+  return 'marg_guided_generation_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function loadGuidedGenerationState() {
+  try { guidedGenerationState = JSON.parse(localStorage.getItem(getGuidedGenerationStorageKey()) || 'null'); }
+  catch(e) { guidedGenerationState = null; }
+  return guidedGenerationState;
+}
+
+function saveGuidedGenerationState(state) {
+  guidedGenerationState = state || null;
+  try {
+    if (guidedGenerationState) localStorage.setItem(getGuidedGenerationStorageKey(), JSON.stringify(guidedGenerationState));
+    else localStorage.removeItem(getGuidedGenerationStorageKey());
+  } catch(e) {}
+}
+
+function clearGuidedGenerationState() {
+  if (guidedGenerationProgressTimer) clearInterval(guidedGenerationProgressTimer);
+  guidedGenerationProgressTimer = null;
+  saveGuidedGenerationState(null);
+  var card = document.getElementById('guided-generation-status');
+  if (card) card.remove();
+}
+
+function guidedGenerationLabel(section) {
+  if (section === 'strategy') return 'strategy decision lab';
+  if (section === 'dilr_selection') return 'DILR selection lab';
+  if (section === 'rc' || section === 'va' || section === 'varc_mixed') return 'VARC prediction check';
+  if (section === 'dilr') return 'DILR prediction set';
+  if (section === 'qa') return 'QA prediction check';
+  return 'prediction check';
+}
+
+function getGuidedGenerationTimeoutMs(section) {
+  // Three-question decision labs should never hold the chat for two minutes.
+  return section === 'strategy' || section === 'dilr_selection' ? 75000 : 120000;
+}
+
+function beginGuidedGenerationState(section, diagnosticEntry) {
+  var previous = loadGuidedGenerationState();
+  var state = {
+    id:'guided-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9),
+    section:section,
+    entry:diagnosticEntry || null,
+    status:'generating',
+    startedAt:new Date().toISOString(),
+    updatedAt:new Date().toISOString(),
+    attempts:previous && previous.section === section ? Number(previous.attempts || 0) + 1 : 1,
+    timeoutMs:getGuidedGenerationTimeoutMs(section)
+  };
+  saveGuidedGenerationState(state);
+  return state;
+}
+
+function renderGuidedGenerationStatus(state) {
+  if (!state) return null;
+  var messages = document.getElementById('messages');
+  if (!messages) return null;
+  var old = document.getElementById('guided-generation-status');
+  if (old) old.remove();
+  if (guidedGenerationProgressTimer) clearInterval(guidedGenerationProgressTimer);
+  guidedGenerationProgressTimer = null;
+
+  var wrap = document.createElement('div');
+  wrap.id = 'guided-generation-status';
+  wrap.className = 'msg-wrap marg fade-in';
+  var avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.innerHTML = '<img src="' + LOGO_ICON + '" alt="M">';
+  var bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.style.cssText = 'border-color:rgba(201,168,76,.24);min-width:min(390px,72vw);';
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:13px;color:#F0EDE6;font-weight:600;margin-bottom:5px;';
+  var detail = document.createElement('div');
+  detail.style.cssText = 'font-size:12px;color:#888880;line-height:1.55;';
+  detail.setAttribute('role', 'status');
+  detail.setAttribute('aria-live', 'polite');
+  bubble.appendChild(title);
+  bubble.appendChild(detail);
+
+  if (state.status === 'generating') {
+    title.textContent = 'Building your ' + guidedGenerationLabel(state.section) + '…';
+    var startedAt = Date.parse(state.startedAt) || Date.now();
+    var timeoutSeconds = Math.round(Number(state.timeoutMs || getGuidedGenerationTimeoutMs(state.section)) / 1000);
+    var update = function() {
+      var seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+      if (seconds < 20) detail.textContent = 'Creating and checking the answer key. You can keep this page open.';
+      else if (seconds < 45) detail.textContent = 'Still checking the exercise—' + seconds + ' seconds elapsed. The chat has not frozen.';
+      else detail.textContent = 'This is taking longer than usual. It will stop automatically at ' + timeoutSeconds + ' seconds and show a retry; your diagnosis is already saved.';
+    };
+    update();
+    guidedGenerationProgressTimer = setInterval(update, 1000);
+  } else {
+    title.textContent = state.failureTitle || 'The exercise did not finish loading.';
+    detail.textContent = state.failureMessage || 'Your diagnosis and exercise type are saved. Retry when you are ready.';
+    var retry = document.createElement('button');
+    retry.type = 'button';
+    retry.textContent = 'Retry the same ' + guidedGenerationLabel(state.section);
+    retry.style.cssText = 'margin-top:11px;background:#C9A84C;color:#111;border:0;border-radius:9px;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer;';
+    retry.onclick = function() { retryGuidedGeneration(); };
+    bubble.appendChild(retry);
+  }
+  wrap.appendChild(avatar);
+  wrap.appendChild(bubble);
+  messages.appendChild(wrap);
+  messages.scrollTop = messages.scrollHeight;
+  return wrap;
+}
+
+function guidedGenerationFailureCopy(error, section) {
+  if (error && error.name === 'AbortError') return {
+    title:'The ' + guidedGenerationLabel(section) + ' took too long.',
+    message:'I stopped the request instead of leaving you on an endless loader. The same diagnosis is saved—retry it without starting the conversation again.'
+  };
+  var status = Number(error && error.status) || 0;
+  if (status === 429 || status === 503) return {
+    title:status === 429 ? 'Gemini is at its current request limit.' : 'Gemini is under high demand right now.',
+    message:'The request stopped cleanly and the same exercise is saved. Wait a moment, then retry here—do not resend the whole conversation.'
+  };
+  return {
+    title:'The ' + guidedGenerationLabel(section) + ' did not pass its checks.',
+    message:'I discarded the incomplete exercise, but kept the diagnosis and exact lab type. Retry it here; the CAT-level bar will stay unchanged.'
+  };
+}
+
+function markGuidedGenerationRetry(error) {
+  var state = loadGuidedGenerationState();
+  if (!state) return null;
+  var copy = guidedGenerationFailureCopy(error, state.section);
+  state.status = 'retry';
+  state.failureTitle = copy.title;
+  state.failureMessage = copy.message;
+  state.errorStatus = Number(error && error.status) || 0;
+  state.errorName = String(error && error.name || 'GenerationError');
+  state.updatedAt = new Date().toISOString();
+  saveGuidedGenerationState(state);
+  renderGuidedGenerationStatus(state);
+  return state;
+}
+
+async function retryGuidedGeneration() {
+  var state = loadGuidedGenerationState();
+  if (!state || !state.section || isLoading) return false;
+  var retryButton = document.querySelector('#guided-generation-status button');
+  if (retryButton) retryButton.disabled = true;
+  var entry = state.entry || diagnosticMemory[state.section] || null;
+  savePendingDiagnosticExercise(entry, 'generating');
+  var succeeded = await generateGuidedDiagnosticExercise(state.section, entry);
+  if (succeeded !== false) savePendingDiagnosticExercise(null);
+  else savePendingDiagnosticExercise(entry, 'retry');
+  return succeeded;
+}
+
+function restorePendingGuidedGeneration() {
+  var state = loadGuidedGenerationState();
+  if (!state) return false;
+  loadActiveGeneratedExercise();
+  var generatedAfterRequest = activeGeneratedExercise && activeGeneratedExercise.source === 'prediction-validation' &&
+    Date.parse(activeGeneratedExercise.generatedAt || 0) >= Date.parse(state.startedAt || 0);
+  if (generatedAfterRequest) {
+    clearGuidedGenerationState();
+    return false;
+  }
+  if (state.status === 'generating') {
+    state.status = 'retry';
+    state.failureTitle = 'The page refreshed while the ' + guidedGenerationLabel(state.section) + ' was loading.';
+    state.failureMessage = 'A browser refresh ends the in-progress response, so it cannot be resumed safely. Your diagnosis and exact exercise are saved—retry without repeating anything.';
+    state.errorName = 'RefreshInterrupted';
+    state.updatedAt = new Date().toISOString();
+    saveGuidedGenerationState(state);
+  }
+  renderGuidedGenerationStatus(state);
+  return true;
 }
 
 function naturalDiagnosticLead(topic) {
@@ -4037,14 +4217,16 @@ async function handlePredictionExerciseTiming(answer) {
   if (!pending || !pending.entry) return;
   var normalized = String(answer || '').toLowerCase();
   if (/yes|let.?s do|right now|now/.test(normalized)) {
-    savePendingDiagnosticExercise(null);
     if (pending.entry.topic === 'dilr') {
       addMentorLeadMessage(getDILROpeningLesson(pending.entry));
       savePendingDiagnosticExercise(pending.entry, 'ready_after_lesson');
       showConversationalOptions(['Start the set'], 'start_dilr_validation');
       return;
     }
-    await runPredictionValidationExercise(pending.entry);
+    savePendingDiagnosticExercise(pending.entry, 'generating');
+    var generated = await runPredictionValidationExercise(pending.entry);
+    if (generated !== false) savePendingDiagnosticExercise(null);
+    else savePendingDiagnosticExercise(pending.entry, 'retry');
     return;
   }
   var timing = /tomorrow/.test(normalized) ? 'tomorrow' : 'later_today';
@@ -4513,8 +4695,12 @@ async function handleConversationalResponse(answer, context) {
     if (!isGuestMode) saveChatMessage('user', answer);
     loadPendingDiagnosticExercise();
     var dilrEntry = pendingDiagnosticExercise && pendingDiagnosticExercise.entry;
-    savePendingDiagnosticExercise(null);
-    if (dilrEntry) await runPredictionValidationExercise(dilrEntry);
+    if (dilrEntry) {
+      savePendingDiagnosticExercise(dilrEntry, 'generating');
+      var dilrGenerated = await runPredictionValidationExercise(dilrEntry);
+      if (dilrGenerated !== false) savePendingDiagnosticExercise(null);
+      else savePendingDiagnosticExercise(dilrEntry, 'retry');
+    }
 
   } else if (context === 'topic_sectional_timing') {
     conversationHistory.push({ role:'user', content:answer });
@@ -4536,7 +4722,8 @@ async function handleConversationalResponse(answer, context) {
     if (!isGuestMode) saveChatMessage('user', answer);
     var retrySection = context.replace('guided_retry_', '');
     var retryTopic = retrySection === 'rc' || retrySection === 'va' || retrySection === 'varc_mixed' ? 'varc' : retrySection === 'dilr_selection' ? 'dilr' : retrySection;
-    await generateGuidedDiagnosticExercise(retrySection, diagnosticMemory[retryTopic] || null);
+    var savedGuidedState = loadGuidedGenerationState();
+    await generateGuidedDiagnosticExercise(retrySection, savedGuidedState && savedGuidedState.entry ? savedGuidedState.entry : (diagnosticMemory[retryTopic] || null));
 
   } else if (context === 'mini_mock_retry') {
     conversationHistory.push({ role:'user', content:answer });
@@ -5023,6 +5210,7 @@ function restoreConversation() {
   schedulePendingDeepLinkQuestionDispatch(250);
   document.getElementById('user-input').focus();
   checkAndShowTour();
+  return restorePendingGuidedGeneration();
 }
 
 function addSuggestionChips() {
@@ -5130,13 +5318,15 @@ async function maybeStartSavedDiagnosticCheck(text) {
   loadPendingDiagnosticExercise();
   if (!pendingDiagnosticExercise || !pendingDiagnosticExercise.entry) return false;
   var entry = pendingDiagnosticExercise.entry;
-  savePendingDiagnosticExercise(null);
   if (entry.topic === 'dilr') {
     addMentorLeadMessage(getDILROpeningLesson(entry));
     savePendingDiagnosticExercise(entry, 'ready_after_lesson');
     showConversationalOptions(['Start the set'], 'start_dilr_validation');
   } else {
-    await runPredictionValidationExercise(entry);
+    savePendingDiagnosticExercise(entry, 'generating');
+    var generated = await runPredictionValidationExercise(entry);
+    if (generated !== false) savePendingDiagnosticExercise(null);
+    else savePendingDiagnosticExercise(entry, 'retry');
   }
   return true;
 }
@@ -5738,13 +5928,13 @@ async function initSession() {
       const prevOnboarded2 = localStorage.getItem(onboardingKey2);
       if (hasHistory || prevOnboarded2) {
         var arrivedWithDeepLinkQuestion = hasPendingDeepLinkQuestion();
-        restoreConversation();
+        var recoveredInterruptedGeneration = restoreConversation();
         loadStreakData();
         setTimeout(function() { const btn = document.getElementById('varc-toggle-btn'); if (btn) btn.style.display = 'inline-flex'; }, 500);
 
         // A linked question takes priority over greetings, check-ins and cards,
         // so the external link opens directly into the promised conversation.
-        if (!arrivedWithDeepLinkQuestion) {
+        if (!arrivedWithDeepLinkQuestion && !recoveredInterruptedGeneration) {
           var greetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
           var todayDate = getTodayDate();
           if (localStorage.getItem(greetKey) !== todayDate) {
@@ -7295,6 +7485,7 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   isLoading = true;
   var sendButton = document.getElementById('send-btn');
   if (sendButton) sendButton.disabled = true;
+  var generationState = beginGuidedGenerationState(section, diagnosticEntry);
   var lead = section === 'rc' || section === 'va' || section === 'varc_mixed'
     ? "This VARC check is built around the prediction we just agreed on. The distractors are designed to expose that exact decision pattern."
     : section === 'qa'
@@ -7304,8 +7495,9 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
         : section === 'dilr_selection'
           ? "This selection lab separates familiar-looking sets from genuinely workable ones. Your first-pass choices will test the exact rule we predicted."
         : "This DILR set is built to expose the predicted failure point while keeping alternative causes visible.";
-  addMentorLeadMessage(lead);
-  showTyping();
+  if (generationState.attempts === 1) addMentorLeadMessage(lead);
+  hideTyping();
+  renderGuidedGenerationStatus(generationState);
   var focus = getPredictionValidationFocus(diagnosticEntry);
   var qaExpectedTopic = section === 'qa' && diagnosticEntry && diagnosticEntry.subcategory && diagnosticEntry.subcategory !== 'mixed' ? String(diagnosticEntry.subcategory).replace(/_/g, ' ') : null;
   var prompt = section === 'rc' ? focus + buildRCPrompt()
@@ -7315,13 +7507,20 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
     : section === 'strategy' ? buildStrategyValidationPrompt(diagnosticEntry)
     : section === 'dilr_selection' ? buildDILRSelectionValidationPrompt(diagnosticEntry)
     : focus + buildQAPrompt(qaExpectedTopic);
-  var maxTokens = section === 'qa' ? 12288 : section === 'rc' ? 16384 : 20480;
+  var isCompactDecisionLab = section === 'strategy' || section === 'dilr_selection';
+  var maxTokens = isCompactDecisionLab ? 4096 : section === 'qa' ? 12288 : section === 'rc' ? 16384 : 20480;
+  var succeeded = false;
   try {
+    var compactTaskHint = isCompactDecisionLab ? '\n[MARG_TASK: COMPACT_DECISION_LAB]' : '';
+    var guidedRequest = buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON, with independently verified answer keys.' + compactTaskHint + getDateContext(), [{ role:'user', content:prompt }], maxTokens, 'application/json');
+    if (isCompactDecisionLab) {
+      guidedRequest.generationConfig.maxOutputTokens = 4096;
+      guidedRequest.generationConfig.thinkingConfig = { thinkingLevel:'minimal' };
+    }
     var response = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify(buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON, with independently verified answer keys.' + getDateContext(), [{ role:'user', content:prompt }], maxTokens, 'application/json'))
-    }, 120000);
-    if (!response.ok) throw new Error('Worker status ' + response.status);
+      body:JSON.stringify(guidedRequest)
+    }, generationState.timeoutMs);
     var payload = await response.json();
     var raw = getGeminiText(payload);
     var parsed = parseGeneratedJson(raw);
@@ -7341,17 +7540,19 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
     if (!isGuestMode) saveChatMessage('assistant', visible);
     var storedType = section === 'rc' || section === 'va' || section === 'varc_mixed' ? 'varc' : section === 'dilr_selection' ? 'dilr' : section;
     storeActiveGeneratedExercise({ type:storedType, source:'prediction-validation', title:(storedType === 'varc' ? 'VARC' : storedType.toUpperCase()) + ' prediction check', purpose:'Validate or reject: ' + (diagnosticEntry ? diagnosticEntry.confirmedDiagnosis : 'working diagnosis'), hypothesis:diagnosticEntry || null, content:parsed });
+    clearGuidedGenerationState();
     completeChatFirstOnboarding(storedType === 'varc' ? 'rc' : storedType);
+    succeeded = true;
   } catch(e) {
     hideTyping();
-    addMentorLeadMessage(isGeminiServiceError(e) ? getGeminiErrorMessage(e) : "That prediction check did not build cleanly, so I discarded it. Regenerating should test the same hypothesis—not lower the CAT-level bar.");
-    showConversationalOptions(['Regenerate the exercise'], 'guided_retry_' + section);
+    console.error('Guided prediction exercise failed:', { section:section, name:e && e.name, status:e && e.status, message:e && e.message });
+    markGuidedGenerationRetry(e);
   }
   isLoading = false;
   if (sendButton) sendButton.disabled = false;
   var input = document.getElementById('user-input');
   if (input) input.focus();
-  return true;
+  return succeeded;
 }
 
 function buildGuidedMiniMockPrompt(diagnosticEntry) {
