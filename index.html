@@ -192,6 +192,22 @@
 .fb-opt:hover { border-color: #C9A84C; color: #C8C4BC; }
 .fb-opt.selected { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,77,0.06); }
 
+.homepage-chat-entry{width:100%;max-width:590px;margin-top:10px;animation:fadeUp .6s ease .4s both;}
+.homepage-chat-shell{display:flex;align-items:flex-end;gap:10px;padding:10px 10px 10px 16px;background:#111;border:1px solid rgba(201,168,76,.32);border-radius:18px;box-shadow:0 14px 44px rgba(0,0,0,.38);transition:border-color .2s,box-shadow .2s;}
+.homepage-chat-shell:focus-within{border-color:var(--gold);box-shadow:0 14px 44px rgba(0,0,0,.38),0 0 0 3px rgba(201,168,76,.09);}
+#homepage-chat-input{flex:1;min-height:48px;max-height:132px;padding:9px 0;border:0!important;box-shadow:none!important;outline:none;background:transparent;color:var(--text);font:14px/1.55 'DM Sans',sans-serif;resize:none;overflow-y:auto;}
+#homepage-chat-input::placeholder{color:#6f6f69;}
+#homepage-chat-send{width:44px;height:44px;border:0;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;cursor:pointer;}
+#homepage-chat-send:disabled{opacity:.38;cursor:not-allowed;transform:none;}
+#homepage-chat-send svg{width:18px;height:18px;fill:currentColor;}
+#homepage-chat-status{min-height:18px;margin-top:8px;font-size:11px;color:var(--text-dim);text-align:left;padding:0 6px;}
+#homepage-chat-status.error{color:#e77979;}
+#homepage-chat-status.success{color:#69c894;}
+.homepage-login-link{margin-top:5px;border:0;background:none;color:var(--text-muted);font:12px 'DM Sans',sans-serif;cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
+.homepage-login-link:hover{color:var(--gold-light);transform:none;}
+.homepage-intent-retry{margin-top:12px;background:linear-gradient(135deg,#C9A84C,#9a7723);color:#111;border:0;border-radius:9px;padding:9px 13px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;}
+@media(max-width:600px){.homepage-chat-entry{max-width:100%;}.homepage-chat-shell{padding-left:14px;border-radius:16px;}#homepage-chat-input{font-size:16px;}.homepage-login-link{font-size:12px;}}
+
 </style>
 
 <div id="loading-screen">
@@ -212,9 +228,16 @@
     <div class="hero-badge"><span></span> Free for CAT 2026 aspirants</div>
     <h1 class="hero-title">The AI mentor that knows<br>exactly how YOUR brain makes mistakes.</h1>
     <div class="hero-tagline">Not generic advice. Not another question bank.<br>A mentor that builds around your specific patterns.</div>
-    <button class="hero-cta" onclick="startLogin()" style="background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;justify-content:center;font-size:15px;padding:16px 32px;max-width:340px;margin-top:8px;">
-      Start free — takes 60 seconds
-    </button>
+    <form class="homepage-chat-entry" id="homepage-chat-form" onsubmit="submitHomepageIntent(event)">
+      <div class="homepage-chat-shell">
+        <textarea id="homepage-chat-input" rows="1" maxlength="8000" aria-label="Ask Marg your first CAT question" placeholder="Tell Marg what you're struggling with…"></textarea>
+        <button id="homepage-chat-send" type="submit" aria-label="Continue with this message" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <div id="homepage-chat-status" role="status" aria-live="polite">Write first. Sign in only when you're ready to continue.</div>
+    </form>
+    <button class="homepage-login-link" type="button" onclick="startLogin()">Already use Marg? Sign in</button>
     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:12px;">
       <a href="/daily-rc/" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 14px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">📖 Try RC free</a>
       <a href="/daily-dilr/" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 14px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">🧩 Try DILR free</a>
@@ -1026,6 +1049,281 @@ function schedulePendingDeepLinkQuestionDispatch(delayMs) {
     deepLinkQuestionDispatchScheduled = false;
     tryDispatchPendingDeepLinkQuestion();
   }, Math.max(0, Number(delayMs) || 0));
+  return true;
+}
+
+// Homepage questions use a separate durable handoff from ?q= links. A homepage
+// message is private to this browser, survives OAuth, and is never placed in a URL.
+var pendingHomepageIntent = null;
+var activeHomepageIntentDispatch = null;
+var homepageIntentDispatchScheduled = false;
+var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
+var HOMEPAGE_INTENT_MAX_AGE_MS = 86400000;
+
+function createHomepageIntentId() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  return 'homepage-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+function normalizeHomepageIntentText(value) {
+  return String(value || '').replace(/\u0000/g, '').trim().slice(0, DEEP_LINK_QUESTION_MAX_LENGTH);
+}
+
+function writeHomepageIntent(intent) {
+  if (!intent || !normalizeHomepageIntentText(intent.text)) return null;
+  pendingHomepageIntent = {
+    id:String(intent.id || createHomepageIntentId()),
+    text:normalizeHomepageIntentText(intent.text),
+    source:'homepage',
+    createdAt:Number(intent.createdAt) || Date.now(),
+    updatedAt:Date.now(),
+    status:String(intent.status || 'pending'),
+    failureMessage:String(intent.failureMessage || '')
+  };
+  try { localStorage.setItem(HOMEPAGE_INTENT_STORAGE_KEY, JSON.stringify(pendingHomepageIntent)); } catch(e) {}
+  return pendingHomepageIntent;
+}
+
+function saveHomepageIntent(text) {
+  var normalized = normalizeHomepageIntentText(text);
+  if (!normalized) return null;
+  return writeHomepageIntent({ id:createHomepageIntentId(), text:normalized, createdAt:Date.now(), status:'pending' });
+}
+
+function loadHomepageIntent() {
+  if (pendingHomepageIntent && Date.now() - Number(pendingHomepageIntent.createdAt) <= HOMEPAGE_INTENT_MAX_AGE_MS) return pendingHomepageIntent;
+  try {
+    var stored = JSON.parse(localStorage.getItem(HOMEPAGE_INTENT_STORAGE_KEY) || 'null');
+    if (!stored || !stored.text || !stored.createdAt || Date.now() - Number(stored.createdAt) > HOMEPAGE_INTENT_MAX_AGE_MS) {
+      localStorage.removeItem(HOMEPAGE_INTENT_STORAGE_KEY);
+      pendingHomepageIntent = null;
+      return null;
+    }
+    pendingHomepageIntent = stored;
+  } catch(e) {
+    pendingHomepageIntent = null;
+    try { localStorage.removeItem(HOMEPAGE_INTENT_STORAGE_KEY); } catch(ignore) {}
+  }
+  return pendingHomepageIntent;
+}
+
+function hasPendingHomepageIntent() {
+  return !!loadHomepageIntent();
+}
+
+function clearHomepageIntent(intentId) {
+  var current = loadHomepageIntent();
+  if (intentId && current && current.id !== intentId) return false;
+  pendingHomepageIntent = null;
+  activeHomepageIntentDispatch = null;
+  try { localStorage.removeItem(HOMEPAGE_INTENT_STORAGE_KEY); } catch(e) {}
+  var retryCard = document.getElementById('homepage-intent-retry');
+  if (retryCard) retryCard.remove();
+  return true;
+}
+
+function getHomepageIntentDispatchDecision(state) {
+  if (!state || !state.hasIntent) return 'none';
+  if (!state.authenticated) return 'wait_auth';
+  if (state.status === 'retry' || state.status === 'submitted' || state.status === 'dispatching') return 'show_retry';
+  if (!state.chatVisible || state.inputDisabled) return 'wait_chat';
+  if (state.loading || state.queueFull) return 'wait_loading';
+  if (state.hasDraft) return 'draft_conflict';
+  return 'dispatch';
+}
+
+function setHomepageEntryStatus(message, type) {
+  var status = document.getElementById('homepage-chat-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.className = type || '';
+}
+
+function resizeHomepageEntry() {
+  var input = document.getElementById('homepage-chat-input');
+  var button = document.getElementById('homepage-chat-send');
+  if (!input) return;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 132) + 'px';
+  if (button) button.disabled = !input.value.trim();
+}
+
+function restoreHomepageIntentToLanding() {
+  var intent = loadHomepageIntent();
+  var input = document.getElementById('homepage-chat-input');
+  if (!intent || !input || input.value) return false;
+  input.value = intent.text;
+  resizeHomepageEntry();
+  if (intent.status === 'auth_started') setHomepageEntryStatus('Your question is saved. Continue when you are ready.', 'success');
+  else if (intent.status === 'retry' || intent.status === 'submitted' || intent.status === 'dispatching') setHomepageEntryStatus('Your question is safe. Sign in to reopen it and retry the response.', 'success');
+  return true;
+}
+
+function submitHomepageIntent(event) {
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  var input = document.getElementById('homepage-chat-input');
+  var text = normalizeHomepageIntentText(input ? input.value : '');
+  if (!text) {
+    setHomepageEntryStatus('Write what is on your mind first.', 'error');
+    if (input) input.focus();
+    return false;
+  }
+  var intent = saveHomepageIntent(text);
+  if (!intent) return false;
+  writeHomepageIntent(Object.assign({}, intent, { status:'auth_started' }));
+  setHomepageEntryStatus('Saved. Opening the quick sign-in…', 'success');
+  if (currentUser && SUPABASE_TOKEN && !isGuestMode) {
+    document.getElementById('landing-page').style.display = 'none';
+    document.getElementById('chat-app').style.display = 'flex';
+    prepareHomepageIntentChat();
+  } else {
+    setTimeout(startLogin, 80);
+  }
+  return true;
+}
+
+function homepageIntentHasAssistantAfterIt(intent) {
+  if (!intent || !Array.isArray(conversationHistory)) return false;
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    var item = conversationHistory[i];
+    if (item && item.role === 'user' && String(item.content || '').trim() === intent.text) {
+      for (var j = i + 1; j < conversationHistory.length; j++) {
+        if (conversationHistory[j] && conversationHistory[j].role === 'assistant' && String(conversationHistory[j].content || '').trim()) return true;
+      }
+      return false;
+    }
+  }
+  return false;
+}
+
+function ensureHomepageIntentInConversation(intent) {
+  if (!intent) return;
+  var alreadyInHistory = conversationHistory.some(function(item) {
+    return item && item.role === 'user' && String(item.content || '').trim() === intent.text;
+  });
+  if (!alreadyInHistory) conversationHistory.push({ role:'user', content:intent.text });
+
+  var alreadyVisible = Array.prototype.some.call(document.querySelectorAll('.msg-wrap.user .bubble'), function(bubble) {
+    return String(bubble.textContent || '').trim() === intent.text;
+  });
+  if (!alreadyVisible) addMessage('user', escapeChatHtml(intent.text).replace(/\n/g, '<br>'));
+}
+
+function renderHomepageIntentRetry(intent, message) {
+  if (!intent || document.getElementById('homepage-intent-retry')) return;
+  ensureHomepageIntentInConversation(intent);
+  var wrap = addMessage('marg', escapeChatHtml(message || intent.failureMessage || 'I could not finish that response. Your question is still here—retry when you are ready.'));
+  wrap.id = 'homepage-intent-retry';
+  var bubble = wrap.querySelector('.bubble');
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'homepage-intent-retry';
+  button.textContent = 'Retry this question';
+  button.onclick = retryHomepageIntent;
+  bubble.appendChild(button);
+}
+
+function markHomepageIntentSubmitted(intent) {
+  if (!intent) return;
+  writeHomepageIntent(Object.assign({}, intent, { status:'submitted', failureMessage:'' }));
+}
+
+function completeHomepageIntent(intent) {
+  if (!intent) return;
+  clearHomepageIntent(intent.id);
+}
+
+function failHomepageIntent(intent, error) {
+  if (!intent) return;
+  var message = error && error.status === 429
+    ? 'Marg is under high demand right now. Your question is safe—retry in a moment.'
+    : error && error.status === 503
+      ? 'Marg is temporarily unavailable. Your question is safe—retry when the service settles.'
+      : 'I could not finish that response. Your question is safe—retry without typing it again.';
+  var retryIntent = writeHomepageIntent(Object.assign({}, intent, { status:'retry', failureMessage:message }));
+  activeHomepageIntentDispatch = null;
+  renderHomepageIntentRetry(retryIntent, message);
+}
+
+function tryDispatchHomepageIntent() {
+  var intent = loadHomepageIntent();
+  if (!intent) return true;
+  var input = document.getElementById('user-input');
+  var chatApp = document.getElementById('chat-app');
+  var decision = getHomepageIntentDispatchDecision({
+    hasIntent:true,
+    authenticated:!!(currentUser && SUPABASE_TOKEN && !isGuestMode),
+    status:intent.status,
+    chatVisible:!!(chatApp && chatApp.style.display !== 'none'),
+    inputDisabled:!!(!input || input.disabled),
+    loading:!!isLoading,
+    queueFull:!!queuedOutgoingMessage,
+    hasDraft:!!(input && input.value.trim())
+  });
+  if (decision === 'show_retry') {
+    renderHomepageIntentRetry(intent, intent.failureMessage || 'The page changed before Marg could finish. Your question is safe—retry it here.');
+    return false;
+  }
+  if (decision === 'draft_conflict') {
+    showComposerStatus('Your first question is saved. Send or clear the current draft, then it can continue.', 'info', true);
+    return false;
+  }
+  if (decision !== 'dispatch') return false;
+
+  if (currentTab !== 'chat') switchTab('chat');
+  activeHomepageIntentDispatch = writeHomepageIntent(Object.assign({}, intent, { status:'dispatching', failureMessage:'' }));
+  input.value = intent.text;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  showComposerStatus('Continuing with the question you wrote before signing in…', 'success', true);
+  updateComposerControls();
+  setTimeout(function() { sendMessage(false, { homepageIntentId:intent.id }); }, 0);
+  return true;
+}
+
+function scheduleHomepageIntentDispatch(delayMs) {
+  if (!hasPendingHomepageIntent()) return false;
+  if (homepageIntentDispatchScheduled) return true;
+  homepageIntentDispatchScheduled = true;
+  setTimeout(function() {
+    homepageIntentDispatchScheduled = false;
+    tryDispatchHomepageIntent();
+  }, Math.max(0, Number(delayMs) || 0));
+  return true;
+}
+
+function prepareHomepageIntentChat() {
+  var intent = loadHomepageIntent();
+  if (!intent) return false;
+  chatFirstOnboardingStarted = true;
+  document.getElementById('landing-page').style.display = 'none';
+  document.getElementById('chat-app').style.display = 'flex';
+  document.getElementById('user-input').disabled = false;
+  showBottomNav();
+  if (intent.status === 'retry' || intent.status === 'submitted' || intent.status === 'dispatching') {
+    writeHomepageIntent(Object.assign({}, intent, { status:'retry' }));
+    renderHomepageIntentRetry(loadHomepageIntent(), intent.failureMessage || 'The earlier response did not finish. Your question is safe—retry it here.');
+  } else scheduleHomepageIntentDispatch(150);
+  return true;
+}
+
+function retryHomepageIntent() {
+  var intent = loadHomepageIntent();
+  if (!intent || isLoading) {
+    if (isLoading) showComposerStatus('Marg is still responding. Retry will be available as soon as this response finishes.', 'info', true);
+    return false;
+  }
+  var retryCard = document.getElementById('homepage-intent-retry');
+  if (retryCard) retryCard.remove();
+  ensureHomepageIntentInConversation(intent);
+  activeHomepageIntentDispatch = writeHomepageIntent(Object.assign({}, intent, { status:'dispatching', failureMessage:'' }));
+  var input = document.getElementById('user-input');
+  input.value = intent.text;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  showComposerStatus('Retrying your saved question…', 'success', true);
+  updateComposerControls();
+  setTimeout(function() { sendMessage(false, { homepageIntentId:intent.id, reuseUserMessage:true }); }, 0);
   return true;
 }
 
@@ -3455,6 +3753,15 @@ function showWelcome(callback) {
     localStorage.removeItem('marg_ask_question');
   }
 
+  // A question written before authentication is the welcome. Do not make the
+  // student wait through an animation before continuing the thought.
+  if (hasPendingHomepageIntent()) {
+    document.getElementById('welcome-overlay').style.display = 'none';
+    document.getElementById('chat-app').style.display = 'flex';
+    if (callback) callback();
+    return;
+  }
+
   const overlay = document.getElementById('welcome-overlay');
   overlay.style.display = 'flex';
   setTimeout(function() {
@@ -3471,6 +3778,7 @@ function showWelcome(callback) {
 function showLanding() {
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('landing-page').style.display = 'flex';
+  restoreHomepageIntentToLanding();
 }
 
 function addMessage(role, html, showAvatar) {
@@ -3758,7 +4066,7 @@ function completeChatFirstOnboarding(section) {
   showBottomNav();
   saveProfile();
   recordEngagementEvent('onboarding_completed', { flow:'chat-first' }, 'onboarding-v1');
-  schedulePendingDeepLinkQuestionDispatch(250);
+  if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
 }
 
 var chatDiagnosticState = { active:false, topic:null, subcategory:null, pattern:null, displayPrediction:null, revisedPrediction:null, rejectedCount:0 };
@@ -4896,16 +5204,18 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
         await saveProfile();
         recordEngagementEvent('onboarding_completed', { flow:'conversational-auto' }, 'onboarding-v1');
         await saveLastTask('Complete CAT prep plan from onboarding conversation', 'Initial diagnosis done');
-        schedulePendingDeepLinkQuestionDispatch(250);
+        if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
       }
+      return true;
     }
+    return false;
   } catch(e) {
     hideTyping();
     if (isGeminiServiceError(e)) {
       var serviceMessage = getGeminiErrorMessage(e);
       addMessage('marg', serviceMessage);
       showComposerStatus(serviceMessage + (e.requestId ? ' Reference: ' + e.requestId : ''), 'error', true);
-      return;
+      return false;
     }
     var fallbackResponse = buildPredictionValidationFallback(userMessage) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(userMessage) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
     fallbackResponse = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackResponse))), userMessage);
@@ -4913,6 +5223,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     addMessage('marg', fallbackResponse);
     conversationHistory.push({ role: 'assistant', content: fallbackResponse });
     if (!isGuestMode) saveChatMessage('assistant', fallbackResponse);
+    return true;
   }
 }
 
@@ -5207,7 +5518,7 @@ function restoreConversation() {
   }
   if (displayMessages.length === 0) addSuggestionChips();
   restoreCurrentChatDraft();
-  schedulePendingDeepLinkQuestionDispatch(250);
+  if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
   document.getElementById('user-input').focus();
   checkAndShowTour();
   return restorePendingGuidedGeneration();
@@ -5385,18 +5696,24 @@ function maybeHandlePrivacyRequest(message) {
   return true;
 }
 
-async function sendMessage(fromQueue) {
+async function sendMessage(fromQueue, submissionOptions) {
   const mockOverlay = document.getElementById('mock-onboarding-overlay');
   const mockVisible = mockOverlay && mockOverlay.style.display === 'flex';
   var inConversationalOnboarding = !onboardingComplete && conversationHistory.length > 0;
+  var homepageIntentForSend = null;
+  if (submissionOptions && submissionOptions.homepageIntentId && typeof loadHomepageIntent === 'function') {
+    var storedHomepageIntent = loadHomepageIntent();
+    if (storedHomepageIntent && storedHomepageIntent.id === submissionOptions.homepageIntentId) homepageIntentForSend = storedHomepageIntent;
+  }
+  var reuseHomepageUserMessage = !!(homepageIntentForSend && submissionOptions && submissionOptions.reuseUserMessage);
   const input = document.getElementById('user-input');
   const typedText = input.value.trim();
   const imageAttachments = pendingImageAttachments.slice();
   const hasImages = imageAttachments.length > 0;
   const hasContent = !!(typedText || hasImages);
   const text = typedText || (imageAttachments.length > 1 ? 'Please analyze these images in page order.' : 'Please analyze this image.');
-  const duplicate = !hasImages && text === lastSentMessage && (Date.now() - lastSentAt) < 4000;
-  const chatReady = !!(onboardingComplete || mockVisible || inConversationalOnboarding);
+  const duplicate = !reuseHomepageUserMessage && !hasImages && text === lastSentMessage && (Date.now() - lastSentAt) < 4000;
+  const chatReady = !!(onboardingComplete || mockVisible || inConversationalOnboarding || homepageIntentForSend);
   const submissionDecision = getMessageSubmissionDecision({
     hasContent:hasContent,
     isLoading:isLoading,
@@ -5436,38 +5753,50 @@ async function sendMessage(fromQueue) {
     isLoading = true;
     updateComposerControls();
     if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
-    addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
     var storedImageMarker = hasImages ? '\n[' + imageAttachments.length + ' images attached in page order: ' + imageAttachments.map(function(item) { return item.name; }).join(', ') + ']' : '';
     var storedUserText = text + storedImageMarker;
-    conversationHistory.push({ role: 'user', content: storedUserText });
-    capturePersonalGoalDetails(text);
-    detectAndSaveMockScores(text);
-    if (!isGuestMode) saveChatMessage('user', storedUserText);
-    if (!hasImages && isMeaningfulCatSpecificMessage(text)) {
-      recordEngagementEvent('meaningful_cat_question', {
-        intent:detectMentorIntent(text),
-        text_hash:simpleStableHash(text)
-      }, 'question-' + simpleStableHash(text) + '-' + getEngagementSessionKey());
+    if (!reuseHomepageUserMessage) {
+      addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
+      conversationHistory.push({ role: 'user', content: storedUserText });
+      capturePersonalGoalDetails(text);
+      detectAndSaveMockScores(text);
+      if (!isGuestMode) saveChatMessage('user', storedUserText);
+      if (!hasImages && isMeaningfulCatSpecificMessage(text)) {
+        recordEngagementEvent('meaningful_cat_question', {
+          intent:detectMentorIntent(text),
+          text_hash:simpleStableHash(text)
+        }, 'question-' + simpleStableHash(text) + '-' + getEngagementSessionKey());
+      }
+      if (hasImages) removePendingImageAttachment();
+    } else if (!conversationHistory.some(function(item) { return item && item.role === 'user' && String(item.content || '').trim() === text; })) {
+      conversationHistory.push({ role:'user', content:text });
     }
-    if (hasImages) removePendingImageAttachment();
+    if (homepageIntentForSend && typeof markHomepageIntentSubmitted === 'function') markHomepageIntentSubmitted(homepageIntentForSend);
     loadActiveGeneratedExercise();
     var predictionValidationReply = isPredictionValidationReply(text);
     if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
 
-  if (!hasImages && maybeHandlePrivacyRequest(text)) return;
+  if (!hasImages && maybeHandlePrivacyRequest(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
 
   if (!hasImages && (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
   if (!hasImages && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
   if (!onboardingComplete && conversationHistory.length <= 10) {
-    await sendConversationalMessage(text, 'typed', imageAttachments);
+    var conversationalResponseCompleted = await sendConversationalMessage(text, 'typed', imageAttachments);
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function' && conversationalResponseCompleted !== false) completeHomepageIntent(homepageIntentForSend);
+    else if (homepageIntentForSend && typeof failHomepageIntent === 'function') failHomepageIntent(homepageIntentForSend);
     return;
   }
 
@@ -5522,12 +5851,14 @@ async function sendMessage(fromQueue) {
     checkAndRenderMargOptions(reply);
     checkAndRenderTestPrompt(reply);
     checkAndLogPracticeVolume(reply);
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
   } catch (e) {
     hideTyping();
     if (isGeminiServiceError(e)) {
       var serviceMessage = getGeminiErrorMessage(e);
       addMessage('marg', serviceMessage);
       showComposerStatus(serviceMessage + (e.requestId ? ' Reference: ' + e.requestId : ''), 'error', true);
+      if (homepageIntentForSend && typeof failHomepageIntent === 'function') failHomepageIntent(homepageIntentForSend, e);
       return;
     }
     let fallbackReply = buildPredictionValidationFallback(text) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
@@ -5536,17 +5867,20 @@ async function sendMessage(fromQueue) {
     addMessage('marg', fallbackReply);
     conversationHistory.push({ role: 'assistant', content: fallbackReply });
     if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
   }
   } catch (sendStateError) {
     hideTyping();
     console.error('Message submission state failed:', sendStateError);
-    addMentorLeadMessage('That message hit a temporary send problem, but the chat is unlocked and your message is still visible above. Try once more—I will continue from it.');
+    if (!homepageIntentForSend) addMentorLeadMessage('That message hit a temporary send problem, but the chat is unlocked and your message is still visible above. Try once more—I will continue from it.');
     showComposerStatus('The send failed, but the composer has recovered. You can try again now.', 'error', true);
+    if (homepageIntentForSend && typeof failHomepageIntent === 'function') failHomepageIntent(homepageIntentForSend, sendStateError);
   } finally {
     isLoading = false;
     window._timetableRoutineJustCaptured = false;
     updateComposerControls();
     if (queuedOutgoingMessage) setTimeout(flushQueuedComposerMessage, 0);
+    else if (typeof hasPendingHomepageIntent === 'function' && hasPendingHomepageIntent()) scheduleHomepageIntentDispatch(150);
     else if (hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(150);
     else {
       if (typeof maybePresentCommunityInvite === 'function') maybePresentCommunityInvite();
@@ -5563,6 +5897,17 @@ document.getElementById('user-input').addEventListener('input', function() {
   if (!this.value.trim() && hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(100);
 });
 document.getElementById('user-input').addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+
+var homepageChatInput = document.getElementById('homepage-chat-input');
+if (homepageChatInput) {
+  homepageChatInput.addEventListener('input', resizeHomepageEntry);
+  homepageChatInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitHomepageIntent(e);
+    }
+  });
+}
 
 let checkinStudied = null;
 let checkinHours = 2;
@@ -5927,6 +6272,7 @@ async function initSession() {
       const onboardingKey2 = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
       const prevOnboarded2 = localStorage.getItem(onboardingKey2);
       if (hasHistory || prevOnboarded2) {
+        var arrivedWithHomepageIntent = hasPendingHomepageIntent();
         var arrivedWithDeepLinkQuestion = hasPendingDeepLinkQuestion();
         var recoveredInterruptedGeneration = restoreConversation();
         loadStreakData();
@@ -5934,7 +6280,7 @@ async function initSession() {
 
         // A linked question takes priority over greetings, check-ins and cards,
         // so the external link opens directly into the promised conversation.
-        if (!arrivedWithDeepLinkQuestion && !recoveredInterruptedGeneration) {
+        if (!arrivedWithHomepageIntent && !arrivedWithDeepLinkQuestion && !recoveredInterruptedGeneration) {
           var greetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
           var todayDate = getTodayDate();
           if (localStorage.getItem(greetKey) !== todayDate) {
@@ -5960,7 +6306,9 @@ async function initSession() {
         document.getElementById('chat-app').style.display = 'flex';
         showBottomNav();
 
-        if (mobLoginForMock) {
+        if (hasPendingHomepageIntent()) {
+          prepareHomepageIntentChat();
+        } else if (mobLoginForMock) {
           mobLoginForMock = false;
           showMockOnboarding();
         } else {
