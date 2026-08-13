@@ -206,7 +206,30 @@
 .homepage-login-link{margin-top:5px;border:0;background:none;color:var(--text-muted);font:12px 'DM Sans',sans-serif;cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
 .homepage-login-link:hover{color:var(--gold-light);transform:none;}
 .homepage-intent-retry{margin-top:12px;background:linear-gradient(135deg,#C9A84C,#9a7723);color:#111;border:0;border-radius:9px;padding:9px 13px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;}
-@media(max-width:600px){.homepage-chat-entry{max-width:100%;}.homepage-chat-shell{padding-left:14px;border-radius:16px;}#homepage-chat-input{font-size:16px;}.homepage-login-link{font-size:12px;}}
+.landing-stats-grid{max-width:680px;margin:0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;text-align:center;}
+@media(max-width:600px){
+  html,body,#landing-page{max-width:100%;overflow-x:hidden;}
+  .nav{padding:10px 14px!important;}
+  .nav-logo img{height:27px;}
+  .nav-cta{padding:8px 13px;font-size:12px;}
+  .hero{padding:24px 16px 28px!important;gap:11px!important;}
+  .hero-badge{font-size:10px;padding:4px 10px;}
+  .hero-title{font-size:27px!important;line-height:1.15!important;}
+  .hero-tagline{font-size:14px;line-height:1.35;}
+  .homepage-chat-entry{max-width:100%;margin-top:1px;}
+  .homepage-chat-shell{padding-left:14px;border-radius:16px;}
+  #homepage-chat-input{font-size:16px;min-width:0;}
+  .homepage-login-link{font-size:12px;margin-top:1px;}
+  .hero>div:last-child{margin-top:4px!important;gap:6px!important;}
+  .hero>div:last-child a{font-size:11px!important;padding:5px 10px!important;}
+  .landing-stats-grid{grid-template-columns:1fr;gap:10px;}
+  .landing-stats-grid>div{padding:16px!important;}
+}
+@media(max-width:340px){
+  .hero{padding-top:18px!important;}
+  .hero-title{font-size:24px!important;}
+  .hero-tagline{font-size:13px;}
+}
 
 </style>
 
@@ -334,7 +357,7 @@
 
   <!-- STATS BAR -->
   <section style="padding:40px 24px;background:#080808;width:100%;">
-    <div style="max-width:680px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center;">
+    <div class="landing-stats-grid">
       <div style="padding:24px;background:#111;border-radius:16px;border:1px solid #1E1E1E;">
         <div style="font-size:32px;font-weight:700;color:#C9A84C;font-family:'Playfair Display',serif;">110+</div>
         <div style="font-size:12px;color:#888;margin-top:6px;">active users</div>
@@ -1139,6 +1162,82 @@ function setHomepageEntryStatus(message, type) {
   status.className = type || '';
 }
 
+var ACQUISITION_FUNNEL_STORAGE_KEY = 'marg_acquisition_funnel_v1';
+
+function loadPendingFunnelEvents() {
+  try {
+    var parsed = JSON.parse(localStorage.getItem(ACQUISITION_FUNNEL_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.slice(-20) : [];
+  } catch(e) { return []; }
+}
+
+function persistPendingFunnelEvents(events) {
+  try { localStorage.setItem(ACQUISITION_FUNNEL_STORAGE_KEY, JSON.stringify((events || []).slice(-20))); } catch(e) {}
+}
+
+function createFunnelEventId(eventName) {
+  try {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  } catch(e) {}
+  return String(eventName || 'stage') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function trackFunnelEvent(eventName, metadata) {
+  var safeMetadata = Object.assign({ entry_point:'homepage_chat_intent' }, metadata || {});
+  // Never attach the student's message, email or other personal data to analytics.
+  delete safeMetadata.text;
+  delete safeMetadata.email;
+  var event = {
+    id:createFunnelEventId(eventName),
+    event_type:String(eventName || '').slice(0, 40),
+    occurred_at:new Date().toISOString(),
+    metadata:safeMetadata
+  };
+  var pending = loadPendingFunnelEvents();
+  pending.push(event);
+  persistPendingFunnelEvents(pending);
+  try {
+    if (typeof gtag === 'function') gtag('event', event.event_type, safeMetadata);
+  } catch(e) {}
+  if (currentUser && SUPABASE_TOKEN && !isGuestMode) flushAcquisitionFunnelEvents();
+  return event;
+}
+
+var funnelFlushInFlight = false;
+async function flushAcquisitionFunnelEvents() {
+  if (funnelFlushInFlight || !currentUser || !SUPABASE_TOKEN || isGuestMode) return false;
+  var pending = loadPendingFunnelEvents();
+  if (!pending.length) return true;
+  funnelFlushInFlight = true;
+  var savedIds = {};
+  var originalIds = {};
+  pending.forEach(function(event) { originalIds[event.id] = true; });
+  try {
+    for (var i = 0; i < pending.length; i++) {
+      var event = pending[i];
+      var saved = await recordEngagementEvent(event.event_type, Object.assign({}, event.metadata || {}, {
+        occurred_at:event.occurred_at,
+        funnel_event_id:event.id
+      }), 'funnel-' + event.id);
+      if (saved) savedIds[event.id] = true;
+    }
+    // Do not overwrite a later stage that arrived while this async flush was
+    // running. Remove only the exact events confirmed saved above.
+    var latest = loadPendingFunnelEvents();
+    var remaining = latest.filter(function(event) { return !savedIds[event.id]; });
+    persistPendingFunnelEvents(remaining);
+    return remaining.length === 0;
+  } finally {
+    funnelFlushInFlight = false;
+    var newlyQueued = loadPendingFunnelEvents().some(function(event) { return !originalIds[event.id]; });
+    if (newlyQueued) setTimeout(flushAcquisitionFunnelEvents, 0);
+  }
+}
+
+function trackAuthenticatedHomepageStage(stage, intent) {
+  trackFunnelEvent(stage, { source:intent && intent.source ? intent.source : 'homepage' });
+}
+
 function resizeHomepageEntry() {
   var input = document.getElementById('homepage-chat-input');
   var button = document.getElementById('homepage-chat-send');
@@ -1151,8 +1250,8 @@ function resizeHomepageEntry() {
 function restoreHomepageIntentToLanding() {
   var intent = loadHomepageIntent();
   var input = document.getElementById('homepage-chat-input');
-  if (!intent || !input || input.value) return false;
-  input.value = intent.text;
+  if (!intent || !input) return false;
+  if (!input.value) input.value = intent.text;
   resizeHomepageEntry();
   if (intent.status === 'auth_started') setHomepageEntryStatus('Your question is saved. Continue when you are ready.', 'success');
   else if (intent.status === 'retry' || intent.status === 'submitted' || intent.status === 'dispatching') setHomepageEntryStatus('Your question is safe. Sign in to reopen it and retry the response.', 'success');
@@ -1170,14 +1269,16 @@ function submitHomepageIntent(event) {
   }
   var intent = saveHomepageIntent(text);
   if (!intent) return false;
+  trackFunnelEvent('homepage_intent_entered');
   writeHomepageIntent(Object.assign({}, intent, { status:'auth_started' }));
+  trackFunnelEvent('auth_started');
   setHomepageEntryStatus('Saved. Opening the quick sign-in…', 'success');
   if (currentUser && SUPABASE_TOKEN && !isGuestMode) {
     document.getElementById('landing-page').style.display = 'none';
     document.getElementById('chat-app').style.display = 'flex';
     prepareHomepageIntentChat();
   } else {
-    setTimeout(startLogin, 80);
+    setTimeout(function() { startLogin({ funnelAlreadyTracked:true }); }, 80);
   }
   return true;
 }
@@ -1224,12 +1325,20 @@ function renderHomepageIntentRetry(intent, message) {
 }
 
 function markHomepageIntentSubmitted(intent) {
-  if (!intent) return;
-  writeHomepageIntent(Object.assign({}, intent, { status:'submitted', failureMessage:'' }));
+  if (!intent) return null;
+  var firstSendAlreadyTracked = !!intent.funnel_first_message_sent;
+  var updated = writeHomepageIntent(Object.assign({}, intent, {
+    status:'submitted',
+    failureMessage:'',
+    funnel_first_message_sent:true
+  }));
+  if (!firstSendAlreadyTracked) trackAuthenticatedHomepageStage('first_message_sent', updated || intent);
+  return updated;
 }
 
 function completeHomepageIntent(intent) {
   if (!intent) return;
+  if (!intent.funnel_first_response_received) trackAuthenticatedHomepageStage('first_response_received', intent);
   clearHomepageIntent(intent.id);
 }
 
@@ -1794,6 +1903,8 @@ When a student tells you something is going wrong, your first move is a useful r
 Practical questions often hide an emotional problem. "Which book should I use?" may really mean "I do not trust my study source anymore." Address that loss of trust or fear of choosing wrong in one calm line before recommending the source. Solve the emotional uncertainty first, then the practical decision. Do not become therapeutic; name the preparation pattern and restore a clear basis for action.
 
 But you never interview someone. Two question-containing replies in a row is a hard ceiling enforced by the app, not a target. Usually one confirmation is enough. By the second reply, give a diagnosis and action even if confidence is imperfect. A student who gives a mock score, strongest section and sectional breakdown has already given enough for a read; asking for attempted-versus-correct can sharpen that read only after you explain what the current numbers already suggest. They should always leave a reply with something useful, never merely another field to fill.
+
+UNCLEAR SHORT INPUT: A one-word message that is unfamiliar, misspelled, or genuinely ambiguous is not evidence for an emotional or study diagnosis. Never confidently expand a typo into “you are exhausted,” “you want to quit,” or another invented meaning. Ask one compact clarification that names the most plausible reading without locking it in: “Did you mean busy, or something else? What’s going on?” Known quick replies such as yes, no, exactly, VARC, DILR, QA, now, later, and tomorrow retain their existing meaning.
 
 EVIDENCE BEFORE REASSURANCE: A score is an outcome, not an explanation and not a capability measurement. Never confidently declare why a low score happened, call it an "execution cascade," or assure the student that their baseline/capability is solid before examining attempts, accuracy, selection, timing, errors, and the student’s own account. Do not use comfort as a substitute for diagnosis. A sound opening is: "A score of 34 does not tell us much by itself. Your description reveals three separate execution problems—let’s separate them instead of treating this as one bad mock." Distinguish observations from hypotheses explicitly: "The score shows X; your description suggests Y; we still need to test Z." Reassure only with evidence already present, such as prior results or a correctly executed part of this mock.
 
@@ -3606,7 +3717,8 @@ function showLandingMain() {
   window.scrollTo(0, 0);
 }
 
-function startLogin() {
+function startLogin(options) {
+  if (!options || !options.funnelAlreadyTracked) trackFunnelEvent('auth_started', { source:'direct_login' });
   const redirectTo = encodeURIComponent(window.location.href);
   window.location.href = SUPABASE_URL + '/auth/v1/authorize?provider=google&redirect_to=' + redirectTo;
 }
@@ -3661,49 +3773,69 @@ async function saveProfile() {
   } catch(e) {}
 }
 
+async function ensureAuthenticatedProfile() {
+  if (!currentUser || !SUPABASE_TOKEN) return false;
+  try {
+    const response = await fetch(SUPABASE_URL + '/rest/v1/profiles?on_conflict=user_id', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':SUPABASE_ANON_KEY,
+        'Authorization':'Bearer ' + SUPABASE_TOKEN,
+        'Prefer':'resolution=merge-duplicates,return=minimal'
+      },
+      body:JSON.stringify({ user_id:currentUser.id })
+    });
+    if (!response.ok) console.error('Minimal profile creation failed:', response.status);
+    return response.ok;
+  } catch(e) {
+    console.error('Minimal profile creation error:', e);
+    return false;
+  }
+}
+
 async function loadUserData() {
   if (!currentUser || !SUPABASE_TOKEN) return false;
   try {
     const { data: profiles } = await sbFetch('profiles?select=*&user_id=eq.' + currentUser.id, 'GET');
-    if (!profiles || profiles.length === 0) return false;
-    const profile = profiles[0];
+    const profile = profiles && profiles.length ? profiles[0] : null;
+    var profileHasOnboardingData = false;
 
+    if (profile) {
+      profileHasOnboardingData = !!(profile.attempt_number || profile.months_left || profile.weakest_section || profile.daily_hours || profile.situation);
+      studentProfile = {
+        attemptNumber: profile.attempt_number,
+        monthsLeft: profile.months_left,
+        weakestSection: profile.weakest_section,
+        dailyHours: profile.daily_hours,
+        situation: profile.situation,
+        varcPattern: profile.varc_cognitive_pattern || null,
+        dilrPattern: profile.dilr_cognitive_pattern || null,
+        qaPattern: profile.qa_cognitive_pattern || null,
+        mockHistory: profile.mock_history || null,
+        sessionsCount: profile.sessions_count || 0,
+        lastTask: profile.last_task || null,
+        lastInsight: profile.last_insight || null,
+        lastSessionDate: profile.last_session_date || null,
+        sessionSummary: profile.session_summary || null
+      };
+      loadDiagnosticMemory();
 
-    // Don't block returning users just because profile is incomplete
-    // Check localStorage for onboarding completion
-
-    studentProfile = {
-      attemptNumber: profile.attempt_number,
-      monthsLeft: profile.months_left,
-      weakestSection: profile.weakest_section,
-      dailyHours: profile.daily_hours,
-      situation: profile.situation,
-      varcPattern: profile.varc_cognitive_pattern || null,
-      dilrPattern: profile.dilr_cognitive_pattern || null,
-      qaPattern: profile.qa_cognitive_pattern || null,
-      mockHistory: profile.mock_history || null,
-      sessionsCount: profile.sessions_count || 0,
-      lastTask: profile.last_task || null,
-      lastInsight: profile.last_insight || null,
-      lastSessionDate: profile.last_session_date || null,
-      sessionSummary: profile.session_summary || null
-    };
-    loadDiagnosticMemory();
-
-    var savedTopicLog = profile.practice_topic_log || {};
-    practiceTopicLog = {};
-    practiceTopicDisplayName = {};
-    practiceTopicFlagged = {};
-    loadTopicProgression();
-    for (var key in savedTopicLog) {
-      var entry = savedTopicLog[key] || {};
-      practiceTopicLog[key] = entry.count || 0;
-      practiceTopicDisplayName[key] = entry.displayName || key.split('::')[1];
-      practiceTopicFlagged[key] = !!entry.flagged;
-      var progressionItem = getTopicProgress(key.split('::')[0], practiceTopicDisplayName[key]);
-      progressionItem.conceptQuestionsCompleted = Math.max(progressionItem.conceptQuestionsCompleted || 0, entry.count || 0);
+      var savedTopicLog = profile.practice_topic_log || {};
+      practiceTopicLog = {};
+      practiceTopicDisplayName = {};
+      practiceTopicFlagged = {};
+      loadTopicProgression();
+      for (var key in savedTopicLog) {
+        var entry = savedTopicLog[key] || {};
+        practiceTopicLog[key] = entry.count || 0;
+        practiceTopicDisplayName[key] = entry.displayName || key.split('::')[1];
+        practiceTopicFlagged[key] = !!entry.flagged;
+        var progressionItem = getTopicProgress(key.split('::')[0], practiceTopicDisplayName[key]);
+        progressionItem.conceptQuestionsCompleted = Math.max(progressionItem.conceptQuestionsCompleted || 0, entry.count || 0);
+      }
+      saveTopicProgression();
     }
-    saveTopicProgression();
 
     const { data: chats } = await sbFetch('chats?select=*&user_id=eq.' + currentUser.id + '&order=created_at.asc', 'GET');
     if (chats && chats.length > 0) {
@@ -3712,7 +3844,8 @@ async function loadUserData() {
     loadDiagnosticMemory();
     hydrateDiagnosticMemoryFromHistory();
     loadMentorMemory();
-    return true;
+    sanitizeLoadedContinuityMemory();
+    return !!(profileHasOnboardingData || (chats && chats.length));
   } catch(e) { return false; }
 }
 
@@ -4028,6 +4161,16 @@ var conversationalProfile = {
 
 var chatFirstOnboardingStarted = false;
 
+function chatFirstOpeningSessionKey() {
+  return 'marg_chat_first_opening_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function hasChatFirstOpeningInHistory() {
+  return (conversationHistory || []).some(function(item) {
+    return item && item.role === 'assistant' && String(item.content || '').indexOf('Most CAT problems do not begin where the score drops') !== -1;
+  });
+}
+
 function addMentorLeadMessage(text) {
   var guardedText = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(text))));
   addMessage('marg', guardedText.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
@@ -4036,11 +4179,15 @@ function addMentorLeadMessage(text) {
 }
 
 function startChatFirstOnboarding() {
-  if (chatFirstOnboardingStarted) {
+  var startedThisTab = false;
+  try { startedThisTab = sessionStorage.getItem(chatFirstOpeningSessionKey()) === '1'; } catch(e) {}
+  if (chatFirstOnboardingStarted || startedThisTab || hasChatFirstOpeningInHistory() || (conversationHistory && conversationHistory.length)) {
+    chatFirstOnboardingStarted = true;
     keepChatInteractive();
     return;
   }
   chatFirstOnboardingStarted = true;
+  try { sessionStorage.setItem(chatFirstOpeningSessionKey(), '1'); } catch(e) {}
   var opening = "Most CAT problems do not begin where the score drops. They begin in one small decision that keeps repeating unnoticed.\n\nWhat has been bothering you most lately?";
   addMentorLeadMessage(opening);
   showConversationalOptions([
@@ -5203,7 +5350,6 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
         studentProfile.monthsLeft = calculateMonthsLeftForCAT();
         await saveProfile();
         recordEngagementEvent('onboarding_completed', { flow:'conversational-auto' }, 'onboarding-v1');
-        await saveLastTask('Complete CAT prep plan from onboarding conversation', 'Initial diagnosis done');
         if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
       }
       return true;
@@ -5696,6 +5842,30 @@ function maybeHandlePrivacyRequest(message) {
   return true;
 }
 
+function ambiguousShortInputClarification(message) {
+  var original = String(message || '').trim();
+  var normalized = original.toLowerCase().replace(/[^a-z]/g, '');
+  if (!normalized || original.split(/\s+/).length !== 1 || normalized.length > 18) return '';
+  if (/^[a-d]$/.test(normalized)) return '';
+  var known = new Set([
+    'hi','hey','hello','help','bro','bhai','yes','no','yep','nope','ok','okay','exactly','mostly','continue',
+    'varc','dilr','lrdi','qa','rc','mock','mocks','strategy','confidence','algebra','arithmetic','geometry',
+    'percentage','percentages','busy','tired','exhausted','stuck','confused','anxious','now','later','today','tomorrow'
+  ]);
+  if (known.has(normalized) || normalized.length < 3) return '';
+  if (['bosy','bisy','bussy','buzy'].indexOf(normalized) !== -1) return 'Did you mean busy, or something else? What’s going on?';
+  return 'I may be reading “' + original.slice(0, 24) + '” wrong. What did you mean?';
+}
+
+function maybeHandleAmbiguousShortInput(message) {
+  var reply = ambiguousShortInputClarification(message);
+  if (!reply) return false;
+  addMessage('marg', escapeChatHtml(reply));
+  conversationHistory.push({ role:'assistant', content:reply });
+  if (!isGuestMode) saveChatMessage('assistant', reply);
+  return true;
+}
+
 async function sendMessage(fromQueue, submissionOptions) {
   const mockOverlay = document.getElementById('mock-onboarding-overlay');
   const mockVisible = mockOverlay && mockOverlay.style.display === 'flex';
@@ -5771,12 +5941,17 @@ async function sendMessage(fromQueue, submissionOptions) {
     } else if (!conversationHistory.some(function(item) { return item && item.role === 'user' && String(item.content || '').trim() === text; })) {
       conversationHistory.push({ role:'user', content:text });
     }
-    if (homepageIntentForSend && typeof markHomepageIntentSubmitted === 'function') markHomepageIntentSubmitted(homepageIntentForSend);
+    if (homepageIntentForSend && typeof markHomepageIntentSubmitted === 'function') homepageIntentForSend = markHomepageIntentSubmitted(homepageIntentForSend) || homepageIntentForSend;
     loadActiveGeneratedExercise();
     var predictionValidationReply = isPredictionValidationReply(text);
     if (isAnswerReviewRequest(text) || predictionValidationReply) markActiveExerciseAttempt(text, predictionValidationReply);
 
   if (!hasImages && maybeHandlePrivacyRequest(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
+
+  if (!hasImages && maybeHandleAmbiguousShortInput(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -5807,7 +5982,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     mentorAnalysis.diagnosis.hasImage = true;
     mentorAnalysis.directive += getImageAnalysisDirective(imageAttachments);
   }
-  profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
+  profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
     (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
     (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
@@ -5908,6 +6083,12 @@ if (homepageChatInput) {
     }
   });
 }
+window.addEventListener('pageshow', function() {
+  // Mobile browsers commonly restore the pre-OAuth page from BFCache. Form
+  // values return, but disabled-button state may be stale unless recalculated.
+  restoreHomepageIntentToLanding();
+  resizeHomepageEntry();
+});
 
 let checkinStudied = null;
 let checkinHours = 2;
@@ -6152,7 +6333,7 @@ async function createRCPassage() {
 
   addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
   showTyping();
-  profileContext = getDateContext() + '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
+  profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, [{ role: 'user', content: prompt + memoryDirective }], 12288)) }, 180000);
     const data = await response.json();
@@ -6224,6 +6405,7 @@ async function initSession() {
   showRandomQuote();
   captureDeepLinkQuestionFromUrl();
   const hash = window.location.hash;
+  const arrivedFromOAuthCallback = !!(hash && hash.includes('access_token'));
   if (hash && hash.includes('access_token')) {
     const params = new URLSearchParams(hash.substring(1));
     const token = params.get('access_token');
@@ -6258,15 +6440,20 @@ async function initSession() {
     } catch(e) { console.log('Token refresh failed:', e); }
   }
   
-  if (!token) { setTimeout(showLanding, 3200); return; }
+  if (!token) { showLanding(); return; }
   try {
     const res = await fetch(SUPABASE_URL + '/auth/v1/user', { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token } });
-    if (!res.ok) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); return; }
+    if (!res.ok) { localStorage.removeItem('marg_token'); showLanding(); return; }
     const user = await res.json();
     SUPABASE_TOKEN = token;
     currentUser = user;
     updateUserUI(user);
-    initializeEngagementTracking();
+    await ensureAuthenticatedProfile();
+    await initializeEngagementTracking();
+    if (arrivedFromOAuthCallback) {
+      var authIntent = loadHomepageIntent();
+      trackAuthenticatedHomepageStage('auth_completed', authIntent || { source:'direct_login' });
+    }
     showWelcome(async function() {
       const hasHistory = await loadUserData();
       const onboardingKey2 = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
@@ -6317,7 +6504,7 @@ async function initSession() {
 
       }
     });
-  } catch(e) { localStorage.removeItem('marg_token'); setTimeout(showLanding, 3200); }
+  } catch(e) { localStorage.removeItem('marg_token'); showLanding(); }
 }
 function getDaysUntilCAT() {
   var today = getIndiaCalendarDate(0).iso;
@@ -6346,6 +6533,54 @@ function buildDailyMentorBrief() {
     pieces.push('The targeted ' + diagnosticExerciseLabel(pendingDiagnosticExercise.entry) + ' you chose for ' + String(pendingDiagnosticExercise.timing || '').replace('_', ' ') + ' is still ready.');
   }
   return pieces.join(' ');
+}
+
+function getVerifiedConversationHistory() {
+  return (conversationHistory || []).filter(function(item) {
+    return item && (item.role === 'user' || item.role === 'assistant') && !isInternalMemoryMessage(item) && String(item.content || '').trim();
+  });
+}
+
+function continuityKeywords(value) {
+  var stop = { this:1, that:1, with:1, from:1, your:1, have:1, were:1, been:1, into:1, about:1, complete:1, conversation:1, initial:1, today:1, task:1 };
+  return Array.from(new Set((String(value || '').toLowerCase().match(/[a-z0-9]+/g) || []).filter(function(word) {
+    return word.length >= 4 && !stop[word];
+  })));
+}
+
+function isContinuityClaimGrounded(claim) {
+  var value = String(claim || '').trim();
+  if (!value) return false;
+  if (/^complete cat prep plan from onboarding conversation$/i.test(value)) return false;
+  var evidence = getVerifiedConversationHistory().map(function(item) { return String(item.content || ''); }).join('\n').toLowerCase();
+  if (!evidence) return false;
+  if (evidence.indexOf(value.toLowerCase()) !== -1) return true;
+  var words = continuityKeywords(value);
+  if (!words.length) return false;
+  var matched = words.filter(function(word) { return evidence.indexOf(word) !== -1; }).length;
+  return matched >= Math.max(2, Math.ceil(words.length * 0.7));
+}
+
+function sanitizeLoadedContinuityMemory() {
+  if (!studentProfile) return;
+  if (studentProfile.lastTask && !isContinuityClaimGrounded(studentProfile.lastTask)) {
+    studentProfile.lastTask = null;
+    studentProfile.lastInsight = null;
+    studentProfile.lastSessionDate = null;
+  }
+  // Legacy model summaries are retained in Supabase for auditability but are
+  // never trusted as conversation evidence in the live mentor prompt.
+  studentProfile.sessionSummary = null;
+}
+
+function getTrustedSessionMemory() {
+  var recent = getVerifiedConversationHistory().slice(-8);
+  if (!recent.length) return 'No verified recent conversation exists.';
+  return recent.map(function(item) {
+    var content = String(item.content || '').replace(/\s+/g, ' ').trim();
+    if (content.length > 600) content = content.slice(0, 600) + '…';
+    return (item.role === 'user' ? 'Student said: ' : 'Marg said: ') + content;
+  }).join('\n');
 }
 
 async function sendReturningUserGreeting() {
@@ -6388,9 +6623,10 @@ async function sendReturningUserGreeting() {
   const dailyMentorBrief = buildDailyMentorBrief();
 
   let situationLine = '';
-  if (lastSession && lastSession.last_task && lastSession.last_session_date) {
+  var verifiedLastTask = lastSession && isContinuityClaimGrounded(lastSession.last_task) ? lastSession.last_task : null;
+  if (verifiedLastTask && lastSession.last_session_date) {
     const daysSince = Math.floor((new Date() - new Date(lastSession.last_session_date)) / (1000 * 60 * 60 * 24));
-    situationLine = 'It has been ' + daysSince + ' day(s) since this student last spoke to you. Last time, the open task was: "' + lastSession.last_task + '"' + (lastSession.last_insight ? '. Your read then was: "' + lastSession.last_insight + '"' : '') + '. Start with continuity and value: state where you left off in one compact line, add one prediction about what probably got in the way or what the result would reveal, then ask at most one easy confirmation. Do not make them reconstruct the previous session.';
+    situationLine = 'It has been ' + daysSince + ' day(s) since this student last spoke to you. The verified open task in the actual transcript was: "' + verifiedLastTask + '"' + (lastSession.last_insight && isContinuityClaimGrounded(lastSession.last_insight) ? '. A verified related insight was: "' + lastSession.last_insight + '"' : '') + '. Refer to it only as written; do not expand it into a plan or topic that the transcript does not contain.';
   } else if (streak >= 2) {
     situationLine = 'This student is on a ' + streak + '-day check-in streak. Use known profile/memory to offer one likely focus for today and why; then let them confirm or redirect. Do not ask a blank "what do you want to focus on?" question.';
   } else {
@@ -6398,11 +6634,11 @@ async function sendReturningUserGreeting() {
   }
 
   const greetingContext = getDateContext() +
-    '\n\nSESSION MEMORY (what happened in previous sessions):\n' + (studentProfile.sessionSummary || 'First session - no previous history yet') +
+    '\n\nVERIFIED RECENT TRANSCRIPT — the only source of continuity claims:\n' + getTrustedSessionMemory() +
     '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours +
     '\n\nDAILY MENTOR BRIEF: ' + dailyMentorBrief +
     getTopicProgressionMemoryContext() + getActivePlanMemoryContext() +
-    '\n\nRETURNING GREETING: ' + (name || 'This student') + ' just opened the app after being away — it is ' + timeOfDay + '. ' + situationLine + ' Use the daily brief to create urgency and recommend the best next action from actual progression. If you suggest practice, ask whether they want it right now, later today, or tomorrow; never select tomorrow yourself. Write ONE compact opening message in your own voice. It must contain continuity plus a prediction/insight before any question. Do not list their profile, say "ready to continue?", or open with a generic welcome.';
+    '\n\nRETURNING GREETING: ' + (name || 'This student') + ' just opened the app after being away — it is ' + timeOfDay + '. ' + situationLine + ' Use the daily brief to recommend the best next action from actual progression. Never say “we left off on”, “last time we discussed”, or similar unless that exact topic is supported by VERIFIED RECENT TRANSCRIPT or the verified task above. If no unfinished task is verified, say so naturally and start from an observed recent message instead of inventing continuity. If you suggest practice, ask whether they want it right now, later today, or tomorrow; never select tomorrow yourself. Write ONE compact opening message. Do not list their profile, say "ready to continue?", or open with a generic welcome.';
 
   let greeting = '';
   try {
@@ -6732,21 +6968,7 @@ async function generateAndSaveSessionSummary() {
   } catch(e) {}
   sessionSummaryInFlight = true;
   try {
-
-    const recentHistory = cleanHistory(conversationHistory.slice(-20));
-    const summaryPrompt = 'Summarise this CAT mentoring session in 3-4 sentences. Focus on: what topic was discussed, what specific problem or weakness was identified, what advice or task was given, and what the student should work on next. Be specific - include section names, topic names, scores if mentioned. This summary will be used to give the student continuity in their next session.';
-
-    const res = await fetchWithTimeout(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        'You are a helpful assistant that summarises tutoring sessions concisely.' + getDateContext(),
-        [...recentHistory, { role: 'user', content: summaryPrompt }],
-        200
-      ))
-    }, 45000);
-    const data = await res.json();
-    const summary = getGeminiText(data);
+    const summary = buildEvidenceBoundSessionSummary(conversationHistory);
     if (summary) {
       await saveSessionSummary(summary);
       try { localStorage.setItem(sessionSummarySignatureKey(), signature); } catch(e) {}
@@ -6758,6 +6980,23 @@ async function generateAndSaveSessionSummary() {
     sessionSummaryInFlight = false;
   }
   return false;
+}
+
+function buildEvidenceBoundSessionSummary(history) {
+  var verified = (history || []).filter(function(item) {
+    return item && (item.role === 'user' || item.role === 'assistant') && !isInternalMemoryMessage(item) && String(item.content || '').trim();
+  }).slice(-8);
+  if (!verified.length) return '';
+  var userMessages = verified.filter(function(item) { return item.role === 'user'; }).slice(-3).map(function(item) {
+    return String(item.content || '').replace(/\s+/g, ' ').trim().slice(0, 260);
+  });
+  var assistantMessages = verified.filter(function(item) { return item.role === 'assistant'; }).slice(-2).map(function(item) {
+    return String(item.content || '').replace(/\s+/g, ' ').trim().slice(0, 320);
+  });
+  var parts = [];
+  if (userMessages.length) parts.push('Verified student messages: “' + userMessages.join('” | “') + '”.');
+  if (assistantMessages.length) parts.push('Verified Marg replies: “' + assistantMessages.join('” | “') + '”.');
+  return parts.join(' ');
 }
 
 async function saveLastTask(task, insight) {
