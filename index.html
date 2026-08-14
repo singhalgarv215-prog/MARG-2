@@ -1149,6 +1149,7 @@ function writeHomepageIntent(intent) {
     id:String(intent.id || createHomepageIntentId()),
     text:normalizeHomepageIntentText(intent.text),
     source:'homepage',
+    pageViewId:String(intent.pageViewId || acquisitionPageViewId),
     createdAt:Number(intent.createdAt) || Date.now(),
     updatedAt:Date.now(),
     status:String(intent.status || 'pending'),
@@ -1161,7 +1162,7 @@ function writeHomepageIntent(intent) {
 function saveHomepageIntent(text) {
   var normalized = normalizeHomepageIntentText(text);
   if (!normalized) return null;
-  return writeHomepageIntent({ id:createHomepageIntentId(), text:normalized, createdAt:Date.now(), status:'pending' });
+  return writeHomepageIntent({ id:createHomepageIntentId(), text:normalized, pageViewId:acquisitionPageViewId, createdAt:Date.now(), status:'pending' });
 }
 
 function loadHomepageIntent() {
@@ -1214,6 +1215,109 @@ function setHomepageEntryStatus(message, type) {
 }
 
 var ACQUISITION_FUNNEL_STORAGE_KEY = 'marg_acquisition_funnel_v1';
+var ACQUISITION_VISITOR_STORAGE_KEY = 'marg_acquisition_visitor_v1';
+var acquisitionPageViewId = createFunnelEventId('page-view');
+var acquisitionEventIdsSent = {};
+var homepageComposerVisibleTracked = false;
+var homepageTextTypedTracked = false;
+var homepageComposerVisibilityObserver = null;
+
+function getAcquisitionVisitorId() {
+  var visitorId = '';
+  try { visitorId = localStorage.getItem(ACQUISITION_VISITOR_STORAGE_KEY) || ''; } catch(e) {}
+  if (visitorId) return visitorId;
+  visitorId = createFunnelEventId('visitor');
+  try { localStorage.setItem(ACQUISITION_VISITOR_STORAGE_KEY, visitorId); } catch(e) {}
+  return visitorId;
+}
+
+function getAcquisitionAttribution() {
+  var attribution = { entry_path:String(window.location.pathname || '/').slice(0, 120) };
+  try {
+    var params = new URLSearchParams(window.location.search || '');
+    ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(function(key) {
+      var value = params.get(key);
+      if (value) attribution[key] = String(value).slice(0, 160);
+    });
+  } catch(e) {}
+  return attribution;
+}
+
+async function persistAcquisitionFunnelEvent(event) {
+  if (!event || !event.id || acquisitionEventIdsSent[event.id]) return false;
+  acquisitionEventIdsSent[event.id] = true;
+  var metadata = Object.assign({}, getAcquisitionAttribution(), event.metadata || {});
+  delete metadata.text;
+  delete metadata.email;
+  var payload = {
+    id:event.id,
+    visitor_id:getAcquisitionVisitorId(),
+    page_view_id:String(event.page_view_id || acquisitionPageViewId),
+    user_id:currentUser && SUPABASE_TOKEN && !isGuestMode ? currentUser.id : null,
+    event_type:event.event_type,
+    occurred_at:event.occurred_at || new Date().toISOString(),
+    metadata:metadata
+  };
+  var headers = {
+    'Content-Type':'application/json',
+    'apikey':SUPABASE_ANON_KEY,
+    'Prefer':'return=minimal'
+  };
+  if (SUPABASE_TOKEN && currentUser && !isGuestMode) headers.Authorization = 'Bearer ' + SUPABASE_TOKEN;
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/acquisition_funnel_events', {
+      method:'POST',
+      headers:headers,
+      body:JSON.stringify(payload),
+      keepalive:true
+    });
+    if (!response.ok) throw new Error('Acquisition event save failed (' + response.status + ')');
+    return true;
+  } catch(error) {
+    delete acquisitionEventIdsSent[event.id];
+    console.error('Acquisition funnel event failed:', event.event_type, error);
+    return false;
+  }
+}
+
+function trackAcquisitionFunnelEvent(eventName, metadata, pageViewId) {
+  var event = {
+    id:createFunnelEventId(eventName),
+    event_type:String(eventName || '').slice(0, 40),
+    occurred_at:new Date().toISOString(),
+    page_view_id:String(pageViewId || acquisitionPageViewId),
+    metadata:Object.assign({ entry_point:'homepage_chat_intent' }, metadata || {})
+  };
+  // This write is independent of authentication. The dedicated table permits
+  // INSERT only and never exposes anonymous funnel rows publicly.
+  persistAcquisitionFunnelEvent(event);
+  return event;
+}
+
+function trackHomepageComposerVisible() {
+  if (homepageComposerVisibleTracked) return false;
+  homepageComposerVisibleTracked = true;
+  trackAcquisitionFunnelEvent('homepage_chat_visible');
+  return true;
+}
+
+function observeHomepageComposerVisibility() {
+  var form = document.getElementById('homepage-chat-form');
+  if (!form || homepageComposerVisibleTracked) return;
+  if (typeof window.IntersectionObserver !== 'function') {
+    trackHomepageComposerVisible();
+    return;
+  }
+  if (homepageComposerVisibilityObserver) homepageComposerVisibilityObserver.disconnect();
+  homepageComposerVisibilityObserver = new IntersectionObserver(function(entries) {
+    if (entries.some(function(entry) { return entry.isIntersecting && entry.intersectionRatio >= 0.25; })) {
+      trackHomepageComposerVisible();
+      homepageComposerVisibilityObserver.disconnect();
+      homepageComposerVisibilityObserver = null;
+    }
+  }, { threshold:[0.25] });
+  homepageComposerVisibilityObserver.observe(form);
+}
 
 function loadPendingFunnelEvents() {
   try {
@@ -1244,6 +1348,8 @@ function trackFunnelEvent(eventName, metadata) {
     occurred_at:new Date().toISOString(),
     metadata:safeMetadata
   };
+  var originalIntent = loadHomepageIntent();
+  trackAcquisitionFunnelEvent(event.event_type, safeMetadata, originalIntent && originalIntent.pageViewId);
   var pending = loadPendingFunnelEvents();
   pending.push(event);
   persistPendingFunnelEvents(pending);
@@ -4029,6 +4135,7 @@ function showLanding() {
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('landing-page').style.display = 'flex';
   restoreHomepageIntentToLanding();
+  observeHomepageComposerVisibility();
 }
 
 function addMessage(role, html, showAvatar) {
@@ -6227,7 +6334,13 @@ document.getElementById('user-input').addEventListener('keydown', function(e) { 
 
 var homepageChatInput = document.getElementById('homepage-chat-input');
 if (homepageChatInput) {
-  homepageChatInput.addEventListener('input', resizeHomepageEntry);
+  homepageChatInput.addEventListener('input', function() {
+    resizeHomepageEntry();
+    if (!homepageTextTypedTracked && this.value.trim()) {
+      homepageTextTypedTracked = true;
+      trackAcquisitionFunnelEvent('homepage_text_typed');
+    }
+  });
   homepageChatInput.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
