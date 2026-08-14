@@ -192,13 +192,20 @@
 .fb-opt:hover { border-color: #C9A84C; color: #C8C4BC; }
 .fb-opt.selected { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,77,0.06); }
 
-.homepage-diagnostic-entry{width:100%;max-width:680px;margin-top:8px;animation:fadeUp .6s ease .35s both;text-align:left;}
-.homepage-diagnostic-question{font-size:13px;font-weight:600;color:var(--gold-light);margin:0 0 10px 2px;}
-.homepage-problem-options{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-.homepage-problem-option{width:100%;min-height:48px;padding:11px 13px;border:1px solid #292929;border-radius:12px;background:#121212;color:#c7c3ba;text-align:left;font:13px/1.4 'DM Sans',sans-serif;cursor:pointer;transition:border-color .18s,background .18s,color .18s,transform .18s;}
+.homepage-diagnostic-entry{width:100%;max-width:680px;margin-top:5px;animation:fadeUp .6s ease .35s both;text-align:left;}
+.homepage-diagnostic-question{font-size:14px;font-weight:600;color:#f0ece3;margin:0 0 10px 2px;}
+.homepage-problem-options{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.homepage-problem-option{width:100%;min-height:54px;padding:11px 13px;border:1px solid #35332f;border-radius:12px;background:#171717;color:#e1ddd4;text-align:left;font:13px/1.35 'DM Sans',sans-serif;cursor:pointer;transition:border-color .18s,background .18s,color .18s,transform .18s;display:flex;align-items:center;gap:10px;}
 .homepage-problem-option:hover{border-color:rgba(201,168,76,.58);background:#17150f;color:var(--text);transform:translateY(-1px);}
 .homepage-problem-option.selected{border-color:#4CAF7D;background:rgba(76,175,125,.09);color:#edf7f1;}
 .homepage-problem-option.wide{grid-column:1/-1;}
+.homepage-problem-tag{flex:0 0 48px;color:var(--gold-light);font-size:10px;font-weight:700;letter-spacing:.08em;}
+.homepage-problem-copy{flex:1;}
+.homepage-problem-arrow{color:#6f6b64;font-size:17px;line-height:1;}
+.homepage-diagnostic-entry.has-selection .homepage-diagnostic-question{display:none;}
+.homepage-diagnostic-entry.has-selection .homepage-problem-option:not(.selected){display:none;}
+.homepage-diagnostic-entry.has-selection .homepage-problem-options{display:block;}
+.homepage-diagnostic-entry.has-selection .homepage-problem-option.selected{min-height:42px;padding:8px 11px;opacity:.82;}
 .homepage-diagnosis-preview{display:none;margin-top:12px;padding:17px 18px;border:1px solid rgba(201,168,76,.36);border-radius:16px;background:linear-gradient(145deg,#15140f,#101010);box-shadow:0 14px 42px rgba(0,0,0,.34);}
 .homepage-diagnosis-preview.visible{display:block;animation:fadeUp .25s ease both;}
 .homepage-diagnosis-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:7px;}
@@ -211,6 +218,8 @@
 .homepage-change-problem{border:0;background:none;color:#8e8a82;font:12px 'DM Sans',sans-serif;cursor:pointer;padding:8px 5px;text-decoration:underline;text-underline-offset:3px;}
 .homepage-change-problem:hover{color:var(--gold-light);transform:none;}
 .homepage-preview-note{margin-top:9px;font-size:10px;color:#69665f;}
+.homepage-trust-strip{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:2px;color:#77736b;font-size:10.5px;}
+.homepage-trust-dot{color:#4CAF7D;}
 .homepage-login-link{margin-top:3px;border:0;background:none;color:var(--text-muted);font:12px 'DM Sans',sans-serif;cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
 .homepage-login-link:hover{color:var(--gold-light);transform:none;}
 .homepage-intent-retry{margin-top:12px;background:linear-gradient(135deg,#C9A84C,#9a7723);color:#111;border:0;border-radius:9px;padding:9px 13px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;}
@@ -245,7 +254,8 @@
   .homepage-diagnostic-entry{max-width:100%;margin-top:1px;}
   .homepage-problem-options{grid-template-columns:1fr;gap:7px;}
   .homepage-problem-option.wide{grid-column:auto;}
-  .homepage-problem-option{min-height:44px;padding:10px 12px;font-size:12.5px;}
+  .homepage-problem-option{min-height:48px;padding:9px 11px;font-size:12.5px;}
+  .homepage-problem-tag{flex-basis:43px;font-size:9.5px;}
   .homepage-diagnosis-preview{padding:15px;margin-top:10px;}
   .homepage-diagnosis-title{font-size:18px;}
   .homepage-diagnosis-actions{align-items:stretch;flex-direction:column;}
@@ -285,38 +295,34 @@
 
   <!-- HERO -->
   <section class="hero">
-    <div class="hero-badge"><span></span> Free for CAT 2026 aspirants</div>
-    <h1 class="hero-title">Stop repeating the mistake<br>that keeps costing you CAT marks.</h1>
-    <div class="hero-tagline">Choose what keeps happening. Marg will show you the likely pattern<br>before you sign in.</div>
+    <div class="hero-badge"><span></span> Free CAT 2026 diagnosis · No card</div>
+    <h1 class="hero-title">Find the mistake costing you<br>CAT marks — in 20 seconds.</h1>
+    <div class="hero-tagline">Pick the moment that keeps happening. You will see Marg's first read<br><span style="color:#d8bd74;">before Google sign-in.</span></div>
     <div class="homepage-diagnostic-entry" id="homepage-diagnostic-entry">
-      <div class="homepage-diagnostic-question">What feels painfully familiar?</div>
+      <div class="homepage-diagnostic-question">Tap the one that happens most:</div>
       <div class="homepage-problem-options" role="group" aria-label="Choose the CAT problem that feels closest">
-        <button type="button" class="homepage-problem-option" data-problem-key="rc_options" aria-pressed="false" onclick="selectHomepageProblem('rc_options')">I understand RCs but lose between two options.</button>
-        <button type="button" class="homepage-problem-option" data-problem-key="dilr_start" aria-pressed="false" onclick="selectHomepageProblem('dilr_start')">I don't know how to start DILR sets.</button>
-        <button type="button" class="homepage-problem-option" data-problem-key="qa_freeze" aria-pressed="false" onclick="selectHomepageProblem('qa_freeze')">I can solve QA in practice but freeze in mocks.</button>
-        <button type="button" class="homepage-problem-option" data-problem-key="mock_collapse" aria-pressed="false" onclick="selectHomepageProblem('mock_collapse')">My mock score collapses even when preparation felt fine.</button>
-        <button type="button" class="homepage-problem-option wide" data-problem-key="something_else" aria-pressed="false" onclick="selectHomepageProblem('something_else')">Something else keeps disrupting my preparation.</button>
+        <button type="button" class="homepage-problem-option" data-problem-key="rc_options" aria-pressed="false" onclick="selectHomepageProblem('rc_options')"><span class="homepage-problem-tag">RC</span><span class="homepage-problem-copy">I reach the final two options—and still choose wrong.</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option" data-problem-key="dilr_start" aria-pressed="false" onclick="selectHomepageProblem('dilr_start')"><span class="homepage-problem-tag">DILR</span><span class="homepage-problem-copy">I stare at a set and cannot find an entry point.</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option" data-problem-key="qa_freeze" aria-pressed="false" onclick="selectHomepageProblem('qa_freeze')"><span class="homepage-problem-tag">QA</span><span class="homepage-problem-copy">I solve at home but blank in timed tests.</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option" data-problem-key="mock_collapse" aria-pressed="false" onclick="selectHomepageProblem('mock_collapse')"><span class="homepage-problem-tag">MOCKS</span><span class="homepage-problem-copy">One bad section ruins the rest of my mock.</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option wide" data-problem-key="something_else" aria-pressed="false" onclick="selectHomepageProblem('something_else')"><span class="homepage-problem-tag">NOT SURE</span><span class="homepage-problem-copy">I know something is wrong, but I cannot name it yet.</span><span class="homepage-problem-arrow">›</span></button>
       </div>
       <div class="homepage-diagnosis-preview" id="homepage-diagnosis-preview" aria-live="polite">
-        <div class="homepage-diagnosis-label">Marg's first read</div>
+        <div class="homepage-diagnosis-label">What may actually be happening</div>
         <div class="homepage-diagnosis-title" id="homepage-diagnosis-title"></div>
         <div class="homepage-diagnosis-body" id="homepage-diagnosis-body"></div>
         <div class="homepage-diagnosis-actions">
           <button class="homepage-google-cta" id="homepage-google-cta" type="button" onclick="continueHomepageDiagnosis()">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            Continue this with Marg
+            Continue with Google — free
           </button>
           <button class="homepage-change-problem" type="button" onclick="resetHomepageDiagnosis()">Choose a different problem</button>
         </div>
-        <div class="homepage-preview-note" id="homepage-preview-note">Google sign-in keeps this pattern and your progress with you.</div>
+        <div class="homepage-preview-note" id="homepage-preview-note">No card. Your choice becomes the first message—nothing to repeat.</div>
       </div>
     </div>
     <button class="homepage-login-link" type="button" onclick="startLogin()">Already use Marg? Sign in</button>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:12px;">
-      <a href="/daily-rc/" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 14px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">📖 Try RC free</a>
-      <a href="/daily-dilr/" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 14px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">🧩 Try DILR free</a>
-      <a href="/daily-qa/" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 14px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">🔢 Try QA free</a>
-    </div>
+    <div class="homepage-trust-strip"><span class="homepage-trust-dot">●</span><span>Diagnosis before sign-in</span><span>·</span><span>No payment details</span><span>·</span><span>Built for CAT 2026</span></div>
   </section>
 
   <!-- FEATURES GRID -->
@@ -1479,12 +1485,14 @@ function focusHomepageDiagnosis() {
 
 function renderHomepageDiagnosis(problemKey, intent) {
   var pattern = getHomepageDiagnosisPattern(problemKey);
+  var diagnostic = document.getElementById('homepage-diagnostic-entry');
   var preview = document.getElementById('homepage-diagnosis-preview');
   var title = document.getElementById('homepage-diagnosis-title');
   var body = document.getElementById('homepage-diagnosis-body');
   var button = document.getElementById('homepage-google-cta');
   if (!preview || !title || !body) return false;
   selectedHomepageProblemKey = pattern ? problemKey : '';
+  if (diagnostic) diagnostic.classList.toggle('has-selection', !!pattern);
   Array.prototype.forEach.call(document.querySelectorAll('.homepage-problem-option'), function(option) {
     var selected = !!pattern && option.getAttribute('data-problem-key') === problemKey;
     option.classList.toggle('selected', selected);
@@ -1495,14 +1503,14 @@ function renderHomepageDiagnosis(problemKey, intent) {
   preview.classList.add('visible');
   if (button) {
     button.disabled = false;
-    button.lastChild.textContent = ' Continue this with Marg';
+    button.lastChild.textContent = ' Continue with Google — free';
   }
   if (intent && (intent.status === 'retry' || intent.status === 'submitted' || intent.status === 'dispatching')) {
     setHomepageEntryStatus('Your question is safe. Sign in to reopen it and retry the response.', 'success');
   } else if (intent && intent.status === 'auth_started') {
     setHomepageEntryStatus('Your choice is saved. Continue when you are ready.', 'success');
   } else {
-    setHomepageEntryStatus('Google sign-in keeps this pattern and your progress with you.', '');
+    setHomepageEntryStatus('No card. Your choice becomes the first message—nothing to repeat.', '');
   }
   return true;
 }
@@ -1540,6 +1548,8 @@ function selectHomepageProblem(problemKey, options) {
 function resetHomepageDiagnosis() {
   selectedHomepageProblemKey = '';
   clearHomepageIntent();
+  var diagnostic = document.getElementById('homepage-diagnostic-entry');
+  if (diagnostic) diagnostic.classList.remove('has-selection');
   Array.prototype.forEach.call(document.querySelectorAll('.homepage-problem-option'), function(option) {
     option.classList.remove('selected');
     option.setAttribute('aria-pressed', 'false');
@@ -5173,6 +5183,8 @@ function isDataPrivacyRequest(message) {
 
 function detectMentorIntent(message) {
   var text = String(message || '').toLowerCase().trim();
+  var recentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
+  var recentContext = recentItems.slice(-8).map(function(item) { return item && item.content ? String(item.content) : ''; }).join(' ').toLowerCase();
   if (isDataPrivacyRequest(message)) return 'privacy_request';
   if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
   if (isAnswerReviewRequest(message)) return 'answer_review';
@@ -5184,6 +5196,8 @@ function detectMentorIntent(message) {
   // before individual section keywords so one mention of VARC/DILR/QA does not
   // shrink a multi-section review into a single-section diagnostic.
   if (/\b(mock|mock test|percentile|scorecard)\b/.test(text)) return 'mock_diagnosis';
+  if (/\baccuracy\b|\bperc\s*accuracy\b/.test(text) && /\b(?:mock|sectional|score|qa|quant|varc|dilr)\b/.test(recentContext)) return 'mock_diagnosis';
+  if (/\b(?:analy[sz]e|check|review)\b.{0,30}\b(?:image|screenshot|scorecard)\b/.test(text) && /\b(?:mock|sectional|score|percentile)\b/.test(recentContext)) return 'mock_diagnosis';
   if (/\b(varc|rc|reading comprehension|verbal)\b/.test(text)) return 'varc_diagnosis';
   if (/\b(dilr|lrdi|data interpretation|logical reasoning)\b/.test(text)) return 'dilr_diagnosis';
   if (/\b(qa|quant|quants|maths|mathematics)\b/.test(text)) return 'qa_diagnosis';
@@ -5216,7 +5230,7 @@ function getLikelyHiddenProblem(intent, message) {
   if (intent === 'mock_diagnosis') return 'The total score alone is not the diagnosis; selection, attempts and accuracy by section must be separated before naming the leak.';
   if (intent === 'pacing_diagnosis') return 'The visible problem is speed, but the hidden cause is usually selection, over-investment, or an inefficient representation—not raw reading or calculation speed.';
   if (intent === 'planning') return 'The student needs a prioritised decision, not a comprehensive syllabus dump. Build around the highest-leverage weakness and the time actually available.';
-  return 'There is not enough evidence for a narrow diagnosis, so make one bounded hypothesis from the message and known profile, label it as a read, and give one useful next step before confirming.';
+  return 'I do not have enough evidence to name one cause yet. The useful starting point is the last concrete CAT question, set, mock decision, or study block that went wrong—not a confident guess from a broad message.';
 }
 
 function getConsecutiveQuestionResponses() {
@@ -5263,6 +5277,8 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. If the exercise stores a hypothesis, lead with SUPPORTED, REJECTED, or INCONCLUSIVE and use the actual choice pattern as evidence; do not preserve the prediction when the evidence contradicts it. Format every reviewed item as its own block separated by a blank line: Q[number], then Your Answer:, Correct Answer:, Diagnosis:, and Fix: when the answer is wrong. End with “Pattern Check: X/Y right.” Never compress multiple questions into one paragraph or table. Ask no diagnostic intake question.';
   if (diagnosis.intent === 'privacy_request') directive += '\nPRIVACY REQUEST MODE: Do not diagnose or reassure. Never say Marg is session-only. State that authenticated chats, profiles, cognitive/behavioural patterns, mock history, practice progress and check-ins can persist in Supabase, with some state also in browser storage. For deletion, direct the user to support@trymarg.com from their account email and state the published seven-business-day window. Clearing a chat or local storage is not full deletion.';
   if (diagnosis.intent === 'mock_diagnosis') directive += '\nMOCK EVIDENCE-FIRST MODE: The score is an outcome, not a cause or capability measure. Begin with what the supplied numbers and narrative actually establish. Mark every causal explanation as a hypothesis until supported by attempt, accuracy, selection, timing, error, or behavioural evidence. Name the specific decision mechanism rather than a generic bucket such as time management, carelessness, or practice more. MOCK MISSION CONTRACT: if the analysis ends in a mission, it must test the diagnosed execution mechanism—not assign generic volume. State one Focus, then Why it matters from this mock, then one Action, an observable Rule and the Evidence that will support or reject the hypothesis. WHY comes before WHAT. For a full mock, use one WHY-before-WHAT weekly priority per section and compare the next two mocks before changing the plan. Never promise or validate a specific percentile from this one mock.';
+  var diagnosisRecentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
+  if (diagnosis.intent === 'mock_diagnosis' && /\b(?:sectional|accuracy|percentile|attempt(?:ed|s)?|scorecard)\b/i.test(messageText + ' ' + diagnosisRecentItems.slice(-6).map(function(item) { return item && item.content ? item.content : ''; }).join(' '))) directive += '\nSECTIONAL EVIDENCE RULE: Perfect accuracy proves only that attempted questions were correct. It does not prove zero concept gaps, elite foundations, that pace or volume is the sole bottleneck, or that extra attempts are pure upside. Do not divide 40 minutes by attempts and call that solve time unless time on scanning and skipped questions is known. Do not prescribe an attempt target, exit threshold, score jump or percentile outcome from one sectional without a labelled test and valid arithmetic. If the screenshot count and the student\'s count differ, state the mismatch neutrally and clarify what the screenshot metric represents; never overrule the student with false certainty.';
   if (/\b(?:just|just now|today|right now)\b.{0,35}\b(?:finished|completed|gave|taken|attempted|done with)\b.{0,20}\bmock\b|\b(?:finished|completed|gave|taken|attempted)\b.{0,20}\bmock\b.{0,20}\b(?:just|just now|today|right now)\b/i.test(messageText) || diagnosis.emotionalState === 'drained') directive += '\nFRESH-MOCK ENERGY CHECK: Give only one evidence-bounded first observation. Do not send a dense breakdown or Today\'s Mission yet. Ask whether the student wants the full analysis now, a short first read now, or to rest and revisit it later. If they explicitly requested the full breakdown now and sound ready, proceed without repeating the timing question.';
   if (/\b(?:i think|maybe|probably|not sure|i guess|might be)\b/i.test(messageText)) directive += '\nUNCERTAIN SELF-DIAGNOSIS: Treat the student\'s proposed cause as a hypothesis. Do not prescribe an unsupported numeric adjustment. Give a small comparison test with observable outcomes that can confirm or reject it.';
   if (/\b(?:only|mostly|mainly|exclusively)\b.{0,45}\b(?:arithmetic|algebra|geometry|number systems?|modern math|percentages?|ratios?)\b|\bpractice\b.{0,30}\b(?:only|mostly|mainly)\b/i.test(messageText)) directive += '\nPRACTICE DISTRIBUTION CHECK: Test whether narrow practice coverage mismatches the mock/exam mix. If it does, name the distribution mismatch and recommend primary-topic work plus recurring secondary-topic exposure plus a mixed timed transfer check; do not merely name one missing chapter.';
@@ -5334,8 +5350,27 @@ function ensureDiagnosisForwardLead(text, diagnosis) {
   return (visible + (suffix ? '\n' + suffix : '')).trim();
 }
 
+function guardPromptInstructionLeak(text, diagnosis) {
+  var value = String(text || '');
+  if (!/(?:DIAGNOSIS ENGINE|RESPONSE ORDER IS MANDATORY|QUESTION BUDGET EXHAUSTED|There is not enough evidence for a narrow diagnosis|make one bounded hypothesis from the message|label it as a read)/i.test(value)) return value;
+  return buildMentorFallbackReply(diagnosis);
+}
+
+function guardSectionalEvidenceOverclaim(text, diagnosis) {
+  var value = String(text || '');
+  if (!diagnosis || diagnosis.intent !== 'mock_diagnosis') return value;
+  var overclaim = /[^.!?\n]*(?:accuracy foundation is elite|zero concept issues|score (?:was|is) (?:limited|capped) strictly by (?:volume|speed)|strictly capped by low volume|every additional attempt[^.!?\n]*pure upside|single bottleneck[^.!?\n]*(?:95|percentile)|the percentile does not change the underlying diagnostic fact)[^.!?\n]*[.!?]?/gi;
+  var changed = false;
+  value = value.replace(overclaim, function() { changed = true; return ''; }).replace(/\n{3,}/g, '\n\n').trim();
+  if (!changed) return value;
+  var correction = 'Perfect accuracy tells us the attempted questions were handled correctly. It does not yet tell us why the others were left—question selection, time spent scanning or skipping, difficulty, and natural solve time can produce the same score. We should separate those before setting an attempt target.';
+  return (correction + (value ? '\n\n' + value : '')).trim();
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
+  text = guardPromptInstructionLeak(text, diagnosis);
+  text = guardSectionalEvidenceOverclaim(text, diagnosis);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
