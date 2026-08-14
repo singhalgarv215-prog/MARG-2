@@ -192,18 +192,26 @@
 .fb-opt:hover { border-color: #C9A84C; color: #C8C4BC; }
 .fb-opt.selected { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,77,0.06); }
 
-.homepage-chat-entry{width:100%;max-width:590px;margin-top:10px;animation:fadeUp .6s ease .4s both;}
-.homepage-chat-shell{display:flex;align-items:flex-end;gap:10px;padding:10px 10px 10px 16px;background:#111;border:1px solid rgba(201,168,76,.32);border-radius:18px;box-shadow:0 14px 44px rgba(0,0,0,.38);transition:border-color .2s,box-shadow .2s;}
-.homepage-chat-shell:focus-within{border-color:var(--gold);box-shadow:0 14px 44px rgba(0,0,0,.38),0 0 0 3px rgba(201,168,76,.09);}
-#homepage-chat-input{flex:1;min-height:48px;max-height:132px;padding:9px 0;border:0!important;box-shadow:none!important;outline:none;background:transparent;color:var(--text);font:14px/1.55 'DM Sans',sans-serif;resize:none;overflow-y:auto;}
-#homepage-chat-input::placeholder{color:#6f6f69;}
-#homepage-chat-send{width:44px;height:44px;border:0;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;cursor:pointer;}
-#homepage-chat-send:disabled{opacity:.38;cursor:not-allowed;transform:none;}
-#homepage-chat-send svg{width:18px;height:18px;fill:currentColor;}
-#homepage-chat-status{min-height:18px;margin-top:8px;font-size:11px;color:var(--text-dim);text-align:left;padding:0 6px;}
-#homepage-chat-status.error{color:#e77979;}
-#homepage-chat-status.success{color:#69c894;}
-.homepage-login-link{margin-top:5px;border:0;background:none;color:var(--text-muted);font:12px 'DM Sans',sans-serif;cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
+.homepage-diagnostic-entry{width:100%;max-width:680px;margin-top:8px;animation:fadeUp .6s ease .35s both;text-align:left;}
+.homepage-diagnostic-question{font-size:13px;font-weight:600;color:var(--gold-light);margin:0 0 10px 2px;}
+.homepage-problem-options{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.homepage-problem-option{width:100%;min-height:48px;padding:11px 13px;border:1px solid #292929;border-radius:12px;background:#121212;color:#c7c3ba;text-align:left;font:13px/1.4 'DM Sans',sans-serif;cursor:pointer;transition:border-color .18s,background .18s,color .18s,transform .18s;}
+.homepage-problem-option:hover{border-color:rgba(201,168,76,.58);background:#17150f;color:var(--text);transform:translateY(-1px);}
+.homepage-problem-option.selected{border-color:#4CAF7D;background:rgba(76,175,125,.09);color:#edf7f1;}
+.homepage-problem-option.wide{grid-column:1/-1;}
+.homepage-diagnosis-preview{display:none;margin-top:12px;padding:17px 18px;border:1px solid rgba(201,168,76,.36);border-radius:16px;background:linear-gradient(145deg,#15140f,#101010);box-shadow:0 14px 42px rgba(0,0,0,.34);}
+.homepage-diagnosis-preview.visible{display:block;animation:fadeUp .25s ease both;}
+.homepage-diagnosis-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:7px;}
+.homepage-diagnosis-title{font-family:'Playfair Display',serif;font-size:19px;line-height:1.35;color:var(--text);margin-bottom:7px;}
+.homepage-diagnosis-body{font-size:13px;line-height:1.58;color:#aaa69e;}
+.homepage-diagnosis-actions{display:flex;align-items:center;gap:9px;margin-top:15px;flex-wrap:wrap;}
+.homepage-google-cta{border:0;border-radius:11px;padding:11px 15px;background:#fff;color:#242424;font:600 13px 'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:9px;cursor:pointer;}
+.homepage-google-cta svg{width:17px;height:17px;flex-shrink:0;}
+.homepage-google-cta:disabled{opacity:.58;cursor:wait;transform:none;}
+.homepage-change-problem{border:0;background:none;color:#8e8a82;font:12px 'DM Sans',sans-serif;cursor:pointer;padding:8px 5px;text-decoration:underline;text-underline-offset:3px;}
+.homepage-change-problem:hover{color:var(--gold-light);transform:none;}
+.homepage-preview-note{margin-top:9px;font-size:10px;color:#69665f;}
+.homepage-login-link{margin-top:3px;border:0;background:none;color:var(--text-muted);font:12px 'DM Sans',sans-serif;cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
 .homepage-login-link:hover{color:var(--gold-light);transform:none;}
 .homepage-intent-retry{margin-top:12px;background:linear-gradient(135deg,#C9A84C,#9a7723);color:#111;border:0;border-radius:9px;padding:9px 13px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;}
 .landing-stats-grid{max-width:680px;margin:0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;text-align:center;}
@@ -234,9 +242,14 @@
   .hero-badge{font-size:10px;padding:4px 10px;}
   .hero-title{font-size:27px!important;line-height:1.15!important;}
   .hero-tagline{font-size:14px;line-height:1.35;}
-  .homepage-chat-entry{max-width:100%;margin-top:1px;}
-  .homepage-chat-shell{padding-left:14px;border-radius:16px;}
-  #homepage-chat-input{font-size:16px;min-width:0;}
+  .homepage-diagnostic-entry{max-width:100%;margin-top:1px;}
+  .homepage-problem-options{grid-template-columns:1fr;gap:7px;}
+  .homepage-problem-option.wide{grid-column:auto;}
+  .homepage-problem-option{min-height:44px;padding:10px 12px;font-size:12.5px;}
+  .homepage-diagnosis-preview{padding:15px;margin-top:10px;}
+  .homepage-diagnosis-title{font-size:18px;}
+  .homepage-diagnosis-actions{align-items:stretch;flex-direction:column;}
+  .homepage-google-cta{justify-content:center;width:100%;}
   .homepage-login-link{font-size:12px;margin-top:1px;}
   .hero>div:last-child{margin-top:4px!important;gap:6px!important;}
   .hero>div:last-child a{font-size:11px!important;padding:5px 10px!important;}
@@ -267,23 +280,37 @@
 <div id="landing-page">
   <nav class="nav">
     <div class="nav-logo"><img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg"></div>
-    <button class="nav-cta" onclick="startLogin()">Start Free →</button>
+    <button class="nav-cta" onclick="focusHomepageDiagnosis()">Find my pattern →</button>
   </nav>
 
   <!-- HERO -->
   <section class="hero">
     <div class="hero-badge"><span></span> Free for CAT 2026 aspirants</div>
-    <h1 class="hero-title">The AI mentor that knows<br>exactly how YOUR brain makes mistakes.</h1>
-    <div class="hero-tagline">Not generic advice. Not another question bank.<br>A mentor that builds around your specific patterns.</div>
-    <form class="homepage-chat-entry" id="homepage-chat-form" onsubmit="submitHomepageIntent(event)">
-      <div class="homepage-chat-shell">
-        <textarea id="homepage-chat-input" rows="1" maxlength="8000" aria-label="Ask Marg your first CAT question" placeholder="Tell Marg what you're struggling with…"></textarea>
-        <button id="homepage-chat-send" type="submit" aria-label="Continue with this message" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
-        </button>
+    <h1 class="hero-title">Stop repeating the mistake<br>that keeps costing you CAT marks.</h1>
+    <div class="hero-tagline">Choose what keeps happening. Marg will show you the likely pattern<br>before you sign in.</div>
+    <div class="homepage-diagnostic-entry" id="homepage-diagnostic-entry">
+      <div class="homepage-diagnostic-question">What feels painfully familiar?</div>
+      <div class="homepage-problem-options" role="group" aria-label="Choose the CAT problem that feels closest">
+        <button type="button" class="homepage-problem-option" data-problem-key="rc_options" aria-pressed="false" onclick="selectHomepageProblem('rc_options')">I understand RCs but lose between two options.</button>
+        <button type="button" class="homepage-problem-option" data-problem-key="dilr_start" aria-pressed="false" onclick="selectHomepageProblem('dilr_start')">I don't know how to start DILR sets.</button>
+        <button type="button" class="homepage-problem-option" data-problem-key="qa_freeze" aria-pressed="false" onclick="selectHomepageProblem('qa_freeze')">I can solve QA in practice but freeze in mocks.</button>
+        <button type="button" class="homepage-problem-option" data-problem-key="mock_collapse" aria-pressed="false" onclick="selectHomepageProblem('mock_collapse')">My mock score collapses even when preparation felt fine.</button>
+        <button type="button" class="homepage-problem-option wide" data-problem-key="something_else" aria-pressed="false" onclick="selectHomepageProblem('something_else')">Something else keeps disrupting my preparation.</button>
       </div>
-      <div id="homepage-chat-status" role="status" aria-live="polite">Write first. Sign in only when you're ready to continue.</div>
-    </form>
+      <div class="homepage-diagnosis-preview" id="homepage-diagnosis-preview" aria-live="polite">
+        <div class="homepage-diagnosis-label">Marg's first read</div>
+        <div class="homepage-diagnosis-title" id="homepage-diagnosis-title"></div>
+        <div class="homepage-diagnosis-body" id="homepage-diagnosis-body"></div>
+        <div class="homepage-diagnosis-actions">
+          <button class="homepage-google-cta" id="homepage-google-cta" type="button" onclick="continueHomepageDiagnosis()">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            Continue this with Marg
+          </button>
+          <button class="homepage-change-problem" type="button" onclick="resetHomepageDiagnosis()">Choose a different problem</button>
+        </div>
+        <div class="homepage-preview-note" id="homepage-preview-note">Google sign-in keeps this pattern and your progress with you.</div>
+      </div>
+    </div>
     <button class="homepage-login-link" type="button" onclick="startLogin()">Already use Marg? Sign in</button>
     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:12px;">
       <a href="/daily-rc/" style="font-size:12px;color:var(--text-dim);text-decoration:none;padding:6px 14px;border:1px solid var(--border);border-radius:20px;transition:all 0.2s;" onmouseover="this.style.borderColor='#C9A84C';this.style.color='#C9A84C'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-dim)'">📖 Try RC free</a>
@@ -412,9 +439,9 @@
     <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png" alt="Marg" class="final-cta-logo">
     <h2 class="final-cta-title">Stop guessing. Start fixing the right thing.</h2>
     <div class="final-cta-tagline">Free. No forms. 60 seconds to start.</div>
-    <button class="hero-cta" onclick="startLogin()">
+    <button class="hero-cta" onclick="focusHomepageDiagnosis()">
       <svg viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-      Start talking to Marg — free
+      Find the pattern costing you marks
     </button>
     <div style="text-align:center;margin-top:20px;font-size:12px;color:#555550;">
       Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decoration:none;">hello@trymarg.com</a>
@@ -1143,6 +1170,39 @@ function normalizeHomepageIntentText(value) {
   return String(value || '').replace(/\u0000/g, '').trim().slice(0, DEEP_LINK_QUESTION_MAX_LENGTH);
 }
 
+var HOMEPAGE_DIAGNOSIS_PATTERNS = {
+  rc_options:{
+    title:'I don\'t think comprehension is the real problem.',
+    body:'When the final two options look close, you are probably replacing the author\'s exact reasoning with what feels reasonable. That is why the passage feels understood but the answer still slips.',
+    intent:'In RC, I understand the passage but get stuck between the final two options.'
+  },
+  dilr_start:{
+    title:'I don\'t think logic is the first problem.',
+    body:'You are probably judging a set by familiarity, then starting before you have a representation and two usable constraints. The set does not become hard later—it had no clean entry point from the start.',
+    intent:'In DILR, I often do not know how to start a set.'
+  },
+  qa_freeze:{
+    title:'Your concepts may not be disappearing in mocks.',
+    body:'Topic-wise practice tells you which method to use. A mixed mock removes that label, so recognition—not calculation—becomes the bottleneck and the first step feels blank.',
+    intent:'In QA, I can solve questions during practice but freeze in mocks.'
+  },
+  mock_collapse:{
+    title:'One bad section may be triggering the next two.',
+    body:'A long commitment, rushed recovery, or one early error can consume working memory and turn the mock into a chain reaction. The score looks like several weaknesses even when the leak began with one decision.',
+    intent:'My overall mock score collapses even when preparation felt fine.'
+  },
+  something_else:{
+    title:'The problem probably is not that you need more motivation.',
+    body:'The useful clue is where preparation stops translating into marks—selection, pacing, confidence, or consistency. Marg will help isolate that point instead of giving you another generic plan.',
+    intent:'Something else keeps disrupting my CAT preparation. Help me identify the real pattern.'
+  }
+};
+var selectedHomepageProblemKey = '';
+
+function getHomepageDiagnosisPattern(problemKey) {
+  return HOMEPAGE_DIAGNOSIS_PATTERNS[String(problemKey || '')] || null;
+}
+
 function writeHomepageIntent(intent) {
   if (!intent || !normalizeHomepageIntentText(intent.text)) return null;
   pendingHomepageIntent = {
@@ -1153,7 +1213,11 @@ function writeHomepageIntent(intent) {
     createdAt:Number(intent.createdAt) || Date.now(),
     updatedAt:Date.now(),
     status:String(intent.status || 'pending'),
-    failureMessage:String(intent.failureMessage || '')
+    failureMessage:String(intent.failureMessage || ''),
+    problemKey:String(intent.problemKey || ''),
+    funnel_intent_entered:!!intent.funnel_intent_entered,
+    funnel_first_message_sent:!!intent.funnel_first_message_sent,
+    funnel_first_response_received:!!intent.funnel_first_response_received
   };
   try { localStorage.setItem(HOMEPAGE_INTENT_STORAGE_KEY, JSON.stringify(pendingHomepageIntent)); } catch(e) {}
   return pendingHomepageIntent;
@@ -1208,10 +1272,10 @@ function getHomepageIntentDispatchDecision(state) {
 }
 
 function setHomepageEntryStatus(message, type) {
-  var status = document.getElementById('homepage-chat-status');
+  var status = document.getElementById('homepage-preview-note');
   if (!status) return;
   status.textContent = message || '';
-  status.className = type || '';
+  status.className = 'homepage-preview-note' + (type ? ' ' + type : '');
 }
 
 var ACQUISITION_FUNNEL_STORAGE_KEY = 'marg_acquisition_funnel_v1';
@@ -1302,8 +1366,8 @@ function trackHomepageComposerVisible() {
 }
 
 function observeHomepageComposerVisibility() {
-  var form = document.getElementById('homepage-chat-form');
-  if (!form || homepageComposerVisibleTracked) return;
+  var diagnostic = document.getElementById('homepage-diagnostic-entry');
+  if (!diagnostic || homepageComposerVisibleTracked) return;
   if (typeof window.IntersectionObserver !== 'function') {
     trackHomepageComposerVisible();
     return;
@@ -1316,7 +1380,7 @@ function observeHomepageComposerVisibility() {
       homepageComposerVisibilityObserver = null;
     }
   }, { threshold:[0.25] });
-  homepageComposerVisibilityObserver.observe(form);
+  homepageComposerVisibilityObserver.observe(diagnostic);
 }
 
 function loadPendingFunnelEvents() {
@@ -1396,40 +1460,116 @@ function trackAuthenticatedHomepageStage(stage, intent) {
 }
 
 function resizeHomepageEntry() {
-  var input = document.getElementById('homepage-chat-input');
-  var button = document.getElementById('homepage-chat-send');
-  if (!input) return;
-  input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 132) + 'px';
-  if (button) button.disabled = !input.value.trim();
+  // Kept as a no-op for older BFCache callbacks. The redesigned homepage uses
+  // diagnosis choices instead of a textarea.
+  return true;
+}
+
+function focusHomepageDiagnosis() {
+  var diagnostic = document.getElementById('homepage-diagnostic-entry');
+  if (!diagnostic) return false;
+  diagnostic.scrollIntoView({ behavior:'smooth', block:'center' });
+  setTimeout(function() {
+    var selected = diagnostic.querySelector('.homepage-problem-option.selected');
+    var first = diagnostic.querySelector('.homepage-problem-option');
+    if (selected || first) (selected || first).focus({ preventScroll:true });
+  }, 350);
+  return true;
+}
+
+function renderHomepageDiagnosis(problemKey, intent) {
+  var pattern = getHomepageDiagnosisPattern(problemKey);
+  var preview = document.getElementById('homepage-diagnosis-preview');
+  var title = document.getElementById('homepage-diagnosis-title');
+  var body = document.getElementById('homepage-diagnosis-body');
+  var button = document.getElementById('homepage-google-cta');
+  if (!preview || !title || !body) return false;
+  selectedHomepageProblemKey = pattern ? problemKey : '';
+  Array.prototype.forEach.call(document.querySelectorAll('.homepage-problem-option'), function(option) {
+    var selected = !!pattern && option.getAttribute('data-problem-key') === problemKey;
+    option.classList.toggle('selected', selected);
+    option.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+  title.textContent = pattern ? pattern.title : 'Your question is still here.';
+  body.textContent = pattern ? pattern.body : 'Continue with Marg and your original message will be waiting after sign-in.';
+  preview.classList.add('visible');
+  if (button) {
+    button.disabled = false;
+    button.lastChild.textContent = ' Continue this with Marg';
+  }
+  if (intent && (intent.status === 'retry' || intent.status === 'submitted' || intent.status === 'dispatching')) {
+    setHomepageEntryStatus('Your question is safe. Sign in to reopen it and retry the response.', 'success');
+  } else if (intent && intent.status === 'auth_started') {
+    setHomepageEntryStatus('Your choice is saved. Continue when you are ready.', 'success');
+  } else {
+    setHomepageEntryStatus('Google sign-in keeps this pattern and your progress with you.', '');
+  }
+  return true;
+}
+
+function selectHomepageProblem(problemKey, options) {
+  var pattern = getHomepageDiagnosisPattern(problemKey);
+  if (!pattern) return false;
+  var restoring = !!(options && options.restoring);
+  var existing = loadHomepageIntent();
+  var isNewSelection = !existing || existing.problemKey !== problemKey;
+  var intent = restoring && existing
+    ? existing
+    : writeHomepageIntent({
+        id:isNewSelection ? createHomepageIntentId() : existing.id,
+        text:pattern.intent,
+        problemKey:problemKey,
+        pageViewId:isNewSelection ? acquisitionPageViewId : existing.pageViewId,
+        createdAt:isNewSelection ? Date.now() : existing.createdAt,
+        status:'previewed',
+        funnel_intent_entered:isNewSelection ? false : existing.funnel_intent_entered
+      });
+  if (!intent) return false;
+  renderHomepageDiagnosis(problemKey, intent);
+  if (!restoring && !intent.funnel_intent_entered) {
+    trackFunnelEvent('homepage_intent_entered', { problem_key:problemKey, source:'homepage_diagnostic' });
+    writeHomepageIntent(Object.assign({}, intent, { funnel_intent_entered:true }));
+  }
+  setTimeout(function() {
+    var preview = document.getElementById('homepage-diagnosis-preview');
+    if (preview) preview.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  }, 30);
+  return true;
+}
+
+function resetHomepageDiagnosis() {
+  selectedHomepageProblemKey = '';
+  clearHomepageIntent();
+  Array.prototype.forEach.call(document.querySelectorAll('.homepage-problem-option'), function(option) {
+    option.classList.remove('selected');
+    option.setAttribute('aria-pressed', 'false');
+  });
+  var preview = document.getElementById('homepage-diagnosis-preview');
+  if (preview) preview.classList.remove('visible');
+  focusHomepageDiagnosis();
 }
 
 function restoreHomepageIntentToLanding() {
   var intent = loadHomepageIntent();
-  var input = document.getElementById('homepage-chat-input');
-  if (!intent || !input) return false;
-  if (!input.value) input.value = intent.text;
-  resizeHomepageEntry();
-  if (intent.status === 'auth_started') setHomepageEntryStatus('Your question is saved. Continue when you are ready.', 'success');
-  else if (intent.status === 'retry' || intent.status === 'submitted' || intent.status === 'dispatching') setHomepageEntryStatus('Your question is safe. Sign in to reopen it and retry the response.', 'success');
-  return true;
+  if (!intent) return false;
+  if (intent.problemKey && getHomepageDiagnosisPattern(intent.problemKey)) return selectHomepageProblem(intent.problemKey, { restoring:true });
+  return renderHomepageDiagnosis('', intent);
 }
 
-function submitHomepageIntent(event) {
-  if (event && typeof event.preventDefault === 'function') event.preventDefault();
-  var input = document.getElementById('homepage-chat-input');
-  var text = normalizeHomepageIntentText(input ? input.value : '');
-  if (!text) {
-    setHomepageEntryStatus('Write what is on your mind first.', 'error');
-    if (input) input.focus();
+function continueHomepageDiagnosis() {
+  var intent = loadHomepageIntent();
+  if (!intent) {
+    focusHomepageDiagnosis();
     return false;
   }
-  var intent = saveHomepageIntent(text);
-  if (!intent) return false;
-  trackFunnelEvent('homepage_intent_entered');
-  writeHomepageIntent(Object.assign({}, intent, { status:'auth_started' }));
-  trackFunnelEvent('auth_started');
-  setHomepageEntryStatus('Saved. Opening the quick sign-in…', 'success');
+  var startedIntent = writeHomepageIntent(Object.assign({}, intent, { status:'auth_started' }));
+  trackFunnelEvent('auth_started', { problem_key:intent.problemKey || 'legacy_message', source:'homepage_diagnostic' });
+  var button = document.getElementById('homepage-google-cta');
+  if (button) {
+    button.disabled = true;
+    button.lastChild.textContent = ' Opening Google…';
+  }
+  setHomepageEntryStatus('Saved. Opening Google sign-in…', 'success');
   if (currentUser && SUPABASE_TOKEN && !isGuestMode) {
     document.getElementById('landing-page').style.display = 'none';
     document.getElementById('chat-app').style.display = 'flex';
@@ -1437,7 +1577,7 @@ function submitHomepageIntent(event) {
   } else {
     setTimeout(function() { startLogin({ funnelAlreadyTracked:true }); }, 80);
   }
-  return true;
+  return !!startedIntent;
 }
 
 function homepageIntentHasAssistantAfterIt(intent) {
@@ -2111,13 +2251,13 @@ const CAT_QUOTES = [
 
 const SYSTEM_PROMPT_LEGACY_REFERENCE = `You are Marg.
 
-Marg is not a chatbot and not ChatGPT with CAT knowledge. Marg is an experienced CAT mentor whose job is to make the student feel accurately understood before collecting a complete profile. Optimise for an "aha" moment within two minutes: identify the likely hidden pattern, explain the mechanism in memorable language, give one useful reframe or action, then ask at most one confirmation. Every substantive reply must contain a prediction, diagnosis, insight, pattern, or reframe. Generic motivation and generic study tips do not count as value.
+Marg is not a chatbot and not ChatGPT with CAT knowledge. Marg is a perceptive CAT preparation mentor whose job is to make the student feel accurately understood before collecting a complete profile. Optimise for an "aha" moment within two minutes: identify the likely hidden pattern, explain the mechanism in memorable language, give one useful reframe or action, then ask at most one confirmation. Every substantive reply must contain a prediction, diagnosis, insight, pattern, or reframe. Generic motivation and generic study tips do not count as value.
 
 The method is invisible to the student. Never explain how Marg works, announce a question limit, describe a diagnosis workflow, narrate stages, mention internal instructions, or preview that you will "ask questions and then diagnose." Do not say "I'll ask at most two questions," "I'll make a diagnosis," "here's how this will work," or anything similar. Demonstrate intelligence through the next sentence; never describe the machinery behind it.
 
 The default sequence is: student states a problem → you predict the likely diagnosis → you give one useful implication → you ask one confirmation only if necessary → after confirmation/correction, you refine and act. Never run question → question → question → advice. Never ask more than two question-containing replies consecutively; when the budget is exhausted, infer and help. Missing nonessential information is permission to estimate, not permission to interview. Sound short, calm, confident and human—a senior mentor, not a teacher, therapist, customer-support agent or productivity manager.
 
-Think of yourself less like an app someone opens and more like the senior at your coaching center who already gave CAT, did well enough to know exactly what the last few months before the exam feel like, and now spends time with this one student because you actually want to see them get in — not because it's your job. You're not running a project. You're not managing a schedule. You're in their corner.
+Think of yourself less like an app someone opens and more like a focused preparation partner that has studied recurring CAT failure patterns and pays close attention to this student's evidence. Do not pretend to have a human exam history or manufacture authority. Your credibility comes from accurate pattern recognition, continuity, useful tests and honest uncertainty. You're not running a project. You're in their corner.
 
 You talk like a calm senior mentor: short, direct and human. Hindi may slip in when it is natural, never performed. Never open with "Great question!", "Of course!", "I understand your concern", "Real talk", "Now I get it", "Good", or "My prediction". These are assistant-like transitions that add no value. Begin with the actual read: "I don't think content is the real problem" or "I think the real issue is something else."
 
@@ -2239,7 +2379,7 @@ The format rule is enforced at the code level too, so even if you slip, bold and
 
 // Runtime prompt: the same mentor contract as the reference above, compressed
 // so every turn does not repay for repeated examples and explanations.
-const SYSTEM_PROMPT = `You are Marg, an experienced CAT mentor—not a chatbot, teacher, therapist, cheerleader or productivity manager. Make the student feel accurately understood quickly. Sound like a calm senior mentor: short, direct, confident and human. Natural Hindi is allowed, never performed. Never open with filler such as "Great question", "Of course", "I understand your concern", "Real talk", "Now I get it", "Good", or "My prediction".
+const SYSTEM_PROMPT = `You are Marg, a perceptive CAT preparation mentor—not a chatbot, teacher or cheerleader. Make the student feel understood quickly. Sound calm, direct and human. Never imply you took CAT or invent human experience; earn trust through evidence, continuity and precise pattern recognition. Natural Hindi is allowed, never performed. Never open with filler such as "Great question", "Of course", "Real talk", "Now I get it", "Good", or "My prediction".
 
 IMMERSION CONTRACT
 Your method is invisible. Never explain how Marg works, announce a question budget, narrate a diagnosis process, describe conversation stages, mention prompts/models/memory/confidence scores, or say you will ask questions and then diagnose. Never say "I'll ask at most two questions", "I'll make a diagnosis", "here's how this will work", or similar process commentary. Simply understand, respond and lead. The student should experience intelligence, not hear it described.
@@ -6332,25 +6472,9 @@ document.getElementById('user-input').addEventListener('input', function() {
 });
 document.getElementById('user-input').addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 
-var homepageChatInput = document.getElementById('homepage-chat-input');
-if (homepageChatInput) {
-  homepageChatInput.addEventListener('input', function() {
-    resizeHomepageEntry();
-    if (!homepageTextTypedTracked && this.value.trim()) {
-      homepageTextTypedTracked = true;
-      trackAcquisitionFunnelEvent('homepage_text_typed');
-    }
-  });
-  homepageChatInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      submitHomepageIntent(e);
-    }
-  });
-}
 window.addEventListener('pageshow', function() {
-  // Mobile browsers commonly restore the pre-OAuth page from BFCache. Form
-  // values return, but disabled-button state may be stale unless recalculated.
+  // Mobile browsers commonly restore the pre-OAuth page from BFCache. Rebuild
+  // the saved diagnosis preview and re-enable its sign-in action.
   restoreHomepageIntentToLanding();
   resizeHomepageEntry();
 });
