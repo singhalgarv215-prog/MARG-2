@@ -207,6 +207,24 @@
 .homepage-login-link:hover{color:var(--gold-light);transform:none;}
 .homepage-intent-retry{margin-top:12px;background:linear-gradient(135deg,#C9A84C,#9a7723);color:#111;border:0;border-radius:9px;padding:9px 13px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;}
 .landing-stats-grid{max-width:680px;margin:0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;text-align:center;}
+#app-menu-button{width:36px;height:36px;border:1px solid var(--border2);border-radius:10px;background:var(--surface2);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
+#app-menu-button svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;}
+#app-menu-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.66);z-index:1200;display:none;justify-content:flex-end;}
+#app-menu-backdrop.open{display:flex;}
+#app-menu-panel{height:100%;width:min(340px,88vw);background:#101010;border-left:1px solid var(--border2);padding:18px;display:flex;flex-direction:column;gap:14px;box-shadow:-18px 0 50px rgba(0,0,0,.45);animation:menuSlideIn .2s ease both;}
+@keyframes menuSlideIn{from{transform:translateX(28px);opacity:0}to{transform:none;opacity:1}}
+.app-menu-head{display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:1px solid var(--border);}
+.app-menu-title{font-family:'Playfair Display',serif;font-size:18px;color:var(--text);}
+.app-menu-close{width:34px;height:34px;border:0;border-radius:9px;background:var(--surface2);color:var(--text-muted);font-size:21px;cursor:pointer;}
+.app-menu-user{display:flex;align-items:center;gap:10px;padding:4px 2px 8px;}
+.app-menu-user-copy{min-width:0;}
+.app-menu-user-name{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.app-menu-user-note{font-size:11px;color:var(--text-dim);margin-top:2px;}
+.app-menu-items{display:flex;flex-direction:column;gap:7px;overflow-y:auto;}
+.app-menu-item{width:100%;border:1px solid var(--border);border-radius:11px;background:#171717;color:var(--text-muted);padding:12px 13px;display:flex;align-items:center;gap:11px;text-align:left;font:13px 'DM Sans',sans-serif;cursor:pointer;}
+.app-menu-item:hover{border-color:rgba(201,168,76,.4);color:var(--text);background:var(--gold-dim2);transform:none;}
+.app-menu-item-icon{width:22px;text-align:center;font-size:16px;flex-shrink:0;}
+.app-menu-item.danger{margin-top:8px;color:#b98585;}
 @media(max-width:600px){
   html,body,#landing-page{max-width:100%;overflow-x:hidden;}
   .nav{padding:10px 14px!important;}
@@ -224,6 +242,12 @@
   .hero>div:last-child a{font-size:11px!important;padding:5px 10px!important;}
   .landing-stats-grid{grid-template-columns:1fr;gap:10px;}
   .landing-stats-grid>div{padding:16px!important;}
+  #header{padding:10px 12px;gap:8px;}
+  #header-logo{height:25px;}
+  #header-divider,#header-info,#varc-toggle-btn,#user-name,#logout-btn{display:none!important;}
+  #user-info{margin-left:auto;}
+  #user-avatar{width:30px;height:30px;}
+  #quick-actions{display:none!important;}
 }
 @media(max-width:340px){
   .hero{padding-top:18px!important;}
@@ -729,6 +753,9 @@
       <span id="user-name"></span>
       <button id="logout-btn" onclick="logout()">Sign out</button>
     </div>
+    <button id="app-menu-button" type="button" onclick="openAppMenu()" aria-label="Open more options" aria-expanded="false" aria-controls="app-menu-panel">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
   </div>
   <div id="streak-bar"></div>
   <div id="guest-limit-banner">
@@ -900,7 +927,31 @@
 
 
 
-<button id="feedback-btn" onclick="window._showFeedback()" style="position:fixed;bottom:72px;right:16px;background:#1A1A1A;border:1px solid #2A2A2A;border-radius:20px;padding:8px 14px;font-size:12px;color:#888880;cursor:pointer;font-family:DM Sans,sans-serif;z-index:100;display:none;">💬 Feedback</button>
+<div id="app-menu-backdrop" onclick="handleAppMenuBackdrop(event)" aria-hidden="true">
+  <aside id="app-menu-panel" role="dialog" aria-modal="true" aria-label="Marg options">
+    <div class="app-menu-head">
+      <div class="app-menu-title">More with Marg</div>
+      <button class="app-menu-close" type="button" onclick="closeAppMenu()" aria-label="Close menu">×</button>
+    </div>
+    <div class="app-menu-user">
+      <div id="app-menu-avatar" class="avatar">?</div>
+      <div class="app-menu-user-copy">
+        <div id="app-menu-user-name" class="app-menu-user-name">Your Marg account</div>
+        <div class="app-menu-user-note">Secondary tools and account settings</div>
+      </div>
+    </div>
+    <div class="app-menu-items">
+      <button class="app-menu-item" type="button" onclick="appMenuOpenVarc()"><span class="app-menu-item-icon">📖</span>Today’s VARC</button>
+      <button class="app-menu-item" type="button" onclick="appMenuAnalyzeMock()"><span class="app-menu-item-icon">📊</span>Analyse my mock</button>
+      <button class="app-menu-item" type="button" onclick="appMenuPrefill('Help me with my VARC — I want to improve my RC score')"><span class="app-menu-item-icon">🧠</span>Work on my VARC</button>
+      <button class="app-menu-item" type="button" onclick="appMenuSwitchTab('practice')"><span class="app-menu-item-icon">✍️</span>Daily practice</button>
+      <button class="app-menu-item" type="button" onclick="appMenuSwitchTab('progress')"><span class="app-menu-item-icon">📈</span>My progress</button>
+      <button class="app-menu-item" type="button" onclick="appMenuCommunity()"><span class="app-menu-item-icon">👥</span>Community access</button>
+      <button class="app-menu-item" type="button" onclick="appMenuFeedback()"><span class="app-menu-item-icon">💬</span>Send feedback</button>
+      <button class="app-menu-item danger" type="button" onclick="closeAppMenu();logout()"><span class="app-menu-item-icon">↪</span>Sign out</button>
+    </div>
+  </aside>
+</div>
 
 <div id="bottom-nav">
   <button class="bnav-btn active" onclick="switchTab('chat')" id="bnav-chat">
@@ -1515,6 +1566,72 @@ window._showFeedback = function() {
   feedbackShown = false;
   showFeedback();
 };
+
+function syncAppMenuUser() {
+  var sourceAvatar = document.getElementById('user-avatar');
+  var menuAvatar = document.getElementById('app-menu-avatar');
+  var sourceName = document.getElementById('user-name');
+  var menuName = document.getElementById('app-menu-user-name');
+  if (sourceAvatar && menuAvatar) menuAvatar.innerHTML = sourceAvatar.innerHTML;
+  if (sourceName && menuName && sourceName.textContent.trim()) menuName.textContent = sourceName.textContent.trim();
+}
+
+function openAppMenu() {
+  syncAppMenuUser();
+  var backdrop = document.getElementById('app-menu-backdrop');
+  var button = document.getElementById('app-menu-button');
+  if (backdrop) { backdrop.classList.add('open'); backdrop.setAttribute('aria-hidden', 'false'); }
+  if (button) button.setAttribute('aria-expanded', 'true');
+}
+
+function closeAppMenu() {
+  var backdrop = document.getElementById('app-menu-backdrop');
+  var button = document.getElementById('app-menu-button');
+  if (backdrop) { backdrop.classList.remove('open'); backdrop.setAttribute('aria-hidden', 'true'); }
+  if (button) { button.setAttribute('aria-expanded', 'false'); button.focus(); }
+}
+
+function handleAppMenuBackdrop(event) {
+  if (event && event.target === document.getElementById('app-menu-backdrop')) closeAppMenu();
+}
+
+function appMenuSwitchTab(tab) {
+  closeAppMenu();
+  switchTab(tab);
+}
+
+function appMenuOpenVarc() {
+  closeAppMenu();
+  switchTab('chat');
+  toggleVarcCard();
+}
+
+function appMenuAnalyzeMock() {
+  closeAppMenu();
+  switchTab('chat');
+  startMockAnalysis();
+}
+
+function appMenuPrefill(message) {
+  closeAppMenu();
+  switchTab('chat');
+  prefillMessage(message);
+}
+
+function appMenuCommunity() {
+  closeAppMenu();
+  switchTab('chat');
+  openCommunityStatus();
+}
+
+function appMenuFeedback() {
+  closeAppMenu();
+  showFeedback();
+}
+
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'Escape') closeAppMenu();
+});
 
 
 
@@ -4165,6 +4282,21 @@ function chatFirstOpeningSessionKey() {
   return 'marg_chat_first_opening_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
 }
 
+function chatFirstOpeningBrowserKey() {
+  return 'marg_chat_first_opening_created_v2_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function hasBrowserWideChatFirstOpeningClaim() {
+  try { return localStorage.getItem(chatFirstOpeningBrowserKey()) === '1'; } catch(e) { return false; }
+}
+
+function claimBrowserWideChatFirstOpening() {
+  try {
+    localStorage.setItem(chatFirstOpeningBrowserKey(), '1');
+    return localStorage.getItem(chatFirstOpeningBrowserKey()) === '1';
+  } catch(e) { return true; }
+}
+
 function hasChatFirstOpeningInHistory() {
   return (conversationHistory || []).some(function(item) {
     return item && item.role === 'assistant' && String(item.content || '').indexOf('Most CAT problems do not begin where the score drops') !== -1;
@@ -4178,10 +4310,17 @@ function addMentorLeadMessage(text) {
   if (!isGuestMode) saveChatMessage('assistant', guardedText);
 }
 
-function startChatFirstOnboarding() {
+function renderChatFirstOnboardingOnce() {
   var startedThisTab = false;
   try { startedThisTab = sessionStorage.getItem(chatFirstOpeningSessionKey()) === '1'; } catch(e) {}
-  if (chatFirstOnboardingStarted || startedThisTab || hasChatFirstOpeningInHistory() || (conversationHistory && conversationHistory.length)) {
+  var openingAlreadyInHistory = hasChatFirstOpeningInHistory();
+  if (openingAlreadyInHistory) claimBrowserWideChatFirstOpening();
+  if (chatFirstOnboardingStarted || startedThisTab || hasBrowserWideChatFirstOpeningClaim() || openingAlreadyInHistory || (conversationHistory && conversationHistory.length)) {
+    chatFirstOnboardingStarted = true;
+    keepChatInteractive();
+    return;
+  }
+  if (!claimBrowserWideChatFirstOpening()) {
     chatFirstOnboardingStarted = true;
     keepChatInteractive();
     return;
@@ -4200,6 +4339,19 @@ function startChatFirstOnboarding() {
   ], 'chat_first_onboarding');
   var input = document.getElementById('user-input');
   if (input) { input.disabled = false; input.focus(); }
+}
+
+function startChatFirstOnboarding() {
+  var lockName = 'marg-chat-first-opening-' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+  if (navigator.locks && typeof navigator.locks.request === 'function') {
+    navigator.locks.request(lockName, function() {
+      renderChatFirstOnboardingOnce();
+    }).catch(function() {
+      renderChatFirstOnboardingOnce();
+    });
+    return;
+  }
+  renderChatFirstOnboardingOnce();
 }
 
 function completeChatFirstOnboarding(section) {
@@ -7482,8 +7634,6 @@ function switchTab(tab) {
 function showBottomNav() {
   var nav = document.getElementById('bottom-nav');
   if (nav) nav.classList.add('visible');
-  var fbBtn = document.getElementById('feedback-btn');
-  if (fbBtn) { fbBtn.style.display = 'block'; fbBtn.style.opacity = '1'; }
 }
 function switchPracticeTab(type) {
   currentPracticeType = type;
