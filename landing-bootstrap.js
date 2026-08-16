@@ -3,14 +3,18 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260816-1';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260816-2';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
   var VISITOR_STORAGE_KEY = 'marg_acquisition_visitor_v1';
+  var CHALLENGE_VISITOR_STORAGE_KEY = 'marg_challenge_visitor_v1';
+  var PENDING_REFERRAL_STORAGE_KEY = 'marg_pending_referral_v1';
   var INTENT_MAX_AGE_MS = 86400000;
   var pageViewId = makeId('page-view');
   var appLoadPromise = null;
   var selectedProblemKey = '';
+  var publicChallenge = null;
+  var publicChallengeAnswered = false;
 
   var PATTERNS = {
     rc_options:{
@@ -55,6 +59,202 @@
       if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
     } catch(e) {}
     return String(prefix || 'event') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function isChallengeRoute() {
+    return /^\/challenge\/?$/.test(String(window.location.pathname || ''));
+  }
+
+  function getChallengeToken() {
+    try {
+      return String(new URLSearchParams(window.location.search || '').get('c') || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
+    } catch(e) { return ''; }
+  }
+
+  function getChallengeVisitorId() {
+    var existing = safeGet(CHALLENGE_VISITOR_STORAGE_KEY);
+    if (existing && /^[a-zA-Z0-9_-]{8,120}$/.test(existing)) return existing;
+    var created = makeId('challenge-visitor').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120);
+    safeSet(CHALLENGE_VISITOR_STORAGE_KEY, created);
+    return created;
+  }
+
+  async function challengeRpc(name, body) {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/rpc/' + name, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY },
+      body:JSON.stringify(body || {})
+    });
+    if (!response.ok) throw new Error('Challenge request failed (' + response.status + ')');
+    return response.json();
+  }
+
+  function firstRpcRow(payload) {
+    return Array.isArray(payload) ? (payload[0] || null) : (payload || null);
+  }
+
+  function buildChallengeHelpText(challenge) {
+    var parts = ['Help me solve this ' + String(challenge.section || 'CAT').toUpperCase() + ' challenge a friend sent me.'];
+    if (challenge.context_text) parts.push(challenge.context_text);
+    parts.push(challenge.question_text);
+    if (Array.isArray(challenge.options)) parts.push(challenge.options.join('\n'));
+    return parts.join('\n\n').slice(0, 12000);
+  }
+
+  function setChallengeUnavailable(message) {
+    var loading = document.getElementById('challenge-loading');
+    var content = document.getElementById('challenge-content');
+    var error = document.getElementById('challenge-error');
+    if (loading) loading.style.display = 'none';
+    if (content) content.style.display = 'none';
+    if (error) {
+      error.textContent = message || 'This challenge is unavailable or has expired.';
+      error.style.display = 'block';
+    }
+  }
+
+  function renderPublicChallenge(challenge) {
+    var loading = document.getElementById('challenge-loading');
+    var content = document.getElementById('challenge-content');
+    var section = document.getElementById('challenge-section');
+    var context = document.getElementById('challenge-context');
+    var question = document.getElementById('challenge-question');
+    var options = document.getElementById('challenge-options');
+    if (!content || !question || !options) return false;
+    if (loading) loading.style.display = 'none';
+    if (section) section.textContent = String(challenge.section || 'CAT').toUpperCase();
+    if (context) {
+      context.textContent = challenge.context_text || '';
+      context.style.display = challenge.context_text ? 'block' : 'none';
+    }
+    question.textContent = challenge.question_text || '';
+    options.innerHTML = '';
+    (challenge.options || []).forEach(function(option, index) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'challenge-option';
+      button.textContent = option;
+      button.setAttribute('data-answer-index', String(index));
+      button.onclick = function() { submitPublicChallengeAnswer(index); };
+      options.appendChild(button);
+    });
+    content.style.display = 'block';
+    return true;
+  }
+
+  async function submitPublicChallengeAnswer(answerIndex) {
+    if (publicChallengeAnswered || !publicChallenge) return;
+    publicChallengeAnswered = true;
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.challenge-option'));
+    buttons.forEach(function(button) { button.disabled = true; });
+    var result = document.getElementById('challenge-result');
+    try {
+      var payload = await challengeRpc('answer_referral_challenge', {
+        p_token:publicChallenge.share_token,
+        p_visitor_id:getChallengeVisitorId(),
+        p_answer_index:answerIndex
+      });
+      var answer = firstRpcRow(payload);
+      if (!answer) throw new Error('Challenge answer unavailable');
+      buttons.forEach(function(button, index) {
+        if (index === Number(answer.correct_index)) button.classList.add('correct');
+        else if (index === answerIndex && !answer.is_correct) button.classList.add('wrong');
+      });
+      if (result) {
+        result.className = 'challenge-result visible ' + (answer.is_correct ? 'correct' : 'wrong');
+        result.innerHTML = '';
+        var resultTitle = document.createElement('strong');
+        resultTitle.textContent = answer.is_correct ? 'You got it. Send the trap back 😄' : 'That was the trap.';
+        var resultCopy = document.createElement('div');
+        resultCopy.textContent = String(answer.explanation || '') + (answer.insight ? '\n\n' + String(answer.insight) : '');
+        resultCopy.style.whiteSpace = 'pre-wrap';
+        result.appendChild(resultTitle);
+        result.appendChild(resultCopy);
+      }
+    } catch(error) {
+      publicChallengeAnswered = false;
+      buttons.forEach(function(button) { button.disabled = false; });
+      if (result) {
+        result.className = 'challenge-result visible wrong';
+        result.innerHTML = '';
+        var errorTitle = document.createElement('strong');
+        errorTitle.textContent = 'Could not check that answer.';
+        result.appendChild(errorTitle);
+        result.appendChild(document.createTextNode('Your choice is still here. Tap it once more in a moment.'));
+      }
+    }
+  }
+
+  function storeChallengeHandoff(challenge) {
+    var visitorId = getChallengeVisitorId();
+    safeSet(DEEP_LINK_QUESTION_STORAGE_KEY, JSON.stringify({ text:buildChallengeHelpText(challenge), createdAt:Date.now() }));
+    safeSet(PENDING_REFERRAL_STORAGE_KEY, JSON.stringify({ token:challenge.share_token, visitorId:visitorId, createdAt:Date.now() }));
+    return visitorId;
+  }
+
+  function askMargFromChallenge() {
+    if (!publicChallenge) return;
+    var visitorId = storeChallengeHandoff(publicChallenge);
+    challengeRpc('track_referral_challenge_event', {
+      p_token:publicChallenge.share_token,
+      p_visitor_id:visitorId,
+      p_event_type:'ask_marg_clicked'
+    }).catch(function() {});
+    var destination = window.location.origin + '/?challenge=' + encodeURIComponent(publicChallenge.share_token);
+    if (safeGet('marg_token')) {
+      window.location.href = destination;
+      return;
+    }
+    window.location.href = SUPABASE_URL + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(destination);
+  }
+
+  async function resharePublicChallenge() {
+    if (!publicChallenge) return;
+    var shareUrl = window.location.origin + '/challenge?c=' + encodeURIComponent(publicChallenge.share_token);
+    var shareData = { title:'One CAT question. Can you beat it?', text:'I think this CAT question might trap you 😄', url:shareUrl };
+    try {
+      if (navigator.share) await navigator.share(shareData);
+      else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(shareData.text + '\n' + shareUrl);
+        var button = document.getElementById('challenge-reshare');
+        if (button) button.textContent = 'Link copied ✓';
+      }
+      challengeRpc('track_referral_challenge_event', {
+        p_token:publicChallenge.share_token,
+        p_visitor_id:getChallengeVisitorId(),
+        p_event_type:'reshared'
+      }).catch(function() {});
+    } catch(error) {
+      if (!error || error.name !== 'AbortError') {
+        var fallbackButton = document.getElementById('challenge-reshare');
+        if (fallbackButton) fallbackButton.textContent = 'Share unavailable';
+      }
+    }
+  }
+
+  async function initializePublicChallenge() {
+    var token = getChallengeToken();
+    var landing = document.getElementById('landing-page');
+    var loading = document.getElementById('loading-screen');
+    if (landing) landing.style.display = 'none';
+    if (loading) loading.style.display = 'none';
+    document.documentElement.classList.add('marg-challenge-route');
+    if (!token) { setChallengeUnavailable('This challenge link is incomplete. Ask your friend to share it again.'); return; }
+    try {
+      var payload = await challengeRpc('get_referral_challenge', { p_token:token, p_visitor_id:getChallengeVisitorId() });
+      publicChallenge = firstRpcRow(payload);
+      if (!publicChallenge || !Array.isArray(publicChallenge.options) || publicChallenge.options.length !== 4) {
+        setChallengeUnavailable('This challenge is unavailable or has expired.');
+        return;
+      }
+      renderPublicChallenge(publicChallenge);
+      var askButton = document.getElementById('challenge-ask-marg');
+      var reshareButton = document.getElementById('challenge-reshare');
+      if (askButton) askButton.onclick = askMargFromChallenge;
+      if (reshareButton) reshareButton.onclick = resharePublicChallenge;
+    } catch(error) {
+      setChallengeUnavailable('Marg could not open this challenge right now. Please try the link again in a moment.');
+    }
   }
 
   function safeGet(key) {
@@ -351,6 +551,10 @@
   }
 
   function initializeLandingShell() {
+    if (isChallengeRoute()) {
+      initializePublicChallenge();
+      return;
+    }
     captureDeepLinkQuestion();
     var loading = document.getElementById('loading-screen');
     var landing = document.getElementById('landing-page');
@@ -375,6 +579,7 @@
   window.getCampaignDiagnosisKey = getCampaignDiagnosisKey;
   window.prioritizeCampaignOption = prioritizeCampaignOption;
   window.loadAuthenticatedMargApp = loadAuthenticatedApp;
+  window.initializePublicChallenge = initializePublicChallenge;
   window.__MARG_LANDING_BOOTSTRAP__ = { initialize:initializeLandingShell, loadAuthenticatedApp:loadAuthenticatedApp };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeLandingShell, { once:true });
