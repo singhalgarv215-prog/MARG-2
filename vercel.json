@@ -1,5 +1,9 @@
 {
   "version": 2,
+  "redirects": [
+    { "source": "/join/:path*", "destination": "/", "permanent": true },
+    { "source": "/landing/:path*", "destination": "/", "permanent": true }
+  ],
   "routes": [
     { "src": "/privacy", "dest": "/privacy.html" },
     { "src": "/cat-percentile-predictor", "dest": "/cat-percentile-predictor.html" },
@@ -7,8 +11,7 @@
     { "src": "/daily-rc/?", "dest": "/daily-rc/index.html" },
     { "src": "/daily-dilr/?", "dest": "/daily-dilr/index.html" },
     { "src": "/daily-qa/?", "dest": "/daily-qa/index.html" },
-    { "src": "/join/?", "dest": "/marg-community-landing.html" },
-    { "src": "/landing/?", "dest": "/marg-community-landing.html" },
+    { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
