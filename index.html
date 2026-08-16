@@ -11,7 +11,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
-<script defer src="/landing-bootstrap.js?v=20260816-1"></script>
+<script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
+<script defer src="/landing-bootstrap.js?v=20260816-2"></script>
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
@@ -70,9 +71,79 @@
 .practice-submit-note{margin:10px 16px 0;padding:9px 12px;border:1px solid rgba(201,168,76,.18);border-radius:9px;background:rgba(201,168,76,.06);font-size:12px;color:var(--gold-light);line-height:1.45;}
 .pcard-submit-hint{font-size:11px;color:var(--gold-light);margin:0 0 9px;}
 @media(max-width:600px){#image-attachment-preview{margin-left:0;max-width:100%;}#composer-status{margin-left:4px;}.sent-image-preview{max-width:min(220px,65vw);}.sent-image-grid .sent-image-preview{max-width:min(150px,42vw);max-height:210px;}}
+.marg-challenge-route #landing-page,.marg-challenge-route #loading-screen{display:none!important;}
+#challenge-page{display:none;min-height:100svh;width:100%;padding:22px 16px 36px;background:radial-gradient(circle at 50% -10%,rgba(201,168,76,.16),transparent 38%),#080808;align-items:flex-start;justify-content:center;}
+.marg-challenge-route #challenge-page{display:flex;}
+.challenge-shell{width:min(100%,620px);margin:0 auto;}
+.challenge-brand{display:flex;align-items:center;justify-content:center;margin-bottom:18px;}
+.challenge-brand img{height:34px;width:auto;}
+.challenge-kicker{text-align:center;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);margin-bottom:8px;font-weight:600;}
+.challenge-heading{font-family:'Playfair Display',serif;text-align:center;font-size:28px;line-height:1.2;color:var(--text);margin-bottom:8px;}
+.challenge-sub{text-align:center;font-size:13px;color:var(--text-muted);line-height:1.5;margin:0 auto 18px;max-width:440px;}
+.challenge-card{background:linear-gradient(150deg,#171713,#101010);border:1px solid rgba(201,168,76,.24);border-radius:18px;padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.38);}
+.challenge-section-pill{display:inline-flex;padding:4px 9px;border-radius:999px;background:var(--gold-dim);border:1px solid rgba(201,168,76,.18);font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--gold-light);text-transform:uppercase;margin-bottom:13px;}
+.challenge-context{font-size:13px;color:#B9B5AD;line-height:1.65;white-space:pre-wrap;background:#0C0C0C;border:1px solid var(--border);border-radius:12px;padding:13px;margin-bottom:14px;max-height:230px;overflow:auto;}
+.challenge-question{font-size:16px;line-height:1.55;color:var(--text);font-weight:600;margin-bottom:13px;white-space:pre-wrap;}
+.challenge-options{display:grid;gap:8px;}
+.challenge-option{width:100%;text-align:left;border:1px solid #30302E;border-radius:11px;background:#191919;color:#E4E0D8;padding:12px 13px;font:500 13px/1.45 'DM Sans',sans-serif;cursor:pointer;transition:border-color .18s,background .18s,transform .18s;}
+.challenge-option:hover{border-color:var(--gold);transform:translateY(-1px);}
+.challenge-option:disabled{cursor:default;transform:none;opacity:.72;}
+.challenge-option.correct{border-color:#4CAF7D;background:rgba(76,175,125,.12);opacity:1;}
+.challenge-option.wrong{border-color:#E05C5C;background:rgba(224,92,92,.1);opacity:1;}
+.challenge-result{display:none;margin-top:14px;border-radius:12px;padding:13px 14px;font-size:13px;line-height:1.55;}
+.challenge-result.visible{display:block;}
+.challenge-result.correct{border:1px solid rgba(76,175,125,.32);background:rgba(76,175,125,.09);color:#C9E8D6;}
+.challenge-result.wrong{border:1px solid rgba(224,92,92,.3);background:rgba(224,92,92,.08);color:#F0C9C9;}
+.challenge-result strong{display:block;color:var(--text);margin-bottom:4px;}
+.challenge-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px;}
+.challenge-action{flex:1;min-width:150px;border-radius:10px;padding:11px 13px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;text-align:center;text-decoration:none;}
+.challenge-action.primary{border:0;background:linear-gradient(135deg,#C9A84C,#E8C96A);color:#111;}
+.challenge-action.secondary{border:1px solid #353535;background:#181818;color:#D8D4CC;}
+.challenge-status{text-align:center;font-size:12px;color:var(--text-muted);line-height:1.5;padding:26px 8px;}
+.challenge-error{display:none;text-align:center;border:1px solid rgba(224,92,92,.25);background:rgba(224,92,92,.07);border-radius:14px;padding:20px;color:#D7B4B4;font-size:13px;line-height:1.55;}
+.challenge-footer{text-align:center;color:#5F5C57;font-size:10px;line-height:1.45;margin-top:14px;}
+.referral-offer{border:1px solid rgba(201,168,76,.25);background:linear-gradient(145deg,#191814,#121212);border-radius:13px;padding:13px;margin-top:12px;}
+.referral-offer-title{font-size:13px;font-weight:650;color:#F0EDE6;margin-bottom:4px;}
+.referral-offer-copy{font-size:11px;line-height:1.45;color:#8E8A83;margin-bottom:9px;}
+.referral-offer-actions{display:flex;gap:7px;flex-wrap:wrap;align-items:center;}
+.referral-share-btn{border:0;border-radius:9px;background:#C9A84C;color:#111;padding:9px 11px;font:650 11px 'DM Sans',sans-serif;cursor:pointer;}
+.referral-share-btn:disabled{opacity:.65;cursor:wait;}
+.referral-dismiss-btn{border:0;background:transparent;color:#68645F;padding:7px 4px;font:500 11px 'DM Sans',sans-serif;cursor:pointer;}
+.referral-share-status{font-size:10px;color:#8E8A83;line-height:1.35;min-height:14px;margin-top:7px;}
+.referral-progress-card{display:none;margin:14px 0;background:linear-gradient(145deg,#181711,#101010);border:1px solid rgba(201,168,76,.22);border-radius:14px;padding:15px;}
+.referral-progress-title{font-size:13px;font-weight:650;color:var(--gold-light);margin-bottom:4px;}
+.referral-progress-copy{font-size:11px;color:#77736C;line-height:1.45;margin-bottom:12px;}
+.referral-progress-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.referral-progress-stat{background:#0D0D0D;border:1px solid #262626;border-radius:10px;padding:10px 6px;text-align:center;}
+.referral-progress-value{font-size:20px;font-weight:700;color:#F0EDE6;}
+.referral-progress-label{font-size:9px;color:#68645F;margin-top:2px;line-height:1.25;}
+@media(max-width:420px){#challenge-page{padding:14px 11px 26px}.challenge-heading{font-size:24px}.challenge-card{padding:15px;border-radius:15px}.challenge-context{max-height:190px;font-size:12px}.challenge-question{font-size:14px}.challenge-option{padding:10px 11px;font-size:12px}}
 </style>
 </head>
 <body>
+
+<main id="challenge-page" aria-labelledby="challenge-heading">
+  <div class="challenge-shell">
+    <div class="challenge-brand"><img src="/Logo-full.png" alt="Marg"></div>
+    <div class="challenge-kicker">One-question CAT challenge</div>
+    <h1 class="challenge-heading" id="challenge-heading">Your friend thinks this might trap you.</h1>
+    <p class="challenge-sub">No signup. Pick an answer and settle it.</p>
+    <div id="challenge-loading" class="challenge-card"><div class="challenge-status">Opening the challenge…</div></div>
+    <div id="challenge-error" class="challenge-error">This challenge is unavailable or has expired.</div>
+    <section id="challenge-content" class="challenge-card" style="display:none;" aria-live="polite">
+      <div id="challenge-section" class="challenge-section-pill">CAT</div>
+      <div id="challenge-context" class="challenge-context" style="display:none;"></div>
+      <div id="challenge-question" class="challenge-question"></div>
+      <div id="challenge-options" class="challenge-options"></div>
+      <div id="challenge-result" class="challenge-result"></div>
+      <div class="challenge-actions">
+        <button id="challenge-ask-marg" class="challenge-action primary" type="button">Stuck? Ask Marg</button>
+        <button id="challenge-reshare" class="challenge-action secondary" type="button">Pass it on ↗</button>
+      </div>
+    </section>
+    <div class="challenge-footer">Built for CAT aspirants · The question works without an account</div>
+  </div>
+</main>
 
 <!-- PRODUCT TOUR MODAL -->
 <div id="tour-modal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:9998;align-items:center;justify-content:center;display:none;">
@@ -496,7 +567,7 @@
     <button class="legal-back" onclick="showLandingMain()">← Back</button>
     <div class="legal-title">Privacy Policy</div>
     <div class="legal-date">Last updated: May 2026</div>
-    <h3>What we collect</h3><p>When you sign in with Google, we collect your name, email address, and profile photo. To personalise your mentoring across sessions, we may also store your conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, check-ins, and product-engagement milestones. If you request a community invite, we store the WhatsApp number you submit and the status of that request; the number is saved directly to Supabase and is not sent to Gemini or added to chat history.</p>
+    <h3>What we collect</h3><p>When you sign in with Google, we collect your name, email address, and profile photo. To personalise your mentoring across sessions, we may also store your conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, check-ins, and product-engagement milestones. If you request a community invite, we store the WhatsApp number you submit and the status of that request; the number is saved directly to Supabase and is not sent to Gemini or added to chat history. Friend challenges store the shared question and anonymous events such as link opened, answer submitted, Ask Marg clicked, and completed referral sign-in. The creator’s identity is not shown on the public challenge page.</p>
     <h3>How we use it</h3><p>Your data is used solely to provide and improve Marg's mentoring experience.</p>
     <h3>Data storage</h3><p>Your data is stored securely on Supabase servers. We do not sell, share, or trade your personal information with any third parties.</p>
     <h3>Deleting your data</h3><p>To request deletion of your account and associated data, email <a href="mailto:support@trymarg.com">support@trymarg.com</a> from the email linked to your Marg account. We will process the request within 7 business days. Clearing a chat or browser storage alone does not delete records stored in Supabase.</p>
@@ -933,6 +1004,16 @@
       <div class="stat-card">
         <div class="stat-value" id="stat-streak">-</div>
         <div class="stat-label">Day streak</div>
+      </div>
+    </div>
+
+    <div class="referral-progress-card" id="referral-progress-card">
+      <div class="referral-progress-title">Your challenge trail</div>
+      <div class="referral-progress-copy">Successful means a friend actually answered—not merely opened the link.</div>
+      <div class="referral-progress-stats">
+        <div class="referral-progress-stat"><div class="referral-progress-value" id="referral-stat-created">0</div><div class="referral-progress-label">Challenges made</div></div>
+        <div class="referral-progress-stat"><div class="referral-progress-value" id="referral-stat-opened">0</div><div class="referral-progress-label">Friends opened</div></div>
+        <div class="referral-progress-stat"><div class="referral-progress-value" id="referral-stat-success">0</div><div class="referral-progress-label">Friends answered</div></div>
       </div>
     </div>
 
