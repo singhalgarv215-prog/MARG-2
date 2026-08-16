@@ -1,10 +1,8 @@
 {
   "version": 2,
-  "redirects": [
-    { "source": "/join/:path*", "destination": "/", "permanent": true },
-    { "source": "/landing/:path*", "destination": "/", "permanent": true }
-  ],
   "routes": [
+    { "src": "/join/?", "dest": "/marg-community-landing.html" },
+    { "src": "/landing/?", "dest": "/marg-community-landing.html" },
     { "src": "/privacy", "dest": "/privacy.html" },
     { "src": "/cat-percentile-predictor", "dest": "/cat-percentile-predictor.html" },
     { "src": "/mock-analysis", "dest": "/mock-analysis.html" },
