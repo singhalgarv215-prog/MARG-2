@@ -1057,6 +1057,306 @@ async function initializeEngagementTracking() {
   maybePresentCommunityInvite();
 }
 
+// --- Earned friend challenges ----------------------------------------------
+// A challenge is created only after a real diagnosis or a real practice item.
+// The shared page reads an immutable snapshot; it never asks Gemini to rebuild
+// the question for the recipient.
+var REFERRAL_CHALLENGE_CACHE_PREFIX = 'marg_referral_challenge_v1_';
+var PENDING_REFERRAL_STORAGE_KEY = 'marg_pending_referral_v1';
+var referralDiagnosisOffersThisSession = {};
+
+var DIAGNOSIS_REFERRAL_CHALLENGES = {
+  varc:{
+    section:'varc', title:'The reasonable-sounding RC trap',
+    context:'Calls for transparent algorithms often assume that opacity is mainly a result of secrecy. Yet a fully disclosed model can remain practically inscrutable: thousands of parameters may be public without making any individual decision understandable. Conversely, an institution can sometimes explain and contest a decision even when every technical detail is not exposed. Transparency therefore matters, but disclosure alone cannot create accountability. What matters is whether affected people can identify the reasons that shaped a decision, challenge errors, and obtain a meaningful review.',
+    question:'Which option best captures the central claim of the passage?',
+    options:['A. Algorithms should remain secret because technical disclosure confuses the public.','B. Accountability requires more than disclosure; decisions must also be explainable and contestable.','C. A fully disclosed algorithm is always less accountable than a private human decision.','D. Technical experts should replace institutions when reviewing automated decisions.'],
+    correctIndex:1,
+    explanation:'The passage accepts transparency but argues that accountability also requires reasons, contestability, and review.',
+    insight:'The trap is choosing an option that turns a qualified argument into an extreme one.'
+  },
+  qa:{
+    section:'qa', title:'A percentage question with a hidden ratio', context:'',
+    question:'In a firm, 20% of the men and 30% of the women resign. The total workforce falls by 24%, and among those remaining the number of men exceeds the number of women by 120. What was the original workforce?',
+    options:['A. 480','B. 540','C. 600','D. 720'], correctIndex:2,
+    explanation:'The 24% overall fall gives men:women = 3:2. Writing them as 3k and 2k, the remaining difference is 0.8(3k) - 0.7(2k) = k = 120, so the original total was 5k = 600.',
+    insight:'The overall percentage is not decoration—it reveals the hidden composition.'
+  },
+  dilr:{
+    section:'dilr', title:'Seven workshops. One forced slot.',
+    context:'Seven workshops A, B, C, D, E, F and G are scheduled in seven consecutive slots, one per slot. A is before B. There is exactly one workshop between D and C, with D before C. F is before E, and E is before A. G is not adjacent to C. Exactly one of B and D is before G.',
+    question:'Which of the following must be true?',
+    options:['A. A is in slot 5.','B. B is in slot 7.','C. D is in slot 1.','D. G is in slot 6.'], correctIndex:1,
+    explanation:'The valid orders are DFCEAGB, DFCEGAB and FDECAGB. B is seventh in all three; each other statement fails in at least one order.',
+    insight:'The useful move is to combine the F-E-A chain with the D-gap-C block before placing G.'
+  },
+  strategy:{
+    section:'strategy', title:'Would you leave this DILR set?', context:'You are 14 minutes into a DILR set. Your table is complete, but it has produced no fixed value or case reduction. Two clues merely restate information already recorded, and two untouched sets remain in the section.',
+    question:'What is the strongest next decision?',
+    options:['A. Stay because leaving now wastes the 14 minutes already invested.','B. Re-read every clue once more before deciding.','C. Leave the set, scan the remaining two, and return only if they offer weaker entry points.','D. Guess the set’s questions immediately and move on.'], correctIndex:2,
+    explanation:'The time already spent is sunk. With no deduction or case reduction and two unseen alternatives, the next useful action is to compare the remaining entry points.',
+    insight:'A kill-switch protects the section from commitment escalation.'
+  }
+};
+
+function plainChallengeText(value, maxLength) {
+  return convertLatexToPlainText(String(value || ''))
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\u0000/g, '')
+    .trim()
+    .slice(0, maxLength || 2000);
+}
+
+function normalizeReferralChallengeSnapshot(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.options) || snapshot.options.length !== 4) return null;
+  var correctIndex = Number(snapshot.correctIndex);
+  if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex > 3) return null;
+  var normalized = {
+    sourceKind:['diagnosis','practice','timed_practice'].indexOf(snapshot.sourceKind) !== -1 ? snapshot.sourceKind : 'practice',
+    section:['varc','dilr','qa','mock','strategy','confidence','study_plan'].indexOf(snapshot.section) !== -1 ? snapshot.section : 'strategy',
+    title:plainChallengeText(snapshot.title || 'One CAT question', 120),
+    context:plainChallengeText(snapshot.context || '', 8000),
+    question:plainChallengeText(snapshot.question, 2000),
+    options:snapshot.options.map(function(option) { return plainChallengeText(option, 500); }),
+    correctIndex:correctIndex,
+    explanation:plainChallengeText(snapshot.explanation || 'The stored answer key confirms this option.', 2000),
+    insight:plainChallengeText(snapshot.insight || '', 500)
+  };
+  if (normalized.title.length < 3 || normalized.question.length < 8 || normalized.options.some(function(option) { return !option; })) return null;
+  return normalized;
+}
+
+function getDiagnosisReferralSnapshot(entry) {
+  var topic = entry && entry.topic ? String(entry.topic).toLowerCase() : 'strategy';
+  var base = DIAGNOSIS_REFERRAL_CHALLENGES[topic] || DIAGNOSIS_REFERRAL_CHALLENGES.strategy;
+  return normalizeReferralChallengeSnapshot(Object.assign({}, base, { sourceKind:'diagnosis' }));
+}
+
+function getPracticeReferralSnapshot(question, setObj, sourceKind) {
+  if (!question) return null;
+  var section = currentPracticeType === 'rc' ? 'varc' : currentPracticeType;
+  var context = '';
+  if (currentPracticeType === 'rc' && setObj) context = setObj.passage || '';
+  if (currentPracticeType === 'dilr' && setObj) context = setObj.setup || setObj.setupText || '';
+  return normalizeReferralChallengeSnapshot({
+    sourceKind:sourceKind || 'practice',
+    section:section,
+    title:currentPracticeType === 'rc' ? 'One RC trap' : currentPracticeType === 'dilr' ? (setObj && setObj.set_title || 'One DILR challenge') : (question.topic || question.concept_check || selectedPracticeTopic || 'One QA challenge'),
+    context:context,
+    question:question.q,
+    options:question.options,
+    correctIndex:question.correct,
+    explanation:question.explanation || question.solution || '',
+    insight:question.marg_insight || question.common_mistake || question.trap_type || ''
+  });
+}
+
+function referralChallengeCacheKey(snapshot) {
+  return REFERRAL_CHALLENGE_CACHE_PREFIX + simpleStableHash(JSON.stringify(snapshot));
+}
+
+async function createReferralChallenge(snapshot) {
+  snapshot = normalizeReferralChallengeSnapshot(snapshot);
+  if (!snapshot || !currentUser || !SUPABASE_TOKEN || isGuestMode) throw new Error('Sign in to create a challenge link.');
+  var cacheKey = referralChallengeCacheKey(snapshot);
+  try {
+    var cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
+    if (cached && cached.share_token) return cached;
+  } catch(e) {}
+
+  var response = await fetch(SUPABASE_URL + '/rest/v1/referral_challenges', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'apikey':SUPABASE_ANON_KEY,
+      'Authorization':'Bearer ' + SUPABASE_TOKEN,
+      'Prefer':'return=representation'
+    },
+    body:JSON.stringify({
+      creator_user_id:currentUser.id,
+      source_kind:snapshot.sourceKind,
+      section:snapshot.section,
+      title:snapshot.title,
+      context_text:snapshot.context,
+      question_text:snapshot.question,
+      options:snapshot.options,
+      correct_index:snapshot.correctIndex,
+      explanation:snapshot.explanation,
+      insight:snapshot.insight
+    })
+  });
+  if (!response.ok) throw new Error('Challenge creation failed (' + response.status + ')');
+  var rows = await response.json();
+  var challenge = rows && rows[0];
+  if (!challenge || !challenge.share_token) throw new Error('Challenge token missing');
+  try { sessionStorage.setItem(cacheKey, JSON.stringify(challenge)); } catch(e) {}
+  return challenge;
+}
+
+async function recordReferralShare(token) {
+  if (!token || !SUPABASE_TOKEN) return false;
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/rpc/record_referral_share', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN },
+      body:JSON.stringify({ p_token:token })
+    });
+    return response.ok;
+  } catch(e) { return false; }
+}
+
+async function shareReferralChallenge(snapshot, button, statusEl, preparedChallenge) {
+  if (!button || button.disabled) return false;
+  button.disabled = true;
+  button.textContent = 'Making the challenge…';
+  if (statusEl) statusEl.textContent = '';
+  try {
+    var challenge = preparedChallenge || await createReferralChallenge(snapshot);
+    var url = window.location.origin + '/challenge?c=' + encodeURIComponent(challenge.share_token);
+    var data = { title:'One CAT question. Can you beat it?', text:'I think this CAT question might trap you 😄', url:url };
+    var shared = false;
+    if (navigator.share) {
+      await navigator.share(data);
+      shared = true;
+      button.textContent = 'Challenge sent ✓';
+      if (statusEl) statusEl.textContent = 'Now wait for the inevitable “that option was unfair” message.';
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(data.text + '\n' + url);
+      shared = true;
+      button.textContent = 'Link copied ✓';
+      if (statusEl) statusEl.textContent = 'Paste it into WhatsApp and let the debate begin.';
+    } else {
+      button.textContent = 'Copy this link';
+      if (statusEl) statusEl.textContent = url;
+    }
+    if (shared) recordReferralShare(challenge.share_token);
+    return true;
+  } catch(error) {
+    if (error && error.name === 'AbortError') {
+      button.textContent = 'Challenge a friend ↗';
+      if (statusEl) statusEl.textContent = 'No problem—the challenge is ready whenever you are.';
+    } else {
+      button.textContent = 'Try sharing again';
+      if (statusEl) statusEl.textContent = /Sign in/.test(String(error && error.message)) ? error.message : 'Could not create the link yet. Nothing was shared.';
+    }
+    return false;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function buildReferralOffer(snapshot, compact) {
+  snapshot = normalizeReferralChallengeSnapshot(snapshot);
+  if (!snapshot) return null;
+  var card = document.createElement('div');
+  card.className = 'referral-offer';
+  var title = document.createElement('div');
+  title.className = 'referral-offer-title';
+  title.textContent = 'Think a friend would get this wrong too?';
+  var copy = document.createElement('div');
+  copy.className = 'referral-offer-copy';
+  copy.textContent = compact ? 'Send just this question. No signup, no pitch—only bragging rights.' : 'Challenge them with one CAT question. They can answer without signing up; Marg only appears if they ask for help.';
+  var actions = document.createElement('div');
+  actions.className = 'referral-offer-actions';
+  var share = document.createElement('button');
+  share.type = 'button';
+  share.className = 'referral-share-btn';
+  share.textContent = 'Preparing challenge…';
+  share.disabled = true;
+  var dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'referral-dismiss-btn';
+  dismiss.textContent = 'Not this one';
+  dismiss.onclick = function() { card.remove(); };
+  var status = document.createElement('div');
+  status.className = 'referral-share-status';
+  status.setAttribute('role', 'status');
+  var preparedChallenge = null;
+  createReferralChallenge(snapshot).then(function(challenge) {
+    preparedChallenge = challenge;
+    share.disabled = false;
+    share.textContent = 'Challenge a friend ↗';
+  }).catch(function() {
+    share.disabled = true;
+    share.textContent = 'Challenge unavailable';
+    status.textContent = 'The sharing service is not ready yet. Your practice result is unaffected.';
+  });
+  share.onclick = function() {
+    if (!preparedChallenge) return;
+    shareReferralChallenge(snapshot, share, status, preparedChallenge);
+  };
+  actions.appendChild(share);
+  actions.appendChild(dismiss);
+  card.appendChild(title);
+  card.appendChild(copy);
+  card.appendChild(actions);
+  card.appendChild(status);
+  return card;
+}
+
+function offerDiagnosisReferralChallenge(entry) {
+  if (!entry || entry.confirmation === 'Not Really' || !currentUser || !SUPABASE_TOKEN || isGuestMode) return false;
+  var offerKey = entry.topic + ':' + (entry.patternId || 'general') + ':' + (entry.updatedAt || '');
+  if (referralDiagnosisOffersThisSession[offerKey]) return false;
+  var snapshot = getDiagnosisReferralSnapshot(entry);
+  if (!snapshot) return false;
+  var messages = document.getElementById('messages');
+  if (!messages) return false;
+  referralDiagnosisOffersThisSession[offerKey] = true;
+  var wrap = document.createElement('div');
+  wrap.className = 'msg-wrap marg fade-in referral-diagnosis-offer';
+  var avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.innerHTML = '<img src="' + LOGO_ICON + '" alt="M">';
+  var card = buildReferralOffer(snapshot, false);
+  if (!card) return false;
+  wrap.appendChild(avatar);
+  wrap.appendChild(card);
+  messages.appendChild(wrap);
+  messages.scrollTop = messages.scrollHeight;
+  return true;
+}
+
+function offerPracticeReferralChallenge(question, setObj, container, sourceKind) {
+  if (!container || !currentUser || !SUPABASE_TOKEN || isGuestMode) return false;
+  if (container.querySelector('.referral-offer')) return false;
+  var snapshot = getPracticeReferralSnapshot(question, setObj, sourceKind || 'practice');
+  var card = buildReferralOffer(snapshot, true);
+  if (!card) return false;
+  container.appendChild(card);
+  return true;
+}
+
+async function claimPendingReferralSignup() {
+  if (!currentUser || !SUPABASE_TOKEN || isGuestMode) return false;
+  var pending = null;
+  try { pending = JSON.parse(localStorage.getItem(PENDING_REFERRAL_STORAGE_KEY) || 'null'); } catch(e) {}
+  if (!pending || !pending.token || !pending.visitorId || Date.now() - Number(pending.createdAt || 0) > 86400000 * 30) {
+    try { localStorage.removeItem(PENDING_REFERRAL_STORAGE_KEY); } catch(e) {}
+    return false;
+  }
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/rpc/claim_referral_signup', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN },
+      body:JSON.stringify({ p_token:pending.token, p_visitor_id:pending.visitorId })
+    });
+    if (!response.ok) return false;
+    localStorage.removeItem(PENDING_REFERRAL_STORAGE_KEY);
+    var url = new URL(window.location.href);
+    if (url.searchParams.has('challenge')) {
+      url.searchParams.delete('challenge');
+      window.history.replaceState({}, document.title, url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '') + url.hash);
+    }
+    return true;
+  } catch(e) { return false; }
+}
+
 function isMeaningfulCatSpecificMessage(value) {
   var text = compactEngagementValue(value, 2000);
   if (text.length < 12) return false;
@@ -1198,7 +1498,9 @@ async function renderCommunityInviteCard(forceByUser) {
 function maybePresentCommunityInvite() {
   if (!communityInvitePending || communityInviteRenderedSession || isLoading || currentTab !== 'chat') return false;
   if (document.querySelector('[id^="conv-options-"]')) return false;
-  setTimeout(function() { renderCommunityInviteCard(false); }, 250);
+  setTimeout(function() {
+    if (!document.querySelector('.referral-diagnosis-offer .referral-offer')) renderCommunityInviteCard(false);
+  }, 250);
   return true;
 }
 
@@ -2373,7 +2675,10 @@ function finishDiagnosticFlow(entry) {
   addMessage('marg', reply, true);
   conversationHistory.push({ role:'assistant', content:reply });
   if (!isGuestMode) { saveChatMessage('user', contextMessage); saveChatMessage('assistant', reply); }
-  if (entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') showConversationalOptions(['Right now', 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
+  if (entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') {
+    showConversationalOptions(['Right now', 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
+    offerDiagnosisReferralChallenge(entry);
+  }
   var input = document.getElementById('user-input');
   if (input) { input.disabled = false; input.focus(); }
   var send = document.getElementById('send-btn');
@@ -4035,6 +4340,7 @@ async function confirmChatDiagnosticPrediction(level) {
   savePendingDiagnosticExercise(entry, 'awaiting_choice');
   addMentorLeadMessage(buildConfirmedDiagnosticLead(entry));
   showConversationalOptions(['Right now', 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
+  offerDiagnosisReferralChallenge(entry);
 }
 
 async function handleRememberedDiagnostic(answer) {
@@ -5923,6 +6229,7 @@ async function initSession() {
     updateUserUI(user);
     await ensureAuthenticatedProfile();
     await initializeEngagementTracking();
+    await claimPendingReferralSignup();
     if (arrivedFromOAuthCallback) {
       var authIntent = loadHomepageIntent();
       trackAuthenticatedHomepageStage('auth_completed', authIntent || { source:'direct_login' });
@@ -7954,6 +8261,28 @@ function renderTimedTestResults(stats) {
     '<button class="pcard-nav-btn secondary" onclick="closeTimedTest()">Close</button>' +
     '<button class="pcard-nav-btn primary" onclick="goToChatFromTimedTest()">Talk to Marg about this</button>' +
     '</div>';
+
+  var challengeIndex = timedTestQuestions.findIndex(function(question, index) {
+    return timedTestAnswers[index] !== null && timedTestAnswers[index] !== question.correct;
+  });
+  if (challengeIndex < 0) challengeIndex = timedTestQuestions.findIndex(function(question, index) { return timedTestAnswers[index] !== null; });
+  if (challengeIndex < 0 && timedTestQuestions.length) challengeIndex = 0;
+  if (challengeIndex >= 0 && currentUser && SUPABASE_TOKEN && !isGuestMode) {
+    var challengeQuestion = timedTestQuestions[challengeIndex];
+    var timedSnapshot = normalizeReferralChallengeSnapshot({
+      sourceKind:'timed_practice',
+      section:timedTestSection === 'qa' ? 'qa' : 'dilr',
+      title:(timedTestTopic || timedTestSection.toUpperCase()) + ' challenge',
+      context:challengeQuestion.setupText || '',
+      question:challengeQuestion.q,
+      options:challengeQuestion.options,
+      correctIndex:challengeQuestion.correct,
+      explanation:challengeQuestion.explanation || challengeQuestion.solution || '',
+      insight:challengeQuestion.marg_insight || challengeQuestion.commonMistake || ''
+    });
+    var timedOffer = buildReferralOffer(timedSnapshot, true);
+    if (timedOffer) contentEl.appendChild(timedOffer);
+  }
 }
 
 function goToChatFromTimedTest() {
@@ -8184,6 +8513,8 @@ function selectAnswer(selectedIndex) {
   insight.textContent = convertLatexToPlainText(insightText);
   box.classList.add('visible');
 
+  offerPracticeReferralChallenge(q, setObj, box, 'practice');
+
   var nextBtn = document.getElementById('next-btn');
   if (nextBtn) nextBtn.disabled = false;
 
@@ -8394,7 +8725,33 @@ function showPracticeSummary() {
   var _resultsText = sessionResults.total > 0 ? 'Got ' + sessionResults.correct + ' out of ' + sessionResults.total + ' correct. ' : '';
   window._practiceCompleteSummary = 'I just completed my ' + type.toUpperCase() + ' practice on Marg. ' + _resultsText + 'My cognitive pattern: ' + _patternText + '. Based on this session give me one specific insight and one concrete next action.';
 }
+
+async function loadReferralChallengeStats() {
+  var card = document.getElementById('referral-progress-card');
+  if (!card || !currentUser || !SUPABASE_TOKEN || isGuestMode) return false;
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/rpc/get_my_referral_stats', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN },
+      body:'{}'
+    });
+    if (!response.ok) return false;
+    var payload = await response.json();
+    var stats = Array.isArray(payload) ? payload[0] : payload;
+    if (!stats || Number(stats.challenges_created || 0) < 1) { card.style.display = 'none'; return false; }
+    var created = document.getElementById('referral-stat-created');
+    var opened = document.getElementById('referral-stat-opened');
+    var success = document.getElementById('referral-stat-success');
+    if (created) created.textContent = Number(stats.challenges_created || 0);
+    if (opened) opened.textContent = Number(stats.friends_opened || 0);
+    if (success) success.textContent = Number(stats.friends_answered || stats.successful_referrals || 0);
+    card.style.display = 'block';
+    return true;
+  } catch(e) { return false; }
+}
+
 async function loadProgressDashboard() {
+  loadReferralChallengeStats();
   var sessEl = document.getElementById('stat-sessions');
   if (sessEl) sessEl.textContent = studentProfile.sessionsCount || 0;
 
