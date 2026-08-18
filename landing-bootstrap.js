@@ -3,7 +3,7 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260816-2';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260818-1';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
   var VISITOR_STORAGE_KEY = 'marg_acquisition_visitor_v1';
