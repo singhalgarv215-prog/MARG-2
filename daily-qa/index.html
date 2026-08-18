@@ -130,6 +130,21 @@ document.getElementById('qa-number').textContent = 'QA #' + dayNum;
 
 var answered = {};
 
+function hasExposedSolutionScratchwork(value) {
+  var text = String(value || '').trim();
+  if (!text) return false;
+  if (/(?:^|[\n.!?;]\s*)(?:wait\s*[:,!—-]|hold on\s*[:,!—-]?|(?:let['’]?s|let us)\s+(?:recheck|check again|fix|redo|restart|recalculate|start again|correct)\b|actually\s*[,!:—-]|correction\s*:|ignore\s+(?:that|the above|the previous)|i\s+(?:made|have made)\s+(?:an?\s+)?(?:error|mistake)|we\s+need\s+to\s+(?:fix|correct|redo|restart|recalculate))/i.test(text)) return true;
+  var definitions = {}, match, pattern = /(?:^|[\n.;]\s*)(?:let|assume|take|put|define)\s+([a-z])\s*(?:=|be)\s*/gi;
+  while ((match = pattern.exec(text))) { definitions[match[1].toLowerCase()] = (definitions[match[1].toLowerCase()] || 0) + 1; if (definitions[match[1].toLowerCase()] > 1) return true; }
+  return false;
+}
+
+function hasCleanQASolutions(data) {
+  return !!(data && Array.isArray(data.questions) && data.questions.length && data.questions.every(function(question) {
+    return typeof question.solution === 'string' && question.solution.trim() && !hasExposedSolutionScratchwork(question.solution);
+  }));
+}
+
 var isGenerating = false;
 
 async function generateQA() {
@@ -138,14 +153,14 @@ async function generateQA() {
   const container = document.getElementById('practice-container');
   const cacheKey = 'marg_daily_qa_' + today.toISOString().split('T')[0];
   const cached = localStorage.getItem(cacheKey);
-  if (cached) { try { renderQA(JSON.parse(cached)); return; } catch(e) {} }
+  if (cached) { try { var cachedData = JSON.parse(cached); if (hasCleanQASolutions(cachedData)) { renderQA(cachedData); return; } localStorage.removeItem(cacheKey); } catch(e) { localStorage.removeItem(cacheKey); } }
   
-  const prompt = 'Generate 2 high-quality CAT-level Quantitative Aptitude questions. Each must combine 2 topics. Use these combinations: Q1 easy-medium: Percentages plus Time Speed Distance OR Ratios plus Simple Interest. Q2 hard: Geometry plus Mensuration OR Number Systems plus Algebra OR Averages plus Mixtures. Each question needs 2 conceptual steps minimum. Wrong options must be common calculation mistakes not random numbers. Return ONLY valid JSON no markdown: {"difficulty":"Medium to Hard","questions":[{"q":"complete question with all data","topics":["Topic1","Topic2"],"options":["A. value","B. value","C. value","D. value"],"correct":0,"solution":"step by step working with explanation","common_mistake":"most common calculation error students make","concept_check":"which specific concept this primarily tests"}]}';
+  const prompt = 'Generate 2 genuine CAT-level Quantitative Aptitude questions: Q1 medium and Q2 hard. Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics; never force a pairing merely to look difficult. The central difficulty must be inferring the setup, not executing a visible formula chain. Each question must contain a hidden relationship, invariant, feasibility restriction or case split and require at least 2 linked reasoning decisions before routine arithmetic. Use only necessary data. Reject repeated percentage-change questions and markup-discount-profit questions with an artificial alternate-discount condition. Solve every draft, verify exactly one option is correct, and make distractors believable mid-solution errors. Do all scratch work privately. Every solution field must contain only the clean final derivation—never false starts, abandoned calculations, self-corrections, repeated variable definitions, or phrases such as wait, let\'s recheck, let\'s fix, actually, or ignore that. If working changes, discard it and rewrite the solution from the first valid step. Return ONLY valid JSON no markdown: {"difficulty":"Medium to Hard","questions":[{"q":"complete concise question","topics":["Topic1","Topic2 if genuinely used"],"options":["A. value","B. value","C. value","D. value"],"correct":0,"solution":"concise step-by-step working","common_mistake":"most likely reasoning error","concept_check":"specific concept or insight tested"}]}';
   
   try {
     const res = await fetch(WORKER_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1200,
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 16384,
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown.',
         messages: [{ role: 'user', content: prompt }] })
     });
@@ -154,6 +169,7 @@ async function generateQA() {
     if (!text) throw new Error('No response');
     const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const qaData = JSON.parse(clean);
+    if (!hasCleanQASolutions(qaData)) throw new Error('Generated solution exposed scratchwork');
     localStorage.setItem(cacheKey, JSON.stringify(qaData));
     renderQA(qaData);
   } catch(e) {
