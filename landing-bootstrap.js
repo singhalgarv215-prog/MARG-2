@@ -3,7 +3,7 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260818-2';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260818-3';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
   var VISITOR_STORAGE_KEY = 'marg_acquisition_visitor_v1';
@@ -18,31 +18,95 @@
 
   var PATTERNS = {
     rc_options:{
-      title:'I don\'t think comprehension is the real problem.',
-      body:'When the final two options look close, you are probably replacing the author\'s exact reasoning with what feels reasonable. That is why the passage feels understood but the answer still slips.',
-      intent:'In RC, I understand the passage but get stuck between the final two options.'
+      intent:'In RC, I understand the passage but get stuck between the final two options.',
+      context:'An author says wider roads may invite more driving. Road expansion can still help, but traffic speed alone may hide whether people can reach work, school and services.',
+      question:'Which conclusion is best supported?',
+      options:[
+        { id:'extreme', label:'New roads always make congestion worse.' },
+        { id:'evidence', label:'Traffic speed alone is an incomplete measure of success.' },
+        { id:'invented', label:'Cities should replace roads with public transport.' },
+        { id:'cause', label:'Congestion exists only because planners use the wrong metric.' }
+      ],
+      results:{
+        evidence:{ code:'scope_control', title:'You stayed inside the author\'s scope.', body:'That is the strongest reading here. One choice cannot prove RC is fine, but it suggests we should test you with genuinely close options, not reteach comprehension.' },
+        invented:{ code:'invented_next_step', title:'You completed the author\'s argument for them.', body:'The author questioned one measure; they never prescribed public transport. This is the exact over-interpretation that makes a tempting final option feel correct.' },
+        extreme:{ code:'extreme_language', title:'You turned a qualified claim into an absolute one.', body:'The passage explicitly leaves room for road expansion to help. Words like “always” erased that qualification.' },
+        cause:{ code:'causal_overreach', title:'You promoted one criticism into the only cause.', body:'The author questioned how success is measured; they did not claim that the metric itself causes all congestion.' }
+      }
     },
     dilr_start:{
-      title:'I don\'t think logic is the first problem.',
-      body:'You are probably judging a set by familiarity, then starting before you have a representation and two usable constraints. The set does not become hard later—it had no clean entry point from the start.',
-      intent:'In DILR, I often do not know how to start a set.'
+      intent:'In DILR, I often do not know how to start a set.',
+      context:'Set A is familiar seating: nine conditional clues, no fixed slot. Set B is an unfamiliar table: fixed row totals and two constraints that immediately interact. After two minutes on A, you still have no forced placement.',
+      question:'What is the best next move?',
+      options:[
+        { id:'sunk_cost', label:'Stay with A because two minutes are already invested.' },
+        { id:'entry', label:'Switch to B and build the table from the fixed totals.' },
+        { id:'reread', label:'Read A again without changing the representation.' },
+        { id:'surface', label:'Choose whichever set has fewer words.' }
+      ],
+      results:{
+        entry:{ code:'entry_point_selection', title:'You selected structure over familiarity.', body:'That is the useful DILR instinct: begin where constraints can produce deductions. A full set will tell us whether you act on this under pressure.' },
+        sunk_cost:{ code:'commitment_escalation', title:'Your entry problem may actually be a leaving problem.', body:'Once time is invested, you treat leaving as waste—even when the set has produced nothing. That commitment can consume the section.' },
+        reread:{ code:'representation_delay', title:'You are trying to read your way into a representation.', body:'A second reading without changing the table, grid or variables usually repeats confusion instead of creating an entry point.' },
+        surface:{ code:'surface_set_selection', title:'You are using length as a shortcut for solvability.', body:'Short wording can still hide weak constraints. CAT set selection should follow usable structure, not appearance.' }
+      }
     },
     qa_freeze:{
-      title:'Your concepts may not be disappearing in mocks.',
-      body:'Topic-wise practice tells you which method to use. A mixed mock removes that label, so recognition—not calculation—becomes the bottleneck and the first step feels blank.',
-      intent:'In QA, I can solve questions during practice but freeze in mocks.'
+      intent:'In QA, I can solve questions during practice but freeze in mocks.',
+      context:'A shop\'s total revenue rises by 20%, while the number of units sold falls by 20%.',
+      question:'What happens to the average price per unit?',
+      options:[
+        { id:'cancel', label:'It stays unchanged.' },
+        { id:'multiply', label:'It decreases by 4%.' },
+        { id:'ratio', label:'It increases by 50%.' },
+        { id:'uncertain', label:'It cannot be determined.' }
+      ],
+      results:{
+        ratio:{ code:'explicit_recognition', title:'You recognised the hidden ratio.', body:'Revenue = price × quantity, so average price changes by 1.20 ÷ 0.80 = 1.50. This is only a miniature check; a mixed timed set must test whether recognition survives without a topic label.' },
+        cancel:{ code:'equal_percentage_cancellation', title:'Equal percentages pulled you into a cancellation trap.', body:'A 20% rise and 20% fall act on different bases. The missing first step was preserving Revenue = price × quantity.' },
+        multiply:{ code:'wrong_quantity_tracking', title:'You tracked the percentage chain, but not the quantity asked.', body:'0.8 × 1.2 = 0.96 does not give price. Price is revenue divided by units, so the relevant operation is 1.20 ÷ 0.80.' },
+        uncertain:{ code:'relationship_not_recalled', title:'The blank may begin before calculation.', body:'The data is sufficient once Revenue = price × quantity is retrieved. We should test whether mixed wording blocks that relationship under time.' }
+      }
     },
     mock_collapse:{
-      title:'One bad section may be triggering the next two.',
-      body:'A long commitment, rushed recovery, or one early error can consume working memory and turn the mock into a chain reaction. The score looks like several weaknesses even when the leak began with one decision.',
-      intent:'My overall mock score collapses even when preparation felt fine.'
+      intent:'My overall mock score collapses even when preparation felt fine.',
+      context:'In DILR, 14 minutes have gone. You have a representation but no answer, and 26 minutes remain.',
+      question:'What do you do next?',
+      options:[
+        { id:'finish', label:'Finish it because too much time is already invested.' },
+        { id:'reset', label:'Leave, reset briefly, then scan for a cleaner entry.' },
+        { id:'rush', label:'Rush into the easiest-looking set immediately.' },
+        { id:'replay', label:'Keep replaying the clue you may have missed.' }
+      ],
+      results:{
+        reset:{ code:'controlled_recovery', title:'You protected the rest of the section.', body:'Leaving is only half the skill; the brief reset prevents one failed set from contaminating the next decision. We should test whether you can execute this in a timed set.' },
+        finish:{ code:'missing_kill_switch', title:'The collapse may begin with commitment escalation.', body:'Past time cannot be recovered, yet it starts controlling the next decision. A clear exit rule matters more here than simply “managing time better.”' },
+        rush:{ code:'panic_carryover', title:'You left the set, but carried its panic forward.', body:'An immediate rushed choice often turns one bad set into two. Recovery needs a deliberate rescan, not just an exit.' },
+        replay:{ code:'error_rumination', title:'You are trying to repair sunk time instead of protecting future marks.', body:'Replaying an uncertain clue can feel responsible while silently consuming the choices still available.' }
+      }
     },
     something_else:{
-      title:'The problem probably is not that you need more motivation.',
-      body:'The useful clue is where preparation stops translating into marks—selection, pacing, confidence, or consistency. Marg will help isolate that point instead of giving you another generic plan.',
-      intent:'Something else keeps disrupting my CAT preparation. Help me identify the real pattern.'
+      intent:'Something else keeps disrupting my CAT preparation. Help me identify the real pattern.',
+      context:'Think about the first moment a bad preparation day begins—not how it looks by the end.',
+      question:'What usually happens first?',
+      options:[
+        { id:'source_reset', label:'I compare sources or timetables before beginning.' },
+        { id:'switching', label:'I start, then switch topics when one feels difficult.' },
+        { id:'avoid_timed', label:'I study, but avoid timed work or mocks.' },
+        { id:'no_review', label:'I finish work but rarely review why I was wrong.' }
+      ],
+      results:{
+        source_reset:{ code:'system_reset', title:'Uncertainty may be resetting your whole study system.', body:'The day is lost before practice begins: choosing a source becomes a substitute for using one. We should test whether a fixed source rule restores consistency.' },
+        switching:{ code:'discomfort_switching', title:'Difficulty may be deciding your timetable for you.', body:'Switching brings immediate relief, but prevents sustained contact with the exact topic that needs work.' },
+        avoid_timed:{ code:'evaluation_avoidance', title:'Preparation may feel safer than measurement.', body:'You are still working, but avoiding the conditions that could challenge your current self-image. A small timed check is more useful than another long worksheet.' },
+        no_review:{ code:'missing_feedback_loop', title:'Your effort is not becoming evidence.', body:'Without reviewing the decision behind an error, question volume records activity but does not update the next attempt.' }
+      }
     }
   };
+  // The authenticated bundle reuses the exact same locally scored checks after
+  // OAuth/BFCache restoration. Keeping one runtime source prevents the public
+  // and signed-in handoff from drifting apart.
+  window.__MARG_PREAUTH_PATTERNS__ = PATTERNS;
 
   // Meta currently places the ad ID in utm_term and the ad-set ID in
   // utm_content. Keeping this map in the landing shell makes creative matching
@@ -346,6 +410,9 @@
       status:String(intent.status || 'previewed'),
       failureMessage:String(intent.failureMessage || ''),
       problemKey:String(intent.problemKey || ''),
+      diagnosticAnswer:String(intent.diagnosticAnswer || ''),
+      diagnosticResult:String(intent.diagnosticResult || ''),
+      diagnosticCompleted:!!intent.diagnosticCompleted,
       funnel_intent_entered:!!intent.funnel_intent_entered,
       funnel_first_message_sent:!!intent.funnel_first_message_sent
     };
@@ -408,14 +475,49 @@
     status.className = 'homepage-preview-note' + (type ? ' ' + type : '');
   }
 
+  function buildDiagnosticMessage(pattern, option, result) {
+    return [
+      pattern.intent,
+      'In Marg\'s 20-second check, I chose: "' + option.label + '"',
+      'That points to a working hypothesis: ' + result.title + ' ' + result.body,
+      'Treat this as a hypothesis, not a confirmed diagnosis. Continue from this evidence and test it with the smallest relevant CAT exercise; do not restart generic onboarding.'
+    ].join('\n\n');
+  }
+
+  function renderDiagnosticResult(pattern, intent) {
+    var answerId = String(intent && intent.diagnosticAnswer || '');
+    var option = pattern.options.filter(function(item) { return item.id === answerId; })[0];
+    var result = pattern.results[answerId];
+    var resultBox = document.getElementById('homepage-diagnostic-result');
+    var title = document.getElementById('homepage-diagnosis-title');
+    var body = document.getElementById('homepage-diagnosis-body');
+    var actions = document.getElementById('homepage-diagnosis-actions');
+    if (!option || !result || !resultBox || !title || !body) return false;
+    Array.prototype.forEach.call(document.querySelectorAll('.homepage-check-option'), function(button) {
+      var selected = button.getAttribute('data-answer-id') === answerId;
+      button.classList.toggle('selected', selected);
+      button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      button.disabled = true;
+    });
+    title.textContent = result.title;
+    body.textContent = result.body;
+    resultBox.classList.add('visible');
+    if (actions) actions.classList.add('visible');
+    setEntryStatus('One choice is not a diagnosis. Sign in to test this pattern properly—your result is already saved.', '');
+    return true;
+  }
+
   function renderDiagnosis(problemKey, intent) {
     var pattern = PATTERNS[problemKey];
     var diagnostic = document.getElementById('homepage-diagnostic-entry');
     var preview = document.getElementById('homepage-diagnosis-preview');
-    var title = document.getElementById('homepage-diagnosis-title');
-    var body = document.getElementById('homepage-diagnosis-body');
+    var context = document.getElementById('homepage-check-context');
+    var question = document.getElementById('homepage-check-question');
+    var options = document.getElementById('homepage-check-options');
+    var resultBox = document.getElementById('homepage-diagnostic-result');
+    var actions = document.getElementById('homepage-diagnosis-actions');
     var button = document.getElementById('homepage-google-cta');
-    if (!pattern || !preview || !title || !body) return false;
+    if (!pattern || !preview || !context || !question || !options) return false;
     selectedProblemKey = problemKey;
     if (diagnostic) diagnostic.classList.add('has-selection');
     Array.prototype.forEach.call(document.querySelectorAll('.homepage-problem-option'), function(option) {
@@ -423,15 +525,28 @@
       option.classList.toggle('selected', selected);
       option.setAttribute('aria-pressed', selected ? 'true' : 'false');
     });
-    title.textContent = pattern.title;
-    body.textContent = pattern.body;
+    context.textContent = pattern.context;
+    question.textContent = pattern.question;
+    options.innerHTML = '';
+    pattern.options.forEach(function(option, index) {
+      var choice = document.createElement('button');
+      choice.type = 'button';
+      choice.className = 'homepage-check-option';
+      choice.setAttribute('data-answer-id', option.id);
+      choice.setAttribute('aria-pressed', 'false');
+      choice.setAttribute('onclick', "answerHomepageDiagnostic('" + option.id + "')");
+      choice.textContent = String.fromCharCode(65 + index) + '. ' + option.label;
+      options.appendChild(choice);
+    });
+    if (resultBox) resultBox.classList.remove('visible');
+    if (actions) actions.classList.remove('visible');
     preview.classList.add('visible');
     if (button) {
       button.disabled = false;
-      if (button.lastChild) button.lastChild.textContent = ' Continue with Google — free';
+      if (button.lastChild) button.lastChild.textContent = ' Save this pattern with Google';
     }
-    if (intent && intent.status === 'auth_started') setEntryStatus('Your choice is saved. Continue when you are ready.', 'success');
-    else setEntryStatus('No card. Your choice becomes the first message—nothing to repeat.', '');
+    if (intent && intent.diagnosticCompleted) renderDiagnosticResult(pattern, intent);
+    else setEntryStatus('Choose the option you would actually pick. No Gemini call is used here.', '');
     return true;
   }
 
@@ -447,8 +562,11 @@
       problemKey:problemKey,
       pageViewId:isNew ? pageViewId : existing.pageViewId,
       createdAt:isNew ? Date.now() : existing.createdAt,
-      status:'previewed',
-      funnel_intent_entered:isNew ? false : existing.funnel_intent_entered
+        status:'checking',
+        diagnosticAnswer:'',
+        diagnosticResult:'',
+        diagnosticCompleted:false,
+        funnel_intent_entered:isNew ? false : existing.funnel_intent_entered
     });
     if (!intent) return false;
     renderDiagnosis(problemKey, intent);
@@ -456,6 +574,25 @@
       sendAcquisitionEvent('homepage_intent_entered', { problem_key:problemKey, source:'homepage_diagnostic', campaign_match:getCampaignDiagnosisKey() || null }, intent.pageViewId);
       writeIntent(Object.assign({}, intent, { funnel_intent_entered:true }));
     }
+    return true;
+  }
+
+  function answerDiagnostic(answerId) {
+    var intent = readIntent();
+    var pattern = intent && PATTERNS[intent.problemKey];
+    if (!pattern || intent.diagnosticCompleted) return false;
+    var option = pattern.options.filter(function(item) { return item.id === String(answerId || ''); })[0];
+    var result = option && pattern.results[option.id];
+    if (!option || !result) return false;
+    var completed = writeIntent(Object.assign({}, intent, {
+      text:buildDiagnosticMessage(pattern, option, result),
+      status:'diagnosed',
+      diagnosticAnswer:option.id,
+      diagnosticResult:result.code,
+      diagnosticCompleted:true
+    }));
+    if (!completed) return false;
+    renderDiagnosticResult(pattern, completed);
     return true;
   }
 
@@ -492,8 +629,14 @@
   function continueDiagnosis() {
     var intent = readIntent();
     if (!intent) return focusDiagnosis();
+    if (!intent.diagnosticCompleted) {
+      setEntryStatus('Choose one answer first—Marg needs one real decision before it makes a read.', 'error');
+      var firstChoice = document.querySelector('.homepage-check-option');
+      if (firstChoice) firstChoice.focus();
+      return false;
+    }
     writeIntent(Object.assign({}, intent, { status:'auth_started' }));
-    sendAcquisitionEvent('auth_started', { source:'homepage_diagnostic', problem_key:intent.problemKey || null }, intent.pageViewId);
+    sendAcquisitionEvent('auth_started', { source:'homepage_diagnostic', problem_key:intent.problemKey || null, diagnostic_result:intent.diagnosticResult || null, diagnostic_answer:intent.diagnosticAnswer || null }, intent.pageViewId);
     var button = document.getElementById('homepage-google-cta');
     if (button) {
       button.disabled = true;
@@ -570,6 +713,7 @@
   }
 
   window.selectHomepageProblem = selectProblem;
+  window.answerHomepageDiagnostic = answerDiagnostic;
   window.resetHomepageDiagnosis = resetDiagnosis;
   window.focusHomepageDiagnosis = focusDiagnosis;
   window.continueHomepageDiagnosis = continueDiagnosis;
