@@ -849,8 +849,7 @@ function appMenuOpenVarc() {
 
 function appMenuAnalyzeMock() {
   closeAppMenu();
-  switchTab('chat');
-  startMockAnalysis();
+  switchTab('mock');
 }
 
 function appMenuPrefill(message) {
@@ -1116,6 +1115,8 @@ function normalizeReferralChallengeSnapshot(snapshot) {
   if (!snapshot || !Array.isArray(snapshot.options) || snapshot.options.length !== 4) return null;
   var correctIndex = Number(snapshot.correctIndex);
   if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex > 3) return null;
+  var rawExplanation = snapshot.explanation || 'The stored answer key confirms this option.';
+  if ((snapshot.section === 'qa' || snapshot.section === 'dilr') && hasExposedSolutionScratchwork(rawExplanation)) return null;
   var normalized = {
     sourceKind:['diagnosis','practice','timed_practice'].indexOf(snapshot.sourceKind) !== -1 ? snapshot.sourceKind : 'practice',
     section:['varc','dilr','qa','mock','strategy','confidence','study_plan'].indexOf(snapshot.section) !== -1 ? snapshot.section : 'strategy',
@@ -1124,7 +1125,7 @@ function normalizeReferralChallengeSnapshot(snapshot) {
     question:plainChallengeText(snapshot.question, 2000),
     options:snapshot.options.map(function(option) { return plainChallengeText(option, 500); }),
     correctIndex:correctIndex,
-    explanation:plainChallengeText(snapshot.explanation || 'The stored answer key confirms this option.', 2000),
+    explanation:plainChallengeText((snapshot.section === 'qa' || snapshot.section === 'dilr') ? cleanStudentFacingSolution(rawExplanation) : rawExplanation, 2000),
     insight:plainChallengeText(snapshot.insight || '', 500)
   };
   if (normalized.title.length < 3 || normalized.question.length < 8 || normalized.options.some(function(option) { return !option; })) return null;
@@ -1151,7 +1152,7 @@ function getPracticeReferralSnapshot(question, setObj, sourceKind) {
     question:question.q,
     options:question.options,
     correctIndex:question.correct,
-    explanation:question.explanation || question.solution || '',
+    explanation:(section === 'qa' || section === 'dilr') ? cleanStudentFacingSolution(question.explanation || question.solution || '') : (question.explanation || question.solution || ''),
     insight:question.marg_insight || question.common_mistake || question.trap_type || ''
   });
 }
@@ -2941,6 +2942,11 @@ function saveInternalMemoryMessage(kind, payload) {
 
 function storeActiveGeneratedExercise(exercise) {
   if (!exercise) return;
+  var exerciseSection = exercise.type === 'qa' ? 'qa' : exercise.type === 'dilr' ? 'dilr' : null;
+  if (exerciseSection && collectSolutionPresentationIssues(exercise.content, exerciseSection).length) {
+    console.error('Refused to store an exercise with exposed solution scratchwork:', exercise.source || exercise.type);
+    return;
+  }
   exercise.id = exercise.id || ('exercise-' + Date.now());
   exercise.generatedAt = exercise.generatedAt || new Date().toISOString();
   exercise.awaitingAnswers = exercise.awaitingAnswers !== false;
@@ -2959,6 +2965,14 @@ function loadActiveGeneratedExercise() {
     }
     if (activeGeneratedExercise) {
       try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+    }
+  }
+  if (activeGeneratedExercise) {
+    var storedSection = activeGeneratedExercise.type === 'qa' ? 'qa' : activeGeneratedExercise.type === 'dilr' ? 'dilr' : null;
+    if (storedSection && collectSolutionPresentationIssues(activeGeneratedExercise.content, storedSection).length) {
+      console.error('Discarded a saved exercise whose solution did not pass the clean-output gate.');
+      activeGeneratedExercise = null;
+      try { localStorage.removeItem(getUserScopedKey('marg_active_exercise')); } catch(e) {}
     }
   }
   studentProfile.activeGeneratedExercise = activeGeneratedExercise;
@@ -2987,14 +3001,14 @@ function getActiveExerciseQuestions() {
   var content = activeGeneratedExercise.content;
   if (Array.isArray(content.answerKey) && content.answerKey.length) {
     return content.answerKey.map(function(answer, index) {
-      return { number:answer.question || index + 1, correct:String(answer.correct || '').toUpperCase(), explanation:answer.explanation || '', pattern:answer.trap || '' };
+      return { number:answer.question || index + 1, correct:String(answer.correct || '').toUpperCase(), explanation:cleanStudentFacingSolution(answer.explanation || ''), pattern:answer.trap || '' };
     });
   }
   var questions = [];
   if (Array.isArray(content.questions)) questions = content.questions;
   else if (Array.isArray(content.sets)) content.sets.forEach(function(set) { (set.questions || []).forEach(function(question) { questions.push(question); }); });
   return questions.map(function(question, index) {
-    return { number:index + 1, correct:typeof question.correct === 'number' ? String.fromCharCode(65 + question.correct) : String(question.correct || '').replace(/^[^A-D]*([A-D]).*$/i, '$1').toUpperCase(), explanation:question.explanation || question.solution || '', pattern:question.marg_insight || question.common_mistake || question.trap_type || '' };
+    return { number:index + 1, correct:typeof question.correct === 'number' ? String.fromCharCode(65 + question.correct) : String(question.correct || '').replace(/^[^A-D]*([A-D]).*$/i, '$1').toUpperCase(), explanation:cleanStudentFacingSolution(question.explanation || question.solution || ''), pattern:question.marg_insight || question.common_mistake || question.trap_type || '' };
   });
 }
 
@@ -4836,7 +4850,14 @@ function showConversationalOptions(options, context) {
 async function handleConversationalResponse(answer, context) {
   conversationalProfile.lastAnswer = answer;
 
-  if (context === 'chat_first_onboarding') {
+  if (context === 'home_diagnosis_topic') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    var homeTopic = normalizeChatDiagnosticTopic(answer);
+    if (!homeTopic) throw new Error('Invalid diagnosis topic: ' + answer);
+    startPredictionFirstDiagnostic(homeTopic);
+
+  } else if (context === 'chat_first_onboarding') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
     await beginChatFirstTopic(answer);
@@ -6190,7 +6211,7 @@ async function initSession() {
     const token = params.get('access_token');
     const refreshToken = params.get('refresh_token');
     const expiresIn = params.get('expires_in');
-    if (token) { 
+    if (token) {
       localStorage.setItem('marg_token', token);
       if (refreshToken) localStorage.setItem('marg_refresh_token', refreshToken);
       if (expiresIn) localStorage.setItem('marg_token_expiry', Date.now() + (parseInt(expiresIn) * 1000));
@@ -6200,7 +6221,7 @@ async function initSession() {
   let token = localStorage.getItem('marg_token');
   const expiry = localStorage.getItem('marg_token_expiry');
   const refreshToken = localStorage.getItem('marg_refresh_token');
-  
+
   // If token expired or about to expire, refresh it
   if (token && refreshToken && expiry && Date.now() > (parseInt(expiry) - 300000)) {
     try {
@@ -6218,7 +6239,7 @@ async function initSession() {
       }
     } catch(e) { console.log('Token refresh failed:', e); }
   }
-  
+
   if (!token) { showLanding(); return; }
   try {
     const res = await fetch(SUPABASE_URL + '/auth/v1/user', { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token } });
@@ -6238,35 +6259,26 @@ async function initSession() {
       const hasHistory = await loadUserData();
       const onboardingKey2 = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
       const prevOnboarded2 = localStorage.getItem(onboardingKey2);
+      var requestedInitialTab = '';
+      try { requestedInitialTab = new URLSearchParams(window.location.search).get('tab') || ''; } catch(e) {}
+      if (['home','chat','practice','mock','sectionals','progress'].indexOf(requestedInitialTab) === -1) requestedInitialTab = '';
       if (hasHistory || prevOnboarded2) {
         var arrivedWithHomepageIntent = hasPendingHomepageIntent();
         var arrivedWithDeepLinkQuestion = hasPendingDeepLinkQuestion();
         var recoveredInterruptedGeneration = restoreConversation();
         loadStreakData();
-        setTimeout(function() { const btn = document.getElementById('varc-toggle-btn'); if (btn) btn.style.display = 'inline-flex'; }, 500);
-
-        // A linked question takes priority over greetings, check-ins and cards,
-        // so the external link opens directly into the promised conversation.
-        if (!arrivedWithHomepageIntent && !arrivedWithDeepLinkQuestion && !recoveredInterruptedGeneration) {
-          var greetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
-          var todayDate = getTodayDate();
-          if (localStorage.getItem(greetKey) !== todayDate) {
-            setTimeout(async function() {
-              await sendReturningUserGreeting();
-            }, 600);
-          }
-
-          const alreadyCheckedIn = await hasCheckedInToday();
-          if (!alreadyCheckedIn) {
-            const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
-            setTimeout(function() { showCheckin(name); }, 2000);
-          }
-          const varcShown = await checkVarcShownToday();
-          if (!varcShown) { setTimeout(function() { loadVarcCard('economy'); }, 3000); }
-        }
         document.getElementById('landing-page').style.display = 'none';
         document.getElementById('chat-app').style.display = 'flex';
         showBottomNav();
+
+        // Explicit handoffs still open directly in chat. Ordinary sessions now
+        // start on Mentor Home, where the recommendation replaces a generated
+        // returning greeting and exposes every product destination clearly.
+        if (arrivedWithHomepageIntent || arrivedWithDeepLinkQuestion || recoveredInterruptedGeneration) {
+          switchTab('chat');
+        } else {
+          switchTab(requestedInitialTab || 'home');
+        }
       } else {
 
         document.getElementById('landing-page').style.display = 'none';
@@ -6274,12 +6286,13 @@ async function initSession() {
         showBottomNav();
 
         if (hasPendingHomepageIntent()) {
+          switchTab('chat');
           prepareHomepageIntentChat();
         } else if (mobLoginForMock) {
           mobLoginForMock = false;
           showMockOnboarding();
         } else {
-          showWelcomeMarg();
+          switchTab(requestedInitialTab || 'home');
         }
 
       }
@@ -6881,47 +6894,9 @@ function extractTomorrowTask(margResponse) {
   return null;
 }
 function startMockAnalysis() {
-
-
-
-
-
-  const existingCard = document.getElementById('mock-analysis-card');
-  if (existingCard) existingCard.remove();
-
-  const card = document.createElement('div');
-  card.className = 'mock-analysis-card';
-  card.id = 'mock-analysis-card';
-  card.innerHTML = `
-    <div class="mac-header">
-      <div class="mac-title">📊 Mock Analysis</div>
-      <div class="mac-sub">Let's find exactly where your marks are leaking</div>
-    </div>
-    <div class="mac-body">
-      <div class="mac-step" id="mac-step-1">
-        <div class="mac-label">Step 1 — Your scores</div>
-        <div class="mac-inputs">
-          <div class="mac-input-group">
-            <label>VARC</label>
-            <input type="number" id="mac-varc" placeholder="e.g. 28" min="0" max="72"/>
-          </div>
-          <div class="mac-input-group">
-            <label>DILR</label>
-            <input type="number" id="mac-dilr" placeholder="e.g. 18" min="0" max="60"/>
-          </div>
-          <div class="mac-input-group">
-            <label>QA</label>
-            <input type="number" id="mac-qa" placeholder="e.g. 22" min="0" max="60"/>
-          </div>
-        </div>
-        <button class="mac-btn" onclick="submitMockScores()">Analyse my mock →</button>
-      </div>
-    </div>
-  `;
-
-  const messages = document.getElementById('messages');
-  messages.appendChild(card);
-  messages.scrollTop = messages.scrollHeight;
+  switchTab('mock');
+  var firstScore = document.getElementById('mac-varc');
+  if (firstScore) setTimeout(function() { firstScore.focus(); }, 100);
 }
 
 async function submitMockScores() {
@@ -6934,9 +6909,7 @@ async function submitMockScores() {
     return;
   }
 
-
-  const card = document.getElementById('mock-analysis-card');
-  if (card) card.remove();
+  switchTab('chat');
 
 
   const mockMsg = `I just completed a mock. My scores are: VARC: ${varc}, DILR: ${dilr}, QA: ${qa}. Please analyse my mock and tell me exactly which bucket is costing me marks — concept gap, execution lag, or careless mistake. Give me one specific task to fix before my next mock.`;
@@ -6946,6 +6919,8 @@ async function submitMockScores() {
 
 
   conversationHistory.push({ role: 'user', content: mockMsg });
+  if (!isGuestMode) saveChatMessage('user', mockMsg);
+  if (typeof saveMockScore === 'function') await saveMockScore(varc, dilr, qa);
   showTyping();
 
   try {
@@ -6965,12 +6940,19 @@ async function submitMockScores() {
     if (response) {
       addMargMessage(response);
       conversationHistory.push({ role: 'assistant', content: response });
+      if (!isGuestMode) saveChatMessage('assistant', response);
     } else {
-      addMessage('marg', buildMockScoreFirstRead(varc, dilr, qa));
+      var emptyFallback = buildMockScoreFirstRead(varc, dilr, qa);
+      addMessage('marg', emptyFallback);
+      conversationHistory.push({ role:'assistant', content:emptyFallback });
+      if (!isGuestMode) saveChatMessage('assistant', emptyFallback);
     }
   } catch(e) {
     hideTyping();
-    addMessage('marg', buildMockScoreFirstRead(varc, dilr, qa));
+    var errorFallback = buildMockScoreFirstRead(varc, dilr, qa);
+    addMessage('marg', errorFallback);
+    conversationHistory.push({ role:'assistant', content:errorFallback });
+    if (!isGuestMode) saveChatMessage('assistant', errorFallback);
   }
 }
 let newUserProfile = {};
@@ -7134,6 +7116,7 @@ function startChat() {
 // invokes initSession only after the app bundle has finished loading.
 window.__MARG_AUTH_APP_INIT__ = initSession;
 var currentTab = 'chat';
+var homeRecommendationAction = { destination:'diagnosis' };
 var currentPracticeType = 'rc';
 var practiceData = { rc: null, dilr: null, qa: null };
 var currentSetIndex = 0;
@@ -7222,20 +7205,185 @@ function bestSectionalRecommendation() {
   return candidates[0] || null;
 }
 
+function getHomeTimeGreeting() {
+  var hour = 12;
+  try {
+    var parts = new Intl.DateTimeFormat('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', hour12:false }).formatToParts(new Date());
+    var hourPart = parts.find(function(part) { return part.type === 'hour'; });
+    hour = hourPart ? parseInt(hourPart.value, 10) : 12;
+  } catch(e) { hour = new Date().getHours(); }
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function compactHomeText(value, limit) {
+  var clean = String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  var max = limit || 210;
+  return clean.length > max ? clean.slice(0, max - 1).trim() + '…' : clean;
+}
+
+function getLatestTopicProgress() {
+  loadTopicProgression();
+  return Object.keys(topicProgression).map(function(key) { return topicProgression[key]; }).filter(Boolean).sort(function(a, b) {
+    return String(b.updatedAt || b.lastAttempt || '').localeCompare(String(a.updatedAt || a.lastAttempt || ''));
+  })[0] || null;
+}
+
+function buildHomeRecommendation() {
+  loadPendingDiagnosticExercise();
+  if (typeof loadActiveMentorPlan === 'function') loadActiveMentorPlan();
+  loadDiagnosticMemory();
+
+  if (pendingDiagnosticExercise && pendingDiagnosticExercise.entry) {
+    return {
+      title:'Your targeted diagnosis check is still waiting.',
+      copy:'Continue the exercise designed to test whether ' + compactHomeText(pendingDiagnosticExercise.entry.confirmedDiagnosis || 'the working diagnosis is accurate', 145) + '.',
+      label:'Continue the diagnosis', cta:'Continue in Mentor Chat →', action:{ destination:'chat' }
+    };
+  }
+
+  if (typeof activeMentorPlan !== 'undefined' && activeMentorPlan && activeMentorPlan.mission) {
+    return {
+      title:"Keep today's mission stable.", copy:compactHomeText(activeMentorPlan.mission, 230),
+      label:'Your current priority', cta:'Discuss this mission →', action:{ destination:'chat' }
+    };
+  }
+
+  if (studentProfile && studentProfile.lastTask) {
+    return {
+      title:'Finish the task already in motion.', copy:compactHomeText(studentProfile.lastTask, 220),
+      label:'Continue where you stopped', cta:'Continue with Marg →', action:{ destination:'chat' }
+    };
+  }
+
+  var sectional = bestSectionalRecommendation();
+  if (sectional) {
+    return {
+      title:'You have practised ' + sectional.topic + ' enough to test it under pressure.',
+      copy:'You have completed ' + sectional.conceptQuestionsCompleted + ' concept questions. A timed check will now reveal whether that learning transfers when the topic label and extra time disappear.',
+      label:'Next useful test', cta:'Open the timed test →', action:{ destination:'sectionals', section:sectional.section, topic:sectional.topic }
+    };
+  }
+
+  var latest = getLatestTopicProgress();
+  if (latest) {
+    var accuracyCopy = typeof latest.lastAccuracy === 'number' ? ' Your latest accuracy was ' + latest.lastAccuracy + '%.' : '';
+    return {
+      title:'Build on your latest ' + latest.topic + ' work.',
+      copy:'Marg already has a recent signal from this topic.' + accuracyCopy + ' Another focused attempt will show whether the pattern is changing.',
+      label:'Based on your recent work', cta:'Continue targeted practice →', action:{ destination:'practice', section:latest.section }
+    };
+  }
+
+  var confirmedTopics = Object.keys(diagnosticMemory || {}).filter(function(key) { return hasConfirmedDiagnostic(key); });
+  if (confirmedTopics.length) {
+    var remembered = diagnosticMemory[confirmedTopics[confirmedTopics.length - 1]];
+    return {
+      title:'Continue from the pattern Marg already knows.',
+      copy:compactHomeText(remembered.confirmedDiagnosis || remembered.selectedPattern, 220),
+      label:'Your working diagnosis', cta:'Continue with Marg →', action:{ destination:'chat' }
+    };
+  }
+
+  return {
+    title:'Start by finding the pattern behind the marks.',
+    copy:'A short guided diagnosis gives Marg enough evidence to choose a useful next step instead of giving you generic CAT advice.',
+    label:'Best first step', cta:'Start diagnosis →', action:{ destination:'diagnosis' }
+  };
+}
+
+function renderMentorHome() {
+  var title = document.getElementById('mentor-home-title');
+  var name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
+  if (title) title.textContent = getHomeTimeGreeting() + (name ? ', ' + name : '') + '. What do you need today?';
+  var recommendation = buildHomeRecommendation();
+  homeRecommendationAction = recommendation.action || { destination:'diagnosis' };
+  var label = document.querySelector('#home-recommendation .home-rec-label');
+  var recTitle = document.getElementById('home-rec-title');
+  var copy = document.getElementById('home-rec-copy');
+  var cta = document.getElementById('home-rec-cta');
+  if (label) label.textContent = recommendation.label || 'Marg recommends';
+  if (recTitle) recTitle.textContent = recommendation.title;
+  if (copy) copy.textContent = recommendation.copy;
+  if (cta) cta.textContent = recommendation.cta;
+}
+
+function runHomeRecommendation() {
+  var action = homeRecommendationAction || { destination:'diagnosis' };
+  if (action.destination === 'sectionals') {
+    switchTab('sectionals');
+    var selectId = action.section === 'dilr' ? 'home-dilr-sectional-topic' : 'home-qa-sectional-topic';
+    var select = document.getElementById(selectId);
+    if (select && action.topic) {
+      Array.prototype.some.call(select.options, function(option) {
+        if (option.value === action.topic || option.text === action.topic) { select.value = option.value; return true; }
+        return false;
+      });
+    }
+    return;
+  }
+  if (action.destination === 'practice' && action.section) {
+    switchTab('practice');
+    switchPracticeTab(action.section === 'varc' ? 'rc' : action.section);
+    return;
+  }
+  openHomeDestination(action.destination || 'diagnosis');
+}
+
+function launchHomeDiagnosis() {
+  switchTab('chat');
+  removeConversationalOptions();
+  addMentorLeadMessage('Pick the area where your marks feel least predictable.');
+  showConversationalOptions(['VARC', 'DILR', 'QA', 'Mock Analysis', 'Confidence', 'Strategy'], 'home_diagnosis_topic');
+}
+
+function openHomeDestination(destination) {
+  if (destination === 'diagnosis') { launchHomeDiagnosis(); return; }
+  if (destination === 'chat') {
+    switchTab('chat');
+    if (!onboardingComplete && !(conversationHistory && conversationHistory.length)) {
+      onboardingComplete = true;
+      addMentorLeadMessage('Tell me what is on your mind.');
+    }
+    keepChatInteractive();
+    return;
+  }
+  if (['home','practice','mock','sectionals','progress'].indexOf(destination) !== -1) switchTab(destination);
+}
+
+function openMockScorecardUpload() {
+  openHomeDestination('chat');
+  prefillMessage('Please analyse this mock scorecard and separate the score from the execution pattern behind it.');
+  setTimeout(function() { openImagePicker(); }, 120);
+}
+
+function startSectionalFromHub(section) {
+  var isDilr = section === 'dilr';
+  var select = document.getElementById(isDilr ? 'home-dilr-sectional-topic' : 'home-qa-sectional-topic');
+  var topic = select ? select.value : (isDilr ? 'Mixed Set Selection' : 'Percentages');
+  startTimedTest(section, topic, isDilr ? 12 : 10, null, 0);
+}
+
 function switchTab(tab) {
+  if (['home','chat','practice','mock','sectionals','progress'].indexOf(tab) === -1) tab = 'home';
   if (currentTab === 'chat') saveCurrentChatDraft();
   currentTab = tab;
   document.querySelectorAll('.tab-section').forEach(function(s) { s.classList.remove('active'); });
   document.querySelectorAll('.bnav-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.querySelectorAll('.desktop-nav-btn').forEach(function(b) { b.classList.remove('active'); });
 
   var chatElements = ['messages', 'quick-actions', 'input-area', 'varc-section'];
+  var mobileNav = document.getElementById('bnav-' + tab);
+  var desktopNav = document.getElementById('dnav-' + tab);
+  if (mobileNav) mobileNav.classList.add('active');
+  if (desktopNav) desktopNav.classList.add('active');
 
   if (tab === 'chat') {
     chatElements.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.style.display = '';
     });
-    document.getElementById('bnav-chat').classList.add('active');
     restoreCurrentChatDraft();
     if (window._practiceCompleteSummary) {
       setTimeout(function() {
@@ -7249,13 +7397,18 @@ function switchTab(tab) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
-    if (tab === 'practice') {
+    if (tab === 'home') {
+      document.getElementById('home-tab').classList.add('active');
+      renderMentorHome();
+    } else if (tab === 'practice') {
       document.getElementById('practice-tab').classList.add('active');
-      document.getElementById('bnav-practice').classList.add('active');
       loadDailyPractice();
+    } else if (tab === 'mock') {
+      document.getElementById('mock-tab').classList.add('active');
+    } else if (tab === 'sectionals') {
+      document.getElementById('sectionals-tab').classList.add('active');
     } else if (tab === 'progress') {
       document.getElementById('progress-tab').classList.add('active');
-      document.getElementById('bnav-progress').classList.add('active');
       loadProgressDashboard();
     }
   }
@@ -7264,6 +7417,8 @@ function switchTab(tab) {
 function showBottomNav() {
   var nav = document.getElementById('bottom-nav');
   if (nav) nav.classList.add('visible');
+  var desktopNav = document.getElementById('desktop-nav');
+  if (desktopNav) desktopNav.classList.add('visible');
 }
 function switchPracticeTab(type) {
   currentPracticeType = type;
@@ -7316,6 +7471,85 @@ var QA_CALIBRATION_EXAMPLE = ' CALIBRATION, this is the actual bar: REJECT quest
 var QA_STRUCTURAL_REQUIREMENTS = ' STRUCTURAL REQUIREMENTS — these are checks, not suggestions; silently apply them to every question before finalizing it: (1) The central difficulty must be choosing or deriving the setup, not executing a visible formula sequence. (2) Include at least one hidden relationship, invariant, feasibility restriction, case split, or equation that the student must infer; do not state every usable relationship explicitly. (3) Require at least 2 linked reasoning decisions before routine arithmetic begins; repeated percentage changes or substituting into the same formula twice do not count. (4) Use the minimum sufficient information. REJECT any question with redundant data, multiple explicit percentages that simply map to markup-discount-profit formulas, or an alternate-scenario condition added only to manufacture another equation. (5) REJECT "a quantity is changed by X%, then by Y%, find the result/original value" regardless of phrasing. (6) At least half the set should reward a non-obvious route such as ratios, bounding, parity, symmetry, invariance, smart substitution, or eliminating cases; they must not all be long algebra. (7) Across the complete set, vary both topic and reasoning mechanic. (8) Solve each draft yourself, confirm exactly one option is correct, confirm all supplied data is necessary, and rewrite it if a standard formula pipeline is apparent within 10 seconds.';
 var DILR_CALIBRATION_EXAMPLE = ' CALIBRATION — this is the bar, not a suggestion: a genuinely hard CAT DILR question looks like "If R does not sit at position 4, which of the following must be true?" — answering it means re-deriving part of the arrangement under a new hypothetical constraint, not reading an answer straight off the already-completed grid. A question is too easy if its answer is visible directly from the finished grid with zero further reasoning — rewrite it before including it.';
 var RC_CALIBRATION_EXAMPLE = ' CALIBRATION — this is the bar, not a suggestion: a genuinely hard CAT RC question asks something like "Which of the following, if true, would most weaken the position the author takes in paragraph 2?" — not "What does the author say in paragraph 2?" If a question can be answered by locating and restating one sentence in the passage, it is too easy — rewrite it to require synthesis across the passage, or inference about attitude/tone that isn\'t stated outright.';
+var CLEAN_SOLUTION_OUTPUT_REQUIREMENTS = ' STUDENT-FACING SOLUTION CONTRACT: do all scratch work privately. Every solution/explanation field must contain only one clean, final, independently verified derivation. Never expose drafting commentary, abandoned calculations, false starts, self-corrections, or phrases such as "wait", "let\'s recheck", "let\'s fix", "actually", "ignore that", or "start again". Never redefine the same variable after beginning a derivation. If your working changes, discard the entire draft field and rewrite it from the first valid step to the answer.';
+
+function hasExposedSolutionScratchwork(value) {
+  var text = String(value || '').replace(/<br\s*\/?>/gi, '\n').trim();
+  if (!text) return false;
+  var selfCorrection = /(?:^|[\n.!?;]\s*)(?:wait\s*[:,!—-]|hold on\s*[:,!—-]?|(?:let['’]?s|let us)\s+(?:recheck|check again|fix|redo|restart|recalculate|start again|correct)\b|actually\s*[,!:—-]|correction\s*:|ignore\s+(?:that|the above|the previous)|(?:that|this|the previous (?:step|calculation|answer))\s+(?:is|was)\s+(?:wrong|incorrect)|i\s+(?:made|have made)\s+(?:an?\s+)?(?:error|mistake)|we\s+need\s+to\s+(?:fix|correct|redo|restart|recalculate))/i;
+  if (selfCorrection.test(text)) return true;
+
+  var definitions = {};
+  var definitionPattern = /(?:^|[\n.;]\s*)(?:let|assume|take|put|define)\s+([a-z])\s*(?:=|be)\s*/gi;
+  var match;
+  while ((match = definitionPattern.exec(text))) {
+    var variable = match[1].toLowerCase();
+    definitions[variable] = (definitions[variable] || 0) + 1;
+    if (definitions[variable] > 1) return true;
+  }
+  return false;
+}
+
+function extractCleanFinalDerivation(value) {
+  var text = String(value || '').trim();
+  if (!text) return '';
+  if (!hasExposedSolutionScratchwork(text)) return text;
+  var marker = /(?:^|\n)\s*(?:final|clean|corrected)\s+(?:solution|derivation|working)\s*:\s*/gi;
+  var last = null;
+  var match;
+  while ((match = marker.exec(text))) last = { index:marker.lastIndex };
+  if (!last) return '';
+  var candidate = text.slice(last.index).trim();
+  return candidate.length >= 12 && !hasExposedSolutionScratchwork(candidate) ? candidate : '';
+}
+
+function cleanStudentFacingSolution(value) {
+  return extractCleanFinalDerivation(value);
+}
+
+function collectSolutionPresentationIssues(data, section) {
+  var issues = [];
+  function inspect(question, path, preferredField) {
+    if (!question) return;
+    var field = preferredField && typeof question[preferredField] === 'string'
+      ? preferredField
+      : typeof question.solution === 'string' ? 'solution' : typeof question.explanation === 'string' ? 'explanation' : null;
+    if (!field) return;
+    if (hasExposedSolutionScratchwork(question[field])) issues.push(path + '.' + field + ' exposes scratchwork or self-correction');
+  }
+  if (!data) return issues;
+  if (section === 'qa') {
+    (data.questions || []).forEach(function(question, index) { inspect(question, 'questions[' + index + ']', 'solution'); });
+    if (data.qa && Array.isArray(data.qa.questions)) data.qa.questions.forEach(function(question, index) { inspect(question, 'qa.questions[' + index + ']', 'solution'); });
+  } else if (section === 'dilr') {
+    (data.sets || []).forEach(function(setObj, setIndex) {
+      (setObj.questions || []).forEach(function(question, index) { inspect(question, 'sets[' + setIndex + '].questions[' + index + ']', 'explanation'); });
+    });
+    (data.questions || []).forEach(function(question, index) { inspect(question, 'questions[' + index + ']', 'explanation'); });
+  }
+  return issues;
+}
+
+function normalizeSolutionPresentation(data, section) {
+  function clean(question, preferredField) {
+    if (!question) return;
+    var field = preferredField && typeof question[preferredField] === 'string'
+      ? preferredField
+      : typeof question.solution === 'string' ? 'solution' : typeof question.explanation === 'string' ? 'explanation' : null;
+    if (!field) return;
+    var cleaned = extractCleanFinalDerivation(question[field]);
+    if (cleaned) question[field] = cleaned;
+  }
+  if (!data) return data;
+  if (section === 'qa') {
+    (data.questions || []).forEach(function(question) { clean(question, 'solution'); });
+    if (data.qa && Array.isArray(data.qa.questions)) data.qa.questions.forEach(function(question) { clean(question, 'solution'); });
+  } else if (section === 'dilr') {
+    (data.sets || []).forEach(function(setObj) { (setObj.questions || []).forEach(function(question) { clean(question, 'explanation'); }); });
+    (data.questions || []).forEach(function(question) { clean(question, 'explanation'); });
+  }
+  return data;
+}
 
 function countPracticeWords(text) {
   return String(text || '').trim().split(/\s+/).filter(Boolean).length;
@@ -7383,7 +7617,7 @@ function buildDILRPrompt(topic) {
   }
   var topicLine = topic ? 'The set must center on ' + topic + ' and may blend a secondary data representation where it arises naturally. ' : 'Choose one CAT-relevant family from arrangements/rankings, scheduling/allocation, distribution/grouping, games/tournaments, routes/networks, tables/charts/caselets, or Venn/set data. Prefer a genuine DI-LR hybrid rather than a routine pure arrangement puzzle. ';
   var dilrPyqMap = ' PYQ-INFORMED DESIGN MAP: reproduce the reasoning character of CAT DILR PYQs without copying, paraphrasing, or changing only names/numbers. Real CAT sets are compact but data-rich; require choosing a useful table, grid, graph, cases or variables; make several constraints interact; and usually have a decisive inference that is not stated directly. Use 5-8 entities or a comparably rich data table. Include quantitative relationships where natural—totals, percentages, ratios, capacities, scores, ranks, distances or counts—so DI and LR reinforce each other. Avoid school-level blood-relation chains, a simple row of people with direct positions, one-clue-one-cell grids, standalone arithmetic tables, and trivia-like data sufficiency.';
-  return 'Generate exactly 1 complete CAT-level DILR set with exactly 4 questions. ' + topicLine + focusArea + recentMistakes + dilrPyqMap + ' DIFFICULTY: HARD, never easy or routine; a prepared CAT student should need roughly 14-18 minutes. SET CONSTRUCTION: use 7-9 entities or equivalent data density and 7-10 meaningful constraints. At least three deductions must emerge only by combining multiple constraints. The initial information must permit multiple cases until a non-obvious deduction, bound, conservation relationship, or conditional split narrows them. A direct one-clue-one-placement arrangement is forbidden. Do not make difficulty through long prose, ambiguity, exhaustive brute force or excessive arithmetic. Every condition must be necessary and the complete set must be feasible. QUESTION CONSTRUCTION: use four distinct reasoning types chosen from must/cannot be true, number of feasible cases, maximum/minimum or exact value requiring optimization, and a local hypothetical that forces re-deduction. No question may be a direct lookup after the base representation is completed.' + DILR_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT: independently enumerate or logically verify all feasible cases; solve every question without trusting the first answer; confirm four distinct options, exactly one correct option, the correct zero-based index and an explanation that reaches it. List three genuine derived constraints in derived_constraints; these must be deductions, not restatements of clues. Silently repair or replace any inconsistent, ambiguous, underdetermined or trivial set. Keep setup precise and between 120 and 300 words. Keep explanation to 1-2 compact but verifiable sentences and each diagnostic field to one short phrase. Return ONLY valid parseable JSON, no markdown, exactly this shape with exactly 1 set object and 4 question objects: {"sets":[{"set_title":"specific descriptive title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["primary structure","secondary structure or data type"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete self-contained set with all data and constraints","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"1-2 compact verifiable sentences","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
+  return 'Generate exactly 1 complete CAT-level DILR set with exactly 4 questions. ' + topicLine + focusArea + recentMistakes + dilrPyqMap + ' DIFFICULTY: HARD, never easy or routine; a prepared CAT student should need roughly 14-18 minutes. SET CONSTRUCTION: use 7-9 entities or equivalent data density and 7-10 meaningful constraints. At least three deductions must emerge only by combining multiple constraints. The initial information must permit multiple cases until a non-obvious deduction, bound, conservation relationship, or conditional split narrows them. A direct one-clue-one-placement arrangement is forbidden. Do not make difficulty through long prose, ambiguity, exhaustive brute force or excessive arithmetic. Every condition must be necessary and the complete set must be feasible. QUESTION CONSTRUCTION: use four distinct reasoning types chosen from must/cannot be true, number of feasible cases, maximum/minimum or exact value requiring optimization, and a local hypothetical that forces re-deduction. No question may be a direct lookup after the base representation is completed.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently enumerate or logically verify all feasible cases; solve every question without trusting the first answer; confirm four distinct options, exactly one correct option, the correct zero-based index and an explanation that reaches it. List three genuine derived constraints in derived_constraints; these must be deductions, not restatements of clues. Silently repair or replace any inconsistent, ambiguous, underdetermined or trivial set. Keep setup precise and between 120 and 300 words. Keep explanation to 1-2 compact but verifiable sentences and each diagnostic field to one short phrase. Return ONLY valid parseable JSON, no markdown, exactly this shape with exactly 1 set object and 4 question objects: {"sets":[{"set_title":"specific descriptive title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["primary structure","secondary structure or data type"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete self-contained set with all data and constraints","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"1-2 compact verifiable sentences","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
 }
 
 function validateDILRPracticeSet(data, expectedSetCount) {
@@ -7399,7 +7633,9 @@ function validateDILRPracticeSet(data, expectedSetCount) {
       setupWords >= 120 && setupWords <= 320 &&
       Array.isArray(setObj.questions) && setObj.questions.length === 4 &&
       new Set(reasoningTypes).size >= 3 && reasoningTypes.every(function(type) { return type && type.indexOf('direct') === -1; }) &&
-      setObj.questions.every(isValidTimedTestQuestion);
+      setObj.questions.every(function(question) {
+        return isValidTimedTestQuestion(question) && typeof question.explanation === 'string' && !!cleanStudentFacingSolution(question.explanation);
+      });
   });
 }
 
@@ -7427,7 +7663,7 @@ function buildQAPrompt(topic) {
   }
   var topicLine = topic ? 'TOPIC LOCK: every one of the 3 questions must have the exact primary topic "' + topic + '". Do not generate a standalone Geometry, Algebra, Number Systems, or other-topic question. A secondary technique may appear only inside a question whose central tested idea remains ' + topic + '. The question statement and solution must visibly demonstrate why ' + topic + ' is the central mathematical concept; writing the topic only in metadata is not compliance. Set every question\'s topic field exactly to "' + topic + '" and set topics_combined to ["' + topic + '"] only. ' : 'Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics, but never force a pairing merely to make it look difficult. Give every question an explicit primary topic field. ';
   var pyqDesignMap = ' PYQ-INFORMED DESIGN MAP: Match the reasoning character of recent CAT QA without copying, paraphrasing, or merely changing numbers in any past question. Draw from recurring structures such as ratios hidden inside percentage language; averages or mixtures with a conservation constraint; time-work or time-speed problems requiring relative rates; integer, remainder, digit or divisibility restrictions; algebra where the useful substitution must be discovered; and geometry where similarity, area ratios or a construction reveals the route. Create original situations and relationships. Across the set include 1 medium, 1 medium-hard and 1 hard question; at least one must reward a short non-obvious insight rather than lengthy calculation; and no two questions may share the same solution skeleton.';
-  return 'Generate exactly 3 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + pyqDesignMap + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x").' + QA_STRUCTURAL_REQUIREMENTS + ' Aim for the difficulty where a prepared student still needs roughly 90-180 seconds because the representation or insight is not immediately obvious. Wrong options should be believable results of identifiable reasoning errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT before responding: independently solve every question without trusting your first answer; verify the data are consistent, every condition is necessary, exactly one of the four options is correct, the correct index matches that option, and the written solution reaches it. If a topic lock is present, reject and replace any question whose central tested concept is not that exact topic. Keep "solution" to 2-4 compact steps and include enough working to verify the answer. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with exactly 3 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1"],"questions":[{"topic":"exact primary topic","q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-4 verifiable steps","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
+  return 'Generate exactly 3 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + pyqDesignMap + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x").' + QA_STRUCTURAL_REQUIREMENTS + ' Aim for the difficulty where a prepared student still needs roughly 90-180 seconds because the representation or insight is not immediately obvious. Wrong options should be believable results of identifiable reasoning errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT before responding: independently solve every question without trusting your first answer; verify the data are consistent, every condition is necessary, exactly one of the four options is correct, the correct index matches that option, and the written solution reaches it. If a topic lock is present, reject and replace any question whose central tested concept is not that exact topic. Keep "solution" to 2-4 compact steps and include enough working to verify the answer. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with exactly 3 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1"],"questions":[{"topic":"exact primary topic","q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-4 verifiable steps","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
 }
 
 function validateQASetShape(data, expectedTopic, expectedCount) {
@@ -7440,7 +7676,7 @@ function validateQASetShape(data, expectedTopic, expectedCount) {
     var normalized = q.options.map(function(opt) { return String(opt).replace(/^[A-D]\.\s*/, '').trim().toLowerCase(); });
     if (normalized.some(function(opt) { return !opt; }) || new Set(normalized).size !== 4) return false;
     if (!Number.isInteger(q.correct) || q.correct < 0 || q.correct > 3) return false;
-    return typeof q.solution === 'string' && q.solution.trim().length > 0 && questionMatchesQATopic(q, expectedTopic);
+    return typeof q.solution === 'string' && !!cleanStudentFacingSolution(q.solution) && questionMatchesQATopic(q, expectedTopic);
   });
 }
 
@@ -7449,14 +7685,14 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
 
   if (section === 'qa') {
     var n = questionCount || 10;
-    return 'Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions. TOPIC LOCK: every question must have the exact primary topic "' + topic + '"; do not include any standalone question from Geometry, Algebra, Number Systems, or another topic. A secondary technique is allowed only when the central tested idea remains ' + topic + '. The question statement and solution must visibly demonstrate why ' + topic + ' is central; merely putting that value in the topic field is an automatic failure. Set topics_combined to ["' + topic + '"] and every question.topic exactly to "' + topic + '".' + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics appropriate to ' + topic + ' so no two questions share the same solution skeleton. Include roughly 30% medium, 50% medium-hard and 20% hard questions. At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT: independently solve every item; verify topic purity, feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Silently replace any flawed or off-topic draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"Mixed","topics_combined":["' + topic + '"],"questions":[{"topic":"' + topic + '","q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
+    return 'Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions. TOPIC LOCK: every question must have the exact primary topic "' + topic + '"; do not include any standalone question from Geometry, Algebra, Number Systems, or another topic. A secondary technique is allowed only when the central tested idea remains ' + topic + '. The question statement and solution must visibly demonstrate why ' + topic + ' is central; merely putting that value in the topic field is an automatic failure. Set topics_combined to ["' + topic + '"] and every question.topic exactly to "' + topic + '".' + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics appropriate to ' + topic + ' so no two questions share the same solution skeleton. Include roughly 30% medium, 50% medium-hard and 20% hard questions. At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently solve every item; verify topic purity, feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Silently replace any flawed or off-topic draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"Mixed","topics_combined":["' + topic + '"],"questions":[{"topic":"' + topic + '","q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
   }
 
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
   var dilrTopicInstruction = /mixed set selection/i.test(topic)
     ? 'Use structurally different set families. Make one look familiar but have a weak entry point, while another looks less familiar but has a clean representation and two interacting starting constraints; this must reveal set-selection quality.'
     : 'Center every set on ' + topic + ', while keeping the mechanics distinct.';
-  return 'Generate exactly ' + setsCount + ' independent HARD CAT-level DILR sets, each with 7-9 entities or equivalent data density, 7-10 interacting constraints, and exactly 4 questions. ' + dilrTopicInstruction + difficultyGuard + ' A prepared CAT student should need 14-18 minutes per set. Each set must contain at least three genuine deductions that arise only by combining clues; direct one-clue-one-cell arrangements are forbidden. Multiple cases must remain until a decisive bound, conservation relationship, conditional split, or structural inference narrows them. Every question must require fresh reasoning after the base representation; use at least three distinct types across must/cannot, case count, optimization/exact value, and local hypothetical. No direct-lookup question.' + DILR_CALIBRATION_EXAMPLE + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure every condition is necessary, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Store three genuine deductions in derived_constraints, not restated clues. Keep each setup between 120 and 300 words and explanations compact. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["' + topic + '","secondary interacting structure"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete setup","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short verifiable sentence","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
+  return 'Generate exactly ' + setsCount + ' independent HARD CAT-level DILR sets, each with 7-9 entities or equivalent data density, 7-10 interacting constraints, and exactly 4 questions. ' + dilrTopicInstruction + difficultyGuard + ' A prepared CAT student should need 14-18 minutes per set. Each set must contain at least three genuine deductions that arise only by combining clues; direct one-clue-one-cell arrangements are forbidden. Multiple cases must remain until a decisive bound, conservation relationship, conditional split, or structural inference narrows them. Every question must require fresh reasoning after the base representation; use at least three distinct types across must/cannot, case count, optimization/exact value, and local hypothetical. No direct-lookup question.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure every condition is necessary, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Store three genuine deductions in derived_constraints, not restated clues. Keep each setup between 120 and 300 words and explanations compact. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["' + topic + '","secondary interacting structure"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete setup","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short verifiable sentence","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
 }
 
 function getVerifiedRCFallback() {
@@ -7552,14 +7788,18 @@ function preventStructuredOutputLeak(text) {
   return raw;
 }
 
-async function auditGeneratedCATContent(section, generatedData, expectedTopic) {
+async function auditGeneratedCATContent(section, generatedData, expectedTopic, knownPresentationIssues) {
   var topicAudit = section === 'qa' && expectedTopic ? ' TOPIC PURITY: every question must centrally test exactly "' + expectedTopic + '" and carry that exact topic field; using an unrelated Geometry, Algebra, Number Systems or other question is an automatic failure.' : '';
   var levelAudit = section === 'rc'
     ? ' RC LENGTH AND LEVEL: independently count passage words; 450-550 is mandatory. Reject shorter passages, direct retrieval questions, weak distractors, or fewer than three paragraphs.'
     : section === 'dilr'
       ? ' DILR LEVEL: reject any direct one-clue-one-cell puzzle, set solvable mechanically in under 12 minutes, direct-lookup question, fewer than three genuinely derived constraints, or setup without interacting cases/bounds.'
       : ' QA LEVEL: reject formula-identification drills, visible arithmetic pipelines, redundant data, or questions whose setup is obvious within a few seconds.';
-  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. Check that every condition is mutually consistent and sufficient, every question is answerable, exactly one option is correct, the stored correct index points to that option, and the explanation/solution actually reaches it.' + topicAudit + levelAudit + ' If everything passes, return ONLY {"valid":true,"issues":[]}. If anything fails, repair only the faulty items while preserving the exact schema and item count, independently re-solve the repairs, and return ONLY {"valid":false,"issues":["specific issue"],"corrected_data":<the complete corrected material>}. Never return prose or markdown.\n\nMATERIAL:\n' + JSON.stringify(generatedData);
+  var presentationAudit = ' SOLUTION PRESENTATION: every solution/explanation must be a clean final derivation. Any false start, abandoned arithmetic, self-correction, drafting note, repeated variable definition, or phrase such as "wait", "let\'s recheck", "let\'s fix", "actually", or "ignore that" is a failure. Rewrite the complete affected field from its first valid step; never merely delete a marker while leaving conflicting calculations.';
+  var knownFailure = knownPresentationIssues && knownPresentationIssues.length
+    ? ' KNOWN PRESENTATION FAILURES: ' + knownPresentationIssues.join('; ') + '. You MUST return valid:false with complete corrected_data; valid:true is forbidden for this audit.'
+    : '';
+  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. Check that every condition is mutually consistent and sufficient, every question is answerable, exactly one option is correct, the stored correct index points to that option, and the explanation/solution actually reaches it.' + topicAudit + levelAudit + presentationAudit + knownFailure + ' If everything passes, return ONLY {"valid":true,"issues":[]}. If anything fails, repair only the faulty items while preserving the exact schema and item count, independently re-solve the repairs, and return ONLY {"valid":false,"issues":["specific issue"],"corrected_data":<the complete corrected material>}. Never return prose or markdown.\n\nMATERIAL:\n' + JSON.stringify(generatedData);
   var setCount = generatedData && Array.isArray(generatedData.sets) ? generatedData.sets.length : 1;
   var auditMaxTokens = section === 'dilr' ? Math.min(32768, 16384 + setCount * 5000) : section === 'rc' ? 16384 : 20480;
   try {
@@ -7576,9 +7816,16 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic) {
     var auditPayload = await auditResponse.json();
     var auditText = getGeminiText(auditPayload);
     var audit = parseGeneratedJson(auditText || '');
+    if (knownPresentationIssues && knownPresentationIssues.length && audit && audit.valid === true) {
+      return { valid:false, issues:knownPresentationIssues.concat(['Auditor did not rewrite the exposed scratchwork']), correctedData:null };
+    }
+    var correctedData = audit && audit.corrected_data ? normalizePracticeAnswers(audit.corrected_data, section) : null;
+    if (correctedData && collectSolutionPresentationIssues(correctedData, section).length) {
+      return { valid:false, issues:['Corrected material still exposes scratchwork'], correctedData:null };
+    }
     return audit && audit.valid === true
       ? { valid:true, issues:[], correctedData:null }
-      : { valid:false, issues:(audit && audit.issues) || ['Semantic audit failed'], correctedData:audit && audit.corrected_data ? normalizePracticeAnswers(audit.corrected_data, section) : null };
+      : { valid:false, issues:(audit && audit.issues) || ['Semantic audit failed'], correctedData:correctedData };
   } catch(e) {
     return { valid:false, issues:['Semantic audit could not verify this set'] };
   }
@@ -7603,7 +7850,18 @@ function normalizePracticeAnswers(data, type) {
       if (setObj && Array.isArray(setObj.questions)) setObj.questions.forEach(normalizeCorrectIndex);
     });
   }
-  return data;
+  return normalizeSolutionPresentation(data, type);
+}
+
+async function repairGeneratedSolutionPresentation(section, generatedData, expectedTopic) {
+  var issues = collectSolutionPresentationIssues(generatedData, section);
+  if (!issues.length) return generatedData;
+  console.warn('Generated ' + section.toUpperCase() + ' solution failed the clean-output gate:', issues);
+  var repair = await auditGeneratedCATContent(section, generatedData, expectedTopic, issues);
+  if (!repair.correctedData || collectSolutionPresentationIssues(repair.correctedData, section).length) {
+    throw new Error('Generated solution exposed self-correction and could not be repaired safely');
+  }
+  return repair.correctedData;
 }
 
 function isValidTimedTestQuestion(q) {
@@ -7616,7 +7874,7 @@ function flattenTimedTestQuestions(section, data) {
   var flat = [];
   if (section === 'qa') {
     (data.questions || []).forEach(function(q) {
-      flat.push({ q: q.q, options: q.options, correct: q.correct, setupText: null, setLabel: null, explanation: q.solution || '', commonMistake: q.common_mistake || '' });
+      flat.push({ q: q.q, options: q.options, correct: q.correct, setupText: null, setLabel: null, explanation: cleanStudentFacingSolution(q.solution), commonMistake: q.common_mistake || '' });
     });
   } else {
     (data.sets || []).forEach(function(setObj, si) {
@@ -7625,7 +7883,7 @@ function flattenTimedTestQuestions(section, data) {
           q: q.q, options: q.options, correct: q.correct,
           setupText: qi === 0 ? setObj.setup : null,
           setLabel: 'Set ' + (si + 1),
-          explanation: q.explanation || '', commonMistake: q.common_mistake || ''
+          explanation: cleanStudentFacingSolution(q.explanation), commonMistake: q.common_mistake || ''
         });
       });
     });
@@ -7691,11 +7949,11 @@ function validateVerbalValidationSet(data, requirePassage) {
 }
 
 function buildStrategyValidationPrompt(entry) {
-  return getPredictionValidationFocus(entry) + 'Generate exactly 3 short CAT strategy decision scenarios specifically designed to test this prediction. These are not syllabus questions. Each scenario must force a choice about attempt order, selection, exit rules, revision priority, or guessing under realistic CAT constraints. Four options, exactly one best decision, and plausible alternatives reflecting identifiable strategy errors. Return ONLY valid JSON: {"difficulty":"CAT decision lab","questions":[{"q":"scenario and decision","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"why this decision is best","marg_insight":"observable strategy pattern"}]} with exactly 3 questions.';
+  return getPredictionValidationFocus(entry) + 'Generate exactly 3 short CAT strategy decision scenarios specifically designed to test this prediction. These are not syllabus questions. Each scenario must force a choice about attempt order, selection, exit rules, revision priority, or guessing under realistic CAT constraints. Four options, exactly one best decision, and plausible alternatives reflecting identifiable strategy errors.' + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' Return ONLY valid JSON: {"difficulty":"CAT decision lab","questions":[{"q":"scenario and decision","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"why this decision is best","marg_insight":"observable strategy pattern"}]} with exactly 3 questions.';
 }
 
 function buildDILRSelectionValidationPrompt(entry) {
-  return getPredictionValidationFocus(entry) + 'Create exactly 3 CAT DILR set-selection scenarios. In each question, show four compact but sufficiently informative set previews from different DILR families. Ask which set should be attempted first under a stated time/skill condition. The best answer must follow actual entry clarity, constraint interaction, branching risk, and likely payoff—not surface familiarity. Make distractors reflect choosing by familiar topic, short wording, or sunk-cost instinct. Return ONLY valid JSON: {"difficulty":"CAT DILR selection lab","questions":[{"q":"four compact set previews plus the selection task","options":["A. Attempt set A first","B. Attempt set B first","C. Attempt set C first","D. Attempt set D first"],"correct":0,"solution":"brief comparison of entry point and downside","marg_insight":"observable selection rule"}]} with exactly 3 questions.';
+  return getPredictionValidationFocus(entry) + 'Create exactly 3 CAT DILR set-selection scenarios. In each question, show four compact but sufficiently informative set previews from different DILR families. Ask which set should be attempted first under a stated time/skill condition. The best answer must follow actual entry clarity, constraint interaction, branching risk, and likely payoff—not surface familiarity. Make distractors reflect choosing by familiar topic, short wording, or sunk-cost instinct.' + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' Return ONLY valid JSON: {"difficulty":"CAT DILR selection lab","questions":[{"q":"four compact set previews plus the selection task","options":["A. Attempt set A first","B. Attempt set B first","C. Attempt set C first","D. Attempt set D first"],"correct":0,"solution":"brief comparison of entry point and downside","marg_insight":"observable selection rule"}]} with exactly 3 questions.';
 }
 
 function buildConfidenceValidationExercise(entry) {
@@ -7899,7 +8157,9 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
     var parsed = parseGeneratedJson(raw);
     if (section === 'va' || section === 'varc_mixed' || section === 'strategy' || section === 'dilr_selection') {
       if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(normalizeCorrectIndex);
+      if (section === 'strategy' || section === 'dilr_selection') normalizeSolutionPresentation(parsed, 'qa');
     } else parsed = normalizePracticeAnswers(parsed, section);
+    if (section === 'qa') parsed = await repairGeneratedSolutionPresentation('qa', parsed, qaExpectedTopic);
     var valid = section === 'rc' ? validateRCPracticeSet(parsed)
       : section === 'dilr' ? validateDILRPracticeSet(parsed)
       : section === 'va' || section === 'varc_mixed' ? validateVerbalValidationSet(parsed, section === 'varc_mixed')
@@ -7929,26 +8189,29 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
 }
 
 function buildGuidedMiniMockPrompt(diagnosticEntry) {
-  return getPredictionValidationFocus(diagnosticEntry) + 'Create a compact CAT execution check with exactly 4 questions: 2 VARC questions attached to one 280-330 word dense passage and 2 original CAT-level QA questions requiring setup recognition rather than direct formulas. Do not create or include any DILR material; DILR is served only through the audited timed interface. Keep it solvable in about 12 minutes. Vary apparent difficulty and entry clarity so attempt order, skips and commitment quality can test the mock-behaviour prediction. Independently solve everything and verify exactly one correct option per question. Return only valid JSON in this exact shape: {"varc":{"passage":"text","questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"short","marg_insight":"short cognitive pattern"}]},"qa":{"questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"short","marg_insight":"short cognitive pattern"}]}}. Each section must have exactly 2 questions.';
+  return getPredictionValidationFocus(diagnosticEntry) + 'Create a compact CAT execution check with exactly 4 questions: 2 VARC questions attached to one 280-330 word dense passage and 2 original CAT-level QA questions requiring setup recognition rather than direct formulas. Do not create or include any DILR material; DILR is served only through the audited timed interface. Keep it solvable in about 12 minutes. Vary apparent difficulty and entry clarity so attempt order, skips and commitment quality can test the mock-behaviour prediction. Independently solve everything and verify exactly one correct option per question.' + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' Return only valid JSON in this exact shape: {"varc":{"passage":"text","questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"short","marg_insight":"short cognitive pattern"}]},"qa":{"questions":[{"q":"question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"short","marg_insight":"short cognitive pattern"}]}}. Each section must have exactly 2 questions.';
 }
 
 function normalizeGuidedMiniMock(data) {
   ['varc','qa'].forEach(function(section) {
     if (data && data[section] && Array.isArray(data[section].questions)) data[section].questions.forEach(normalizeCorrectIndex);
   });
+  if (data && data.qa) normalizeSolutionPresentation(data.qa, 'qa');
   return data;
 }
 
 function validateGuidedMiniMock(data) {
   return !!(data && data.varc && typeof data.varc.passage === 'string' && data.qa && !data.dilr &&
-    ['varc','qa'].every(function(section) { return Array.isArray(data[section].questions) && data[section].questions.length === 2 && data[section].questions.every(isValidTimedTestQuestion); }));
+    ['varc','qa'].every(function(section) { return Array.isArray(data[section].questions) && data[section].questions.length === 2 && data[section].questions.every(function(question) {
+      return isValidTimedTestQuestion(question) && (section !== 'qa' || (typeof question.solution === 'string' && !!cleanStudentFacingSolution(question.solution)));
+    }); }));
 }
 
 function flattenGuidedMiniMock(data) {
   var questions = [];
   ['varc','qa'].forEach(function(section) {
     data[section].questions.forEach(function(question) {
-      questions.push({ q:question.q, options:question.options, correct:question.correct, explanation:question.explanation || question.solution || '', marg_insight:question.marg_insight || '', section:section });
+      questions.push({ q:question.q, options:question.options, correct:question.correct, explanation:section === 'qa' ? cleanStudentFacingSolution(question.solution) : (question.explanation || ''), marg_insight:question.marg_insight || '', section:section });
     });
   });
   return questions;
@@ -8051,6 +8314,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       console.error('Timed test JSON parse failed. Raw model output:', text);
       throw parseErr;
     }
+    parsed = await repairGeneratedSolutionPresentation(section, parsed, topic);
     var expectedQuestionCount = section === 'qa' ? (questionCount || 10) : Math.max(1, Math.round((questionCount || 12) / 4)) * 4;
     var expectedSetCount = section === 'dilr' ? expectedQuestionCount / 4 : null;
     var sectionalShapeValid = section === 'qa'
@@ -8351,6 +8615,9 @@ async function loadDailyPractice() {
       console.error('Practice JSON parse failed. Raw model output:', text);
       throw parseErr;
     }
+    if (currentPracticeType === 'qa' || currentPracticeType === 'dilr') {
+      practiceJson = await repairGeneratedSolutionPresentation(currentPracticeType, practiceJson, selectedPracticeTopic);
+    }
     var practiceHasContent = currentPracticeType === 'qa' ? (practiceJson.questions && practiceJson.questions.length > 0) : (practiceJson.sets && practiceJson.sets.length > 0);
     if (!practiceHasContent) {
       console.error('Practice parsed OK but yielded no questions/sets. Parsed shape:', practiceJson, 'Raw model output:', text);
@@ -8502,10 +8769,10 @@ function selectAnswer(selectedIndex) {
     explanationText = q.explanation || '';
     insightText = isCorrect ? 'Clean read — you found the right line.' : (q.marg_insight || '') + (q.trap_type ? ' This is the ' + q.trap_type + ' trap.' : '');
   } else if (currentPracticeType === 'dilr') {
-    explanationText = (q.explanation || '') + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + q.common_mistake : '');
+    explanationText = cleanStudentFacingSolution(q.explanation) + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + q.common_mistake : '');
     insightText = isCorrect ? 'Clean solve.' : (q.marg_insight || '');
   } else {
-    explanationText = (q.solution || '') + (q.common_mistake ? '<br><br><strong>Watch out for:</strong> ' + q.common_mistake : '');
+    explanationText = cleanStudentFacingSolution(q.solution) + (q.common_mistake ? '<br><br><strong>Watch out for:</strong> ' + q.common_mistake : '');
     insightText = isCorrect ? 'Correct approach.' : (q.marg_insight || '') + (q.concept_check ? ' (Topic: ' + q.concept_check + ')' : '');
   }
 
@@ -8542,7 +8809,7 @@ function selectAnswer(selectedIndex) {
     updateCognitivePattern(currentPracticeType, insight);
     showInsightToast('<strong>Marg just learned something</strong><br>' + insight);
     storeWrongAnswer(currentPracticeType, q, insight);
-    
+
     // Show Ask Marg button in explanation
     setTimeout(function() {
       var expEl = document.getElementById('explanation-box');
