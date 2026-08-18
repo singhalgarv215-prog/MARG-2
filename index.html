@@ -12,7 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<script defer src="/landing-bootstrap.js?v=20260816-2"></script>
+<script defer src="/landing-bootstrap.js?v=20260818-1"></script>
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
@@ -322,6 +322,63 @@
 .app-menu-item:hover{border-color:rgba(201,168,76,.4);color:var(--text);background:var(--gold-dim2);transform:none;}
 .app-menu-item-icon{width:22px;text-align:center;font-size:16px;flex-shrink:0;}
 .app-menu-item.danger{margin-top:8px;color:#b98585;}
+.landing-product-strip{width:100%;max-width:680px;margin:2px auto 0;display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;}
+.landing-product-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border2);border-radius:999px;background:rgba(255,255,255,.025);color:#969189;font-size:10.5px;white-space:nowrap;}
+.landing-product-pill span{color:var(--gold-light);font-size:11px;}
+#desktop-nav{display:none;position:fixed;inset:0 auto 0 0;width:224px;padding:20px 14px;background:#0b0b0b;border-right:1px solid var(--border2);z-index:90;flex-direction:column;}
+#desktop-nav.visible{display:flex;}
+.desktop-nav-logo{height:30px;width:auto;object-fit:contain;align-self:flex-start;margin:0 10px 26px;}
+.desktop-nav-label{padding:0 11px 8px;color:var(--text-dim);font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;}
+.desktop-nav-items{display:flex;flex-direction:column;gap:5px;}
+.desktop-nav-btn{width:100%;display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px solid transparent;border-radius:11px;background:transparent;color:var(--text-muted);font:13px 'DM Sans',sans-serif;text-align:left;cursor:pointer;}
+.desktop-nav-btn:hover{background:var(--surface2);border-color:var(--border);color:var(--text);transform:none;}
+.desktop-nav-btn.active{background:var(--gold-dim);border-color:rgba(201,168,76,.25);color:var(--gold-light);}
+.desktop-nav-icon{width:21px;text-align:center;font-size:16px;flex-shrink:0;}
+.desktop-nav-secondary{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);}
+.desktop-nav-secondary .desktop-nav-btn{font-size:12px;}
+.section-more-btn{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border2);border-radius:9px;background:var(--surface2);color:var(--text-muted);font-size:18px;cursor:pointer;}
+.mentor-home{padding:0;background:radial-gradient(circle at 82% 4%,rgba(201,168,76,.08),transparent 34%),var(--bg);}
+.mentor-home-scroll{width:100%;max-width:980px;margin:0 auto;padding:30px 30px 90px;}
+.mentor-home-header{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:25px;}
+.mentor-home-eyebrow{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:7px;}
+.mentor-home-title{font-family:'Playfair Display',serif;font-size:30px;font-weight:500;line-height:1.2;color:var(--text);}
+.mentor-home-sub{font-size:13px;color:var(--text-muted);margin-top:6px;}
+.home-recommendation{position:relative;overflow:hidden;padding:22px 24px;margin-bottom:26px;border:1px solid rgba(201,168,76,.28);border-radius:18px;background:linear-gradient(135deg,rgba(201,168,76,.12),rgba(76,175,125,.045));}
+.home-recommendation:after{content:'';position:absolute;width:190px;height:190px;border-radius:50%;right:-80px;top:-105px;background:rgba(201,168,76,.08);pointer-events:none;}
+.home-rec-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gold-light);margin-bottom:8px;}
+.home-rec-title{font-family:'Playfair Display',serif;font-size:21px;color:var(--text);line-height:1.35;max-width:650px;}
+.home-rec-copy{font-size:13px;line-height:1.6;color:#aaa69e;max-width:650px;margin-top:7px;}
+.home-rec-cta{position:relative;z-index:1;margin-top:16px;padding:10px 15px;border:0;border-radius:10px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:white;font:600 12px 'DM Sans',sans-serif;cursor:pointer;}
+.home-section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:13px;}
+.home-section-title{font-size:15px;font-weight:600;color:var(--text);}
+.home-section-note{font-size:11px;color:var(--text-dim);}
+.home-feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.home-feature-card{min-height:166px;padding:19px;border:1px solid var(--border2);border-radius:16px;background:linear-gradient(145deg,#141414,#0f0f0f);text-align:left;color:var(--text);font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;flex-direction:column;align-items:flex-start;}
+.home-feature-card:hover{border-color:var(--feature-color,var(--gold));background:#171717;transform:translateY(-2px);}
+.home-feature-icon{width:38px;height:38px;display:flex;align-items:center;justify-content:center;margin-bottom:14px;border:1px solid rgba(201,168,76,.3);border-radius:11px;background:rgba(201,168,76,.08);font-size:18px;}
+.home-feature-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;}
+.home-feature-copy{font-size:11.5px;line-height:1.55;color:var(--text-muted);}
+.home-feature-arrow{margin-top:auto;padding-top:12px;color:var(--feature-color,var(--gold));font-size:12px;font-weight:600;}
+.feature-diagnosis{--feature-color:#C9A84C}.feature-chat{--feature-color:#4CAF7D}.feature-practice{--feature-color:#6B8EFF}.feature-mock{--feature-color:#E0826B}.feature-tests{--feature-color:#A782E0}.feature-progress{--feature-color:#61B89A}
+.feature-chat .home-feature-icon{border-color:rgba(76,175,125,.35);background:rgba(76,175,125,.09)}.feature-practice .home-feature-icon{border-color:rgba(107,142,255,.35);background:rgba(107,142,255,.09)}.feature-mock .home-feature-icon{border-color:rgba(224,130,107,.35);background:rgba(224,130,107,.09)}.feature-tests .home-feature-icon{border-color:rgba(167,130,224,.35);background:rgba(167,130,224,.09)}.feature-progress .home-feature-icon{border-color:rgba(97,184,154,.35);background:rgba(97,184,154,.09)}
+.destination-shell{padding:0;background:var(--bg);}
+.destination-header{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:17px 22px;border-bottom:1px solid var(--border2);background:rgba(14,14,14,.96);backdrop-filter:blur(10px);}
+.destination-title{font-family:'Playfair Display',serif;font-size:19px;color:var(--text);}
+.destination-sub{font-size:11px;color:var(--text-dim);margin-top:3px;}
+.destination-content{width:100%;max-width:780px;margin:0 auto;padding:25px 22px 90px;}
+.destination-intro{padding:18px 19px;margin-bottom:16px;border:1px solid var(--border2);border-radius:14px;background:var(--surface);}
+.destination-intro strong{display:block;font-size:14px;color:var(--text);margin-bottom:5px;}
+.destination-intro span{font-size:12px;line-height:1.6;color:var(--text-muted);}
+.mock-score-panel{padding:22px;border:1px solid rgba(224,130,107,.25);border-radius:16px;background:linear-gradient(145deg,rgba(224,130,107,.07),var(--surface));}
+.mock-score-panel .mac-inputs{margin-top:15px;}
+.mock-secondary-action{width:100%;margin-top:10px;padding:11px 14px;border:1px solid var(--border2);border-radius:10px;background:transparent;color:var(--text-muted);font:12px 'DM Sans',sans-serif;cursor:pointer;}
+.sectional-groups{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.sectional-card{padding:20px;border:1px solid var(--border2);border-radius:16px;background:var(--surface);}
+.sectional-card-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);}
+.sectional-card-title{font-size:16px;font-weight:600;color:var(--text);margin:8px 0 5px;}
+.sectional-card-copy{font-size:12px;line-height:1.55;color:var(--text-muted);margin-bottom:15px;}
+.sectional-select{width:100%;padding:11px 12px;border:1px solid var(--border2);border-radius:9px;background:var(--surface2);color:var(--text);font:12px 'DM Sans',sans-serif;margin-bottom:10px;}
+.sectional-start{width:100%;padding:11px;border:0;border-radius:9px;background:linear-gradient(135deg,#A782E0,#7251ad);color:#fff;font:600 12px 'DM Sans',sans-serif;cursor:pointer;}
 @media(max-width:600px){
   html,body,#landing-page{max-width:100%;overflow-x:hidden;}
   .nav{padding:10px 14px!important;}
@@ -351,6 +408,23 @@
   #user-info{margin-left:auto;}
   #user-avatar{width:30px;height:30px;}
   #quick-actions{display:none!important;}
+  .landing-product-strip{gap:5px;margin-top:1px;}
+  .landing-product-pill{padding:5px 8px;font-size:9px;}
+  .mentor-home-scroll{padding:20px 14px 86px;}
+  .mentor-home-header{margin-bottom:18px;}
+  .mentor-home-title{font-size:25px;}
+  .mentor-home-sub{font-size:12px;}
+  .home-recommendation{padding:18px;margin-bottom:21px;}
+  .home-rec-title{font-size:18px;}
+  .home-feature-grid{grid-template-columns:1fr 1fr;gap:9px;}
+  .home-feature-card{min-height:156px;padding:15px;}
+  .home-feature-icon{width:34px;height:34px;margin-bottom:11px;}
+  .home-feature-copy{font-size:10.5px;}
+  .home-section-note{display:none;}
+  .destination-header{padding:13px 14px;}
+  .destination-content{padding:17px 14px 84px;}
+  .mock-score-panel{padding:17px 14px;}
+  .sectional-groups{grid-template-columns:1fr;}
 }
 @media(max-width:340px){
   .hero{padding-top:18px!important;}
@@ -383,6 +457,18 @@
   .homepage-google-cta{padding:8px 10px;font-size:10.5px;}
   .homepage-change-problem{font-size:9.5px;padding:3px;}
   .homepage-preview-note{margin-top:4px;font-size:8.5px;}
+  .landing-product-strip{gap:3px;margin-top:1px;}
+  .landing-product-pill{padding:3px 5px;font-size:7.5px;gap:3px;}
+}
+
+@media(min-width:901px){
+  #bottom-nav.visible{display:none;}
+  #chat-app{margin-left:224px;width:calc(100% - 224px);}
+  .tab-section{left:224px;bottom:0;}
+  #input-area{padding-bottom:12px;}
+}
+@media(max-width:900px){
+  #desktop-nav.visible{display:none;}
 }
 
 </style>
@@ -431,6 +517,13 @@
     </div>
     <button class="homepage-login-link" type="button" onclick="startLogin()">Already use Marg? Sign in</button>
     <div class="homepage-trust-strip"><span class="homepage-trust-dot">●</span><span>Diagnosis before sign-in</span><span>·</span><span>No payment details</span><span>·</span><span>Built for CAT 2026</span></div>
+    <div class="landing-product-strip" aria-label="What you can do inside Marg">
+      <span class="landing-product-pill"><span>🧠</span>Diagnose</span>
+      <span class="landing-product-pill"><span>✍️</span>Practise</span>
+      <span class="landing-product-pill"><span>📊</span>Analyse mocks</span>
+      <span class="landing-product-pill"><span>⏱</span>Take sectionals</span>
+      <span class="landing-product-pill"><span>↗</span>Track progress</span>
+    </div>
   </section>
 
   <!-- FEATURES GRID -->
@@ -883,6 +976,81 @@
   <div id="streak-hours"></div>
 </div>
 
+<!-- ═══ AUTHENTICATED DESKTOP NAVIGATION ═══ -->
+<nav id="desktop-nav" aria-label="Marg features">
+  <img class="desktop-nav-logo" src="/Logo-full.png" alt="Marg">
+  <div class="desktop-nav-label">Your preparation</div>
+  <div class="desktop-nav-items">
+    <button class="desktop-nav-btn" id="dnav-home" type="button" onclick="switchTab('home')"><span class="desktop-nav-icon">⌂</span>Home</button>
+    <button class="desktop-nav-btn" id="dnav-chat" type="button" onclick="switchTab('chat')"><span class="desktop-nav-icon">💬</span>Mentor Chat</button>
+    <button class="desktop-nav-btn" id="dnav-practice" type="button" onclick="switchTab('practice')"><span class="desktop-nav-icon">✍️</span>Practice</button>
+    <button class="desktop-nav-btn" id="dnav-mock" type="button" onclick="switchTab('mock')"><span class="desktop-nav-icon">📊</span>Mock Analysis</button>
+    <button class="desktop-nav-btn" id="dnav-sectionals" type="button" onclick="switchTab('sectionals')"><span class="desktop-nav-icon">⏱</span>Sectional Tests</button>
+    <button class="desktop-nav-btn" id="dnav-progress" type="button" onclick="switchTab('progress')"><span class="desktop-nav-icon">↗</span>Progress</button>
+  </div>
+  <div class="desktop-nav-secondary">
+    <button class="desktop-nav-btn" type="button" onclick="openAppMenu()"><span class="desktop-nav-icon">•••</span>More</button>
+  </div>
+</nav>
+
+<!-- ═══ MENTOR HOME ═══ -->
+<section id="home-tab" class="tab-section mentor-home" aria-label="Mentor Home">
+  <div class="mentor-home-scroll">
+    <div class="mentor-home-header">
+      <div>
+        <div class="mentor-home-eyebrow">Mentor Home</div>
+        <h1 class="mentor-home-title" id="mentor-home-title">What do you need today?</h1>
+        <div class="mentor-home-sub">Choose a clear starting point. Marg keeps the context connected.</div>
+      </div>
+      <button class="section-more-btn" type="button" onclick="openAppMenu()" aria-label="Open more options">•••</button>
+    </div>
+
+    <div class="home-recommendation" id="home-recommendation">
+      <div class="home-rec-label">Marg recommends</div>
+      <div class="home-rec-title" id="home-rec-title">Start by finding the pattern behind the marks.</div>
+      <div class="home-rec-copy" id="home-rec-copy">A short diagnosis gives Marg enough evidence to choose a useful next step.</div>
+      <button class="home-rec-cta" id="home-rec-cta" type="button" onclick="runHomeRecommendation()">Start diagnosis →</button>
+    </div>
+
+    <div class="home-section-head">
+      <div class="home-section-title">Choose what you need</div>
+      <div class="home-section-note">Each option opens its own workspace</div>
+    </div>
+    <div class="home-feature-grid">
+      <button class="home-feature-card feature-diagnosis" type="button" onclick="openHomeDestination('diagnosis')">
+        <span class="home-feature-icon">🧠</span><span class="home-feature-title">Diagnose me</span>
+        <span class="home-feature-copy">Find the repeated decision or thinking pattern costing you marks.</span>
+        <span class="home-feature-arrow">Start a guided diagnosis →</span>
+      </button>
+      <button class="home-feature-card feature-chat" type="button" onclick="openHomeDestination('chat')">
+        <span class="home-feature-icon">💬</span><span class="home-feature-title">Ask Marg</span>
+        <span class="home-feature-copy">Talk through strategy, confidence, resources or your study plan.</span>
+        <span class="home-feature-arrow">Open Mentor Chat →</span>
+      </button>
+      <button class="home-feature-card feature-practice" type="button" onclick="openHomeDestination('practice')">
+        <span class="home-feature-icon">✍️</span><span class="home-feature-title">Daily Practice</span>
+        <span class="home-feature-copy">Choose RC, DILR or QA practice targeted to your current patterns.</span>
+        <span class="home-feature-arrow">Choose a section →</span>
+      </button>
+      <button class="home-feature-card feature-mock" type="button" onclick="openHomeDestination('mock')">
+        <span class="home-feature-icon">📊</span><span class="home-feature-title">Analyse a Mock</span>
+        <span class="home-feature-copy">Separate score outcomes from the execution leak that produced them.</span>
+        <span class="home-feature-arrow">Enter your scores →</span>
+      </button>
+      <button class="home-feature-card feature-tests" type="button" onclick="openHomeDestination('sectionals')">
+        <span class="home-feature-icon">⏱</span><span class="home-feature-title">Sectional Tests</span>
+        <span class="home-feature-copy">Open the timed QA or audited DILR interface with navigation and analysis.</span>
+        <span class="home-feature-arrow">Choose a timed test →</span>
+      </button>
+      <button class="home-feature-card feature-progress" type="button" onclick="openHomeDestination('progress')">
+        <span class="home-feature-icon">↗</span><span class="home-feature-title">Progress &amp; Plan</span>
+        <span class="home-feature-copy">See mock history, recurring patterns, streaks and the next useful move.</span>
+        <span class="home-feature-arrow">View your progress →</span>
+      </button>
+    </div>
+  </div>
+</section>
+
 <div id="chat-app">
   <div id="header">
     <img id="header-logo" src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg">
@@ -930,17 +1098,6 @@
     </div>
   </div>
   <div id="messages"></div>
-  <div id="quick-actions">
-    <button class="quick-action-btn" onclick="startMockAnalysis()">
-      📊 Analyze my mock
-    </button>
-    <button class="quick-action-btn" onclick="prefillMessage('Help me with my VARC — I want to improve my RC score')">
-      📖 Fix my VARC
-    </button>
-    <button class="quick-action-btn" onclick="prefillMessage('I just gave a mock. Help me figure out what to fix.')">
-      🎯 Post-mock plan
-    </button>
-  </div>
   <div id="input-area">
     <div id="image-attachment-preview" aria-live="polite">
       <div class="image-attachment-header">
@@ -962,12 +1119,62 @@
   </div>
 </div>
 
+<!-- ═══ MOCK ANALYSIS DESTINATION ═══ -->
+<section id="mock-tab" class="tab-section destination-shell" aria-label="Mock Analysis">
+  <div class="destination-header">
+    <div><div class="destination-title">Mock Analysis</div><div class="destination-sub">Scores are the starting evidence—not the diagnosis.</div></div>
+    <button class="section-more-btn" type="button" onclick="openAppMenu()" aria-label="Open more options">•••</button>
+  </div>
+  <div class="destination-content">
+    <div class="destination-intro"><strong>Find the execution leak behind the score</strong><span>Enter section scores below. Marg will separate section imbalance from unconfirmed causes before asking for the evidence it actually needs.</span></div>
+    <div class="mock-score-panel" id="mock-analysis-panel">
+      <div class="mac-label">Your latest mock scores</div>
+      <div class="mac-inputs">
+        <div class="mac-input-group"><label for="mac-varc">VARC</label><input type="number" id="mac-varc" placeholder="e.g. 28" min="0" max="72"></div>
+        <div class="mac-input-group"><label for="mac-dilr">DILR</label><input type="number" id="mac-dilr" placeholder="e.g. 18" min="0" max="60"></div>
+        <div class="mac-input-group"><label for="mac-qa">QA</label><input type="number" id="mac-qa" placeholder="e.g. 22" min="0" max="60"></div>
+      </div>
+      <button class="mac-btn" type="button" onclick="submitMockScores()">Analyse my mock →</button>
+      <button class="mock-secondary-action" type="button" onclick="openMockScorecardUpload()">I have a scorecard screenshot</button>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SECTIONAL TEST DESTINATION ═══ -->
+<section id="sectionals-tab" class="tab-section destination-shell" aria-label="Sectional Tests">
+  <div class="destination-header">
+    <div><div class="destination-title">Sectional Tests</div><div class="destination-sub">Timed interfaces with navigation, submission and analysis.</div></div>
+    <button class="section-more-btn" type="button" onclick="openAppMenu()" aria-label="Open more options">•••</button>
+  </div>
+  <div class="destination-content">
+    <div class="destination-intro"><strong>Pressure-test one decision at a time</strong><span>Choose a focused QA topic or a DILR set family. Questions open in the existing timed interface—not inside chat.</span></div>
+    <div class="sectional-groups">
+      <div class="sectional-card">
+        <div class="sectional-card-label">QA</div><div class="sectional-card-title">Focused QA sectional</div>
+        <div class="sectional-card-copy">10 CAT-level questions · 20 minutes · one locked topic.</div>
+        <select class="sectional-select" id="home-qa-sectional-topic" aria-label="Choose QA sectional topic">
+          <option>Percentages</option><option>Ratios &amp; Proportions</option><option>Time-Speed-Distance</option><option>Profit &amp; Loss</option><option>Linear Equations</option><option>Quadratic Equations</option><option>Functions &amp; Inequalities</option><option>Geometry (Triangles, Circles)</option><option>Number Systems</option><option>Probability</option>
+        </select>
+        <button class="sectional-start" type="button" onclick="startSectionalFromHub('qa')">Start QA test →</button>
+      </div>
+      <div class="sectional-card">
+        <div class="sectional-card-label">DILR</div><div class="sectional-card-title">Audited DILR sectional</div>
+        <div class="sectional-card-copy">3 hard sets · 36 minutes · verified before the interface opens.</div>
+        <select class="sectional-select" id="home-dilr-sectional-topic" aria-label="Choose DILR sectional topic">
+          <option>Arrangements &amp; Rankings</option><option>Scheduling &amp; Allocation</option><option>Distribution &amp; Grouping</option><option>Games &amp; Tournaments</option><option>Routes &amp; Networks</option><option>Tables, Charts &amp; DI Caselets</option><option>Mixed Set Selection</option>
+        </select>
+        <button class="sectional-start" type="button" onclick="startSectionalFromHub('dilr')">Start DILR test →</button>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ═══ PRACTICE TAB ═══ -->
 <div id="practice-tab" class="tab-section">
   <div class="practice-header">
     <div class="practice-header-top">
       <div class="practice-title">Daily Practice</div>
-      <div class="practice-date" id="practice-date"></div>
+      <div style="display:flex;align-items:center;gap:9px;"><div class="practice-date" id="practice-date"></div><button class="section-more-btn" type="button" onclick="openAppMenu()" aria-label="Open more options">•••</button></div>
     </div>
     <div class="practice-tabs">
       <button class="ptab-btn active" onclick="switchPracticeTab('rc')" id="ptab-rc">📖 RC</button>
@@ -987,8 +1194,7 @@
 <!-- ═══ PROGRESS TAB ═══ -->
 <div id="progress-tab" class="tab-section">
   <div class="progress-header">
-    <div class="progress-header-title">Your Progress</div>
-    <div class="progress-header-sub" id="progress-header-sub">Updated after each session</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;"><div><div class="progress-header-title">Your Progress</div><div class="progress-header-sub" id="progress-header-sub">Updated after each session</div></div><button class="section-more-btn" type="button" onclick="openAppMenu()" aria-label="Open more options">•••</button></div>
   </div>
   <div class="progress-content">
     <!-- Stats row -->
@@ -1093,19 +1299,20 @@
     </div>
     <div class="app-menu-items">
       <button class="app-menu-item" type="button" onclick="appMenuOpenVarc()"><span class="app-menu-item-icon">📖</span>Today’s VARC</button>
-      <button class="app-menu-item" type="button" onclick="appMenuAnalyzeMock()"><span class="app-menu-item-icon">📊</span>Analyse my mock</button>
-      <button class="app-menu-item" type="button" onclick="appMenuPrefill('Help me with my VARC — I want to improve my RC score')"><span class="app-menu-item-icon">🧠</span>Work on my VARC</button>
-      <button class="app-menu-item" type="button" onclick="appMenuSwitchTab('practice')"><span class="app-menu-item-icon">✍️</span>Daily practice</button>
-      <button class="app-menu-item" type="button" onclick="appMenuSwitchTab('progress')"><span class="app-menu-item-icon">📈</span>My progress</button>
       <button class="app-menu-item" type="button" onclick="appMenuCommunity()"><span class="app-menu-item-icon">👥</span>Community access</button>
       <button class="app-menu-item" type="button" onclick="appMenuFeedback()"><span class="app-menu-item-icon">💬</span>Send feedback</button>
+      <button class="app-menu-item" type="button" onclick="window.location.href='/privacy'"><span class="app-menu-item-icon">⚙</span>Account &amp; privacy</button>
       <button class="app-menu-item danger" type="button" onclick="closeAppMenu();logout()"><span class="app-menu-item-icon">↪</span>Sign out</button>
     </div>
   </aside>
 </div>
 
 <div id="bottom-nav">
-  <button class="bnav-btn active" onclick="switchTab('chat')" id="bnav-chat">
+  <button class="bnav-btn active" onclick="switchTab('home')" id="bnav-home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>
+    Home
+  </button>
+  <button class="bnav-btn" onclick="switchTab('chat')" id="bnav-chat">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
     </svg>
@@ -1117,17 +1324,15 @@
     </svg>
     Practice
   </button>
+  <button class="bnav-btn" onclick="switchTab('sectionals')" id="bnav-sectionals">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="13" r="8"/><path d="M12 9v5l3 2M9 2h6"/></svg>
+    Tests
+  </button>
   <button class="bnav-btn" onclick="switchTab('progress')" id="bnav-progress">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
     </svg>
     Progress
-  </button>
-  <button type="button" onclick="openCommunityStatus()" aria-label="View Marg community access" class="bnav-btn" id="bnav-community">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-    </svg>
-    Community
   </button>
 </div>
 
