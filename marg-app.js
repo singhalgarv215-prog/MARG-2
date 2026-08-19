@@ -513,7 +513,7 @@ function renderHomepageDiagnosis(problemKey, intent) {
   preview.classList.add('visible');
   if (button) {
     button.disabled = false;
-    if (button.lastChild) button.lastChild.textContent = ' Save this pattern with Google';
+    if (button.lastChild) button.lastChild.textContent = ' Continue with Google';
   }
   if (intent && intent.diagnosticCompleted) renderHomepageDiagnosticResult(pattern, intent);
   else setHomepageEntryStatus('Choose the option you would actually pick. No Gemini call is used here.', '');
