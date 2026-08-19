@@ -3,7 +3,7 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260818-3';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260819-1';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
   var VISITOR_STORAGE_KEY = 'marg_acquisition_visitor_v1';
@@ -19,87 +19,77 @@
   var PATTERNS = {
     rc_options:{
       intent:'In RC, I understand the passage but get stuck between the final two options.',
-      context:'An author says wider roads may invite more driving. Road expansion can still help, but traffic speed alone may hide whether people can reach work, school and services.',
-      question:'Which conclusion is best supported?',
+      context:'',
+      question:'When you\'re stuck between two options, which one do you usually pick?',
       options:[
-        { id:'extreme', label:'New roads always make congestion worse.' },
-        { id:'evidence', label:'Traffic speed alone is an incomplete measure of success.' },
-        { id:'invented', label:'Cities should replace roads with public transport.' },
-        { id:'cause', label:'Congestion exists only because planners use the wrong metric.' }
+        { id:'coverage', label:'The one that covers more of the passage.' },
+        { id:'confidence', label:'The one that sounds most confident.' },
+        { id:'indistinguishable', label:'I genuinely cannot tell; both feel right.' }
       ],
       results:{
-        evidence:{ code:'scope_control', title:'You stayed inside the author\'s scope.', body:'That is the strongest reading here. One choice cannot prove RC is fine, but it suggests we should test you with genuinely close options, not reteach comprehension.' },
-        invented:{ code:'invented_next_step', title:'You completed the author\'s argument for them.', body:'The author questioned one measure; they never prescribed public transport. This is the exact over-interpretation that makes a tempting final option feel correct.' },
-        extreme:{ code:'extreme_language', title:'You turned a qualified claim into an absolute one.', body:'The passage explicitly leaves room for road expansion to help. Words like “always” erased that qualification.' },
-        cause:{ code:'causal_overreach', title:'You promoted one criticism into the only cause.', body:'The author questioned how success is measured; they did not claim that the metric itself causes all congestion.' }
+        coverage:{ code:'coverage_over_precision', title:'That is the tell—you reward an option for covering more, even when part of it reaches beyond the author.', body:'That is not a comprehension problem; it is a precision habit at the final choice.' },
+        confidence:{ code:'tone_as_evidence', title:'That is the tell—you let certainty of tone substitute for textual support.', body:'You probably understand the passage; the mark is leaking when confidence feels like evidence.' },
+        indistinguishable:{ code:'elimination_stops_early', title:'That is the tell—you compare how plausible both options sound instead of isolating the exact unsupported word.', body:'This may not be weak comprehension; your elimination process may be stopping one step early.' }
       }
     },
     dilr_start:{
       intent:'In DILR, I often do not know how to start a set.',
-      context:'Set A is familiar seating: nine conditional clues, no fixed slot. Set B is an unfamiliar table: fixed row totals and two constraints that immediately interact. After two minutes on A, you still have no forced placement.',
-      question:'What is the best next move?',
+      context:'',
+      question:'Two minutes into a set, no placement is forced. What do you usually do?',
       options:[
-        { id:'sunk_cost', label:'Stay with A because two minutes are already invested.' },
-        { id:'entry', label:'Switch to B and build the table from the fixed totals.' },
-        { id:'reread', label:'Read A again without changing the representation.' },
-        { id:'surface', label:'Choose whichever set has fewer words.' }
+        { id:'reread', label:'Reread every clue, hoping I missed one.' },
+        { id:'same_representation', label:'Keep building the same table because I started it.' },
+        { id:'rescan', label:'Leave and scan for a set with clearer deductions.' }
       ],
       results:{
-        entry:{ code:'entry_point_selection', title:'You selected structure over familiarity.', body:'That is the useful DILR instinct: begin where constraints can produce deductions. A full set will tell us whether you act on this under pressure.' },
-        sunk_cost:{ code:'commitment_escalation', title:'Your entry problem may actually be a leaving problem.', body:'Once time is invested, you treat leaving as waste—even when the set has produced nothing. That commitment can consume the section.' },
-        reread:{ code:'representation_delay', title:'You are trying to read your way into a representation.', body:'A second reading without changing the table, grid or variables usually repeats confusion instead of creating an entry point.' },
-        surface:{ code:'surface_set_selection', title:'You are using length as a shortcut for solvability.', body:'Short wording can still hide weak constraints. CAT set selection should follow usable structure, not appearance.' }
+        reread:{ code:'rereading_without_representing', title:'That is the tell—you try to solve uncertainty by consuming the clues again without changing the representation.', body:'Your problem may not be knowing how to start; it may be staying inside a start that produced no deduction.' },
+        same_representation:{ code:'representation_commitment', title:'That is the tell—the first table starts feeling like a commitment simply because you drew it.', body:'Your DILR issue may not be weak logic; it may be failing to abandon a representation that has stopped producing information.' },
+        rescan:{ code:'entry_point_control', title:'That is the tell—you already protect the section when a set gives you no usable entry.', body:'Your DILR problem may not be set selection; we need to test what happens after you commit to a viable set.' }
       }
     },
     qa_freeze:{
       intent:'In QA, I can solve questions during practice but freeze in mocks.',
-      context:'A shop\'s total revenue rises by 20%, while the number of units sold falls by 20%.',
-      question:'What happens to the average price per unit?',
+      context:'',
+      question:'A mixed timed question looks unfamiliar, but its numbers are simple. What do you usually do first?',
       options:[
-        { id:'cancel', label:'It stays unchanged.' },
-        { id:'multiply', label:'It decreases by 4%.' },
-        { id:'ratio', label:'It increases by 50%.' },
-        { id:'uncertain', label:'It cannot be determined.' }
+        { id:'formula_search', label:'Search my memory for the chapter or formula.' },
+        { id:'relationship_test', label:'Test a relationship using the given information.' },
+        { id:'topic_skip', label:'Skip because I cannot identify the topic.' }
       ],
       results:{
-        ratio:{ code:'explicit_recognition', title:'You recognised the hidden ratio.', body:'Revenue = price × quantity, so average price changes by 1.20 ÷ 0.80 = 1.50. This is only a miniature check; a mixed timed set must test whether recognition survives without a topic label.' },
-        cancel:{ code:'equal_percentage_cancellation', title:'Equal percentages pulled you into a cancellation trap.', body:'A 20% rise and 20% fall act on different bases. The missing first step was preserving Revenue = price × quantity.' },
-        multiply:{ code:'wrong_quantity_tracking', title:'You tracked the percentage chain, but not the quantity asked.', body:'0.8 × 1.2 = 0.96 does not give price. Price is revenue divided by units, so the relevant operation is 1.20 ÷ 0.80.' },
-        uncertain:{ code:'relationship_not_recalled', title:'The blank may begin before calculation.', body:'The data is sufficient once Revenue = price × quantity is retrieved. We should test whether mixed wording blocks that relationship under time.' }
+        formula_search:{ code:'topic_label_dependency', title:'That is the tell—you wait for a chapter label before allowing yourself to begin.', body:'Your concepts may not be weak; topic-wise practice may have trained recognition to depend on being told which method exists.' },
+        relationship_test:{ code:'first_step_available', title:'That is the tell—you can begin without first naming the chapter.', body:'Your QA problem may not be the initial freeze you suspect; we need to test whether time, calculation or abandonment breaks the solution later.' },
+        topic_skip:{ code:'uncertainty_as_inability', title:'That is the tell—you treat not recognising the topic immediately as evidence that you cannot solve the question.', body:'This may not be a concept gap; it may be an early-exit habit triggered by unfamiliar packaging.' }
       }
     },
     mock_collapse:{
       intent:'My overall mock score collapses even when preparation felt fine.',
-      context:'In DILR, 14 minutes have gone. You have a representation but no answer, and 26 minutes remain.',
-      question:'What do you do next?',
+      context:'',
+      question:'One section goes badly with half the mock still left. What usually happens next?',
       options:[
-        { id:'finish', label:'Finish it because too much time is already invested.' },
-        { id:'reset', label:'Leave, reset briefly, then scan for a cleaner entry.' },
-        { id:'rush', label:'Rush into the easiest-looking set immediately.' },
-        { id:'replay', label:'Keep replaying the clue you may have missed.' }
+        { id:'recover_marks', label:'I chase the lost marks in the same section.' },
+        { id:'carry_frustration', label:'I carry the frustration into the next section.' },
+        { id:'planned_reset', label:'I reset and follow my original section plan.' }
       ],
       results:{
-        reset:{ code:'controlled_recovery', title:'You protected the rest of the section.', body:'Leaving is only half the skill; the brief reset prevents one failed set from contaminating the next decision. We should test whether you can execute this in a timed set.' },
-        finish:{ code:'missing_kill_switch', title:'The collapse may begin with commitment escalation.', body:'Past time cannot be recovered, yet it starts controlling the next decision. A clear exit rule matters more here than simply “managing time better.”' },
-        rush:{ code:'panic_carryover', title:'You left the set, but carried its panic forward.', body:'An immediate rushed choice often turns one bad set into two. Recovery needs a deliberate rescan, not just an exit.' },
-        replay:{ code:'error_rumination', title:'You are trying to repair sunk time instead of protecting future marks.', body:'Replaying an uncertain clue can feel responsible while silently consuming the choices still available.' }
+        recover_marks:{ code:'loss_recovery_escalation', title:'That is the tell—you respond to lost marks by risking the time that still remains.', body:'Your mock may not be collapsing from low ability; one recovery decision may be converting a contained loss into a section-wide one.' },
+        carry_frustration:{ code:'emotional_carryover', title:'That is the tell—the previous section keeps occupying working memory after the next one has begun.', body:'Your overall score may not reflect three weak sections; it may reflect one bad section being allowed to contaminate the next.' },
+        planned_reset:{ code:'recovery_control', title:'That is the tell—you already know how to contain one bad section instead of trying to win it back immediately.', body:'Your mock problem may not be emotional recovery; we need to locate the earlier decision that caused the section to go bad.' }
       }
     },
     something_else:{
       intent:'Something else keeps disrupting my CAT preparation. Help me identify the real pattern.',
-      context:'Think about the first moment a bad preparation day begins—not how it looks by the end.',
-      question:'What usually happens first?',
+      context:'',
+      question:'On a day your preparation collapses, what usually happens first?',
       options:[
-        { id:'source_reset', label:'I compare sources or timetables before beginning.' },
-        { id:'switching', label:'I start, then switch topics when one feels difficult.' },
-        { id:'avoid_timed', label:'I study, but avoid timed work or mocks.' },
-        { id:'no_review', label:'I finish work but rarely review why I was wrong.' }
+        { id:'source_reset', label:'I compare plans or resources before starting.' },
+        { id:'switching', label:'I switch topics when the work feels difficult.' },
+        { id:'avoid_evidence', label:'I study, but avoid timed work or reviewing mistakes.' }
       ],
       results:{
-        source_reset:{ code:'system_reset', title:'Uncertainty may be resetting your whole study system.', body:'The day is lost before practice begins: choosing a source becomes a substitute for using one. We should test whether a fixed source rule restores consistency.' },
-        switching:{ code:'discomfort_switching', title:'Difficulty may be deciding your timetable for you.', body:'Switching brings immediate relief, but prevents sustained contact with the exact topic that needs work.' },
-        avoid_timed:{ code:'evaluation_avoidance', title:'Preparation may feel safer than measurement.', body:'You are still working, but avoiding the conditions that could challenge your current self-image. A small timed check is more useful than another long worksheet.' },
-        no_review:{ code:'missing_feedback_loop', title:'Your effort is not becoming evidence.', body:'Without reviewing the decision behind an error, question volume records activity but does not update the next attempt.' }
+        source_reset:{ code:'system_reset', title:'That is the tell—uncertainty about one source makes you reopen the design of your entire study system.', body:'Your problem may not be inconsistency; repeatedly rebuilding the plan may be what prevents consistency from starting.' },
+        switching:{ code:'discomfort_switching', title:'That is the tell—the moment practice becomes diagnostic, you change the topic and remove the discomfort.', body:'Your problem may not be motivation; switching may be protecting you from staying with evidence of a weakness.' },
+        avoid_evidence:{ code:'evaluation_avoidance', title:'That is the tell—you keep preparation active while avoiding the parts that can prove whether it is working.', body:'Your problem may not be insufficient effort; it may be an effort pattern designed to avoid measurement.' }
       }
     }
   };
@@ -543,7 +533,7 @@
     preview.classList.add('visible');
     if (button) {
       button.disabled = false;
-      if (button.lastChild) button.lastChild.textContent = ' Save this pattern with Google';
+      if (button.lastChild) button.lastChild.textContent = ' Continue with Google';
     }
     if (intent && intent.diagnosticCompleted) renderDiagnosticResult(pattern, intent);
     else setEntryStatus('Choose the option you would actually pick. No Gemini call is used here.', '');
