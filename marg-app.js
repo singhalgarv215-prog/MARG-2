@@ -1647,6 +1647,8 @@ If the student says only "continue", "go on", "finish it", or an equivalent afte
 
 For a wrong-answer review, lead with the student's thinking error—not a lecture on the option. Use three compact lines when useful: "Diagnosis:" names the decision error, "Evidence:" points to the exact mismatch, and "Fix:" gives one reusable rule. This is the only exception to the usual no-headers preference. Prefer memorable language such as "You didn't miss the passage. You added a step the author never gave you."
 
+RC WRONG-ANSWER CLOSE: When an RC/VARC answer is wrong, do not end by asking the student to self-diagnose, reflect on whether they used tone or text, or choose between two possible reasons. The wrong choice is already behavioural evidence. State the most specific supported mechanism directly—tone-matching, over-interpretation, scope expansion, familiar-word matching, extreme-language attraction, author/viewpoint confusion, or another evidenced trap—and connect it to this exact choice: "You matched the passage's overall tone to the option instead of checking its exact claim—you did that here." Then stop. No trailing question, confirmation request, options, new exercise, or engagement hook. The student may challenge the read without being forced to answer it.
+
 When reviewing multiple answers, readability is mandatory. Give every question its own block with a blank line before the next one: Q[number], Your Answer, Correct Answer, Diagnosis, and Fix when needed. Finish with "Pattern Check: X/Y right." Never combine several RC, DILR, QA or sectional answers into one dense paragraph, and do not use a wide table on mobile.
 
 You remember exercises you generated. When ACTIVE GENERATED EXERCISE MEMORY is present, it is your own passage, set or questions, including the hidden answer key and purpose. If the student says "check my answers" or submits choices such as "1-A, 2-C", check them immediately from that memory. Never ask them to resend your passage, questions or set. Diagnose the pattern across their choices, then give the smallest useful fix.
@@ -1777,6 +1779,7 @@ Correct Answer:
 Diagnosis:
 Fix: (when wrong)
 End with "Pattern Check: X/Y right." Never compress several reviews into a wall of text or wide mobile table.
+For a wrong RC/VARC answer, the choice is evidence. State the specific trap and how it caused this choice. End there—no reflective/self-diagnosis question, confirmation, options, source check, exercise or hook.
 
 PLANNING AND PERSONALIZATION
 A broad multi-section roadmap is planning, not a section diagnostic. Checklist every named section, topic, phase, sectional, mock and review; compare the draft with the request and any “you missed…” correction. Cover all items or explicitly explain an omission. If “blocks” could mean one day or a rotation, clarify once. A timetable alone is not a roadmap. Reuse known routine, attempt number, dream college and constraints.
@@ -3068,9 +3071,11 @@ function findRecentUserMessage() {
 function isAnswerReviewRequest(message) {
   var text = String(message || '').toLowerCase();
   var answerPairs = String(message || '').match(/\d{1,2}\s*[-:.)]?\s*[abcd]/gi) || [];
+  var explicitWrongQuestionReview = /\b(?:got|answered|picked|chose)\b[\s\S]{0,90}\b(?:rc|varc|reading comprehension|question|answer|option)\b[\s\S]{0,45}\b(?:wrong|incorrect)\b/.test(text) ||
+    /\b(?:rc|varc|reading comprehension)\b[\s\S]{0,60}\b(?:answer|question|option)\b[\s\S]{0,35}\b(?:wrong|incorrect)\b/.test(text);
   return /\b(check|evaluate|verify|analyse|analyze|review)\b.{0,30}\b(my\s+)?answers?\b/.test(text) ||
     /\b(my\s+)?answers?\b.{0,30}\b(correct|right|wrong|check)\b/.test(text) ||
-    /^\s*\d{1,2}\s*[-:.)]?\s*[abcd](?:\s*[,;|/]\s*\d{1,2}\s*[-:.)]?\s*[abcd])*\s*$/i.test(message || '') || answerPairs.length >= 2;
+    /^\s*\d{1,2}\s*[-:.)]?\s*[abcd](?:\s*[,;|/]\s*\d{1,2}\s*[-:.)]?\s*[abcd])*\s*$/i.test(message || '') || answerPairs.length >= 2 || explicitWrongQuestionReview;
 }
 
 function isPredictionValidationReply(message) {
@@ -3145,6 +3150,46 @@ function buildLocalAnswerCheck(message) {
   if (wrongPatterns.length) result += '\n\nThe repeated pattern to watch is: ' + wrongPatterns[0];
   if (activeGeneratedExercise && activeGeneratedExercise.hypothesis) result += '\nPrediction verdict: INCONCLUSIVE locally—the full review should compare the choices with the stored hypothesis rather than infer from score alone.';
   return result;
+}
+
+function getRCWrongAnswerEvidence(message) {
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  var text = String(message || '');
+  var lower = text.toLowerCase();
+  var activeIsRC = !!(activeGeneratedExercise && (activeGeneratedExercise.type === 'rc' || activeGeneratedExercise.type === 'varc'));
+  var explicitRCWrong = /\b(?:rc|varc|reading comprehension)\b/.test(lower) && /\b(?:wrong|incorrect)\b/.test(lower);
+  if (!activeIsRC && !explicitRCWrong) return { matches:false, mechanism:'' };
+
+  var choices = parseSubmittedAnswerChoices(findRecentSubmittedAnswerText(message));
+  if (!Object.keys(choices).length && activeGeneratedExercise && Array.isArray(activeGeneratedExercise.uiSelections)) {
+    activeGeneratedExercise.uiSelections.forEach(function(selection, index) {
+      var number = parseInt(String(selection.position).split('.').pop(), 10) || index + 1;
+      choices[number] = typeof selection.selected === 'number' ? String.fromCharCode(65 + selection.selected) : String(selection.selected || '').toUpperCase();
+    });
+  }
+
+  var wrongMechanisms = [];
+  if (activeIsRC) {
+    getActiveExerciseQuestions().forEach(function(question) {
+      var selected = choices[question.number];
+      if (selected && selected !== question.correct) wrongMechanisms.push(question.pattern || question.explanation || '');
+    });
+  }
+
+  var suppliedPattern = text.match(/mistake pattern is\s*:\s*([^\n.?!]{3,220})/i);
+  var mechanism = wrongMechanisms.find(function(value) { return String(value || '').trim(); }) || (suppliedPattern ? suppliedPattern[1].trim() : '');
+  return { matches:wrongMechanisms.length > 0 || explicitRCWrong, mechanism:mechanism };
+}
+
+function buildDirectRCWrongAnswerDiagnosis(mechanism) {
+  var value = String(mechanism || '').toLowerCase();
+  if (/tone|attitude|confidence/.test(value)) return "You matched the passage's overall tone to the option instead of checking the option's exact claim—you did that here.";
+  if (/scope|broad|narrow|general impression|goes beyond/.test(value)) return "You accepted the option because it fit the passage broadly, but you did not reject the part that widened beyond the author's claim—that is the scope shift here.";
+  if (/over.?interpret|unstated|added|invent|extension|next step/.test(value)) return "You completed the author's argument with a reasonable next step that the passage never stated—that is the over-interpretation here.";
+  if (/familiar|word|phrase|verbatim|vocabulary/.test(value)) return "You treated familiar passage wording as evidence that the whole option was supported, instead of checking the relationship it asserted—that is the familiar-word trap here.";
+  if (/extreme|absolute|always|never|only|entirely/.test(value)) return "You let the option's agreement with the passage hide an unsupported absolute claim—that is the extreme-language trap here.";
+  if (/author|viewpoint|speaker|ownership/.test(value)) return "You assigned a viewpoint discussed in the passage to the author, instead of checking who actually owned the claim—that is the viewpoint-confusion error here.";
+  return "You chose on overall fit instead of checking the option's exact claim against the text—that is the decision error here.";
 }
 
 function buildPredictionValidationFallback(message) {
@@ -4688,6 +4733,7 @@ function analyzeMentorInput(message) {
   var emotion = detectEmotionalState(message);
   var confidence = intent === 'general_mentor' ? 0.55 : intent === 'vague' ? 0.65 : intent === 'mock_diagnosis' ? 0.72 : intent === 'answer_review' && activeGeneratedExercise ? 0.98 : 0.84;
   var answerCount = Object.keys(parseSubmittedAnswerChoices(message)).length || (intent === 'answer_review' ? getActiveExerciseQuestions().length : 0);
+  var rcWrongAnswerEvidence = intent === 'answer_review' ? getRCWrongAnswerEvidence(message) : { matches:false, mechanism:'' };
   return {
     intent: intent,
     emotionalState: emotion,
@@ -4698,7 +4744,9 @@ function analyzeMentorInput(message) {
     requestedPlanningComponents:getPlanningCoverageRequirements(message),
     planSequenceAmbiguity:isPlanSequenceAmbiguous(message),
     freshPracticeSourceCheck:needsFreshPracticeSourceCheck(message),
-    answerCount:answerCount
+    answerCount:answerCount,
+    rcWrongAnswerReview:rcWrongAnswerEvidence.matches,
+    rcWrongAnswerMechanism:rcWrongAnswerEvidence.mechanism
   };
 }
 
@@ -4713,6 +4761,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. If the exercise stores a hypothesis, lead with SUPPORTED, REJECTED, or INCONCLUSIVE and use the actual choice pattern as evidence; do not preserve the prediction when the evidence contradicts it. Format every reviewed item as its own block separated by a blank line: Q[number], then Your Answer:, Correct Answer:, Diagnosis:, and Fix: when the answer is wrong. End with “Pattern Check: X/Y right.” Never compress multiple questions into one paragraph or table. Ask no diagnostic intake question.';
+  if (diagnosis.rcWrongAnswerReview) directive += '\nRC WRONG-ANSWER RESPONSE: The wrong option is already evidence. Explain the option mismatch, then state the likely mechanism directly and specifically. Do not ask whether the student used tone, general impression, wording, the specific verb, or another strategy. Do not ask for confirmation or reflection. The final visible sentence must be a confident mechanism statement tied to this choice, with no question mark, [OPTIONS], new exercise, source check, or engagement hook.' + (diagnosis.rcWrongAnswerMechanism ? '\nStored mistake signal: ' + diagnosis.rcWrongAnswerMechanism : '');
   if (diagnosis.intent === 'privacy_request') directive += '\nPRIVACY REQUEST MODE: Do not diagnose or reassure. Never say Marg is session-only. State that authenticated chats, profiles, cognitive/behavioural patterns, mock history, practice progress and check-ins can persist in Supabase, with some state also in browser storage. For deletion, direct the user to support@trymarg.com from their account email and state the published seven-business-day window. Clearing a chat or local storage is not full deletion.';
   if (diagnosis.intent === 'mock_diagnosis') directive += '\nMOCK EVIDENCE-FIRST MODE: The score is an outcome, not a cause or capability measure. Begin with what the supplied numbers and narrative actually establish. Mark every causal explanation as a hypothesis until supported by attempt, accuracy, selection, timing, error, or behavioural evidence. Name the specific decision mechanism rather than a generic bucket such as time management, carelessness, or practice more. MOCK MISSION CONTRACT: if the analysis ends in a mission, it must test the diagnosed execution mechanism—not assign generic volume. State one Focus, then Why it matters from this mock, then one Action, an observable Rule and the Evidence that will support or reject the hypothesis. WHY comes before WHAT. For a full mock, use one WHY-before-WHAT weekly priority per section and compare the next two mocks before changing the plan. Never promise or validate a specific percentile from this one mock.';
   var diagnosisRecentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
@@ -4721,7 +4770,7 @@ function buildDiagnosisDirective(message) {
   if (/\b(?:i think|maybe|probably|not sure|i guess|might be)\b/i.test(messageText)) directive += '\nUNCERTAIN SELF-DIAGNOSIS: Treat the student\'s proposed cause as a hypothesis. Do not prescribe an unsupported numeric adjustment. Give a small comparison test with observable outcomes that can confirm or reject it.';
   if (/\b(?:only|mostly|mainly|exclusively)\b.{0,45}\b(?:arithmetic|algebra|geometry|number systems?|modern math|percentages?|ratios?)\b|\bpractice\b.{0,30}\b(?:only|mostly|mainly)\b/i.test(messageText)) directive += '\nPRACTICE DISTRIBUTION CHECK: Test whether narrow practice coverage mismatches the mock/exam mix. If it does, name the distribution mismatch and recommend primary-topic work plus recurring secondary-topic exposure plus a mixed timed transfer check; do not merely name one missing chapter.';
   if (/\b(?:dilr|lrdi|set)\b/i.test(messageText) && /\b(?:1[5-9]|2\d|3\d)\s*(?:\+\s*)?(?:minutes?|mins?)\b|\b(?:couldn\'t leave|could not leave|had to finish|kept going|stayed too long|already invested)\b/i.test(messageText)) directive += '\nDILR COMMITMENT CHECK: Reconstruct whether sunk-cost commitment or a missing kill-switch kept the student in the set. Treat errors immediately afterward as possible working-memory fatigue evidence, not automatically as isolated carelessness. Tie the diagnosis to the narrative and give an explicit progress checkpoint/exit rule.';
-  if (diagnosis.freshPracticeSourceCheck) directive += '\nFRESH PASTED MATERIAL: The student pasted a new passage/questions and answers without an established source. Review what can be reviewed first. Then add one light source check: ask whether it came from their own material, a shared source, or somewhere they want clarified. The source question must not block or replace the answer review.';
+  if (diagnosis.freshPracticeSourceCheck && !diagnosis.rcWrongAnswerReview) directive += '\nFRESH PASTED MATERIAL: The student pasted a new passage/questions and answers without an established source. Review what can be reviewed first. Then add one light source check: ask whether it came from their own material, a shared source, or somewhere they want clarified. The source question must not block or replace the answer review.';
   if (diagnosis.planSequenceAmbiguity) directive += '\nPLAN-STRUCTURE CLARIFICATION: The described blocks could mean one day or a rotation. Do not build or reinterpret the plan yet. Ask one short question only: “Is this meant for one day, or as a rotation across several days?”';
   else if (diagnosis.comprehensivePlanning) directive += '\nCOMPREHENSIVE ROADMAP MODE: This is planning, not a section diagnostic. Treat this as a mandatory coverage checklist: ' + (diagnosis.requestedPlanningComponents.length ? diagnosis.requestedPlanningComponents.join(', ') : 'all preparation areas named by the student') + '. Cover every item before sending, including distinct QA topics. Silently compare the draft against the checklist. If an item genuinely cannot fit, name it and why; never omit it. Include phases, sectionals, mock cadence, analysis/revision and named-resource use where requested. A timetable alone is not a roadmap.';
   else if (diagnosis.intent === 'planning' && diagnosis.requestedPlanningComponents.length) directive += '\nEXPLICIT REQUEST COVERAGE: Mandatory checklist: ' + diagnosis.requestedPlanningComponents.join(', ') + '. Compare the draft against every item before sending. Repeated/missed items get priority. If one cannot be covered now, name it and why; never silently omit it or make the student ask again.';
@@ -4761,6 +4810,26 @@ function formatMultiAnswerReview(text, diagnosis) {
   formatted = formatted.replace(/[ \t]*(Pattern Check:)/gi, '\n\n$1');
   formatted = formatted.replace(/(Q\s*\d{1,2})\n{2,}(Your Answer:)/gi, '$1\n$2');
   return formatted.replace(/^\s+/, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function enforceDirectRCWrongAnswerClose(text, diagnosis) {
+  var value = String(text || '').trim();
+  if (!diagnosis || !diagnosis.rcWrongAnswerReview) return value;
+
+  // This flow must land as a diagnosis, not turn into another mini-interview or
+  // silently launch a new exercise.
+  var visible = value.replace(/\s*\[(?:OPTIONS|CONTEXT|START_TEST):[^\]]*\]\s*/gi, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  var removedQuestion = false;
+  var trailingQuestion = visible.match(/(^|[\n.!]\s+)([^.!?\n]*\?)\s*$/);
+  while (trailingQuestion) {
+    var boundary = trailingQuestion[1] && trailingQuestion[1].indexOf('.') !== -1 ? '.' : '';
+    visible = (visible.slice(0, trailingQuestion.index) + boundary).trim();
+    removedQuestion = true;
+    trailingQuestion = visible.match(/(^|[\n.!]\s+)([^.!?\n]*\?)\s*$/);
+  }
+
+  if (removedQuestion) visible += '\n\n' + buildDirectRCWrongAnswerDiagnosis(diagnosis.rcWrongAnswerMechanism);
+  return visible.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function diagnosisForwardLeadFromIntent(diagnosis) {
@@ -4822,6 +4891,7 @@ function applyMentorResponseGuard(response, diagnosis) {
     text = 'My read: ' + diagnosis.likelyHiddenProblem + (text ? '\n' + text : '');
   }
   text = formatMultiAnswerReview(text, diagnosis);
+  text = enforceDirectRCWrongAnswerClose(text, diagnosis);
   text = ensureDiagnosisForwardLead(text, diagnosis);
   // Do not mechanically slice model output. The prompt controls normal reply
   // length; hard word caps were capable of manufacturing mid-answer cutoffs.
