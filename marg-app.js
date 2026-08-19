@@ -161,33 +161,7 @@ function normalizeHomepageIntentText(value) {
   return String(value || '').replace(/\u0000/g, '').trim().slice(0, DEEP_LINK_QUESTION_MAX_LENGTH);
 }
 
-var HOMEPAGE_DIAGNOSIS_PATTERNS = {
-  rc_options:{
-    title:'I don\'t think comprehension is the real problem.',
-    body:'When the final two options look close, you are probably replacing the author\'s exact reasoning with what feels reasonable. That is why the passage feels understood but the answer still slips.',
-    intent:'In RC, I understand the passage but get stuck between the final two options.'
-  },
-  dilr_start:{
-    title:'I don\'t think logic is the first problem.',
-    body:'You are probably judging a set by familiarity, then starting before you have a representation and two usable constraints. The set does not become hard later—it had no clean entry point from the start.',
-    intent:'In DILR, I often do not know how to start a set.'
-  },
-  qa_freeze:{
-    title:'Your concepts may not be disappearing in mocks.',
-    body:'Topic-wise practice tells you which method to use. A mixed mock removes that label, so recognition—not calculation—becomes the bottleneck and the first step feels blank.',
-    intent:'In QA, I can solve questions during practice but freeze in mocks.'
-  },
-  mock_collapse:{
-    title:'One bad section may be triggering the next two.',
-    body:'A long commitment, rushed recovery, or one early error can consume working memory and turn the mock into a chain reaction. The score looks like several weaknesses even when the leak began with one decision.',
-    intent:'My overall mock score collapses even when preparation felt fine.'
-  },
-  something_else:{
-    title:'The problem probably is not that you need more motivation.',
-    body:'The useful clue is where preparation stops translating into marks—selection, pacing, confidence, or consistency. Marg will help isolate that point instead of giving you another generic plan.',
-    intent:'Something else keeps disrupting my CAT preparation. Help me identify the real pattern.'
-  }
-};
+var HOMEPAGE_DIAGNOSIS_PATTERNS = window.__MARG_PREAUTH_PATTERNS__ || {};
 var selectedHomepageProblemKey = '';
 
 function getHomepageDiagnosisPattern(problemKey) {
@@ -206,6 +180,9 @@ function writeHomepageIntent(intent) {
     status:String(intent.status || 'pending'),
     failureMessage:String(intent.failureMessage || ''),
     problemKey:String(intent.problemKey || ''),
+    diagnosticAnswer:String(intent.diagnosticAnswer || ''),
+    diagnosticResult:String(intent.diagnosticResult || ''),
+    diagnosticCompleted:!!intent.diagnosticCompleted,
     funnel_intent_entered:!!intent.funnel_intent_entered,
     funnel_first_message_sent:!!intent.funnel_first_message_sent,
     funnel_first_response_received:!!intent.funnel_first_response_received
@@ -468,14 +445,49 @@ function focusHomepageDiagnosis() {
   return true;
 }
 
+function buildHomepageDiagnosticMessage(pattern, option, result) {
+  return [
+    pattern.intent,
+    'In Marg\'s 20-second check, I chose: "' + option.label + '"',
+    'That points to a working hypothesis: ' + result.title + ' ' + result.body,
+    'Treat this as a hypothesis, not a confirmed diagnosis. Continue from this evidence and test it with the smallest relevant CAT exercise; do not restart generic onboarding.'
+  ].join('\n\n');
+}
+
+function renderHomepageDiagnosticResult(pattern, intent) {
+  var answerId = String(intent && intent.diagnosticAnswer || '');
+  var option = pattern.options.filter(function(item) { return item.id === answerId; })[0];
+  var result = pattern.results[answerId];
+  var resultBox = document.getElementById('homepage-diagnostic-result');
+  var title = document.getElementById('homepage-diagnosis-title');
+  var body = document.getElementById('homepage-diagnosis-body');
+  var actions = document.getElementById('homepage-diagnosis-actions');
+  if (!option || !result || !resultBox || !title || !body) return false;
+  Array.prototype.forEach.call(document.querySelectorAll('.homepage-check-option'), function(button) {
+    var selected = button.getAttribute('data-answer-id') === answerId;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    button.disabled = true;
+  });
+  title.textContent = result.title;
+  body.textContent = result.body;
+  resultBox.classList.add('visible');
+  if (actions) actions.classList.add('visible');
+  setHomepageEntryStatus('One choice is not a diagnosis. Sign in to test this pattern properly—your result is already saved.', '');
+  return true;
+}
+
 function renderHomepageDiagnosis(problemKey, intent) {
   var pattern = getHomepageDiagnosisPattern(problemKey);
   var diagnostic = document.getElementById('homepage-diagnostic-entry');
   var preview = document.getElementById('homepage-diagnosis-preview');
-  var title = document.getElementById('homepage-diagnosis-title');
-  var body = document.getElementById('homepage-diagnosis-body');
+  var context = document.getElementById('homepage-check-context');
+  var question = document.getElementById('homepage-check-question');
+  var options = document.getElementById('homepage-check-options');
+  var resultBox = document.getElementById('homepage-diagnostic-result');
+  var actions = document.getElementById('homepage-diagnosis-actions');
   var button = document.getElementById('homepage-google-cta');
-  if (!preview || !title || !body) return false;
+  if (!pattern || !preview || !context || !question || !options) return false;
   selectedHomepageProblemKey = pattern ? problemKey : '';
   if (diagnostic) diagnostic.classList.toggle('has-selection', !!pattern);
   Array.prototype.forEach.call(document.querySelectorAll('.homepage-problem-option'), function(option) {
@@ -483,20 +495,28 @@ function renderHomepageDiagnosis(problemKey, intent) {
     option.classList.toggle('selected', selected);
     option.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
-  title.textContent = pattern ? pattern.title : 'Your question is still here.';
-  body.textContent = pattern ? pattern.body : 'Continue with Marg and your original message will be waiting after sign-in.';
+  context.textContent = pattern.context;
+  question.textContent = pattern.question;
+  options.innerHTML = '';
+  pattern.options.forEach(function(option, index) {
+    var choice = document.createElement('button');
+    choice.type = 'button';
+    choice.className = 'homepage-check-option';
+    choice.setAttribute('data-answer-id', option.id);
+    choice.setAttribute('aria-pressed', 'false');
+    choice.setAttribute('onclick', "answerHomepageDiagnostic('" + option.id + "')");
+    choice.textContent = String.fromCharCode(65 + index) + '. ' + option.label;
+    options.appendChild(choice);
+  });
+  if (resultBox) resultBox.classList.remove('visible');
+  if (actions) actions.classList.remove('visible');
   preview.classList.add('visible');
   if (button) {
     button.disabled = false;
-    button.lastChild.textContent = ' Continue with Google — free';
+    if (button.lastChild) button.lastChild.textContent = ' Save this pattern with Google';
   }
-  if (intent && (intent.status === 'retry' || intent.status === 'submitted' || intent.status === 'dispatching')) {
-    setHomepageEntryStatus('Your question is safe. Sign in to reopen it and retry the response.', 'success');
-  } else if (intent && intent.status === 'auth_started') {
-    setHomepageEntryStatus('Your choice is saved. Continue when you are ready.', 'success');
-  } else {
-    setHomepageEntryStatus('No card. Your choice becomes the first message—nothing to repeat.', '');
-  }
+  if (intent && intent.diagnosticCompleted) renderHomepageDiagnosticResult(pattern, intent);
+  else setHomepageEntryStatus('Choose the option you would actually pick. No Gemini call is used here.', '');
   return true;
 }
 
@@ -514,7 +534,10 @@ function selectHomepageProblem(problemKey, options) {
         problemKey:problemKey,
         pageViewId:isNewSelection ? acquisitionPageViewId : existing.pageViewId,
         createdAt:isNewSelection ? Date.now() : existing.createdAt,
-        status:'previewed',
+        status:'checking',
+        diagnosticAnswer:'',
+        diagnosticResult:'',
+        diagnosticCompleted:false,
         funnel_intent_entered:isNewSelection ? false : existing.funnel_intent_entered
       });
   if (!intent) return false;
@@ -527,6 +550,25 @@ function selectHomepageProblem(problemKey, options) {
     var preview = document.getElementById('homepage-diagnosis-preview');
     if (preview) preview.scrollIntoView({ behavior:'smooth', block:'nearest' });
   }, 30);
+  return true;
+}
+
+function answerHomepageDiagnostic(answerId) {
+  var intent = loadHomepageIntent();
+  var pattern = intent && getHomepageDiagnosisPattern(intent.problemKey);
+  if (!pattern || intent.diagnosticCompleted) return false;
+  var option = pattern.options.filter(function(item) { return item.id === String(answerId || ''); })[0];
+  var result = option && pattern.results[option.id];
+  if (!option || !result) return false;
+  var completed = writeHomepageIntent(Object.assign({}, intent, {
+    text:buildHomepageDiagnosticMessage(pattern, option, result),
+    status:'diagnosed',
+    diagnosticAnswer:option.id,
+    diagnosticResult:result.code,
+    diagnosticCompleted:true
+  }));
+  if (!completed) return false;
+  renderHomepageDiagnosticResult(pattern, completed);
   return true;
 }
 
@@ -557,8 +599,14 @@ function continueHomepageDiagnosis() {
     focusHomepageDiagnosis();
     return false;
   }
+  if (!intent.diagnosticCompleted) {
+    setHomepageEntryStatus('Choose one answer first—Marg needs one real decision before it makes a read.', 'error');
+    var firstChoice = document.querySelector('.homepage-check-option');
+    if (firstChoice) firstChoice.focus();
+    return false;
+  }
   var startedIntent = writeHomepageIntent(Object.assign({}, intent, { status:'auth_started' }));
-  trackFunnelEvent('auth_started', { problem_key:intent.problemKey || 'legacy_message', source:'homepage_diagnostic' });
+  trackFunnelEvent('auth_started', { problem_key:intent.problemKey || 'legacy_message', source:'homepage_diagnostic', diagnostic_result:intent.diagnosticResult || null, diagnostic_answer:intent.diagnosticAnswer || null });
   var button = document.getElementById('homepage-google-cta');
   if (button) {
     button.disabled = true;
