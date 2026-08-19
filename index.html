@@ -12,7 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<script defer src="/landing-bootstrap.js?v=20260818-3"></script>
+<script defer src="/landing-bootstrap.js?v=20260819-1"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -284,6 +284,7 @@
 .homepage-diagnosis-preview.visible{display:block;animation:fadeUp .25s ease both;}
 .homepage-diagnosis-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:7px;}
 .homepage-check-context{font-size:12px;line-height:1.48;color:#aaa69e;margin-bottom:9px;}
+.homepage-check-context:empty{display:none;}
 .homepage-check-question{font-size:14px;line-height:1.4;font-weight:650;color:#eee9df;margin-bottom:9px;}
 .homepage-check-options{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
 .homepage-check-option{min-height:43px;padding:8px 10px;border:1px solid #34312b;border-radius:9px;background:#191816;color:#c9c5bc;text-align:left;font:11.5px/1.35 'DM Sans',sans-serif;cursor:pointer;transition:border-color .16s,background .16s,color .16s;}
@@ -297,6 +298,7 @@
 .homepage-diagnosis-body{font-size:13px;line-height:1.58;color:#aaa69e;}
 .homepage-diagnosis-actions{display:none;align-items:center;gap:9px;margin-top:15px;flex-wrap:wrap;}
 .homepage-diagnosis-actions.visible{display:flex;}
+.homepage-diagnosis-next{width:100%;font-size:12px;font-weight:600;color:#ded8cb;}
 .homepage-google-cta{border:0;border-radius:11px;padding:11px 15px;background:#fff;color:#242424;font:600 13px 'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:9px;cursor:pointer;}
 .homepage-google-cta svg{width:17px;height:17px;flex-shrink:0;}
 .homepage-google-cta:disabled{opacity:.58;cursor:wait;transform:none;}
@@ -499,18 +501,18 @@
   </nav>
 
   <section class="hero">
-    <div class="hero-badge"><span></span> Real decision · No card</div>
-    <h1 class="hero-title">See what your CAT decision<br>reveals — in 20 seconds.</h1>
-    <div class="hero-tagline">Pick what keeps happening. Marg tests it with one decision<br><span style="color:#d8bd74;">before Google sign-in.</span></div>
+    <div class="hero-badge"><span></span> One decision · No card</div>
+    <h1 class="hero-title">Find the pattern costing you<br>CAT marks.</h1>
+    <div class="hero-tagline">Choose where the marks are leaking. Marg will test one real decision<br><span style="color:#d8bd74;">before Google sign-in.</span></div>
     <div class="homepage-diagnostic-entry" id="homepage-diagnostic-entry">
-      <div class="homepage-diagnostic-question">Tap the one that happens most:</div>
+      <div class="homepage-diagnostic-question">Where does it happen?</div>
       <div class="homepage-campaign-note" id="homepage-campaign-note">The pattern from the ad is first</div>
       <div class="homepage-problem-options" role="group" aria-label="Choose the CAT problem that feels closest">
-        <button type="button" class="homepage-problem-option" data-problem-key="rc_options" aria-pressed="false" onclick="selectHomepageProblem('rc_options')"><span class="homepage-problem-tag">RC</span><span class="homepage-problem-copy">I reach the final two options—and still choose wrong.</span><span class="homepage-problem-arrow">›</span></button>
-        <button type="button" class="homepage-problem-option" data-problem-key="dilr_start" aria-pressed="false" onclick="selectHomepageProblem('dilr_start')"><span class="homepage-problem-tag">DILR</span><span class="homepage-problem-copy">I stare at a set and cannot find an entry point.</span><span class="homepage-problem-arrow">›</span></button>
-        <button type="button" class="homepage-problem-option" data-problem-key="qa_freeze" aria-pressed="false" onclick="selectHomepageProblem('qa_freeze')"><span class="homepage-problem-tag">QA</span><span class="homepage-problem-copy">I solve at home but blank in timed tests.</span><span class="homepage-problem-arrow">›</span></button>
-        <button type="button" class="homepage-problem-option" data-problem-key="mock_collapse" aria-pressed="false" onclick="selectHomepageProblem('mock_collapse')"><span class="homepage-problem-tag">MOCKS</span><span class="homepage-problem-copy">One bad section ruins the rest of my mock.</span><span class="homepage-problem-arrow">›</span></button>
-        <button type="button" class="homepage-problem-option wide" data-problem-key="something_else" aria-pressed="false" onclick="selectHomepageProblem('something_else')"><span class="homepage-problem-tag">NOT SURE</span><span class="homepage-problem-copy">I know something is wrong, but I cannot name it yet.</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option" data-problem-key="rc_options" aria-pressed="false" onclick="selectHomepageProblem('rc_options')"><span class="homepage-problem-copy">RC</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option" data-problem-key="dilr_start" aria-pressed="false" onclick="selectHomepageProblem('dilr_start')"><span class="homepage-problem-copy">DILR</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option" data-problem-key="qa_freeze" aria-pressed="false" onclick="selectHomepageProblem('qa_freeze')"><span class="homepage-problem-copy">QA</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option" data-problem-key="mock_collapse" aria-pressed="false" onclick="selectHomepageProblem('mock_collapse')"><span class="homepage-problem-copy">Mocks</span><span class="homepage-problem-arrow">›</span></button>
+        <button type="button" class="homepage-problem-option wide" data-problem-key="something_else" aria-pressed="false" onclick="selectHomepageProblem('something_else')"><span class="homepage-problem-copy">Something else</span><span class="homepage-problem-arrow">›</span></button>
       </div>
       <div class="homepage-diagnosis-preview" id="homepage-diagnosis-preview" aria-live="polite">
         <div class="homepage-diagnosis-label">20-second decision check</div>
@@ -523,9 +525,10 @@
           <div class="homepage-diagnosis-body" id="homepage-diagnosis-body"></div>
         </div>
         <div class="homepage-diagnosis-actions" id="homepage-diagnosis-actions">
+          <div class="homepage-diagnosis-next">Test this properly with Marg →</div>
           <button class="homepage-google-cta" id="homepage-google-cta" type="button" onclick="continueHomepageDiagnosis()">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            Save this pattern with Google
+            Continue with Google
           </button>
           <button class="homepage-change-problem" type="button" onclick="resetHomepageDiagnosis()">Choose a different problem</button>
         </div>
