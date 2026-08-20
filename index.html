@@ -12,7 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<script defer src="/landing-bootstrap.js?v=20260820-2"></script>
+<script defer src="/landing-bootstrap.js?v=20260820-4"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -261,7 +261,8 @@
 .fb-opt:hover { border-color: #C9A84C; color: #C8C4BC; }
 .fb-opt.selected { border-color: #4CAF7D; color: #4CAF7D; background: rgba(76,175,77,0.06); }
 
-.homepage-diagnostic-entry{width:100%;max-width:680px;margin-top:5px;animation:fadeUp .6s ease .35s both;text-align:left;}
+.homepage-diagnostic-entry{display:none;width:100%;max-width:680px;margin-top:5px;animation:fadeUp .3s ease both;text-align:left;}
+.homepage-diagnostic-entry.entry-visible{display:block;}
 @keyframes diagPulse{50%{box-shadow:0 0 0 3px #c9a84c33}}
 .cta-focused .homepage-problem-option,.cta-focused .homepage-check-option{animation:diagPulse .7s;}
 .nav-cta,.hero-cta{text-decoration:none;}
@@ -313,6 +314,53 @@
 .homepage-login-link{margin-top:3px;border:0;background:none;color:var(--text-muted);font:12px 'DM Sans',sans-serif;cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
 .homepage-login-link:hover{color:var(--gold-light);transform:none;}
 .homepage-intent-retry{margin-top:12px;background:linear-gradient(135deg,#C9A84C,#9a7723);color:#111;border:0;border-radius:9px;padding:9px 13px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;}
+.landing-entry-shell{width:100%;max-width:680px;margin-top:7px;text-align:left;animation:fadeUp .55s ease .2s both;}
+.landing-entry-label{margin:0 0 10px 2px;color:#f0ece3;font-size:14px;font-weight:650;}
+.landing-entry-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
+.landing-entry-card{position:relative;min-height:82px;padding:13px 14px;border:1px solid #35332f;border-radius:13px;background:linear-gradient(145deg,#171717,#121212);color:var(--text);font-family:'DM Sans',sans-serif;text-align:left;cursor:pointer;display:flex;gap:11px;align-items:flex-start;transition:border-color .18s,background .18s,transform .18s;}
+.landing-entry-card:hover{border-color:rgba(201,168,76,.58);background:#191711;transform:translateY(-1px);}
+.landing-entry-card.selected{border-color:#4CAF7D;background:rgba(76,175,125,.08);}
+.landing-entry-card.recommended{border-color:rgba(201,168,76,.55);background:linear-gradient(145deg,rgba(201,168,76,.11),#141414);}
+.landing-entry-card.wide{grid-column:1/-1;min-height:68px;}
+.landing-entry-icon{width:34px;height:34px;border:1px solid rgba(201,168,76,.22);border-radius:10px;background:rgba(201,168,76,.07);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px;}
+.landing-entry-copy{min-width:0;flex:1;}
+.landing-entry-title{font-size:13px;font-weight:650;color:#ece8df;line-height:1.3;}
+.landing-entry-desc{margin-top:4px;color:#85817a;font-size:10.5px;line-height:1.4;}
+.landing-entry-badge{display:inline-flex;margin-bottom:5px;padding:2px 7px;border-radius:999px;background:var(--gold-dim);color:var(--gold-light);font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+.landing-entry-arrow{color:#777168;font-size:18px;line-height:1;margin-left:auto;align-self:center;}
+.landing-entry-shell.has-selection .landing-entry-label{display:none;}
+.landing-entry-shell.has-selection .landing-entry-card:not(.selected){display:none;}
+.landing-entry-shell.has-selection .landing-entry-card.selected{min-height:50px;padding:9px 11px;opacity:.86;}
+.landing-entry-shell.has-selection .landing-entry-card.selected .landing-entry-desc,.landing-entry-shell.has-selection .landing-entry-card.selected .landing-entry-badge{display:none;}
+.landing-entry-shell.has-selection .landing-entry-grid{display:block;}
+.landing-destination-preview{display:none;margin-top:11px;padding:17px 18px;border:1px solid rgba(76,175,125,.3);border-radius:15px;background:linear-gradient(145deg,#101713,#101010);box-shadow:0 14px 42px rgba(0,0,0,.3);}
+.landing-destination-preview.visible{display:block;animation:fadeUp .22s ease both;}
+.landing-destination-kicker{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#70c295;margin-bottom:7px;}
+.landing-destination-title{font-family:'Playfair Display',serif;font-size:20px;color:var(--text);line-height:1.3;}
+.landing-destination-copy{margin-top:7px;color:#aaa69e;font-size:12.5px;line-height:1.55;}
+.landing-destination-outcome{margin-top:11px;padding:9px 11px;border-left:2px solid var(--gold);background:rgba(201,168,76,.055);color:#d5cfc2;font-size:11px;line-height:1.45;}
+.landing-destination-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:14px;}
+.landing-destination-google{border:0;border-radius:11px;padding:11px 15px;background:#fff;color:#242424;font:600 13px 'DM Sans',sans-serif;display:inline-flex;align-items:center;gap:9px;cursor:pointer;}
+.landing-destination-google svg{width:17px;height:17px;}
+.landing-change-entry{border:0;background:none;color:#8e8a82;font:12px 'DM Sans',sans-serif;cursor:pointer;padding:8px 5px;text-decoration:underline;text-underline-offset:3px;}
+.landing-proof-section{width:100%;padding:12px 20px 58px;}
+.landing-proof-card{max-width:680px;margin:0 auto;padding:22px;border:1px solid rgba(201,168,76,.28);border-radius:18px;background:radial-gradient(circle at 100% 0,rgba(201,168,76,.08),transparent 35%),#101010;}
+.landing-proof-kicker{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);}
+.landing-proof-title{font-family:'Playfair Display',serif;font-size:21px;line-height:1.3;color:var(--text);margin-top:7px;}
+.landing-proof-note{font-size:11px;color:#77736b;margin-top:5px;}
+.landing-proof-passage{margin-top:15px;padding:13px 14px;border-radius:11px;background:#171717;color:#b8b3aa;font-family:'Playfair Display',serif;font-size:12.5px;line-height:1.62;}
+.landing-proof-question{margin-top:14px;color:#ece8df;font-size:13px;font-weight:600;line-height:1.45;}
+.landing-proof-options{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px;}
+.landing-proof-option{min-height:48px;padding:9px 10px;border:1px solid #34312b;border-radius:9px;background:#191816;color:#c9c5bc;text-align:left;font:10.5px/1.35 'DM Sans',sans-serif;cursor:pointer;}
+.landing-proof-option:hover{border-color:rgba(201,168,76,.58);color:#f0ece3;transform:none;}
+.landing-proof-option.selected{border-color:#4CAF7D;background:rgba(76,175,125,.09);color:#edf7f1;}
+.landing-proof-option:disabled{cursor:default;opacity:.55;}
+.landing-proof-option.selected:disabled{opacity:1;}
+.landing-proof-result{display:none;margin-top:14px;padding:13px 14px;border-radius:11px;background:rgba(76,175,125,.07);border:1px solid rgba(76,175,125,.22);}
+.landing-proof-result.visible{display:block;animation:fadeUp .2s ease both;}
+.landing-proof-result strong{display:block;color:#edf7f1;font-size:13px;margin-bottom:5px;}
+.landing-proof-result span{display:block;color:#aaa69e;font-size:11.5px;line-height:1.52;}
+.landing-proof-result button{margin-top:11px;border:0;border-radius:9px;padding:9px 12px;background:#fff;color:#222;font:600 11.5px 'DM Sans',sans-serif;cursor:pointer;}
 .landing-stats-grid{max-width:680px;margin:0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;text-align:center;}
 #app-menu-button{width:36px;height:36px;border:1px solid var(--border2);border-radius:10px;background:var(--surface2);color:var(--text-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
 #app-menu-button svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;}
@@ -399,6 +447,16 @@
   .hero-title{font-size:27px!important;line-height:1.15!important;}
   .hero-tagline{font-size:14px;line-height:1.35;}
   .homepage-diagnostic-entry{max-width:100%;margin-top:1px;}
+  .landing-entry-grid{grid-template-columns:1fr 1fr;gap:7px;}
+  .landing-entry-card{min-height:75px;padding:11px;gap:8px;}
+  .landing-entry-icon{width:30px;height:30px;font-size:14px;}
+  .landing-entry-title{font-size:11.5px;}
+  .landing-entry-desc{font-size:9.5px;}
+  .landing-entry-card.wide{min-height:62px;}
+  .landing-destination-preview{padding:15px;margin-top:9px;}
+  .landing-proof-section{padding:8px 14px 42px;}
+  .landing-proof-card{padding:16px;}
+  .landing-proof-options{grid-template-columns:1fr;}
   .homepage-problem-options{grid-template-columns:1fr;gap:7px;}
   .homepage-problem-option.wide{grid-column:auto;}
   .homepage-problem-option{min-height:48px;padding:9px 11px;font-size:12.5px;}
@@ -453,6 +511,24 @@
   .hero-title{font-size:22px!important;line-height:1.08!important;}
   .hero-tagline{font-size:11.5px;line-height:1.22;}
   .homepage-diagnostic-entry{margin-top:0;}
+  .landing-entry-label{font-size:11px;margin-bottom:4px;}
+  .landing-entry-grid{gap:4px;}
+  .landing-entry-card{min-height:49px;padding:6px 7px;border-radius:9px;gap:6px;}
+  .landing-entry-card.wide{min-height:44px;}
+  .landing-entry-icon{width:26px;height:26px;border-radius:7px;font-size:12px;}
+  .landing-entry-title{font-size:9.5px;}
+  .landing-entry-desc{display:none;}
+  .landing-entry-badge{font-size:6.5px;margin-bottom:2px;padding:1px 5px;}
+  .landing-entry-arrow{font-size:13px;}
+  .landing-entry-shell.has-selection .landing-entry-card.selected{min-height:37px;padding:5px 7px;}
+  .landing-destination-preview{padding:10px 11px;margin-top:5px;border-radius:11px;}
+  .landing-destination-kicker{font-size:7px;margin-bottom:3px;}
+  .landing-destination-title{font-size:15px;}
+  .landing-destination-copy{font-size:9.5px;line-height:1.35;margin-top:4px;}
+  .landing-destination-outcome{font-size:8.5px;margin-top:6px;padding:5px 7px;}
+  .landing-destination-actions{margin-top:7px;gap:4px;}
+  .landing-destination-google{padding:7px 9px;font-size:9.5px;}
+  .landing-change-entry{font-size:8.5px;padding:3px;}
   .homepage-diagnostic-question{font-size:11.5px;margin:0 0 4px 1px;}
   .homepage-campaign-note{font-size:8px;margin-bottom:3px;}
   .homepage-problem-options{gap:4px;}
@@ -500,13 +576,46 @@
 <div id="landing-page">
   <nav class="nav">
     <div class="nav-logo"><img src="/Logo-full.png" alt="Marg" fetchpriority="high"></div>
-    <a class="nav-cta" href="#homepage-diagnostic-entry" onclick="return window.focusHomepageDiagnosis?!window.focusHomepageDiagnosis():true">Find my pattern →</a>
+    <a class="nav-cta" href="#homepage-entry" onclick="return window.focusHomepageEntry?!window.focusHomepageEntry():true">Explore Marg →</a>
   </nav>
 
   <section class="hero">
-    <div class="hero-badge"><span></span> One decision · No card</div>
-    <h1 class="hero-title">Find the pattern costing you<br>CAT marks.</h1>
-    <div class="hero-tagline">Choose where the marks are leaking. Marg will test one real decision<br><span style="color:#d8bd74;">before Google sign-in.</span></div>
+    <div class="hero-badge"><span></span> Free CAT workspace · No card</div>
+    <h1 class="hero-title">Your CAT preparation,<br>finally connected.</h1>
+    <div class="hero-tagline">Practise, analyse mocks, take sectionals—or let Marg identify<br><span style="color:#d8bd74;">the decision costing you marks.</span></div>
+    <div class="landing-entry-shell" id="homepage-entry">
+      <div class="landing-entry-label">What do you want to do?</div>
+      <div class="landing-entry-grid" role="group" aria-label="Choose where to start in Marg">
+        <button type="button" class="landing-entry-card recommended" data-entry-key="diagnosis" aria-pressed="false" onclick="chooseHomepageEntry('diagnosis')">
+          <span class="landing-entry-icon">🧠</span><span class="landing-entry-copy"><span class="landing-entry-badge">Recommended</span><span class="landing-entry-title">Find my mark-leak</span><span class="landing-entry-desc">One decision check, then Marg tests the pattern.</span></span><span class="landing-entry-arrow">›</span>
+        </button>
+        <button type="button" class="landing-entry-card" data-entry-key="practice" aria-pressed="false" onclick="chooseHomepageEntry('practice')">
+          <span class="landing-entry-icon">✍️</span><span class="landing-entry-copy"><span class="landing-entry-title">Practise CAT questions</span><span class="landing-entry-desc">Open targeted RC, DILR or QA practice.</span></span><span class="landing-entry-arrow">›</span>
+        </button>
+        <button type="button" class="landing-entry-card" data-entry-key="mock" aria-pressed="false" onclick="chooseHomepageEntry('mock')">
+          <span class="landing-entry-icon">📊</span><span class="landing-entry-copy"><span class="landing-entry-title">Analyse my mock</span><span class="landing-entry-desc">Separate the score from the execution failure.</span></span><span class="landing-entry-arrow">›</span>
+        </button>
+        <button type="button" class="landing-entry-card" data-entry-key="sectionals" aria-pressed="false" onclick="chooseHomepageEntry('sectionals')">
+          <span class="landing-entry-icon">⏱</span><span class="landing-entry-copy"><span class="landing-entry-title">Take a sectional</span><span class="landing-entry-desc">Use the timed interface with submission and analysis.</span></span><span class="landing-entry-arrow">›</span>
+        </button>
+        <button type="button" class="landing-entry-card wide" data-entry-key="chat" aria-pressed="false" onclick="chooseHomepageEntry('chat')">
+          <span class="landing-entry-icon">💬</span><span class="landing-entry-copy"><span class="landing-entry-title">Talk to Marg</span><span class="landing-entry-desc">Ask about your plan, preparation or the thing currently blocking you.</span></span><span class="landing-entry-arrow">›</span>
+        </button>
+      </div>
+      <div class="landing-destination-preview" id="landing-destination-preview" aria-live="polite">
+        <div class="landing-destination-kicker" id="landing-destination-kicker">Your destination</div>
+        <div class="landing-destination-title" id="landing-destination-title"></div>
+        <div class="landing-destination-copy" id="landing-destination-copy"></div>
+        <div class="landing-destination-outcome" id="landing-destination-outcome"></div>
+        <div class="landing-destination-actions">
+          <button class="landing-destination-google" id="landing-destination-google" type="button" onclick="continueHomepageDestination()">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>Continue with Google
+          </button>
+          <button class="landing-change-entry" type="button" onclick="changeHomepageEntry()">Choose something else</button>
+        </div>
+      </div>
+    </div>
     <div class="homepage-diagnostic-entry" id="homepage-diagnostic-entry">
       <div class="homepage-diagnostic-question">Where does it happen?</div>
       <div class="homepage-campaign-note" id="homepage-campaign-note">The pattern from the ad is first</div>
@@ -533,19 +642,33 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
             Continue with Google
           </button>
-          <button class="homepage-change-problem" type="button" onclick="resetHomepageDiagnosis()">Choose a different problem</button>
+          <button class="homepage-change-problem" type="button" onclick="resetHomepageDiagnosis()">Choose a different section</button>
         </div>
         <div class="homepage-preview-note" id="homepage-preview-note">Choose honestly.</div>
       </div>
     </div>
     <button class="homepage-login-link" type="button" onclick="startLogin()">Already use Marg? Sign in</button>
     <div class="homepage-trust-strip"><span class="homepage-trust-dot">●</span><span>One real decision before sign-in</span><span>·</span><span>No payment details</span></div>
-    <div class="landing-product-strip" aria-label="What you can do inside Marg">
-      <span class="landing-product-pill"><span>🧠</span>Diagnose</span>
-      <span class="landing-product-pill"><span>✍️</span>Practise</span>
-      <span class="landing-product-pill"><span>📊</span>Analyse mocks</span>
-      <span class="landing-product-pill"><span>⏱</span>Take sectionals</span>
-      <span class="landing-product-pill"><span>↗</span>Track progress</span>
+  </section>
+
+  <section class="landing-proof-section" id="landing-proof">
+    <div class="landing-proof-card">
+      <div class="landing-proof-kicker">Try Marg before signing in</div>
+      <h2 class="landing-proof-title">One real RC decision. No account needed.</h2>
+      <div class="landing-proof-note">The answer matters less than the reason your option looked attractive.</div>
+      <div class="landing-proof-passage">Policies are often defended because their outcomes are measurable. Yet measurability can create an illusion of objectivity: what is easy to count begins to stand in for what matters. This does not make measurement useless. It means a metric should be judged partly by the decisions it hides, not only by the comparisons it enables.</div>
+      <div class="landing-proof-question">Which option best captures the author’s central claim?</div>
+      <div class="landing-proof-options" role="group" aria-label="Answer the public RC question">
+        <button class="landing-proof-option" type="button" data-proof-answer="A" onclick="answerLandingProof('A')">A. Quantitative measures should be abandoned when they conceal important decisions.</button>
+        <button class="landing-proof-option" type="button" data-proof-answer="B" onclick="answerLandingProof('B')">B. Measurability guarantees comparability but not objectivity.</button>
+        <button class="landing-proof-option" type="button" data-proof-answer="C" onclick="answerLandingProof('C')">C. Metrics are useful, but their apparent objectivity can obscure what their construction leaves out.</button>
+        <button class="landing-proof-option" type="button" data-proof-answer="D" onclick="answerLandingProof('D')">D. Policies should be judged by outcomes that cannot be measured.</button>
+      </div>
+      <div class="landing-proof-result" id="landing-proof-result" aria-live="polite">
+        <strong id="landing-proof-result-title"></strong>
+        <span id="landing-proof-result-copy"></span>
+        <button type="button" onclick="continueLandingProof()">Save this evidence and continue →</button>
+      </div>
     </div>
   </section>
 
@@ -662,7 +785,7 @@
     <img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png" alt="Marg" class="final-cta-logo">
     <h2 class="final-cta-title">Stop guessing. Start fixing the right thing.</h2>
     <div class="final-cta-tagline">Free. No forms. 60 seconds to start.</div>
-    <a class="hero-cta" href="#homepage-diagnostic-entry" onclick="return window.focusHomepageDiagnosis?!window.focusHomepageDiagnosis():true">
+    <a class="hero-cta" href="#homepage-entry" onclick="if(window.chooseHomepageEntry){window.chooseHomepageEntry('diagnosis');return false;}return true;">
       <svg viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
       Find the pattern costing you marks
     </a>
