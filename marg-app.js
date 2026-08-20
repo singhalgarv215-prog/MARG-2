@@ -436,11 +436,18 @@ function resizeHomepageEntry() {
 function focusHomepageDiagnosis() {
   var diagnostic = document.getElementById('homepage-diagnostic-entry');
   if (!diagnostic) return false;
-  diagnostic.scrollIntoView({ behavior:'smooth', block:'center' });
+  var completedCta = diagnostic.querySelector('.homepage-diagnosis-actions.visible .homepage-google-cta');
+  var activeChoice = diagnostic.querySelector('.homepage-check-option:not(:disabled)');
+  var selected = diagnostic.querySelector('.homepage-problem-option.selected');
+  var first = diagnostic.querySelector('.homepage-problem-option');
+  var target = completedCta || activeChoice || selected || first || diagnostic;
+  target.scrollIntoView({ behavior:'smooth', block:'center' });
+  diagnostic.classList.remove('cta-focused');
+  void diagnostic.offsetWidth;
+  diagnostic.classList.add('cta-focused');
+  setTimeout(function() { diagnostic.classList.remove('cta-focused'); }, 900);
   setTimeout(function() {
-    var selected = diagnostic.querySelector('.homepage-problem-option.selected');
-    var first = diagnostic.querySelector('.homepage-problem-option');
-    if (selected || first) (selected || first).focus({ preventScroll:true });
+    if (target && typeof target.focus === 'function') target.focus({ preventScroll:true });
   }, 350);
   return true;
 }
@@ -1466,7 +1473,7 @@ function showCommunityPhoneForm(card) {
   input.autocomplete = 'tel';
   input.placeholder = '+91 98765 43210';
   input.setAttribute('aria-label', 'WhatsApp phone number');
-  input.style.cssText = 'width:100%;box-sizing:border-box;background:#101010;border:1px solid #343434;border-radius:10px;color:#F0EDE6;padding:12px;font:14px DM Sans,sans-serif;outline:none;';
+  input.style.cssText = 'width:100%;box-sizing:border-box;background:#101010;border:1px solid #343434;border-radius:10px;color:#F0EDE6;padding:12px;font:16px DM Sans,sans-serif;outline:none;';
   var privacy = document.createElement('div');
   privacy.textContent = 'Saved directly to your private Marg record for this invite request. It is not sent to Gemini or added to chat history.';
   privacy.style.cssText = 'font-size:11px;color:#77736C;line-height:1.45;margin:8px 0 10px;';
@@ -2143,6 +2150,82 @@ var MAX_IMAGE_ATTACHMENTS = 4;
 var MAX_TOTAL_IMAGE_BASE64_LENGTH = 18 * 1024 * 1024;
 var queuedOutgoingMessage = null;
 var composerStatusTimer = null;
+var mobileViewportBaselineHeight = 0;
+var mobileViewportStabilityInitialized = false;
+
+function usesDesktopPointer() {
+  return !!(window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+}
+
+function focusComposer(options) {
+  var input = document.getElementById('user-input');
+  var userInitiated = !!(options && options.userInitiated);
+  if (!input || input.disabled || (!userInitiated && !usesDesktopPointer())) return false;
+  try { input.focus({ preventScroll:true }); }
+  catch(e) { input.focus(); }
+  return true;
+}
+
+function isEditableControl(element) {
+  if (!element || !element.tagName) return false;
+  var tag = String(element.tagName).toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || element.isContentEditable === true;
+}
+
+function ensureMobileComposerStyles() {
+  if (document.getElementById('marg-mobile-composer-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'marg-mobile-composer-styles';
+  style.textContent = ':root{--marg-chat-viewport-height:100vh}' +
+    '@supports(height:100dvh){:root{--marg-chat-viewport-height:100dvh}}' +
+    '#chat-app{height:var(--marg-chat-viewport-height);max-height:var(--marg-chat-viewport-height)}' +
+    '#messages{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}' +
+    '@media(max-width:900px){' +
+      '#user-input,#feedback-text,.ps-input,.ps-select,.mac-input-group input,.sectional-select{font-size:16px!important}' +
+      '#input-area{padding-bottom:calc(76px + env(safe-area-inset-bottom, 0px))}' +
+      '#bottom-nav{padding-bottom:env(safe-area-inset-bottom, 0px)}' +
+      '.tab-section{bottom:calc(64px + env(safe-area-inset-bottom, 0px))}' +
+      'html.marg-keyboard-open #input-area{padding-bottom:12px}' +
+      'html.marg-keyboard-open #bottom-nav.visible{display:none}' +
+      'html.marg-keyboard-open .tab-section{bottom:0}' +
+      'html.marg-keyboard-open #messages{scroll-behavior:auto}' +
+    '}';
+  document.head.appendChild(style);
+}
+
+function syncMobileChatViewport() {
+  var viewport = window.visualViewport;
+  var visibleHeight = Math.round(viewport && viewport.height ? viewport.height : (window.innerHeight || document.documentElement.clientHeight || 0));
+  if (visibleHeight > 0) document.documentElement.style.setProperty('--marg-chat-viewport-height', visibleHeight + 'px');
+
+  var mobileLayout = !!(window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
+  var editableFocused = isEditableControl(document.activeElement);
+  if (!editableFocused && visibleHeight > 0) mobileViewportBaselineHeight = Math.max(mobileViewportBaselineHeight, visibleHeight);
+  if (!mobileViewportBaselineHeight && visibleHeight > 0) mobileViewportBaselineHeight = visibleHeight;
+
+  var keyboardOpen = mobileLayout && editableFocused && mobileViewportBaselineHeight - visibleHeight > 100;
+  document.documentElement.classList.toggle('marg-keyboard-open', keyboardOpen);
+}
+
+function initializeMobileViewportStability() {
+  if (mobileViewportStabilityInitialized) return;
+  mobileViewportStabilityInitialized = true;
+  ensureMobileComposerStyles();
+  syncMobileChatViewport();
+  window.addEventListener('resize', syncMobileChatViewport, { passive:true });
+  document.addEventListener('focusin', function() { setTimeout(syncMobileChatViewport, 0); }, { passive:true });
+  document.addEventListener('focusout', function() { setTimeout(syncMobileChatViewport, 120); }, { passive:true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncMobileChatViewport, { passive:true });
+    window.visualViewport.addEventListener('scroll', syncMobileChatViewport, { passive:true });
+  }
+  window.addEventListener('orientationchange', function() {
+    mobileViewportBaselineHeight = 0;
+    setTimeout(syncMobileChatViewport, 180);
+  }, { passive:true });
+}
+
+initializeMobileViewportStability();
 
 function escapeChatHtml(value) {
   return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -2736,7 +2819,7 @@ function finishDiagnosticFlow(entry) {
     offerDiagnosisReferralChallenge(entry);
   }
   var input = document.getElementById('user-input');
-  if (input) { input.disabled = false; input.focus(); }
+  if (input) input.disabled = false;
   var send = document.getElementById('send-btn');
   if (send) send.disabled = false;
 }
@@ -2749,7 +2832,7 @@ function completeDiagnosticOpenChat() {
   addMessage('marg', reply, true);
   conversationHistory.push({ role:'assistant', content:reply });
   if (!isGuestMode) saveChatMessage('assistant', reply);
-  document.getElementById('user-input').focus();
+  focusComposer({ userInitiated:true });
 }
 
 function closeDiagnosticFlow(completed) {
@@ -4079,7 +4162,7 @@ function renderChatFirstOnboardingOnce() {
     'Something else'
   ], 'chat_first_onboarding');
   var input = document.getElementById('user-input');
-  if (input) { input.disabled = false; input.focus(); }
+  if (input) input.disabled = false;
 }
 
 function startChatFirstOnboarding() {
@@ -4974,7 +5057,8 @@ function removeConversationalOptions() {
 
 function keepChatInteractive() {
   var input = document.getElementById('user-input');
-  if (input) { input.disabled = false; input.focus(); }
+  if (input) input.disabled = false;
+  focusComposer();
   updateComposerControls();
 }
 
@@ -5427,7 +5511,7 @@ async function sendPatternGuess(section, subissueAnswer) {
       conversationalProfile.awaitingPatternCorrection = true;
       document.getElementById('user-input').disabled = false;
       document.getElementById('send-btn').disabled = false;
-      document.getElementById('user-input').focus();
+      focusComposer();
     } else {
       showConversationalOptions(['Yes, exactly', 'Not quite'], 'pattern_confirm');
     }
@@ -5474,7 +5558,7 @@ async function sendPatternFallbackQuestion() {
   conversationalProfile.awaitingPatternCorrection = true;
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
-  document.getElementById('user-input').focus();
+  focusComposer();
 }
 
 function checkAndRenderMargOptions(response) {
@@ -5624,7 +5708,7 @@ function skipProfileSetup() {
 async function choosePathDiscuss() {
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
-  document.getElementById('user-input').focus();
+  focusComposer();
   await startDiscussPath();
 }
 
@@ -5677,7 +5761,7 @@ function restoreConversation() {
   if (displayMessages.length === 0) addSuggestionChips();
   restoreCurrentChatDraft();
   if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
-  document.getElementById('user-input').focus();
+  focusComposer();
   checkAndShowTour();
   return restorePendingGuidedGeneration();
 }
@@ -6076,7 +6160,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     else if (hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(150);
     else {
       if (typeof maybePresentCommunityInvite === 'function') maybePresentCommunityInvite();
-      if (input && !input.disabled) input.focus();
+      focusComposer();
     }
   }
 }
@@ -6386,7 +6470,7 @@ function startGuestMode() {
   document.getElementById('user-input').disabled = false;
   restoreCurrentChatDraft();
   updateComposerControls();
-  document.getElementById('user-input').focus();
+  focusComposer();
 }
 
 function updateGuestBanner() {
@@ -6645,7 +6729,8 @@ async function sendReturningUserGreeting() {
     }
     var groundedInput = document.getElementById('user-input');
     var groundedSend = document.getElementById('send-btn');
-    if (groundedInput) { groundedInput.disabled = false; groundedInput.focus(); }
+    if (groundedInput) groundedInput.disabled = false;
+    focusComposer();
     if (groundedSend) groundedSend.disabled = false;
     return;
   }
@@ -6694,7 +6779,7 @@ async function sendReturningUserGreeting() {
 
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
-  document.getElementById('user-input').focus();
+  focusComposer();
 }
 let mobData = { varc: 0, dilr: 0, qa: 0, attempt: '', weak: '' };
 let mobLoginForMock = false;
@@ -6717,7 +6802,7 @@ function showMockOnboarding() {
   if (app) app.style.display = 'flex';
   var input = document.getElementById('user-input');
   var sendButton = document.getElementById('send-btn');
-  if (input) { input.disabled = false; input.focus(); }
+  if (input) input.disabled = false;
   if (sendButton) sendButton.disabled = false;
   showBottomNav();
   removeConversationalOptions();
@@ -7319,7 +7404,7 @@ function prefillMessage(text) {
   const input = document.getElementById('user-input');
   if (input && !input.disabled) {
     input.value = text;
-    input.focus();
+    focusComposer({ userInitiated:true });
     input.dispatchEvent(new Event('input'));
   }
 }
@@ -8453,8 +8538,7 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   }
   isLoading = false;
   if (sendButton) sendButton.disabled = false;
-  var input = document.getElementById('user-input');
-  if (input) input.focus();
+  focusComposer();
   return succeeded;
 }
 
@@ -9129,7 +9213,10 @@ function selectAnswer(selectedIndex) {
           switchTab('chat');
           setTimeout(function() {
             var input = document.getElementById('user-input');
-            if (input) { input.value = message; input.focus(); }
+            if (input) {
+              input.value = message;
+              focusComposer({ userInitiated:true });
+            }
           }, 300);
         };
         expEl.appendChild(askBtn);
