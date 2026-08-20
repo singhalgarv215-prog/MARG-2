@@ -1844,19 +1844,19 @@ CORE RESPONSE CONTRACT
 - Avoid assistant-like headings and academic paragraphs. Diagnose the decision, not just the content.
 
 EVIDENCE BEFORE REASSURANCE
-A score is an outcome, not a cause or capability verdict. Never confidently explain why a score happened, call it an "execution cascade", or claim the student's baseline is solid before examining the evidence available: attempts, accuracy, selection, timing, errors and their account. Separate observation from hypothesis: "The score shows X; your description suggests Y; Z still needs testing." Reassure only from real evidence such as prior results or correctly executed work.
+A score is an outcome, not a cause or capability verdict. Do not explain it or reassure confidently before examining attempts, accuracy, selection, timing, errors and the student's account. Separate observation from hypothesis: "The score shows X; your description suggests Y; Z needs testing." Reassure only from evidence.
 
 MECHANISM, NOT CATEGORY LABEL
-"Time management", "carelessness", "low confidence" and "practice more" are categories, not diagnoses. Name the evidenced mechanism: sunk-cost lock-in, missing kill-switch, decision paralysis, poor representation, constraint misread, cognitive fatigue, panic rushing, or answer-changing without new evidence. Tie mechanism → evidence → consequence → decision rule. A duplicate-entry error after 20 minutes on a dead set may indicate fatigue, not isolated carelessness.
+"Time management", "carelessness", "low confidence" and "practice more" are categories, not diagnoses. Name the evidenced mechanism: sunk-cost lock-in, missing kill-switch, decision paralysis, poor representation, constraint misread, fatigue, panic rushing or answer-changing without evidence. Tie mechanism → evidence → consequence → decision rule.
 
 TEST UNCERTAIN SELF-DIAGNOSES
-"I think", "maybe" and "probably" introduce hypotheses, not facts. Never invent precision such as "slow down 15%". Propose the smallest comparison that can confirm or reject the claim. Every numeric target, percentage, attempt count or cutoff must come from supplied evidence, verified test structure, or an explicitly labelled trial.
+"I think", "maybe" and "probably" introduce hypotheses. Test them with the smallest useful comparison. Never invent precision such as "slow down 15%"; numbers must come from supplied evidence, verified structure or a labelled trial.
 
 PRACTICE-DISTRIBUTION DIAGNOSIS
-If preparation is concentrated in one topic while the exam/mock is mixed, call it a distribution mismatch: the student is improving at that topic, not yet at CAT QA generally. Recommend meaningful primary-topic work, smaller recurring exposure to secondary topic families, and periodic mixed timed checks for transfer. Derive exact splits from availability and evidence; otherwise use qualitative proportions or label the split a trial.
+If topic-wise practice does not match a mixed exam, call it a distribution mismatch. Keep meaningful work on the primary weakness, recurring exposure to secondary families and periodic mixed timed checks for transfer. Derive splits from evidence or label them a trial.
 
 EMOTION AND FRESH MOCKS
-Acknowledge frustration or low confidence in one calm line, but do not make unsupported capability claims or become therapeutic. Separate evidence from identity, identify the preparation mechanism, then give one controllable move. If the student just finished a two-hour mock or says they are exhausted, give at most one evidence-bounded observation and ask whether they want the full breakdown now, a short first read now, or rest and revisit later. If they explicitly request the full analysis now and sound ready, proceed. Never dump a dense mission onto an exhausted student.
+Acknowledge emotion calmly without unsupported capability claims. Separate evidence from identity, then give one controllable move. After a just-finished two-hour mock or stated exhaustion, give one bounded observation and ask: full breakdown now, short first read, or rest. If they explicitly want analysis now, proceed. Never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
 For a new VARC, QA, DILR, Mock, Confidence, Strategy or Planning topic, use 1-2 narrowing questions, then: natural read → evidence/mechanism → one confirmation → targeted next step. Say "Here's my read" or "I think I know what's happening", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?" Ask "Does that sound like you?"; the same reply must say what Marg will test or fix next. After Exactly/Mostly, immediately lead with the specific action, its diagnostic purpose, and Right now / Later today / Tomorrow choices. Never choose timing or launch an exercise for them. QA/DILR use timed interfaces, not chat dumps. Before DILR, teach the representation, why it fits and the first constraint. Reviews say SUPPORTED, REJECTED or INCONCLUSIVE.
@@ -1865,7 +1865,10 @@ DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. New sets must use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach, or review a supplied/ACTIVE EXERCISE set. Never call model output brute-force verified. For fresh-set requests, briefly launch the interface.
 
 MEMORY AND CONTINUITY
-Use SESSION, ACTIVE EXERCISE, BEHAVIOURAL, TOPIC PROGRESSION, ACTIVE PLAN and PERSONAL GOAL memory before advising. Refer naturally to one relevant prior fact; never list memory or invent it. Never ask the student to resend an exercise Marg generated. If they submit answers, use the stored passage/questions/key immediately. Preserve an active plan unless a fresh result, changed constraint, completed milestone, illness or explicit redesign request justifies a change; state what changed and why.
+Use SESSION, ACTIVE EXERCISE, BEHAVIOURAL, TOPIC PROGRESSION, ACTIVE PLAN, PERSONAL GOAL and PROFILE CONTEXT memory before advising. Refer naturally to one relevant prior fact; never list memory or invent it. Never ask the student to resend an exercise Marg generated. If they submit answers, use the stored passage/questions/key immediately. Preserve an active plan unless a fresh result, changed constraint, completed milestone, illness or explicit redesign request justifies a change; state what changed and why.
+
+PROGRESSIVE PROFILE BUILDING
+Never run a profile survey. Answer first. Only when their message creates a natural opening, add at most ONE light follow-up: mocks → series/attempt strategy; routine → realistic hours; resources → current material; targets → dream college. Never re-ask known fields, stack questions, interrupt wrong-answer review or exhaustion, or ask merely for engagement. Sound curious, not like data collection.
 
 CONTINUATION CONTRACT
 The loop is diagnosis → confirmation → smallest useful validation → evidence verdict → one saved next step. A new date never erases an unfinished mission. Review completed evidence before assigning work: say what it supports, rejects or leaves inconclusive, connect one proven recurring pattern, then choose one next move. On return, resume an unfinished check, unreviewed result or open mission before any generic greeting or worksheet. Never make the student press Send to review a result Marg already has.
@@ -1913,6 +1916,7 @@ VARC — Why: [evidence/mechanism]. What: [one process focus].
 DILR — Why: [evidence/mechanism]. What: [one process focus].
 QA — Why: [evidence/mechanism]. What: [one process focus].
 Next checkpoint: compare the next two mocks before changing the plan.
+Keep open missions saved, but never append them to unrelated factual or curiosity answers. Home carries the reminder. Return it to chat only when the student resumes it, supplies evidence or asks about the plan.
 Normal closes keep one light forward thread without a forced question. When sleep, exhaustion or completion calls for disengaging, end cleanly.
 
 TECHNICAL TAGS
@@ -3707,7 +3711,37 @@ function stabilizeAndRememberMission(response, userMessage) {
 function getActivePlanMemoryContext() {
   loadActiveMentorPlan();
   if (!isOpenMentorPlan(activeMentorPlan)) return '';
-  return '\n\nACTIVE PLAN MEMORY — this remains open across calendar days until evidence is reviewed, completion is confirmed, or strong new evidence justifies a change:\nStarted: ' + activeMentorPlan.date + '; status: ' + activeMentorPlan.status + '; version: ' + (activeMentorPlan.version || 1) + '\nCurrent Mission:\n' + activeMentorPlan.mission + (activeMentorPlan.lastEvidence ? '\nLatest unreviewed evidence: ' + activeMentorPlan.lastEvidence : '') + '\nDo not replace it merely because the date changed. If the student asks a nearby practical question, answer it inside this plan. If fresh evidence changes the priority, explain the evidence and exact change before revising it.';
+  return '\n\nACTIVE PLAN MEMORY — this remains open across calendar days until evidence is reviewed, completion is confirmed, or strong new evidence justifies a change:\nStarted: ' + activeMentorPlan.date + '; status: ' + activeMentorPlan.status + '; version: ' + (activeMentorPlan.version || 1) + '\nCurrent Mission:\n' + activeMentorPlan.mission + (activeMentorPlan.lastEvidence ? '\nLatest unreviewed evidence: ' + activeMentorPlan.lastEvidence : '') + '\nDo not replace it merely because the date changed. Use it when the student resumes it, reports evidence, asks about the plan, or asks a directly related practical question. For an unrelated factual or curiosity question, answer that question fully and do not append, restate, or remind them about this mission; it remains available on the Home resume card. If fresh evidence changes the priority, explain the evidence and exact change before revising it.';
+}
+
+function isUserResumingActivePlan(message, plan) {
+  var text = String(message || '').toLowerCase();
+  if (/\b(?:today'?s mission|current mission|open mission|resume (?:the )?(?:plan|task|mission|check)|start (?:the )?(?:task|mission|check)|ready (?:for|to start)|what should i do|what'?s my plan)\b/i.test(text)) return true;
+  var ignored = new Set(['today','mission','focus','test','whether','because','action','complete','timed','question','questions','after','before','rule','evidence','clean','current','student','section']);
+  var terms = normalizeMissionText(plan && plan.mission).split(' ').filter(function(term) { return term.length >= 6 && !ignored.has(term); });
+  var hits = 0;
+  terms.some(function(term) {
+    if (text.indexOf(term) !== -1) hits++;
+    return hits >= 2;
+  });
+  return hits >= 2;
+}
+
+function suppressUnrelatedActivePlanReminder(response, userMessage) {
+  loadActiveMentorPlan();
+  if (!isOpenMentorPlan(activeMentorPlan) || isUserResumingActivePlan(userMessage, activeMentorPlan)) return response;
+  var missionNormalized = normalizeMissionText(activeMentorPlan.mission);
+  var blocks = String(response || '').split(/\n\s*\n/);
+  var kept = blocks.filter(function(block) {
+    var normalized = normalizeMissionText(block);
+    if (!normalized) return false;
+    if (missionNormalized && (normalized.indexOf(missionNormalized) !== -1 || missionNormalized.indexOf(normalized) !== -1 && normalized.length > 80)) return false;
+    var reminderCue = /\b(?:still (?:need|have|open)|mission is still|when you(?:'re| are) ready|later today|resume|come back|don'?t forget|reminder)\b/i.test(block);
+    var taskCue = /\b(?:mission|task|check|exercise|sectional|practice|reset routine|kill-switch)\b/i.test(block);
+    return !(reminderCue && taskCue);
+  });
+  var cleaned = kept.join('\n\n').trim();
+  return cleaned || response;
 }
 
 function getTopicProgressionMemoryContext() {
@@ -3724,6 +3758,7 @@ function loadMentorMemory() {
   loadActiveGeneratedExercise();
   loadBehavioralMemory();
   loadActiveMentorPlan();
+  loadProgressiveProfileMemory();
   if (typeof loadTopicProgression === 'function') loadTopicProgression();
 }
 
@@ -4797,9 +4832,11 @@ function loadPersonalGoalMemory() {
 
 function capturePersonalGoalDetails(message) {
   var text = String(message || '');
-  if (!/\b(dream|target|aim|goal)\b/i.test(text) || !/\b(college|b[- ]?school|iim|fms|xlri|spjimr|mdi|iift|jbims|isb)\b/i.test(text)) return null;
-  var named = text.match(/\b(IIM\s+(?:Ahmedabad|Bangalore|Bengaluru|Calcutta|Kolkata|Lucknow|Kozhikode|Indore|Mumbai|Shillong|Rohtak|Udaipur|Trichy)|FMS(?:\s+Delhi)?|XLRI(?:\s+Jamshedpur)?|SPJIMR(?:\s+Mumbai)?|MDI(?:\s+Gurgaon|\s+Gurugram)?|IIFT(?:\s+Delhi)?|JBIMS(?:\s+Mumbai)?|ISB(?:\s+Hyderabad)?)\b/i);
   var previous = loadPersonalGoalMemory() || {};
+  var named = text.match(/\b(IIM\s+(?:A|B|C|Ahmedabad|Bangalore|Bengaluru|Calcutta|Kolkata|Lucknow|Kozhikode|Indore|Mumbai|Shillong|Rohtak|Udaipur|Trichy)|FMS(?:\s+Delhi)?|XLRI(?:\s+Jamshedpur)?|SPJIMR(?:\s+Mumbai)?|MDI(?:\s+Gurgaon|\s+Gurugram)?|IIFT(?:\s+Delhi)?|JBIMS(?:\s+Mumbai)?|ISB(?:\s+Hyderabad)?)\b/i);
+  var explicitGoal = /\b(dream|target|aim|goal)\b/i.test(text) && /\b(college|b[- ]?school|iim|fms|xlri|spjimr|mdi|iift|jbims|isb)\b/i.test(text);
+  var answersAskedFollowUp = !!(named && previous.kind === 'dream_college' && !previous.target && previous.clarificationAskedAt);
+  if (!explicitGoal && !answersAskedFollowUp) return null;
   var next = {
     kind:'dream_college', target:named ? named[1] : (previous.target || null),
     mentionedText:text.substring(0, 240), clarificationAskedAt:previous.clarificationAskedAt || null,
@@ -4828,6 +4865,184 @@ function markPersonalGoalFollowUpIfAsked(response) {
   personalGoalMemory = goal;
   try { localStorage.setItem(personalGoalStorageKey(), JSON.stringify(goal)); } catch(e) {}
   saveInternalMemoryMessage('PERSONAL_GOAL', goal);
+}
+
+var progressiveProfileMemory = null;
+
+function progressiveProfileStorageKey() {
+  return getUserScopedKey('marg_progressive_profile');
+}
+
+function createEmptyProgressiveProfile() {
+  return { mockSeries:[], dreamCollege:null, studyHours:null, attemptStrategy:null, prepResources:[], followUps:{}, awaitingField:null, updatedAt:null };
+}
+
+function normalizeProfileList(values) {
+  var seen = {};
+  return (Array.isArray(values) ? values : []).map(function(value) { return String(value || '').trim(); }).filter(function(value) {
+    var key = value.toLowerCase();
+    if (!key || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).slice(0, 8);
+}
+
+function loadProgressiveProfileMemory() {
+  if (progressiveProfileMemory) return progressiveProfileMemory;
+  var memory = null;
+  try { memory = JSON.parse(localStorage.getItem(progressiveProfileStorageKey()) || 'null'); } catch(e) { memory = null; }
+  if (!memory && conversationHistory && conversationHistory.length) {
+    for (var i = conversationHistory.length - 1; i >= 0; i--) {
+      var stored = parseInternalMemoryMessage(conversationHistory[i], 'PROFILE_CONTEXT');
+      if (stored) { memory = stored; break; }
+    }
+  }
+  memory = Object.assign(createEmptyProgressiveProfile(), memory || {});
+  memory.mockSeries = normalizeProfileList(memory.mockSeries);
+  memory.prepResources = normalizeProfileList(memory.prepResources);
+  memory.followUps = memory.followUps && typeof memory.followUps === 'object' ? memory.followUps : {};
+  var goal = loadPersonalGoalMemory();
+  if (!memory.dreamCollege && goal && goal.target) memory.dreamCollege = goal.target;
+  if (!memory.studyHours && studentProfile && studentProfile.dailyHours && !/unknown|null/i.test(String(studentProfile.dailyHours))) memory.studyHours = studentProfile.dailyHours;
+  progressiveProfileMemory = memory;
+  if (studentProfile) studentProfile.progressiveProfile = memory;
+  return memory;
+}
+
+function saveProgressiveProfileMemory(memory) {
+  if (!memory) return;
+  memory.mockSeries = normalizeProfileList(memory.mockSeries);
+  memory.prepResources = normalizeProfileList(memory.prepResources);
+  memory.updatedAt = new Date().toISOString();
+  progressiveProfileMemory = memory;
+  if (studentProfile) studentProfile.progressiveProfile = memory;
+  try { localStorage.setItem(progressiveProfileStorageKey(), JSON.stringify(memory)); } catch(e) {}
+  saveInternalMemoryMessage('PROFILE_CONTEXT', memory);
+}
+
+function getLatestVisibleAssistantMessage() {
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    var item = conversationHistory[i];
+    if (item && item.role === 'assistant' && !isInternalMemoryMessage(item)) return String(item.content || '');
+  }
+  return '';
+}
+
+function detectMockSeries(text, awaitingField) {
+  var value = String(text || '');
+  var found = [];
+  if (/\bAIMCATs?\b|\bTIME(?:'s)?\s+(?:mock|test)\s*series\b/i.test(value) || (awaitingField === 'mockSeries' && /^\s*TIME\s*$/i.test(value))) found.push('TIME AIMCAT');
+  if (/\bSIMCATs?\b|\bIMS(?:'s)?\s+(?:mock|test)\s*series\b/i.test(value) || (awaitingField === 'mockSeries' && /^\s*IMS\s*$/i.test(value))) found.push('IMS SIMCAT');
+  if (/\bCDC(?:s)?\b|\bCareer Launcher(?:'s)?\s+(?:mock|test)\s*series\b|\bCL\s+(?:mock|test)\s*series\b/i.test(value)) found.push('Career Launcher mocks');
+  if (/\bCracku(?:'s)?\s+(?:mock|test)\s*series\b/i.test(value)) found.push('Cracku mocks');
+  return found;
+}
+
+function detectPrepResources(text) {
+  var value = String(text || '');
+  var resources = [];
+  [
+    [/\bRodha\b/i, 'Rodha'], [/\bCracku\b/i, 'Cracku'], [/\bArun\s+Sharma\b/i, 'Arun Sharma'],
+    [/\b2IIM\b/i, '2IIM'], [/\bTakshzila\b/i, 'Takshzila'], [/\bAnastasis\b/i, 'Anastasis Academy'],
+    [/\bTIME(?:'s)?\s+(?:material|books?|classes|course|videos?)\b/i, 'TIME material'],
+    [/\bIMS(?:'s)?\s+(?:material|books?|classes|course|videos?)\b/i, 'IMS material'],
+    [/\bCareer Launcher(?:'s)?\s+(?:material|books?|classes|course|videos?)\b/i, 'Career Launcher material']
+  ].forEach(function(pair) { if (pair[0].test(value)) resources.push(pair[1]); });
+  return resources;
+}
+
+function captureProgressiveProfileDetails(message) {
+  var text = String(message || '').trim();
+  if (!text) return null;
+  var memory = loadProgressiveProfileMemory();
+  var before = JSON.stringify(memory);
+  var awaiting = memory.awaitingField || '';
+  var mockSeries = detectMockSeries(text, awaiting);
+  if (mockSeries.length) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat(mockSeries));
+
+  var resources = detectPrepResources(text);
+  if (resources.length) memory.prepResources = normalizeProfileList(memory.prepResources.concat(resources));
+
+  var goal = loadPersonalGoalMemory();
+  if (goal && goal.target) memory.dreamCollege = goal.target;
+  var namedCollege = text.match(/\b(IIM\s+(?:A|B|C|Ahmedabad|Bangalore|Bengaluru|Calcutta|Kolkata|Lucknow|Kozhikode|Indore|Mumbai|Shillong|Rohtak|Udaipur|Trichy)|FMS(?:\s+Delhi)?|XLRI(?:\s+Jamshedpur)?|SPJIMR(?:\s+Mumbai)?|MDI(?:\s+Gurgaon|\s+Gurugram)?|IIFT(?:\s+Delhi)?|JBIMS(?:\s+Mumbai)?|ISB(?:\s+Hyderabad)?)\b/i);
+  if (namedCollege && (awaiting === 'dreamCollege' || /\b(?:dream|target|aim|goal)\b/i.test(text))) memory.dreamCollege = namedCollege[1];
+
+  var hoursMatch = text.match(/\b(\d+(?:\.\d+)?(?:\s*[-–]\s*\d+(?:\.\d+)?)?)\s*(?:hours?|hrs?)\b/i);
+  var hoursOpening = /\b(?:study|studying|prep|prepare|daily|every day|routine|schedule|available|can give|put in)\b/i.test(text) || awaiting === 'studyHours';
+  if (hoursMatch && hoursOpening) {
+    memory.studyHours = hoursMatch[1].replace(/\s+/g, '') + ' hours';
+    if (studentProfile) studentProfile.dailyHours = memory.studyHours;
+  }
+
+  var strategyOpening = /\b(?:my|i)\b[\s\S]{0,35}\b(?:attempt|scan|skip|leave|round|start with|section order|question selection|set selection)\b/i.test(text) && /\b(?:mock|section|varc|dilr|qa|question|set|attempt)\b/i.test(text);
+  if ((awaiting === 'attemptStrategy' || strategyOpening) && text.length >= 8 && text.length <= 360) memory.attemptStrategy = text.substring(0, 360);
+
+  if (awaiting === 'prepResources' && !resources.length && text.length >= 2 && text.length <= 180) memory.prepResources = normalizeProfileList(memory.prepResources.concat([text]));
+  if (awaiting === 'mockSeries' && !mockSeries.length && text.length >= 2 && text.length <= 100) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat([text]));
+  if (awaiting && ((awaiting === 'mockSeries' && memory.mockSeries.length) || (awaiting === 'dreamCollege' && memory.dreamCollege) || (awaiting === 'studyHours' && memory.studyHours) || (awaiting === 'attemptStrategy' && memory.attemptStrategy) || (awaiting === 'prepResources' && memory.prepResources.length))) memory.awaitingField = null;
+
+  if (JSON.stringify(memory) !== before) {
+    saveProgressiveProfileMemory(memory);
+    if (hoursMatch && hoursOpening && typeof saveProfileProgressively === 'function') saveProfileProgressively();
+  }
+  return memory;
+}
+
+function chooseNaturalProfileFollowUp(message, diagnosis) {
+  var text = String(message || '');
+  var lower = text.toLowerCase();
+  var memory = loadProgressiveProfileMemory();
+  var intent = diagnosis && diagnosis.intent || '';
+  var emotional = diagnosis && diagnosis.emotionalState && diagnosis.emotionalState !== 'neutral';
+  if (!text || emotional || intent === 'answer_review' || /\b(?:just finished|just completed|just gave)\b[\s\S]{0,35}\bmock\b|\b(?:exhausted|very tired|want to quit|cannot clear|can't clear)\b/i.test(text)) return '';
+  if (/\b(?:mock|aimcat|simcat|scorecard)\b/.test(lower)) {
+    if (!memory.mockSeries.length && !memory.followUps.mockSeries) return 'mockSeries';
+    if (!memory.attemptStrategy && !memory.followUps.attemptStrategy) return 'attemptStrategy';
+  }
+  if (/\b(?:timetable|study plan|routine|schedule|study|studying|prepare|preparation)\b/.test(lower)) {
+    if (!memory.studyHours && !memory.followUps.studyHours) return 'studyHours';
+    if (!memory.prepResources.length && !memory.followUps.prepResources && /\b(?:resource|material|book|course|coaching|video|source)\b/.test(lower)) return 'prepResources';
+  }
+  if (/\b(?:target percentile|dream college|target college|b-school|mba college|iim call)\b/.test(lower) && !memory.dreamCollege && !memory.followUps.dreamCollege) return 'dreamCollege';
+  return '';
+}
+
+function getProgressiveProfileMemoryContext(message, diagnosis) {
+  var memory = loadProgressiveProfileMemory();
+  var known = [];
+  if (memory.mockSeries.length) known.push('Mock series: ' + memory.mockSeries.join(', '));
+  if (memory.dreamCollege) known.push('Dream/target college: ' + memory.dreamCollege);
+  if (memory.studyHours) known.push('Realistic daily study time: ' + memory.studyHours);
+  if (memory.attemptStrategy) known.push('Current attempt/pacing strategy: ' + memory.attemptStrategy);
+  if (memory.prepResources.length) known.push('Current prep resources: ' + memory.prepResources.join(', '));
+  var context = known.length ? '\n\nPROFILE CONTEXT MEMORY — use only when relevant, never recite as a list to the student:\n- ' + known.join('\n- ') : '';
+  var field = chooseNaturalProfileFollowUp(message, diagnosis);
+  if (!field) return context;
+  var prompts = {
+    mockSeries:'After fully answering the mock question, ask one casual follow-up: “Which mock series are you using right now—TIME, IMS, or mixing more than one?”',
+    attemptStrategy:'After fully answering the mock question, ask one casual follow-up about process: “In these mocks, are you following one fixed attempt strategy, or changing it with the paper?”',
+    dreamCollege:'After fully answering the target question, ask one casual follow-up: “Which college is the dream one, by the way?”',
+    studyHours:'After handling the plan/routine question, ask one light follow-up: “On an ordinary day, how much CAT time can you realistically protect?”',
+    prepResources:'After handling the resource question, ask one light follow-up: “What material are you actually using most days right now?”'
+  };
+  return context + '\n\nNATURAL PROFILE OPENING — ' + prompts[field] + ' Ask only this one optional question, after delivering value. Do not call it profile-building and do not add options or a form.';
+}
+
+function markProgressiveProfileFollowUpIfAsked(response) {
+  var value = String(response || '');
+  var field = '';
+  if (/(?:which|what).{0,35}(?:mock|test)\s*series|(?:TIME|IMS).{0,30}(?:mix|using|use)/i.test(value)) field = 'mockSeries';
+  else if (/(?:fixed|current).{0,25}(?:attempt|pacing|mock)\s*strateg|(?:how|when).{0,35}(?:attempt|scan|skip|leave).{0,20}(?:question|set|section|mock)/i.test(value)) field = 'attemptStrategy';
+  else if (/(?:which|what).{0,35}(?:(?:dream|target).{0,20}(?:college|b[- ]?school)|(?:college|b[- ]?school).{0,20}(?:dream|target))/i.test(value)) field = 'dreamCollege';
+  else if (/(?:how much|how many).{0,25}(?:CAT|study|prep).{0,20}(?:time|hours)|(?:time|hours).{0,25}(?:ordinary|realistic|protect)/i.test(value)) field = 'studyHours';
+  else if (/(?:what|which).{0,25}(?:material|resource|book|course|coaching|source).{0,25}(?:using|use|most days|right now)/i.test(value)) field = 'prepResources';
+  if (!field) return;
+  var memory = loadProgressiveProfileMemory();
+  if ((field === 'mockSeries' && memory.mockSeries.length) || (field === 'dreamCollege' && memory.dreamCollege) || (field === 'attemptStrategy' && memory.attemptStrategy) || (field === 'studyHours' && memory.studyHours) || (field === 'prepResources' && memory.prepResources.length)) return;
+  memory.followUps[field] = new Date().toISOString();
+  memory.awaitingField = field;
+  saveProgressiveProfileMemory(memory);
 }
 
 function containsPracticeSourceAttribution(message) {
@@ -5453,6 +5668,8 @@ async function routeAdHocDILRRequestToVerifiedInterface(userMessage) {
 async function sendConversationalMessage(userMessage, context, imageAttachments) {
   if (context !== 'typed') {
     conversationHistory.push({ role: 'user', content: userMessage });
+    capturePersonalGoalDetails(userMessage);
+    captureProgressiveProfileDetails(userMessage);
     if (!isGuestMode) saveChatMessage('user', userMessage);
   }
   if (isAdHocDILRGenerationRequest(userMessage, imageAttachments)) {
@@ -5478,6 +5695,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   systemAddition += getTopicProgressionMemoryContext();
   systemAddition += getActivePlanMemoryContext();
   systemAddition += getPersonalGoalMemoryContext();
+  systemAddition += getProgressiveProfileMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += mentorAnalysis.directive;
   if (!mentorAnalysis.diagnosis.comprehensivePlanning && ['answer_review','planning','returning_memory'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
     systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction in natural mentor language, briefly explain the clue, and ask one confirmation. Do not say "My prediction:". Never end on only "Does that feel accurate?"; in the same reply preview the exact check or coaching action that will follow if the read fits. After Exactly or Mostly, do not repeat the diagnosis or ask another intake question. Immediately lead with "Then let\'s verify it instead of guessing," name what the targeted check will observe, and offer Right now / Later today / Tomorrow. Wait only for that timing consent before launching the exercise. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
@@ -5517,7 +5735,9 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     var response = geminiText ? applyMentorResponseGuard(preventStructuredOutputLeak(geminiText), mentorAnalysis.diagnosis) : null;
     if (response) response = enforceVerifiedDILRChatBoundary(response, mentorAnalysis.diagnosis, userMessage, imageAttachments);
     if (response) response = stabilizeAndRememberMission(response, userMessage);
+    if (response) response = suppressUnrelatedActivePlanReminder(response, userMessage);
     if (response) markPersonalGoalFollowUpIfAsked(response);
+    if (response) markProgressiveProfileFollowUpIfAsked(response);
     hideTyping();
     if (response) {
       applyPredictionValidationVerdict(response);
@@ -6155,6 +6375,7 @@ async function sendMessage(fromQueue, submissionOptions) {
       addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
       conversationHistory.push({ role: 'user', content: storedUserText });
       capturePersonalGoalDetails(text);
+      captureProgressiveProfileDetails(text);
       detectAndSaveMockScores(text);
       if (!isGuestMode) saveChatMessage('user', storedUserText);
       if (!hasImages && isMeaningfulCatSpecificMessage(text)) {
@@ -6221,7 +6442,7 @@ async function sendMessage(fromQueue, submissionOptions) {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary + getDiagnosticMemoryContext() + getGeneratedExerciseMemoryContext(text) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + getPersonalGoalMemoryContext() + mentorAnalysis.directive + getPracticeThresholdNote();
+    activitySummary + getDiagnosticMemoryContext() + getGeneratedExerciseMemoryContext(text) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + getPracticeThresholdNote();
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
@@ -6230,8 +6451,10 @@ async function sendMessage(fromQueue, submissionOptions) {
     const data = await response.json();
     let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data)), mentorAnalysis.diagnosis);
     reply = stabilizeAndRememberMission(reply, text);
+    reply = suppressUnrelatedActivePlanReminder(reply, text);
     finalizeMentorPlanCompletionReview(text, reply);
     markPersonalGoalFollowUpIfAsked(reply);
+    markProgressiveProfileFollowUpIfAsked(reply);
     hideTyping();
     applyPredictionValidationVerdict(reply);
     markExerciseReviewCompleted(reply);
@@ -6267,6 +6490,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     }
     let fallbackReply = buildPredictionValidationFallback(text) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
     fallbackReply = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackReply))), text);
+    fallbackReply = suppressUnrelatedActivePlanReminder(fallbackReply, text);
     finalizeMentorPlanCompletionReview(text, fallbackReply);
     applyPredictionValidationVerdict(fallbackReply);
     markExerciseReviewCompleted(fallbackReply);
@@ -6857,8 +7081,16 @@ async function sendReturningUserGreeting() {
     groundedGreeting = getTimeGreeting() + (name ? ', ' + name : '') + '. Your ' + (activeGeneratedExercise.title || 'completed practice') + ' is saved, but the score is not the conclusion. Review the evidence before doing another set.';
   } else if (pendingDiagnosticExercise && pendingDiagnosticExercise.entry) {
     groundedGreeting = getTimeGreeting() + (name ? ', ' + name : '') + '. The working read is still saved: ' + pendingDiagnosticExercise.entry.confirmedDiagnosis + '\n\nThe same targeted check is ready when you are.';
-  } else if (isOpenMentorPlan(activeMentorPlan)) {
+  } else if (isOpenMentorPlan(activeMentorPlan) && activeMentorPlan.status === 'evidence_ready') {
     groundedGreeting = getTimeGreeting() + (name ? ', ' + name : '') + '. This mission is still open; a new day is not a reason to replace it:\n\n' + activeMentorPlan.mission;
+  } else if (isOpenMentorPlan(activeMentorPlan)) {
+    // An unfinished mission already has a dedicated Home resume card. Reopening
+    // Marg must not inject the full task into chat again or hijack a new question.
+    var quietInput = document.getElementById('user-input');
+    var quietSend = document.getElementById('send-btn');
+    if (quietInput) quietInput.disabled = false;
+    if (quietSend) quietSend.disabled = false;
+    return;
   }
   if (groundedGreeting) {
     // Continuity reminders are interface state, not new conversation turns.
@@ -6890,7 +7122,7 @@ async function sendReturningUserGreeting() {
     '\n\nVERIFIED RECENT TRANSCRIPT — the only source of continuity claims:\n' + getTrustedSessionMemory() +
     '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours +
     '\n\nDAILY MENTOR BRIEF: ' + dailyMentorBrief +
-    getTopicProgressionMemoryContext() + getActivePlanMemoryContext() +
+    getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + getProgressiveProfileMemoryContext('', { intent:'returning_memory', emotionalState:'neutral' }) +
     '\n\nRETURNING GREETING: ' + (name || 'This student') + ' just opened the app after being away — it is ' + timeOfDay + '. ' + situationLine + ' Use the daily brief to recommend the best next action from actual progression. Never say “we left off on”, “last time we discussed”, or similar unless that exact topic is supported by VERIFIED RECENT TRANSCRIPT or the verified task above. If no unfinished task is verified, say so naturally and start from an observed recent message instead of inventing continuity. If you suggest practice, ask whether they want it right now, later today, or tomorrow; never select tomorrow yourself. Write ONE compact opening message. Do not list their profile, say "ready to continue?", or open with a generic welcome.';
 
   let greeting = '';
