@@ -3,8 +3,9 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260820-2';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260820-4';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
+  var HOMEPAGE_DESTINATION_STORAGE_KEY = 'marg_pending_homepage_destination_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
   var VISITOR_STORAGE_KEY = 'marg_acquisition_visitor_v1';
   var CHALLENGE_VISITOR_STORAGE_KEY = 'marg_challenge_visitor_v1';
@@ -15,6 +16,33 @@
   var selectedProblemKey = '';
   var publicChallenge = null;
   var publicChallengeAnswered = false;
+
+  var HOMEPAGE_DESTINATIONS = {
+    practice:{
+      kicker:'Targeted practice',
+      title:'Open the Practice workspace.',
+      copy:'Choose RC, DILR or QA inside Marg. The questions stay inside the dedicated practice interface instead of being dumped into chat.',
+      outcome:'After Google: Marg opens Practice directly. No generic onboarding detour.'
+    },
+    mock:{
+      kicker:'Mock analysis',
+      title:'Separate the score from the execution problem.',
+      copy:'Enter section scores or add the scorecard image. Marg will look for the decision pattern behind the collapse before changing your plan.',
+      outcome:'After Google: Marg opens Mock Analysis directly with score and image inputs ready.'
+    },
+    sectionals:{
+      kicker:'Timed tests',
+      title:'Pressure-test a section properly.',
+      copy:'Use the timed QA or DILR interface with navigation, submission and analysis—not a long list of questions inside chat.',
+      outcome:'After Google: Marg opens Sectional Tests directly.'
+    },
+    chat:{
+      kicker:'Mentor chat',
+      title:'Bring Marg the problem that is actually on your mind.',
+      copy:'Discuss your preparation, study plan, confidence, strategy or a question you cannot place neatly into one section.',
+      outcome:'After Google: Marg opens Mentor Chat, ready to continue from what you chose here.'
+    }
+  };
 
   var PATTERNS = {
     rc_options:{
@@ -403,11 +431,188 @@
       diagnosticAnswer:String(intent.diagnosticAnswer || ''),
       diagnosticResult:String(intent.diagnosticResult || ''),
       diagnosticCompleted:!!intent.diagnosticCompleted,
+      visibleUserText:normalizeIntentText(intent.visibleUserText || ''),
+      visibleDiagnosisText:normalizeIntentText(intent.visibleDiagnosisText || ''),
+      handoffType:String(intent.handoffType || ''),
       funnel_intent_entered:!!intent.funnel_intent_entered,
       funnel_first_message_sent:!!intent.funnel_first_message_sent
     };
     safeSet(HOMEPAGE_INTENT_STORAGE_KEY, JSON.stringify(stored));
     return stored;
+  }
+
+  function readDestination() {
+    try {
+      var destination = JSON.parse(safeGet(HOMEPAGE_DESTINATION_STORAGE_KEY) || 'null');
+      if (!destination || !HOMEPAGE_DESTINATIONS[destination.destination] || !destination.createdAt || Date.now() - Number(destination.createdAt) > INTENT_MAX_AGE_MS) {
+        safeRemove(HOMEPAGE_DESTINATION_STORAGE_KEY);
+        return null;
+      }
+      return destination;
+    } catch(e) {
+      safeRemove(HOMEPAGE_DESTINATION_STORAGE_KEY);
+      return null;
+    }
+  }
+
+  function writeDestination(destination) {
+    if (!destination || !HOMEPAGE_DESTINATIONS[destination.destination]) return null;
+    var stored = {
+      id:String(destination.id || makeId('destination')),
+      destination:String(destination.destination),
+      source:'homepage_product',
+      pageViewId:String(destination.pageViewId || pageViewId),
+      createdAt:Number(destination.createdAt) || Date.now(),
+      updatedAt:Date.now(),
+      status:String(destination.status || 'selected'),
+      funnel_intent_entered:!!destination.funnel_intent_entered
+    };
+    safeSet(HOMEPAGE_DESTINATION_STORAGE_KEY, JSON.stringify(stored));
+    return stored;
+  }
+
+  function renderEntrySelection(entryKey) {
+    var shell = document.getElementById('homepage-entry');
+    var diagnostic = document.getElementById('homepage-diagnostic-entry');
+    var preview = document.getElementById('landing-destination-preview');
+    Array.prototype.forEach.call(document.querySelectorAll('.landing-entry-card'), function(card) {
+      var selected = card.getAttribute('data-entry-key') === entryKey;
+      card.classList.toggle('selected', selected);
+      card.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+    if (shell) shell.classList.toggle('has-selection', !!entryKey);
+    if (diagnostic) diagnostic.classList.toggle('entry-visible', entryKey === 'diagnosis');
+    if (preview) preview.classList.toggle('visible', !!entryKey && entryKey !== 'diagnosis');
+  }
+
+  function renderDestinationPreview(destination) {
+    var config = HOMEPAGE_DESTINATIONS[destination && destination.destination];
+    if (!config) return false;
+    renderEntrySelection(destination.destination);
+    var kicker = document.getElementById('landing-destination-kicker');
+    var title = document.getElementById('landing-destination-title');
+    var copy = document.getElementById('landing-destination-copy');
+    var outcome = document.getElementById('landing-destination-outcome');
+    if (kicker) kicker.textContent = config.kicker;
+    if (title) title.textContent = config.title;
+    if (copy) copy.textContent = config.copy;
+    if (outcome) outcome.textContent = config.outcome;
+    return true;
+  }
+
+  function chooseEntry(entryKey, options) {
+    if (entryKey === 'diagnosis') {
+      safeRemove(HOMEPAGE_DESTINATION_STORAGE_KEY);
+      renderEntrySelection('diagnosis');
+      var diagnostic = document.getElementById('homepage-diagnostic-entry');
+      if (!(options && options.restoring) && diagnostic) diagnostic.scrollIntoView({ behavior:'smooth', block:'nearest' });
+      return true;
+    }
+    if (!HOMEPAGE_DESTINATIONS[entryKey]) return false;
+    safeRemove(HOMEPAGE_INTENT_STORAGE_KEY);
+    var existing = readDestination();
+    var isNew = !existing || existing.destination !== entryKey;
+    var destination = writeDestination({
+      id:isNew ? makeId('destination') : existing.id,
+      destination:entryKey,
+      pageViewId:isNew ? pageViewId : existing.pageViewId,
+      createdAt:isNew ? Date.now() : existing.createdAt,
+      status:'selected',
+      funnel_intent_entered:isNew ? false : existing.funnel_intent_entered
+    });
+    if (!destination) return false;
+    renderDestinationPreview(destination);
+    if (!(options && options.restoring) && !destination.funnel_intent_entered) {
+      sendAcquisitionEvent('homepage_intent_entered', { source:'homepage_product', destination:entryKey }, destination.pageViewId);
+      writeDestination(Object.assign({}, destination, { funnel_intent_entered:true }));
+    }
+    return true;
+  }
+
+  function changeEntry() {
+    safeRemove(HOMEPAGE_DESTINATION_STORAGE_KEY);
+    safeRemove(HOMEPAGE_INTENT_STORAGE_KEY);
+    selectedProblemKey = '';
+    var diagnostic = document.getElementById('homepage-diagnostic-entry');
+    if (diagnostic) diagnostic.classList.remove('has-selection', 'entry-visible');
+    var diagnosisPreview = document.getElementById('homepage-diagnosis-preview');
+    if (diagnosisPreview) diagnosisPreview.classList.remove('visible');
+    renderEntrySelection('');
+    focusEntry();
+  }
+
+  function focusEntry() {
+    var shell = document.getElementById('homepage-entry');
+    if (!shell) return false;
+    shell.scrollIntoView({ behavior:'smooth', block:'center' });
+    var selected = shell.querySelector('.landing-entry-card.selected');
+    var first = shell.querySelector('.landing-entry-card');
+    var target = selected || first;
+    if (target && typeof target.focus === 'function') setTimeout(function() { target.focus({ preventScroll:true }); }, 250);
+    return false;
+  }
+
+  function continueDestination() {
+    var destination = readDestination();
+    if (!destination) return focusEntry();
+    destination = writeDestination(Object.assign({}, destination, { status:'auth_started' }));
+    sendAcquisitionEvent('auth_started', { source:'homepage_product', destination:destination.destination }, destination.pageViewId);
+    var button = document.getElementById('landing-destination-google');
+    if (button) { button.disabled = true; button.textContent = 'Opening Google…'; }
+    startLogin({ funnelAlreadyTracked:true });
+    return true;
+  }
+
+  var LANDING_PROOF_RESULTS = {
+    A:{ title:'That answer turns criticism into rejection.', copy:'The author warns that metrics can hide choices, but explicitly says measurement is not useless. You strengthened a caution into “abandon it”—a classic RC scope jump.' },
+    B:{ title:'You matched the vocabulary, but not the whole claim.', copy:'Comparability is mentioned, but the passage is really warning that apparent objectivity can hide construction choices. The option kept a detail and dropped the argument.' },
+    C:{ title:'Correct—and the reason matters.', copy:'You preserved both halves of the argument: metrics remain useful, while their apparent objectivity can conceal what their construction leaves out.' },
+    D:{ title:'That answer reverses the author’s position.', copy:'The author does not privilege unmeasurable outcomes. The claim is that metrics should be judged by what they hide as well as what they enable.' }
+  };
+
+  function answerProof(answer) {
+    var result = LANDING_PROOF_RESULTS[String(answer || '').toUpperCase()];
+    if (!result) return false;
+    safeRemove(HOMEPAGE_DESTINATION_STORAGE_KEY);
+    Array.prototype.forEach.call(document.querySelectorAll('.landing-proof-option'), function(button) {
+      var selected = button.getAttribute('data-proof-answer') === String(answer).toUpperCase();
+      button.classList.toggle('selected', selected);
+      button.disabled = true;
+    });
+    var resultBox = document.getElementById('landing-proof-result');
+    var title = document.getElementById('landing-proof-result-title');
+    var copy = document.getElementById('landing-proof-result-copy');
+    if (title) title.textContent = result.title;
+    if (copy) copy.textContent = result.copy;
+    if (resultBox) resultBox.classList.add('visible');
+    var choice = String(answer).toUpperCase();
+    var intent = writeIntent({
+      id:makeId('homepage-proof'),
+      text:'I tried Marg\'s public RC decision check. I chose option ' + choice + '; the correct answer was C. The observed evidence was: ' + result.title + ' ' + result.copy + '\n\nContinue from this evidence. Do not repeat generic onboarding and do not treat one answer as a confirmed diagnosis.',
+      visibleUserText:'I tried the public RC check and chose option ' + choice + '.',
+      visibleDiagnosisText:result.title + '\n\n' + result.copy,
+      handoffType:'public_rc_proof',
+      problemKey:'sample_rc',
+      diagnosticAnswer:choice,
+      diagnosticResult:choice === 'C' ? 'balanced_claim_preserved' : 'rc_option_selection_signal',
+      diagnosticCompleted:true,
+      pageViewId:pageViewId,
+      createdAt:Date.now(),
+      status:'diagnosed',
+      funnel_intent_entered:true
+    });
+    sendAcquisitionEvent('homepage_intent_entered', { source:'public_rc_proof', problem_key:'sample_rc', selected_answer:choice, correct:choice === 'C' }, intent && intent.pageViewId);
+    if (resultBox) resultBox.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    return true;
+  }
+
+  function continueProof() {
+    var intent = readIntent();
+    if (!intent || intent.problemKey !== 'sample_rc') return false;
+    intent = writeIntent(Object.assign({}, intent, { status:'auth_started' }));
+    sendAcquisitionEvent('auth_started', { source:'public_rc_proof', problem_key:'sample_rc', diagnostic_answer:intent.diagnosticAnswer }, intent.pageViewId);
+    startLogin({ funnelAlreadyTracked:true });
+    return true;
   }
 
   function captureDeepLinkQuestion() {
@@ -543,6 +748,8 @@
   function selectProblem(problemKey, options) {
     var pattern = PATTERNS[problemKey];
     if (!pattern) return false;
+    renderEntrySelection('diagnosis');
+    safeRemove(HOMEPAGE_DESTINATION_STORAGE_KEY);
     var restoring = !!(options && options.restoring);
     var existing = readIntent();
     var isNew = !existing || existing.problemKey !== problemKey;
@@ -621,8 +828,17 @@
 
   function startLogin(options) {
     var intent = readIntent();
+    var destination = readDestination();
     if (!options || !options.funnelAlreadyTracked) {
-      sendAcquisitionEvent('auth_started', { source:intent ? 'homepage_diagnostic' : 'direct_login', problem_key:intent && intent.problemKey || null }, intent && intent.pageViewId);
+      sendAcquisitionEvent('auth_started', {
+        source:intent ? (intent.handoffType === 'public_rc_proof' ? 'public_rc_proof' : 'homepage_diagnostic') : destination ? 'homepage_product' : 'direct_login',
+        problem_key:intent && intent.problemKey || null,
+        destination:destination && destination.destination || null
+      }, intent && intent.pageViewId || destination && destination.pageViewId);
+    }
+    if (safeGet('marg_token')) {
+      loadAuthenticatedApp().catch(function() {});
+      return;
     }
     var redirectUrl = window.location.origin + window.location.pathname + window.location.search;
     window.location.href = SUPABASE_URL + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(redirectUrl);
@@ -707,7 +923,10 @@
     if (landing) landing.style.display = 'flex';
     var campaignKey = prioritizeCampaignOption();
     var intent = readIntent();
-    if (intent && intent.problemKey && PATTERNS[intent.problemKey]) selectProblem(intent.problemKey, { restoring:true });
+    var destination = readDestination();
+    if (destination) renderDestinationPreview(destination);
+    else if (intent && intent.problemKey && PATTERNS[intent.problemKey]) selectProblem(intent.problemKey, { restoring:true });
+    else if (campaignKey) chooseEntry('diagnosis', { restoring:true });
     window.__MARG_LANDING_VISIBLE_TRACKED__ = true;
     sendAcquisitionEvent('homepage_chat_visible', { campaign_match:campaignKey || null });
     document.documentElement.classList.add('marg-landing-ready');
@@ -715,6 +934,12 @@
   }
 
   window.selectHomepageProblem = selectProblem;
+  window.chooseHomepageEntry = chooseEntry;
+  window.changeHomepageEntry = changeEntry;
+  window.focusHomepageEntry = focusEntry;
+  window.continueHomepageDestination = continueDestination;
+  window.answerLandingProof = answerProof;
+  window.continueLandingProof = continueProof;
   window.answerHomepageDiagnostic = answerDiagnostic;
   window.resetHomepageDiagnosis = resetDiagnosis;
   window.focusHomepageDiagnosis = focusDiagnosis;
