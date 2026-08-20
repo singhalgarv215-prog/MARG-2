@@ -150,6 +150,7 @@ var pendingHomepageIntent = null;
 var activeHomepageIntentDispatch = null;
 var homepageIntentDispatchScheduled = false;
 var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
+var HOMEPAGE_DESTINATION_STORAGE_KEY = 'marg_pending_homepage_destination_v1';
 var HOMEPAGE_INTENT_MAX_AGE_MS = 86400000;
 
 function createHomepageIntentId() {
@@ -183,6 +184,9 @@ function writeHomepageIntent(intent) {
     diagnosticAnswer:String(intent.diagnosticAnswer || ''),
     diagnosticResult:String(intent.diagnosticResult || ''),
     diagnosticCompleted:!!intent.diagnosticCompleted,
+    visibleUserText:normalizeHomepageIntentText(intent.visibleUserText || ''),
+    visibleDiagnosisText:normalizeHomepageIntentText(intent.visibleDiagnosisText || ''),
+    handoffType:String(intent.handoffType || ''),
     conversationSeeded:!!intent.conversationSeeded,
     funnel_intent_entered:!!intent.funnel_intent_entered,
     funnel_first_message_sent:!!intent.funnel_first_message_sent,
@@ -217,6 +221,38 @@ function loadHomepageIntent() {
 
 function hasPendingHomepageIntent() {
   return !!loadHomepageIntent();
+}
+
+function loadPendingHomepageDestination() {
+  try {
+    var destination = JSON.parse(localStorage.getItem(HOMEPAGE_DESTINATION_STORAGE_KEY) || 'null');
+    if (!destination || ['practice','mock','sectionals','chat'].indexOf(destination.destination) === -1 || !destination.createdAt || Date.now() - Number(destination.createdAt) > HOMEPAGE_INTENT_MAX_AGE_MS) {
+      localStorage.removeItem(HOMEPAGE_DESTINATION_STORAGE_KEY);
+      return null;
+    }
+    return destination;
+  } catch(e) {
+    try { localStorage.removeItem(HOMEPAGE_DESTINATION_STORAGE_KEY); } catch(ignore) {}
+    return null;
+  }
+}
+
+function hasPendingHomepageDestination() {
+  return !!loadPendingHomepageDestination();
+}
+
+function openPendingHomepageDestination() {
+  var destination = loadPendingHomepageDestination();
+  if (!destination) return false;
+  // Clear before navigation so a refresh does not keep forcing the student away
+  // from the place they deliberately choose next.
+  try { localStorage.removeItem(HOMEPAGE_DESTINATION_STORAGE_KEY); } catch(e) {}
+  if (destination.destination === 'chat') {
+    openHomeDestination('chat');
+    return true;
+  }
+  switchTab(destination.destination);
+  return true;
 }
 
 function clearHomepageIntent(intentId) {
@@ -464,6 +500,12 @@ function buildHomepageDiagnosticMessage(pattern, option, result) {
 
 function getHomepageIntentVisibleContext(intent) {
   if (!intent) return { userText:'', diagnosisText:'' };
+  if (intent.visibleUserText || intent.visibleDiagnosisText) {
+    return {
+      userText:normalizeHomepageIntentText(intent.visibleUserText || intent.text),
+      diagnosisText:normalizeHomepageIntentText(intent.visibleDiagnosisText || '')
+    };
+  }
   var pattern = getHomepageDiagnosisPattern(intent.problemKey);
   if (!pattern || !intent.diagnosticCompleted) {
     return { userText:normalizeHomepageIntentText(intent.text), diagnosisText:'' };
@@ -2240,8 +2282,10 @@ function ensureMobileComposerStyles() {
     '#chat-app{height:var(--marg-chat-viewport-height);max-height:var(--marg-chat-viewport-height)}' +
     '#messages{-webkit-overflow-scrolling:touch;overscroll-behavior:contain}' +
     '@media(max-width:900px){' +
+      '#chat-app{position:fixed;top:var(--marg-chat-viewport-top,0px);left:var(--marg-chat-viewport-left,0px);right:auto;width:var(--marg-chat-viewport-width,100vw);height:var(--marg-chat-viewport-height);max-height:var(--marg-chat-viewport-height);overflow:hidden}' +
       '#user-input,#feedback-text,.ps-input,.ps-select,.mac-input-group input,.sectional-select{font-size:16px!important}' +
-      '#input-area{padding-bottom:calc(76px + env(safe-area-inset-bottom, 0px))}' +
+      '#input-area{position:relative;bottom:auto;padding-bottom:calc(76px + env(safe-area-inset-bottom, 0px))}' +
+      '#hint{display:none}' +
       '#bottom-nav{padding-bottom:env(safe-area-inset-bottom, 0px)}' +
       '.tab-section{bottom:calc(64px + env(safe-area-inset-bottom, 0px))}' +
       'html.marg-keyboard-open #input-area{padding-bottom:12px}' +
@@ -2255,7 +2299,13 @@ function ensureMobileComposerStyles() {
 function syncMobileChatViewport() {
   var viewport = window.visualViewport;
   var visibleHeight = Math.round(viewport && viewport.height ? viewport.height : (window.innerHeight || document.documentElement.clientHeight || 0));
+  var visibleWidth = Math.round(viewport && viewport.width ? viewport.width : (window.innerWidth || document.documentElement.clientWidth || 0));
+  var viewportTop = Math.max(0, Math.round(viewport && Number.isFinite(viewport.offsetTop) ? viewport.offsetTop : 0));
+  var viewportLeft = Math.max(0, Math.round(viewport && Number.isFinite(viewport.offsetLeft) ? viewport.offsetLeft : 0));
   if (visibleHeight > 0) document.documentElement.style.setProperty('--marg-chat-viewport-height', visibleHeight + 'px');
+  if (visibleWidth > 0) document.documentElement.style.setProperty('--marg-chat-viewport-width', visibleWidth + 'px');
+  document.documentElement.style.setProperty('--marg-chat-viewport-top', viewportTop + 'px');
+  document.documentElement.style.setProperty('--marg-chat-viewport-left', viewportLeft + 'px');
 
   var mobileLayout = !!(window.matchMedia && window.matchMedia('(max-width: 900px)').matches);
   var editableFocused = isEditableControl(document.activeElement);
@@ -3887,7 +3937,7 @@ function showWelcome(callback) {
 
   // A question written before authentication is the welcome. Do not make the
   // student wait through an animation before continuing the thought.
-  if (hasPendingHomepageIntent()) {
+  if (hasPendingHomepageIntent() || hasPendingHomepageDestination()) {
     document.getElementById('welcome-overlay').style.display = 'none';
     document.getElementById('chat-app').style.display = 'flex';
     if (callback) callback();
@@ -6624,7 +6674,8 @@ async function initSession() {
     await claimPendingReferralSignup();
     if (arrivedFromOAuthCallback) {
       var authIntent = loadHomepageIntent();
-      trackAuthenticatedHomepageStage('auth_completed', authIntent || { source:'direct_login' });
+      var authDestination = loadPendingHomepageDestination();
+      trackAuthenticatedHomepageStage('auth_completed', authIntent || authDestination || { source:'direct_login' });
     }
     showWelcome(async function() {
       const hasHistory = await loadUserData();
@@ -6635,6 +6686,7 @@ async function initSession() {
       if (['home','chat','practice','mock','sectionals','progress'].indexOf(requestedInitialTab) === -1) requestedInitialTab = '';
       if (hasHistory || prevOnboarded2) {
         var arrivedWithHomepageIntent = hasPendingHomepageIntent();
+        var arrivedWithHomepageDestination = hasPendingHomepageDestination();
         var arrivedWithDeepLinkQuestion = hasPendingDeepLinkQuestion();
         var recoveredInterruptedGeneration = restoreConversation();
         loadStreakData();
@@ -6645,7 +6697,9 @@ async function initSession() {
         // Explicit handoffs still open directly in chat. Ordinary sessions now
         // start on Mentor Home, where the recommendation replaces a generated
         // returning greeting and exposes every product destination clearly.
-        if (arrivedWithHomepageIntent || arrivedWithDeepLinkQuestion || recoveredInterruptedGeneration) {
+        if (arrivedWithHomepageDestination) {
+          openPendingHomepageDestination();
+        } else if (arrivedWithHomepageIntent || arrivedWithDeepLinkQuestion || recoveredInterruptedGeneration) {
           switchTab('chat');
         } else {
           switchTab(requestedInitialTab || 'home');
@@ -6656,7 +6710,9 @@ async function initSession() {
         document.getElementById('chat-app').style.display = 'flex';
         showBottomNav();
 
-        if (hasPendingHomepageIntent()) {
+        if (hasPendingHomepageDestination()) {
+          openPendingHomepageDestination();
+        } else if (hasPendingHomepageIntent()) {
           switchTab('chat');
           prepareHomepageIntentChat();
         } else if (mobLoginForMock) {
