@@ -3,7 +3,7 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260819-1';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260820-1';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
   var VISITOR_STORAGE_KEY = 'marg_acquisition_visitor_v1';
@@ -603,7 +603,19 @@
   function focusDiagnosis() {
     var diagnostic = document.getElementById('homepage-diagnostic-entry');
     if (!diagnostic) return false;
-    diagnostic.scrollIntoView({ behavior:'smooth', block:'center' });
+    var completedCta = diagnostic.querySelector('.homepage-diagnosis-actions.visible .homepage-google-cta');
+    var activeChoice = diagnostic.querySelector('.homepage-check-option:not(:disabled)');
+    var selectedProblem = diagnostic.querySelector('.homepage-problem-option.selected');
+    var firstProblem = diagnostic.querySelector('.homepage-problem-option');
+    var target = completedCta || activeChoice || selectedProblem || firstProblem || diagnostic;
+    target.scrollIntoView({ behavior:'smooth', block:'center' });
+    diagnostic.classList.remove('cta-focused');
+    void diagnostic.offsetWidth;
+    diagnostic.classList.add('cta-focused');
+    setTimeout(function() { diagnostic.classList.remove('cta-focused'); }, 900);
+    setTimeout(function() {
+      if (target && typeof target.focus === 'function') target.focus({ preventScroll:true });
+    }, 350);
     return true;
   }
 
