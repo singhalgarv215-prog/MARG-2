@@ -183,6 +183,7 @@ function writeHomepageIntent(intent) {
     diagnosticAnswer:String(intent.diagnosticAnswer || ''),
     diagnosticResult:String(intent.diagnosticResult || ''),
     diagnosticCompleted:!!intent.diagnosticCompleted,
+    conversationSeeded:!!intent.conversationSeeded,
     funnel_intent_entered:!!intent.funnel_intent_entered,
     funnel_first_message_sent:!!intent.funnel_first_message_sent,
     funnel_first_response_received:!!intent.funnel_first_response_received
@@ -461,6 +462,30 @@ function buildHomepageDiagnosticMessage(pattern, option, result) {
   ].join('\n\n');
 }
 
+function getHomepageIntentVisibleContext(intent) {
+  if (!intent) return { userText:'', diagnosisText:'' };
+  var pattern = getHomepageDiagnosisPattern(intent.problemKey);
+  if (!pattern || !intent.diagnosticCompleted) {
+    return { userText:normalizeHomepageIntentText(intent.text), diagnosisText:'' };
+  }
+  var option = pattern.options.filter(function(item) {
+    return item.id === String(intent.diagnosticAnswer || '');
+  })[0];
+  var result = pattern.results[String(intent.diagnosticAnswer || '')];
+  if (!option || !result) return { userText:pattern.intent, diagnosisText:'' };
+  var sectionLabels = {
+    rc_options:'RC',
+    dilr_start:'DILR',
+    qa_freeze:'QA',
+    mock_collapse:'Mocks',
+    something_else:'Something else'
+  };
+  return {
+    userText:(sectionLabels[intent.problemKey] || 'CAT preparation') + ' — ' + option.label,
+    diagnosisText:result.title + '\n\n' + result.body
+  };
+}
+
 function renderHomepageDiagnosticResult(pattern, intent) {
   var answerId = String(intent && intent.diagnosticAnswer || '');
   var option = pattern.options.filter(function(item) { return item.id === answerId; })[0];
@@ -632,9 +657,10 @@ function continueHomepageDiagnosis() {
 
 function homepageIntentHasAssistantAfterIt(intent) {
   if (!intent || !Array.isArray(conversationHistory)) return false;
+  var visibleContext = getHomepageIntentVisibleContext(intent);
   for (var i = conversationHistory.length - 1; i >= 0; i--) {
     var item = conversationHistory[i];
-    if (item && item.role === 'user' && String(item.content || '').trim() === intent.text) {
+    if (item && item.role === 'user' && String(item.content || '').trim() === visibleContext.userText) {
       for (var j = i + 1; j < conversationHistory.length; j++) {
         if (conversationHistory[j] && conversationHistory[j].role === 'assistant' && String(conversationHistory[j].content || '').trim()) return true;
       }
@@ -646,15 +672,42 @@ function homepageIntentHasAssistantAfterIt(intent) {
 
 function ensureHomepageIntentInConversation(intent) {
   if (!intent) return;
-  var alreadyInHistory = conversationHistory.some(function(item) {
-    return item && item.role === 'user' && String(item.content || '').trim() === intent.text;
+  var visibleContext = getHomepageIntentVisibleContext(intent);
+  if (!visibleContext.userText) return;
+  var userAlreadyInHistory = conversationHistory.some(function(item) {
+    return item && item.role === 'user' && String(item.content || '').trim() === visibleContext.userText;
   });
-  if (!alreadyInHistory) conversationHistory.push({ role:'user', content:intent.text });
+  if (!userAlreadyInHistory) conversationHistory.push({ role:'user', content:visibleContext.userText });
 
-  var alreadyVisible = Array.prototype.some.call(document.querySelectorAll('.msg-wrap.user .bubble'), function(bubble) {
-    return String(bubble.textContent || '').trim() === intent.text;
+  var diagnosisAlreadyInHistory = !visibleContext.diagnosisText || conversationHistory.some(function(item) {
+    return item && item.role === 'assistant' && String(item.content || '').trim() === visibleContext.diagnosisText;
   });
-  if (!alreadyVisible) addMessage('user', escapeChatHtml(intent.text).replace(/\n/g, '<br>'));
+  if (!diagnosisAlreadyInHistory) conversationHistory.push({ role:'assistant', content:visibleContext.diagnosisText });
+
+  var userAlreadyVisible = Array.prototype.some.call(document.querySelectorAll('.msg-wrap.user .bubble'), function(bubble) {
+    return String(bubble.textContent || '').replace(/\s+/g, ' ').trim() === visibleContext.userText.replace(/\s+/g, ' ').trim();
+  });
+  if (!userAlreadyVisible) addMessage('user', escapeChatHtml(visibleContext.userText).replace(/\n/g, '<br>'));
+
+  if (visibleContext.diagnosisText) {
+    var diagnosisAlreadyVisible = Array.prototype.some.call(document.querySelectorAll('.msg-wrap.marg .bubble'), function(bubble) {
+      return String(bubble.textContent || '').replace(/\s+/g, ' ').trim() === visibleContext.diagnosisText.replace(/\s+/g, ' ').trim();
+    });
+    if (!diagnosisAlreadyVisible) addMessage('marg', escapeChatHtml(visibleContext.diagnosisText).replace(/\n/g, '<br>'));
+  }
+
+  // Persist the natural exchange once. The longer evidence instruction remains
+  // request-only context and is never exposed as a fake user chat message.
+  if (!intent.conversationSeeded && !isGuestMode) {
+    var seededIntent = writeHomepageIntent(Object.assign({}, intent, { conversationSeeded:true }));
+    if (typeof saveChatMessage === 'function') {
+      var userSave = saveChatMessage('user', visibleContext.userText);
+      if (visibleContext.diagnosisText && userSave && typeof userSave.then === 'function') {
+        userSave.then(function() { return saveChatMessage('assistant', visibleContext.diagnosisText); });
+      } else if (visibleContext.diagnosisText) saveChatMessage('assistant', visibleContext.diagnosisText);
+    }
+    if (seededIntent) activeHomepageIntentDispatch = seededIntent;
+  }
 }
 
 function renderHomepageIntentRetry(intent, message) {
@@ -727,13 +780,15 @@ function tryDispatchHomepageIntent() {
   if (decision !== 'dispatch') return false;
 
   if (currentTab !== 'chat') switchTab('chat');
+  ensureHomepageIntentInConversation(intent);
+  intent = loadHomepageIntent() || intent;
   activeHomepageIntentDispatch = writeHomepageIntent(Object.assign({}, intent, { status:'dispatching', failureMessage:'' }));
   input.value = intent.text;
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
   showComposerStatus('Continuing with the question you wrote before signing in…', 'success', true);
   updateComposerControls();
-  setTimeout(function() { sendMessage(false, { homepageIntentId:intent.id }); }, 0);
+  setTimeout(function() { sendMessage(false, { homepageIntentId:intent.id, reuseUserMessage:true }); }, 0);
   return true;
 }
 
@@ -2130,6 +2185,10 @@ function cleanHistory(history) {
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     return { role: m.role, content: cleaned };
+  }).filter(function(message, index, list) {
+    if (!message || message.role !== 'assistant' || index === 0) return true;
+    var previous = list[index - 1];
+    return !(previous && previous.role === 'assistant' && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
   });
   // Long raw transcripts slow every response. Durable summaries, diagnostic
   // memory, progression and active-exercise memory are supplied separately.
@@ -5745,13 +5804,34 @@ function buildPersonalizedOpening() {
   return opening;
 }
 
+function getConversationMessageForDisplay(message) {
+  if (!message || message.role !== 'user') return message;
+  var content = String(message.content || '');
+  var legacyChoice = content.match(/In Marg(?:'|’)s 20-second check, I chose:\s*"([\s\S]*?)"\s*(?:\n|$)/i);
+  if (!legacyChoice || content.indexOf('Treat this as a hypothesis') === -1) return message;
+  var firstLine = content.split(/\n/)[0];
+  var label = /\bDILR\b/i.test(firstLine) ? 'DILR'
+    : /\bQA\b/i.test(firstLine) ? 'QA'
+      : /\bRC\b|\bVARC\b/i.test(firstLine) ? 'RC'
+        : /\bmock\b/i.test(firstLine) ? 'Mocks'
+          : 'CAT preparation';
+  return { role:'user', content:label + ' — ' + legacyChoice[1].trim() };
+}
+
 function restoreConversation() {
   onboardingComplete = true;
   recordEngagementEvent('onboarding_completed', { flow:'returning-user-backfill' }, 'onboarding-v1');
   showBottomNav();
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
-  const displayMessages = conversationHistory.slice(2).filter(function(message) { return !isInternalMemoryMessage(message); });
+  // conversationHistory is loaded directly from Supabase and no longer starts
+  // with two synthetic system records. Slicing here hid the user's first real
+  // homepage choice and Marg's first diagnosis after every refresh.
+  const displayMessages = conversationHistory.filter(function(message) { return !isInternalMemoryMessage(message); }).map(getConversationMessageForDisplay).filter(function(message, index, list) {
+    if (!message || message.role !== 'assistant' || index === 0) return true;
+    var previous = list[index - 1];
+    return !(previous && previous.role === 'assistant' && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
+  });
   if (displayMessages.length > 0) {
     displayMessages.forEach(function(msg) {
       const formatted = msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
@@ -6625,6 +6705,10 @@ function buildDailyMentorBrief() {
 function getVerifiedConversationHistory() {
   return (conversationHistory || []).filter(function(item) {
     return item && (item.role === 'user' || item.role === 'assistant') && !isInternalMemoryMessage(item) && String(item.content || '').trim();
+  }).filter(function(item, index, list) {
+    if (item.role !== 'assistant' || index === 0) return true;
+    var previous = list[index - 1];
+    return !(previous && previous.role === 'assistant' && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(item.content || '').replace(/\s+/g, ' ').trim());
   });
 }
 
@@ -6721,9 +6805,9 @@ async function sendReturningUserGreeting() {
     groundedGreeting = getTimeGreeting() + (name ? ', ' + name : '') + '. This mission is still open; a new day is not a reason to replace it:\n\n' + activeMentorPlan.mission;
   }
   if (groundedGreeting) {
-    addMargMessage(groundedGreeting);
-    conversationHistory.push({ role:'assistant', content:groundedGreeting });
-    if (!isGuestMode) saveChatMessage('assistant', groundedGreeting);
+    // Continuity reminders are interface state, not new conversation turns.
+    // Never persist another copy merely because the app was reopened.
+    renderTransientMentorContinuity('returning-context', groundedGreeting, activeMentorPlan && activeMentorPlan.mission);
     if (pendingDiagnosticExercise && pendingDiagnosticExercise.entry && !hasPendingExerciseReview()) {
       showConversationalOptions(['Right now', 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
     }
@@ -7671,19 +7755,41 @@ function resumePendingDiagnosticFromHome() {
   var pending = pendingDiagnosticExercise;
   switchTab('chat');
   if (pending.timing === 'ready_after_lesson') {
-    addMentorLeadMessage(getDILROpeningLesson(pending.entry));
+    renderTransientMentorContinuity('pending-dilr-lesson', getDILROpeningLesson(pending.entry), pending.entry.confirmedDiagnosis);
     showConversationalOptions(['Start the set'], 'start_dilr_validation');
     return;
   }
-  addMentorLeadMessage('The working read is still saved: ' + pending.entry.confirmedDiagnosis + '\n\nThe next useful move is ' + diagnosticForwardPreview(pending.entry) + '. Choose when you want to run the same check.');
+  renderTransientMentorContinuity('pending-diagnostic', 'The working read is still saved: ' + pending.entry.confirmedDiagnosis + '\n\nThe next useful move is ' + diagnosticForwardPreview(pending.entry) + '. Choose when you want to run the same check.', pending.entry.confirmedDiagnosis);
   showConversationalOptions(['Right now', 'Later today', 'Tomorrow'], 'prediction_exercise_timing');
+}
+
+function renderTransientMentorContinuity(key, text, evidenceText) {
+  var normalizedEvidence = normalizeMissionText(evidenceText || text);
+  var existingWrap = null;
+  Array.prototype.some.call(document.querySelectorAll('.msg-wrap.marg .bubble'), function(bubble) {
+    var bubbleText = normalizeMissionText(bubble.textContent || '');
+    if (normalizedEvidence && bubbleText.indexOf(normalizedEvidence) !== -1) {
+      existingWrap = bubble.closest ? bubble.closest('.msg-wrap') : bubble.parentElement;
+      return true;
+    }
+    return false;
+  });
+  if (!existingWrap) {
+    existingWrap = document.querySelector('[data-continuity-key="' + String(key || 'continuity').replace(/[^a-z0-9_-]/gi, '') + '"]');
+  }
+  if (!existingWrap) {
+    existingWrap = addMessage('marg', escapeChatHtml(text).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+    existingWrap.setAttribute('data-continuity-key', String(key || 'continuity').replace(/[^a-z0-9_-]/gi, ''));
+  }
+  if (existingWrap && typeof existingWrap.scrollIntoView === 'function') existingWrap.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  return existingWrap;
 }
 
 function resumeActiveMentorPlanFromHome() {
   loadActiveMentorPlan();
   switchTab('chat');
   if (!isOpenMentorPlan(activeMentorPlan)) return;
-  addMentorLeadMessage('This mission is still open:\n\n' + activeMentorPlan.mission + '\n\nFinish the evidence step before changing the plan. When the result is ready, Marg will review what changed—not replace it with another worksheet.');
+  renderTransientMentorContinuity('active-mission', 'This mission is still open:\n\n' + activeMentorPlan.mission + '\n\nFinish the evidence step before changing the plan. When the result is ready, Marg will review what changed—not replace it with another worksheet.', activeMentorPlan.mission);
 }
 
 function launchHomeDiagnosis() {
