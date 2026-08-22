@@ -3,16 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Marg">
 <title>Marg — Think clearer. Move better.</title>
 <meta name="description" content="Marg is a free AI mentor for CAT aspirants. Not generic advice — a plan built around your specific situation.">
 <meta name="google-site-verification" content="GGfQeNtbQtiZDjxQA4eVgwDwKmHIz_YlehOFCWYnkKU" />
 <link rel="icon" href="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png">
+<link rel="apple-touch-icon" href="/logo-icon.png">
+<link rel="manifest" href="/manifest.webmanifest?v=20260822-1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<script defer src="/landing-bootstrap.js?v=20260821-1"></script>
+<script defer src="/landing-bootstrap.js?v=20260822-2"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -1415,6 +1421,7 @@
     <div class="app-menu-items">
       <button class="app-menu-item" type="button" onclick="appMenuOpenVarc()"><span class="app-menu-item-icon">📖</span>Today’s VARC</button>
       <button class="app-menu-item" type="button" onclick="appMenuCommunity()"><span class="app-menu-item-icon">👥</span>Community access</button>
+      <button class="app-menu-item" type="button" onclick="appMenuPushReminders()"><span class="app-menu-item-icon">🔔</span>Study reminders</button>
       <button class="app-menu-item" type="button" onclick="appMenuFeedback()"><span class="app-menu-item-icon">💬</span>Send feedback</button>
       <button class="app-menu-item" type="button" onclick="window.location.href='/privacy'"><span class="app-menu-item-icon">⚙</span>Account &amp; privacy</button>
       <button class="app-menu-item danger" type="button" onclick="closeAppMenu();logout()"><span class="app-menu-item-icon">↪</span>Sign out</button>
