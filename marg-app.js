@@ -1208,6 +1208,365 @@ async function initializeEngagementTracking() {
   maybePresentCommunityInvite();
 }
 
+// --- Earned browser reminders ----------------------------------------------
+// Permission is requested only from a user click after they schedule real work.
+// The phone number is never involved; the browser subscription is stored with RLS.
+var pushOptInRenderedSession = false;
+var pushOptInDeclinedSession = false;
+var cachedWebPushPublicKey = '';
+var pendingChatReminderContext = null;
+
+function pushReminderStorageKey() {
+  return getUserScopedKey('marg_pending_push_reminder');
+}
+
+function chatReminderContextStorageKey() {
+  return getUserScopedKey('marg_chat_reminder_context');
+}
+
+function browserPushSupported() {
+  return !!(currentUser && SUPABASE_TOKEN && !isGuestMode && window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window);
+}
+
+function isIOSDevice() {
+  return /iPad|iPhone|iPod/.test(String(navigator.userAgent || '')) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function isStandaloneWebApp() {
+  return !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true);
+}
+
+function urlBase64ToUint8Array(base64String) {
+  var padding = '='.repeat((4 - base64String.length % 4) % 4);
+  var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  var rawData = window.atob(base64);
+  return Uint8Array.from(Array.prototype.map.call(rawData, function(character) { return character.charCodeAt(0); }));
+}
+
+async function getWebPushPublicKey() {
+  if (cachedWebPushPublicKey) return cachedWebPushPublicKey;
+  var response = await fetch(SUPABASE_URL + '/functions/v1/send-web-push', {
+    method:'GET',
+    headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN }
+  });
+  if (!response.ok) throw new Error('Push configuration unavailable (' + response.status + ')');
+  var payload = await response.json();
+  if (!payload.publicKey) throw new Error('Push public key is missing');
+  cachedWebPushPublicKey = payload.publicKey;
+  return cachedWebPushPublicKey;
+}
+
+async function saveWebPushSubscription(subscription) {
+  var serialized = subscription && subscription.toJSON ? subscription.toJSON() : null;
+  if (!serialized || !serialized.endpoint || !serialized.keys || !serialized.keys.p256dh || !serialized.keys.auth) throw new Error('Browser returned an incomplete push subscription');
+  var response = await fetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?on_conflict=user_id,endpoint', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY,
+      'Authorization':'Bearer ' + SUPABASE_TOKEN,
+      'Prefer':'resolution=merge-duplicates,return=minimal'
+    },
+    body:JSON.stringify({
+      user_id:currentUser.id,
+      endpoint:serialized.endpoint,
+      p256dh:serialized.keys.p256dh,
+      auth:serialized.keys.auth,
+      expiration_time:serialized.expirationTime || null,
+      user_agent:String(navigator.userAgent || '').slice(0, 500),
+      timezone:Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
+      enabled:true,
+      updated_at:new Date().toISOString()
+    })
+  });
+  if (!response.ok) throw new Error('Push subscription save failed (' + response.status + ')');
+  return true;
+}
+
+async function ensureWebPushSubscription() {
+  if (!browserPushSupported()) throw new Error('This browser does not support web push');
+  var registration = await navigator.serviceWorker.register('/sw.js?v=20260822-2', { scope:'/' });
+  var existing = await registration.pushManager.getSubscription();
+  if (existing) { await saveWebPushSubscription(existing); return existing; }
+  var publicKey = await getWebPushPublicKey();
+  var subscription = await registration.pushManager.subscribe({
+    userVisibleOnly:true,
+    applicationServerKey:urlBase64ToUint8Array(publicKey)
+  });
+  await saveWebPushSubscription(subscription);
+  return subscription;
+}
+
+function cleanReminderText(value, maxLength) {
+  var cleaned = String(value || '')
+    .replace(/\[[A-Z_]+:[^\]]*\]/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\b(?:diagnosis|hypothesis)\s*:\s*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return '';
+  var limit = maxLength || 180;
+  if (cleaned.length <= limit) return cleaned;
+  return cleaned.slice(0, Math.max(1, limit - 1)).replace(/\s+\S*$/, '') + '…';
+}
+
+function normalizeChatReminderContext(context, fallbackKind) {
+  if (typeof context === 'string') context = { task:context };
+  context = context && typeof context === 'object' ? context : {};
+  var allowedKinds = ['rc','varc','dilr','qa','mock','sectional','general'];
+  var kind = String(context.kind || context.topic || fallbackKind || 'general').toLowerCase();
+  if (allowedKinds.indexOf(kind) === -1) kind = 'general';
+  return {
+    source:cleanReminderText(context.source || 'chat', 30),
+    kind:kind,
+    patternId:cleanReminderText(context.patternId || '', 40),
+    topic:cleanReminderText(context.topic || '', 60),
+    task:cleanReminderText(context.task || context.label || '', 150),
+    action:cleanReminderText(context.action || '', 190),
+    focus:cleanReminderText(context.focus || '', 120)
+  };
+}
+
+function saveChatReminderContext(context) {
+  pendingChatReminderContext = context ? normalizeChatReminderContext(context, context.kind) : null;
+  try {
+    if (pendingChatReminderContext) localStorage.setItem(chatReminderContextStorageKey(), JSON.stringify(pendingChatReminderContext));
+    else localStorage.removeItem(chatReminderContextStorageKey());
+  } catch(e) {}
+  return pendingChatReminderContext;
+}
+
+function loadChatReminderContext() {
+  if (pendingChatReminderContext) return pendingChatReminderContext;
+  try { pendingChatReminderContext = JSON.parse(localStorage.getItem(chatReminderContextStorageKey()) || 'null'); }
+  catch(e) { pendingChatReminderContext = null; }
+  return pendingChatReminderContext;
+}
+
+function captureChatReminderContext(response) {
+  var match = String(response || '').match(/\[REMINDER_CONTEXT:\s*([^|\]]+?)(?:\|([^\]]+))?\]/i);
+  if (!match) return null;
+  var context = normalizeChatReminderContext({ source:'mentor-chat', kind:match[1], task:match[2] || '' }, match[1]);
+  if (!context.task) return null;
+  return saveChatReminderContext(context);
+}
+
+function missionField(mission, field) {
+  var match = String(mission || '').match(new RegExp('(?:^|\\n)\\s*' + field + '\\s*:\\s*([^\\n]+)', 'i'));
+  return match ? cleanReminderText(match[1], field === 'Action' ? 190 : 120) : '';
+}
+
+function buildActivePlanReminderContext(fallbackKind) {
+  loadActiveMentorPlan();
+  if (!isOpenMentorPlan(activeMentorPlan)) return null;
+  var action = missionField(activeMentorPlan.mission, 'Action');
+  var focus = missionField(activeMentorPlan.mission, 'Focus');
+  if (!action && !focus) return null;
+  return normalizeChatReminderContext({
+    source:'saved-mission', kind:fallbackKind || 'general', task:'your saved CAT mission', action:action, focus:focus
+  }, fallbackKind);
+}
+
+function buildDiagnosticReminderContext(entry) {
+  return normalizeChatReminderContext({
+    source:'diagnostic-chat', kind:entry && entry.topic || 'general', topic:entry && entry.topic || '',
+    patternId:entry && entry.patternId || '', task:diagnosticExerciseLabel(entry), action:entry && entry.action || ''
+  }, entry && entry.topic);
+}
+
+function getPushReminderCopy(reminderOrKind) {
+  var reminder = typeof reminderOrKind === 'string' ? { kind:reminderOrKind } : (reminderOrKind || {});
+  var kind = String(reminder.kind || 'general').toLowerCase();
+  var copies = {
+    rc:{ title:'Two options walk into an RC…', body:'Only one has textual support. Your saved check is ready when you are.' },
+    varc:{ title:'Your RC trap wants a rematch', body:'This time, make the exact claim—not the confident wording—win.' },
+    dilr:{ title:'This set has not earned 20 minutes yet', body:'Open the grid, test progress, and make it earn the next five.' },
+    qa:{ title:'Your QA setup is waiting', body:'One clean recognition check. No random worksheet, no chapter tour.' },
+    mock:{ title:'Your mock sent evidence, not a verdict', body:'The score can wait. The execution leak is the useful part.' },
+    sectional:{ title:'Pressure test, not punishment', body:'Your saved sectional is ready to test whether the fix transfers.' },
+    general:{ title:'Marg kept the next move small', body:'The exact check you chose is still here—no new plan required.' }
+  };
+  var fallback = copies[kind] || copies.general;
+  var context = normalizeChatReminderContext(reminder.chatContext || reminder.context || {}, kind);
+  if (!context.task && !context.action && !context.focus) return fallback;
+
+  var titles = {
+    rc:'Your RC decision check is ready', varc:'Your VARC decision check is ready',
+    dilr:'Make this DILR set earn its time', qa:'Your QA checkpoint is ready',
+    mock:'Your mock rule gets tested now', sectional:'Your pressure test is ready',
+    general:'Your saved Marg check is ready'
+  };
+  var task = context.task || (kind === 'sectional' ? 'your timed sectional' : 'your saved CAT check');
+  var detail = context.action || context.focus;
+  var body = detail
+    ? 'You chose ' + task.replace(/^[Yy]our\s+/, '') + '. ' + detail
+    : 'You chose ' + task.replace(/^[Yy]our\s+/, '') + '. Continue from the same Marg thread.';
+  return { title:cleanReminderText(titles[kind] || titles.general, 80), body:cleanReminderText(body, 230) };
+}
+
+function getPushReminderTime(timing) {
+  var now = new Date();
+  if (timing === 'tomorrow') return new Date(getIndiaCalendarDate(1).iso + 'T10:00:00+05:30');
+  var later = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  return later;
+}
+
+function savePendingPushReminder(reminder) {
+  try {
+    if (reminder) localStorage.setItem(pushReminderStorageKey(), JSON.stringify(reminder));
+    else localStorage.removeItem(pushReminderStorageKey());
+  } catch(e) {}
+}
+
+function loadPendingPushReminder() {
+  try {
+    var reminder = JSON.parse(localStorage.getItem(pushReminderStorageKey()) || 'null');
+    if (reminder && reminder.createdAt && Date.now() - new Date(reminder.createdAt).getTime() > 24 * 60 * 60 * 1000) {
+      savePendingPushReminder(null);
+      return null;
+    }
+    return reminder;
+  } catch(e) { return null; }
+}
+
+async function enqueuePushReminder(reminder) {
+  if (!currentUser || !SUPABASE_TOKEN || !reminder) return false;
+  var copy = getPushReminderCopy(reminder);
+  var reminderIdentity = reminder.chatContext && (reminder.chatContext.task || reminder.chatContext.action) || reminder.label || reminder.kind;
+  var dedupeKey = 'scheduled:' + reminder.kind + ':' + String(reminder.scheduledFor).slice(0, 16) + ':' + simpleStableHash(reminderIdentity);
+  var response = await fetch(SUPABASE_URL + '/rest/v1/push_notification_queue?on_conflict=user_id,dedupe_key', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY,
+      'Authorization':'Bearer ' + SUPABASE_TOKEN,
+      'Prefer':'resolution=ignore-duplicates,return=minimal'
+    },
+    body:JSON.stringify({
+      user_id:currentUser.id, kind:reminder.kind || 'general', title:copy.title, body:copy.body,
+      target_path:'/?tab=chat&resume=1', scheduled_for:reminder.scheduledFor,
+      status:'pending', dedupe_key:dedupeKey, attempt_count:0
+    })
+  });
+  if (!response.ok) throw new Error('Reminder scheduling failed (' + response.status + ')');
+  savePendingPushReminder(null);
+  return true;
+}
+
+async function enableBrowserPushFromCard(card, statusEl) {
+  if (isIOSDevice() && !isStandaloneWebApp()) {
+    statusEl.textContent = 'On iPhone: tap Share → Add to Home Screen, then open Marg from that icon and enable reminders there. Your selected task will remain saved.';
+    return false;
+  }
+  if (!browserPushSupported()) {
+    statusEl.textContent = 'This browser cannot receive Marg reminders yet. Your task is still saved inside Marg.';
+    return false;
+  }
+  if (Notification.permission === 'denied') {
+    statusEl.textContent = 'Notifications are blocked in this browser. You can re-enable them from the browser’s site settings.';
+    return false;
+  }
+  statusEl.textContent = 'Waiting for browser permission…';
+  var permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    statusEl.textContent = 'No notification was enabled. Your task remains saved inside Marg.';
+    return false;
+  }
+  try {
+    await ensureWebPushSubscription();
+    var pending = loadPendingPushReminder();
+    if (pending) await enqueuePushReminder(pending);
+    card.innerHTML = '<div style="font-size:14px;color:#F0EDE6;font-weight:600;margin-bottom:6px;">Reminder enabled.</div><div style="font-size:13px;color:#AAA69E;line-height:1.55;">Marg will nudge you for work you deliberately schedule—not send guilt messages because you were away.</div>';
+    return true;
+  } catch(error) {
+    console.error('Browser push setup failed:', error);
+    statusEl.textContent = 'Reminders are not fully configured yet. Your task is still safely saved inside Marg.';
+    return false;
+  }
+}
+
+function renderPushReminderCard(forceByUser) {
+  if (!forceByUser && (pushOptInRenderedSession || pushOptInDeclinedSession)) return false;
+  if (!currentUser || !SUPABASE_TOKEN || isGuestMode || currentTab !== 'chat') return false;
+  pushOptInRenderedSession = true;
+  var messages = document.getElementById('messages');
+  if (!messages) return false;
+  var wrap = document.createElement('div');
+  wrap.className = 'msg-wrap marg fade-in';
+  wrap.id = 'push-reminder-card';
+  var avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.innerHTML = '<img src="' + LOGO_ICON + '" alt="Marg">';
+  var card = document.createElement('div');
+  card.className = 'bubble';
+  card.style.cssText = 'border:1px solid rgba(76,175,125,.28);background:linear-gradient(145deg,#121a16,#151515);max-width:460px;';
+  var pendingPreview = loadPendingPushReminder();
+  var previewCopy = pendingPreview ? getPushReminderCopy(pendingPreview) : null;
+  card.innerHTML = '<div style="font-size:14px;color:#F0EDE6;line-height:1.55;margin-bottom:12px;">Want one useful nudge when this check is due?<br><br>No phone number. No “we miss you” spam. It will use the task from this conversation—not expose your full chat.</div>' + (previewCopy ? '<div style="border-left:2px solid #4CAF7D;padding:8px 10px;margin:-2px 0 12px;color:#C8C4BC;font-size:12px;line-height:1.5;"><span style="color:#F0EDE6;font-weight:600;">' + escapeChatHtml(previewCopy.title) + '</span><br>' + escapeChatHtml(previewCopy.body) + '</div>' : '');
+  var status = document.createElement('div');
+  status.setAttribute('role', 'status');
+  status.style.cssText = 'font-size:11px;color:#D9B95B;min-height:16px;margin-bottom:7px;';
+  var actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;';
+  var enable = document.createElement('button');
+  enable.type = 'button';
+  enable.textContent = 'Enable useful reminders';
+  enable.style.cssText = 'background:#4CAF7D;color:#08110c;border:0;border-radius:9px;padding:10px 12px;font:600 12px DM Sans,sans-serif;cursor:pointer;';
+  enable.onclick = function() { enable.disabled = true; enableBrowserPushFromCard(card, status).then(function(ok) { if (!ok) enable.disabled = false; }); };
+  var later = document.createElement('button');
+  later.type = 'button';
+  later.textContent = 'Not now';
+  later.style.cssText = 'background:#222;color:#C8C4BC;border:1px solid #333;border-radius:9px;padding:10px 12px;font:500 12px DM Sans,sans-serif;cursor:pointer;';
+  later.onclick = function() { pushOptInDeclinedSession = true; wrap.remove(); };
+  actions.appendChild(enable);
+  actions.appendChild(later);
+  card.appendChild(status);
+  card.appendChild(actions);
+  wrap.appendChild(avatar);
+  wrap.appendChild(card);
+  messages.appendChild(wrap);
+  messages.scrollTop = messages.scrollHeight;
+  return true;
+}
+
+async function scheduleMentorPushReminder(timing, kind, context) {
+  if (!currentUser || !SUPABASE_TOKEN || isGuestMode) return false;
+  var chatContext = normalizeChatReminderContext(context, kind);
+  if (!chatContext.task && !chatContext.action && !chatContext.focus) chatContext = buildActivePlanReminderContext(kind) || chatContext;
+  var reminder = {
+    timing:timing, kind:chatContext.kind || kind || 'general', label:chatContext.task || 'saved CAT check', chatContext:chatContext,
+    scheduledFor:getPushReminderTime(timing).toISOString(), createdAt:new Date().toISOString()
+  };
+  savePendingPushReminder(reminder);
+  if (browserPushSupported() && Notification.permission === 'granted') {
+    try { await ensureWebPushSubscription(); await enqueuePushReminder(reminder); return true; }
+    catch(error) { console.error('Push reminder queue failed:', error); }
+  }
+  if (browserPushSupported() && Notification.permission !== 'denied') renderPushReminderCard(false);
+  return false;
+}
+
+async function maybeScheduleChatGroundedReminder(answer, context) {
+  if (context !== 'diagnosis_action_timing') return false;
+  var normalized = String(answer || '').toLowerCase();
+  if (/right now|\bnow\b/.test(normalized)) {
+    saveChatReminderContext(null);
+    return false;
+  }
+  if (!/later today|tomorrow/.test(normalized)) return false;
+  var timing = /tomorrow/.test(normalized) ? 'tomorrow' : 'later_today';
+  var reminderContext = loadChatReminderContext() || buildActivePlanReminderContext('general');
+  if (!reminderContext) return false;
+  var scheduled = await scheduleMentorPushReminder(timing, reminderContext.kind || 'general', reminderContext);
+  saveChatReminderContext(null);
+  return scheduled;
+}
+
+function appMenuPushReminders() {
+  closeAppMenu();
+  switchTab('chat');
+  pushOptInRenderedSession = false;
+  renderPushReminderCard(true);
+}
+
 // --- Earned friend challenges ----------------------------------------------
 // A challenge is created only after a real diagnosis or a real practice item.
 // The shared page reads an immutable snapshot; it never asks Gemini to rebuild
@@ -1650,6 +2009,7 @@ async function renderCommunityInviteCard(forceByUser) {
 
 function maybePresentCommunityInvite() {
   if (!communityInvitePending || communityInviteRenderedSession || isLoading || currentTab !== 'chat') return false;
+  if (document.getElementById('push-reminder-card')) return false;
   if (document.querySelector('[id^="conv-options-"]')) return false;
   setTimeout(function() {
     if (!document.querySelector('.referral-diagnosis-offer .referral-offer')) renderCommunityInviteCard(false);
@@ -4974,6 +5334,7 @@ async function handlePredictionExerciseTiming(answer) {
   addMentorLeadMessage(timing === 'tomorrow'
     ? "Tomorrow works. I’ve kept the same targeted check ready; when you open Marg, say “start the check” and we’ll use it before changing your plan."
     : "Later today works. I’ve kept the same targeted check ready; say “start the check” whenever you’re ready and we’ll continue from here.");
+  await scheduleMentorPushReminder(timing, pending.entry.topic || 'general', buildDiagnosticReminderContext(pending.entry));
   maybePresentCommunityInvite();
 }
 
@@ -5039,7 +5400,7 @@ function progressiveProfileStorageKey() {
 }
 
 function createEmptyProgressiveProfile() {
-  return { mockSeries:[], dreamCollege:null, studyHours:null, attemptStrategy:null, prepResources:[], followUps:{}, awaitingField:null, updatedAt:null };
+  return { mockSeries:[], dreamCollege:null, studyHours:null, attemptStrategy:null, prepResources:[], attemptNumber:null, targetYear:null, followUps:{}, awaitingField:null, lastFollowUpUserTurn:0, updatedAt:null };
 }
 
 function normalizeProfileList(values) {
@@ -5069,6 +5430,7 @@ function loadProgressiveProfileMemory() {
   var goal = loadPersonalGoalMemory();
   if (!memory.dreamCollege && goal && goal.target) memory.dreamCollege = goal.target;
   if (!memory.studyHours && studentProfile && studentProfile.dailyHours && !/unknown|null/i.test(String(studentProfile.dailyHours))) memory.studyHours = studentProfile.dailyHours;
+  if (!memory.attemptNumber && studentProfile && studentProfile.attemptNumber && !/unknown|null|guest/i.test(String(studentProfile.attemptNumber))) memory.attemptNumber = studentProfile.attemptNumber;
   progressiveProfileMemory = memory;
   if (studentProfile) studentProfile.progressiveProfile = memory;
   return memory;
@@ -5122,6 +5484,15 @@ function captureProgressiveProfileDetails(message) {
   var memory = loadProgressiveProfileMemory();
   var before = JSON.stringify(memory);
   var awaiting = memory.awaitingField || '';
+  var attemptMatch = text.match(/\b(?:this is\s+)?(?:my\s+)?(first|1st|second|2nd|third|3rd|fourth|4th)\s+(?:cat\s+)?attempt\b/i);
+  if (!attemptMatch && awaiting === 'attemptNumber') attemptMatch = text.match(/^\s*(first|1st|second|2nd|third|3rd|third or later|3rd or later)\s*(?:attempt)?\s*$/i);
+  if (attemptMatch) {
+    var attemptValue = attemptMatch[1].toLowerCase();
+    memory.attemptNumber = /first|1st/.test(attemptValue) ? '1st attempt' : /second|2nd/.test(attemptValue) ? '2nd attempt' : '3rd attempt or more';
+    if (studentProfile) studentProfile.attemptNumber = memory.attemptNumber;
+  }
+  var targetYearMatch = text.match(/\bCAT\s*(20\d{2})\b/i) || (awaiting === 'targetYear' ? text.match(/^\s*(20\d{2})\s*$/) : null);
+  if (targetYearMatch) memory.targetYear = Number(targetYearMatch[1]);
   var mockSeries = detectMockSeries(text, awaiting);
   if (mockSeries.length) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat(mockSeries));
 
@@ -5145,11 +5516,11 @@ function captureProgressiveProfileDetails(message) {
 
   if (awaiting === 'prepResources' && !resources.length && text.length >= 2 && text.length <= 180) memory.prepResources = normalizeProfileList(memory.prepResources.concat([text]));
   if (awaiting === 'mockSeries' && !mockSeries.length && text.length >= 2 && text.length <= 100) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat([text]));
-  if (awaiting && ((awaiting === 'mockSeries' && memory.mockSeries.length) || (awaiting === 'dreamCollege' && memory.dreamCollege) || (awaiting === 'studyHours' && memory.studyHours) || (awaiting === 'attemptStrategy' && memory.attemptStrategy) || (awaiting === 'prepResources' && memory.prepResources.length))) memory.awaitingField = null;
+  if (awaiting && ((awaiting === 'mockSeries' && memory.mockSeries.length) || (awaiting === 'dreamCollege' && memory.dreamCollege) || (awaiting === 'studyHours' && memory.studyHours) || (awaiting === 'attemptStrategy' && memory.attemptStrategy) || (awaiting === 'prepResources' && memory.prepResources.length) || (awaiting === 'attemptNumber' && memory.attemptNumber) || (awaiting === 'targetYear' && memory.targetYear))) memory.awaitingField = null;
 
   if (JSON.stringify(memory) !== before) {
     saveProgressiveProfileMemory(memory);
-    if (hoursMatch && hoursOpening && typeof saveProfileProgressively === 'function') saveProfileProgressively();
+    if ((hoursMatch && hoursOpening || attemptMatch) && typeof saveProfileProgressively === 'function') saveProfileProgressively();
   }
   return memory;
 }
@@ -5161,6 +5532,10 @@ function chooseNaturalProfileFollowUp(message, diagnosis) {
   var intent = diagnosis && diagnosis.intent || '';
   var emotional = diagnosis && diagnosis.emotionalState && diagnosis.emotionalState !== 'neutral';
   if (!text || emotional || intent === 'answer_review' || /\b(?:just finished|just completed|just gave)\b[\s\S]{0,35}\bmock\b|\b(?:exhausted|very tired|want to quit|cannot clear|can't clear)\b/i.test(text)) return '';
+  var userTurns = (conversationHistory || []).filter(function(item) { return item && item.role === 'user' && !isInternalMemoryMessage(item); }).length;
+  var profileCooldownOpen = !memory.lastFollowUpUserTurn || userTurns - Number(memory.lastFollowUpUserTurn || 0) >= 2;
+  var firstFewConversations = userTurns >= 1 && userTurns <= 6;
+  if (firstFewConversations && profileCooldownOpen && !memory.attemptNumber && !memory.followUps.attemptNumber && !(typeof isCommittedMentorAction === 'function' && isCommittedMentorAction(text))) return 'attemptNumber';
   if (/\b(?:mock|aimcat|simcat|scorecard)\b/.test(lower)) {
     if (!memory.mockSeries.length && !memory.followUps.mockSeries) return 'mockSeries';
     if (!memory.attemptStrategy && !memory.followUps.attemptStrategy) return 'attemptStrategy';
@@ -5181,32 +5556,38 @@ function getProgressiveProfileMemoryContext(message, diagnosis) {
   if (memory.studyHours) known.push('Realistic daily study time: ' + memory.studyHours);
   if (memory.attemptStrategy) known.push('Current attempt/pacing strategy: ' + memory.attemptStrategy);
   if (memory.prepResources.length) known.push('Current prep resources: ' + memory.prepResources.join(', '));
+  if (memory.attemptNumber) known.push('CAT attempt: ' + memory.attemptNumber);
+  if (memory.targetYear) known.push('Target exam: CAT ' + memory.targetYear);
   var context = known.length ? '\n\nPROFILE CONTEXT MEMORY — use only when relevant, never recite as a list to the student:\n- ' + known.join('\n- ') : '';
   var field = chooseNaturalProfileFollowUp(message, diagnosis);
   if (!field) return context;
   var prompts = {
+    attemptNumber:'Only if the useful answer is now complete and the conversation would otherwise naturally pause, use the student’s Google first name once and ask: “[Name], one thing that will help me read this in context—is this your first CAT attempt, second, or third/later?” Add [OPTIONS: First attempt|Second attempt|Third or later][CONTEXT: profile_attempt]. Do not imply that attempt number proves the diagnosis, and do not displace a promised action or necessary clarification.',
     mockSeries:'After fully answering the mock question, ask one casual follow-up: “Which mock series are you using right now—TIME, IMS, or mixing more than one?”',
     attemptStrategy:'After fully answering the mock question, ask one casual follow-up about process: “In these mocks, are you following one fixed attempt strategy, or changing it with the paper?”',
     dreamCollege:'After fully answering the target question, ask one casual follow-up: “Which college is the dream one, by the way?”',
     studyHours:'After handling the plan/routine question, ask one light follow-up: “On an ordinary day, how much CAT time can you realistically protect?”',
     prepResources:'After handling the resource question, ask one light follow-up: “What material are you actually using most days right now?”'
   };
-  return context + '\n\nNATURAL PROFILE OPENING — ' + prompts[field] + ' Ask only this one optional question, after delivering value. Do not call it profile-building and do not add options or a form.';
+  var firstName = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? String(currentUser.user_metadata.full_name).trim().split(/\s+/)[0] : '';
+  return context + '\n\nNATURAL PROFILE OPENING — ' + prompts[field].replace('[Name]', firstName || 'One thing') + ' Ask only this one optional question after delivering value. Ask it only at a genuine conversational pause, never in the middle of analysis, an exercise, an emotional moment, or a clear next action. Do not call it profile-building or continue into a second profile question.';
 }
 
 function markProgressiveProfileFollowUpIfAsked(response) {
   var value = String(response || '');
   var field = '';
-  if (/(?:which|what).{0,35}(?:mock|test)\s*series|(?:TIME|IMS).{0,30}(?:mix|using|use)/i.test(value)) field = 'mockSeries';
+  if (/first CAT attempt|first attempt.{0,25}second|second.{0,25}third.{0,15}later|\[CONTEXT:\s*profile_attempt\]/i.test(value)) field = 'attemptNumber';
+  else if (/(?:which|what).{0,35}(?:mock|test)\s*series|(?:TIME|IMS).{0,30}(?:mix|using|use)/i.test(value)) field = 'mockSeries';
   else if (/(?:fixed|current).{0,25}(?:attempt|pacing|mock)\s*strateg|(?:how|when).{0,35}(?:attempt|scan|skip|leave).{0,20}(?:question|set|section|mock)/i.test(value)) field = 'attemptStrategy';
   else if (/(?:which|what).{0,35}(?:(?:dream|target).{0,20}(?:college|b[- ]?school)|(?:college|b[- ]?school).{0,20}(?:dream|target))/i.test(value)) field = 'dreamCollege';
   else if (/(?:how much|how many).{0,25}(?:CAT|study|prep).{0,20}(?:time|hours)|(?:time|hours).{0,25}(?:ordinary|realistic|protect)/i.test(value)) field = 'studyHours';
   else if (/(?:what|which).{0,25}(?:material|resource|book|course|coaching|source).{0,25}(?:using|use|most days|right now)/i.test(value)) field = 'prepResources';
   if (!field) return;
   var memory = loadProgressiveProfileMemory();
-  if ((field === 'mockSeries' && memory.mockSeries.length) || (field === 'dreamCollege' && memory.dreamCollege) || (field === 'attemptStrategy' && memory.attemptStrategy) || (field === 'studyHours' && memory.studyHours) || (field === 'prepResources' && memory.prepResources.length)) return;
+  if ((field === 'attemptNumber' && memory.attemptNumber) || (field === 'mockSeries' && memory.mockSeries.length) || (field === 'dreamCollege' && memory.dreamCollege) || (field === 'attemptStrategy' && memory.attemptStrategy) || (field === 'studyHours' && memory.studyHours) || (field === 'prepResources' && memory.prepResources.length)) return;
   memory.followUps[field] = new Date().toISOString();
   memory.awaitingField = field;
+  memory.lastFollowUpUserTurn = (conversationHistory || []).filter(function(item) { return item && item.role === 'user' && !isInternalMemoryMessage(item); }).length;
   saveProgressiveProfileMemory(memory);
 }
 
@@ -5552,7 +5933,30 @@ function guardTimeAllocationArithmetic(text) {
 }
 
 function stripInternalMentorTags(text) {
-  return String(text || '').replace(/\s*\[HYPOTHESIS_VERDICT:\s*(?:supported|rejected|inconclusive)\s*\]\s*/gi, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return String(text || '')
+    .replace(/\s*\[HYPOTHESIS_VERDICT:\s*(?:supported|rejected|inconclusive)\s*\]\s*/gi, '\n')
+    .replace(/\s*\[REMINDER_CONTEXT:\s*[^\]]+\]\s*/gi, '\n')
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function guardNaturalProfileClose(text, diagnosis) {
+  var value = String(text || '');
+  if (!/\[CONTEXT:\s*profile_attempt\]/i.test(value)) return value;
+  var tagIndex = value.search(/\[OPTIONS:\s*First attempt\|Second attempt\|Third or later\]/i);
+  var visibleBeforeTags = tagIndex >= 0 ? value.slice(0, tagIndex).trim() : value;
+  var paragraphs = visibleBeforeTags.split(/\n\s*\n/);
+  var profileParagraph = paragraphs[paragraphs.length - 1] || '';
+  var earlierText = paragraphs.slice(0, -1).join('\n\n');
+  var profileQuestionMatches = /first CAT attempt|first attempt[^?\n]*second[^?\n]*third/i.test(profileParagraph);
+  var unsafeMoment = !profileQuestionMatches || !earlierText.trim() || /\?/.test(earlierText) ||
+    !!(diagnosis && (diagnosis.committedAction || diagnosis.intent === 'answer_review' || diagnosis.emotionalState && diagnosis.emotionalState !== 'neutral')) ||
+    /\[(?:START_TEST|PRACTICE_LOG):/i.test(value);
+  if (!unsafeMoment) return value;
+  return value
+    .replace(/(?:^|\n\s*\n)[^\n]*(?:first CAT attempt|first attempt[^\n]*second[^\n]*third)[^\n]*/i, '')
+    .replace(/\s*\[OPTIONS:\s*First attempt\|Second attempt\|Third or later\]\s*/i, '')
+    .replace(/\s*\[CONTEXT:\s*profile_attempt\]\s*/i, '')
+    .replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function enforceDirectRCWrongAnswerClose(text, diagnosis) {
@@ -5638,6 +6042,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = ensureDiagnosisForwardLead(text, diagnosis);
   text = removeClinicalReportFormatting(text, diagnosis);
   text = removeTrailingActionQuestion(text, diagnosis);
+  text = guardNaturalProfileClose(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
   // Do not mechanically slice model output. The prompt controls normal reply
   // length; hard word caps were capable of manufacturing mid-answer cutoffs.
@@ -5841,6 +6246,16 @@ async function handleConversationalResponse(answer, context) {
     if (!isGuestMode) saveChatMessage('user', answer);
     await handlePredictionExerciseTiming(answer);
 
+  } else if (context === 'profile_attempt') {
+    var attemptMemory = loadProgressiveProfileMemory();
+    var normalizedAttempt = String(answer || '').toLowerCase();
+    studentProfile.attemptNumber = /first/.test(normalizedAttempt) ? '1st attempt' : /second/.test(normalizedAttempt) ? '2nd attempt' : '3rd attempt or more';
+    attemptMemory.attemptNumber = studentProfile.attemptNumber;
+    attemptMemory.awaitingField = null;
+    saveProgressiveProfileMemory(attemptMemory);
+    await saveProfileProgressively();
+    await sendConversationalMessage(answer, 'profile_attempt');
+
   } else if (context === 'start_dilr_validation') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
@@ -5856,7 +6271,7 @@ async function handleConversationalResponse(answer, context) {
   } else if (context === 'topic_sectional_timing') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
-    handleTopicSectionalTiming(answer);
+    await handleTopicSectionalTiming(answer);
 
   } else if (context === 'mock_start_choice') {
     conversationHistory.push({ role:'user', content:answer });
@@ -6052,10 +6467,13 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     systemAddition += '\n\nThe student just confirmed the diagnosis pattern. Do not repeat it and do not ask another intake question. Move straight to the next useful action.';
   }
   if (context === 'diagnosis_confirmation_lead') {
-    systemAddition += '\n\nThe student just confirmed or corrected the diagnosis immediately above. If they said Exactly or Mostly, do not repeat the diagnosis and do not ask what they want to do next. Briefly connect the clue to the mechanism, then lead with one specific validation or coaching action and give clear Right now / Later today / Tomorrow choices using [OPTIONS: Right now|Later today|Tomorrow][CONTEXT: diagnosis_action_timing]. If they said Not Really, revise the read once from existing evidence and preview the next concrete check; do not restart an intake interview.';
+    systemAddition += '\n\nThe student just confirmed or corrected the diagnosis immediately above. If they said Exactly or Mostly, do not repeat the diagnosis and do not ask what they want to do next. Briefly connect the clue to the mechanism, then lead with one specific validation or coaching action and give clear Right now / Later today / Tomorrow choices using [OPTIONS: Right now|Later today|Tomorrow][CONTEXT: diagnosis_action_timing]. Immediately before those tags, add [REMINDER_CONTEXT: kind|short safe task], where kind is rc, varc, dilr, qa, mock, sectional or general and the task is a concise description of the promised check. Include the task only—never the student\'s emotional disclosure, score, diagnosis wording, name, phone number or raw chat text. This tag is internal and will be removed before display. If they said Not Really, revise the read once from existing evidence and preview the next concrete check; do not restart an intake interview.';
   }
   if (context === 'diagnosis_action_timing') {
     systemAddition += '\n\nThe student is choosing when to do the concrete validation step you just proposed. If they chose Right now, begin that promised action immediately with no more confirmation or intake. For QA or DILR, launch the dedicated timed interface with the appropriate [START_TEST] tag instead of dumping questions into chat. If they chose Later today or Tomorrow, preserve the exact promised action, acknowledge the timing briefly, and state how the conversation will resume without inventing another task.';
+  }
+  if (context === 'profile_attempt') {
+    systemAddition += '\n\nPROFILE ANSWER CONTINUATION: The student answered the light attempt-number question. Acknowledge it in at most one clause and apply it only as context—not proof of any diagnosis. Continue the exact CAT thread from before the question. Do not ask another profile question in this reply and do not repeat generic theory.';
   }
   if (conversationalProfile.awaitingPatternCorrection) {
     systemAddition += '\n\nThe student just explained what happened with a specific wrong answer, after you asked one clarifying question following a diagnosis they said was not quite right. Do not ask another open-ended question. State a one-sentence read on their actual pattern based on what they just told you, then move on to your next onboarding question.';
@@ -6086,6 +6504,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     hideTyping();
     if (response) {
       applyPredictionValidationVerdict(response);
+      captureChatReminderContext(response);
       response = stripInternalMentorTags(response);
       markExerciseReviewCompleted(response);
       if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(userMessage).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
@@ -6112,6 +6531,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
       checkAndRenderTestPrompt(response);
       checkAndLogPracticeVolume(response);
       completePendingExternalQuestionTurn();
+      await maybeScheduleChatGroundedReminder(userMessage, context);
 
 
       if (conversationHistory.filter(function(item) { return item.role === 'user'; }).length >= 2 && !onboardingComplete) {
@@ -6132,6 +6552,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
       var serviceMessage = getGeminiErrorMessage(e);
       addMessage('marg', serviceMessage);
       showComposerStatus(serviceMessage + (e.requestId ? ' Reference: ' + e.requestId : ''), 'error', true);
+      await maybeScheduleChatGroundedReminder(userMessage, context);
       return false;
     }
     var fallbackResponse = buildPredictionValidationFallback(userMessage) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(userMessage) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
@@ -6143,6 +6564,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     conversationHistory.push({ role: 'assistant', content: fallbackResponse });
     if (!isGuestMode) saveChatMessage('assistant', fallbackResponse);
     completePendingExternalQuestionTurn();
+    await maybeScheduleChatGroundedReminder(userMessage, context);
     return true;
   }
 }
@@ -6599,7 +7021,7 @@ function maybeLeadWithProgression(text) {
   return true;
 }
 
-function handleTopicSectionalTiming(answer) {
+async function handleTopicSectionalTiming(answer) {
   var item = pendingSectionalRecommendation || bestSectionalRecommendation();
   if (!item) return;
   var normalized = String(answer || '').toLowerCase();
@@ -6615,6 +7037,11 @@ function handleTopicSectionalTiming(answer) {
   addMentorLeadMessage(item.scheduledSectional === 'tomorrow'
     ? 'Done. Tomorrow, I’ll bring you back to the ' + item.topic + ' timed sectional—not another worksheet.'
     : 'Done. Later today, I’ll keep the ' + item.topic + ' timed sectional as the next move.');
+  await scheduleMentorPushReminder(
+    item.scheduledSectional === 'tomorrow' ? 'tomorrow' : 'later_today',
+    item.section === 'qa' ? 'qa' : 'sectional',
+    { source:'progression-chat', kind:item.section === 'qa' ? 'qa' : 'sectional', topic:item.topic, task:'the ' + item.topic + ' timed sectional', action:'Run the pressure test Marg recommended instead of opening another worksheet.' }
+  );
 }
 
 function isDataDeletionRequest(message) {
