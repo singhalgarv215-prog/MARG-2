@@ -3,7 +3,7 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260823-2';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260823-3';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var HOMEPAGE_DESTINATION_STORAGE_KEY = 'marg_pending_homepage_destination_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
@@ -16,6 +16,15 @@
   var selectedProblemKey = '';
   var publicChallenge = null;
   var publicChallengeAnswered = false;
+  var homepageTextTypedTracked = false;
+  var homepagePlaceholderTimer = null;
+  var HOMEPAGE_CHAT_PLACEHOLDERS = [
+    'I understand RC but still get stuck between two options…',
+    'I cannot figure out which DILR set to start with…',
+    'I solve QA at home but freeze during timed mocks…',
+    'One bad section ruins the rest of my mock…',
+    'I keep changing my study plan and losing consistency…'
+  ];
 
   var HOMEPAGE_DESTINATIONS = {
     practice:{
@@ -441,6 +450,125 @@
     return stored;
   }
 
+  function setHomepageChatStatus(message, type) {
+    var status = document.getElementById('homepage-chat-status');
+    if (!status) return;
+    status.textContent = message || '';
+    status.style.color = type === 'error' ? '#E58A8A' : type === 'success' ? '#70C295' : '#D9B95B';
+  }
+
+  function resizeHomepageChatInput(input) {
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = Math.min(Math.max(input.scrollHeight, 46), 116) + 'px';
+  }
+
+  function homepageChatInputChanged(input) {
+    resizeHomepageChatInput(input);
+    var text = normalizeIntentText(input && input.value);
+    setHomepageChatStatus('', '');
+    if (text && !homepageTextTypedTracked) {
+      homepageTextTypedTracked = true;
+      sendAcquisitionEvent('homepage_text_typed', {
+        source:'homepage_chat',
+        length_bucket:text.length < 25 ? 'short' : text.length < 100 ? 'medium' : 'long'
+      });
+    }
+  }
+
+  function homepageChatKeydown(event) {
+    if (!event || event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+    submitHomepageChat(event);
+  }
+
+  function useHomepageChatPrompt(text) {
+    var input = document.getElementById('homepage-chat-input');
+    if (!input) return false;
+    input.value = normalizeIntentText(text);
+    homepageChatInputChanged(input);
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    return false;
+  }
+
+  function focusHomepageChat() {
+    var shell = document.getElementById('homepage-chat-entry');
+    var input = document.getElementById('homepage-chat-input');
+    if (shell) shell.scrollIntoView({ behavior:'smooth', block:'center' });
+    if (input) setTimeout(function() { input.focus({ preventScroll:true }); }, 260);
+    return false;
+  }
+
+  function submitHomepageChat(event) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    var input = document.getElementById('homepage-chat-input');
+    var text = normalizeIntentText(input && input.value);
+    if (!text) {
+      setHomepageChatStatus('Type the problem you want Marg to continue with.', 'error');
+      if (input) input.focus();
+      return false;
+    }
+    safeRemove(HOMEPAGE_DESTINATION_STORAGE_KEY);
+    var existing = readIntent();
+    var sameMessage = existing && normalizeIntentText(existing.visibleUserText || existing.text) === text;
+    var intent = writeIntent({
+      id:sameMessage ? existing.id : makeId('homepage-chat'),
+      text:text,
+      visibleUserText:text,
+      visibleDiagnosisText:'',
+      handoffType:'homepage_chat',
+      pageViewId:sameMessage ? existing.pageViewId : pageViewId,
+      createdAt:sameMessage ? existing.createdAt : Date.now(),
+      status:'auth_started',
+      funnel_intent_entered:sameMessage ? !!existing.funnel_intent_entered : true
+    });
+    if (!intent) {
+      setHomepageChatStatus('That message could not be saved. Try once more.', 'error');
+      return false;
+    }
+    if (!sameMessage || !existing.funnel_intent_entered) {
+      sendAcquisitionEvent('homepage_intent_entered', { source:'homepage_chat' }, intent.pageViewId);
+    }
+    sendAcquisitionEvent('auth_started', { source:'homepage_chat' }, intent.pageViewId);
+    var button = document.getElementById('homepage-chat-send');
+    if (button) button.disabled = true;
+    setHomepageChatStatus('Saved. Opening Google sign-in…', 'success');
+    startLogin({ funnelAlreadyTracked:true });
+    return false;
+  }
+
+  function startDirectHomepageLogin() {
+    // Direct signup means exactly that: do not accidentally auto-send a stale
+    // message or old workspace choice left behind by a cancelled OAuth trip.
+    safeRemove(HOMEPAGE_INTENT_STORAGE_KEY);
+    safeRemove(HOMEPAGE_DESTINATION_STORAGE_KEY);
+    setHomepageChatStatus('Opening Google sign-in…', 'success');
+    startLogin();
+    return false;
+  }
+
+  function startHomepagePlaceholderRotation() {
+    if (homepagePlaceholderTimer || window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var index = 0;
+    homepagePlaceholderTimer = window.setInterval(function() {
+      var input = document.getElementById('homepage-chat-input');
+      if (!input || document.activeElement === input || normalizeIntentText(input.value)) return;
+      index = (index + 1) % HOMEPAGE_CHAT_PLACEHOLDERS.length;
+      input.placeholder = HOMEPAGE_CHAT_PLACEHOLDERS[index];
+    }, 2800);
+  }
+
+  function restoreHomepageChatDraft(intent) {
+    if (!intent || intent.problemKey || intent.handoffType !== 'homepage_chat') return false;
+    var input = document.getElementById('homepage-chat-input');
+    if (!input) return false;
+    input.value = normalizeIntentText(intent.visibleUserText || intent.text);
+    resizeHomepageChatInput(input);
+    setHomepageChatStatus('Your message is still saved.', 'success');
+    return true;
+  }
+
   function readDestination() {
     try {
       var destination = JSON.parse(safeGet(HOMEPAGE_DESTINATION_STORAGE_KEY) || 'null');
@@ -663,6 +791,14 @@
     return key;
   }
 
+  function personalizeHomepageChatPlaceholder(problemKey) {
+    var pattern = PATTERNS[problemKey];
+    var input = document.getElementById('homepage-chat-input');
+    if (!pattern || !input || normalizeIntentText(input.value)) return false;
+    input.placeholder = pattern.intent.replace(/^In\s+/i, '').replace(/^My\s+/i, 'My ');
+    return true;
+  }
+
   function setEntryStatus(message, type) {
     var status = document.getElementById('homepage-preview-note');
     if (!status) return;
@@ -831,7 +967,7 @@
     var destination = readDestination();
     if (!options || !options.funnelAlreadyTracked) {
       sendAcquisitionEvent('auth_started', {
-        source:intent ? (intent.handoffType === 'public_rc_proof' ? 'public_rc_proof' : 'homepage_diagnostic') : destination ? 'homepage_product' : 'direct_login',
+        source:intent ? (intent.handoffType === 'public_rc_proof' ? 'public_rc_proof' : intent.handoffType === 'homepage_chat' ? 'homepage_chat' : 'homepage_diagnostic') : destination ? 'homepage_product' : 'direct_login',
         problem_key:intent && intent.problemKey || null,
         destination:destination && destination.destination || null
       }, intent && intent.pageViewId || destination && destination.pageViewId);
@@ -922,11 +1058,13 @@
     if (loading) loading.style.display = 'none';
     if (landing) landing.style.display = 'flex';
     var campaignKey = prioritizeCampaignOption();
+    personalizeHomepageChatPlaceholder(campaignKey);
     var intent = readIntent();
     var destination = readDestination();
-    if (destination) renderDestinationPreview(destination);
+    if (intent && intent.handoffType === 'homepage_chat') restoreHomepageChatDraft(intent);
+    else if (destination) renderDestinationPreview(destination);
     else if (intent && intent.problemKey && PATTERNS[intent.problemKey]) selectProblem(intent.problemKey, { restoring:true });
-    else if (campaignKey) chooseEntry('diagnosis', { restoring:true });
+    startHomepagePlaceholderRotation();
     window.__MARG_LANDING_VISIBLE_TRACKED__ = true;
     sendAcquisitionEvent('homepage_chat_visible', { campaign_match:campaignKey || null });
     document.documentElement.classList.add('marg-landing-ready');
@@ -934,6 +1072,12 @@
   }
 
   window.selectHomepageProblem = selectProblem;
+  window.submitHomepageChat = submitHomepageChat;
+  window.homepageChatInputChanged = homepageChatInputChanged;
+  window.homepageChatKeydown = homepageChatKeydown;
+  window.useHomepageChatPrompt = useHomepageChatPrompt;
+  window.focusHomepageChat = focusHomepageChat;
+  window.startDirectHomepageLogin = startDirectHomepageLogin;
   window.chooseHomepageEntry = chooseEntry;
   window.changeHomepageEntry = changeEntry;
   window.focusHomepageEntry = focusEntry;
