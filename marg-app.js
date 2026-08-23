@@ -1284,7 +1284,7 @@ async function saveWebPushSubscription(subscription) {
 
 async function ensureWebPushSubscription() {
   if (!browserPushSupported()) throw new Error('This browser does not support web push');
-  var registration = await navigator.serviceWorker.register('/sw.js?v=20260823-2', { scope:'/' });
+  var registration = await navigator.serviceWorker.register('/sw.js?v=20260823-3', { scope:'/' });
   var existing = await registration.pushManager.getSubscription();
   if (existing) { await saveWebPushSubscription(existing); return existing; }
   var publicKey = await getWebPushPublicKey();
