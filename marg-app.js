@@ -1284,7 +1284,7 @@ async function saveWebPushSubscription(subscription) {
 
 async function ensureWebPushSubscription() {
   if (!browserPushSupported()) throw new Error('This browser does not support web push');
-  var registration = await navigator.serviceWorker.register('/sw.js?v=20260823-3', { scope:'/' });
+  var registration = await navigator.serviceWorker.register('/sw.js?v=20260824-1', { scope:'/' });
   var existing = await registration.pushManager.getSubscription();
   if (existing) { await saveWebPushSubscription(existing); return existing; }
   var publicKey = await getWebPushPublicKey();
@@ -2227,10 +2227,13 @@ TRUTH AND CORRECTION CONTRACT
 - If evidence is missing, be tentative or ask one precise clarification. Confidence must come from evidence, not tone.
 
 STUDENT-SPECIFIC DECISIONS
-Before recommending anything, silently complete: "Because this student showed X, I recommend Y instead of Z." If X is not present in their message, verified result or reliable memory, do not give Y as personalised advice. Prefer one decision that is meaningfully different because of this student's evidence over a generic CAT rule.
+Silently require: "Because this student showed X, recommend Y instead of generic Z." X must come from their message, verified result or reliable memory.
 
 EVIDENCE BEFORE REASSURANCE
 A score is an outcome, not a cause or capability verdict. Do not explain it or reassure confidently before examining attempts, accuracy, selection, timing, errors and the student's account. Separate observation from hypothesis: "The score shows X; your description suggests Y; Z needs testing." Reassure only from evidence.
+
+MOCK SCORE ARITHMETIC
+Verify scores before interpreting them. Wrong MCQs usually lose 1 mark; wrong TITA answers usually lose 0, so a total wrong count alone does not reveal the penalty. If a score depends on that split, ask for it or state the valid range. A DILR score alone never proves sets solved, time spent or a late exit. Ask for attempts/set path/timing before naming those. Never project a new score by deleting every wrong attempt.
 
 MECHANISM, NOT CATEGORY LABEL
 "Time management", "carelessness", "low confidence" and "practice more" are categories, not diagnoses. Name the evidenced mechanism: sunk-cost lock-in, missing kill-switch, decision paralysis, poor representation, constraint misread, fatigue, panic rushing or answer-changing without evidence. Tie mechanism → evidence → consequence → decision rule.
@@ -2239,7 +2242,7 @@ TEST UNCERTAIN SELF-DIAGNOSES
 Treat "I think", "maybe" and "probably" as hypotheses. Test the smallest useful comparison. Never invent numeric precision; numbers need evidence or a labelled trial.
 
 PRACTICE-DISTRIBUTION DIAGNOSIS
-If topic-wise practice does not match a mixed exam, call it a distribution mismatch. Keep meaningful work on the primary weakness, recurring exposure to secondary families and periodic mixed timed checks for transfer. Derive splits from evidence or label them a trial.
+If topic-wise practice does not match the mixed exam, call it a distribution mismatch. Keep primary-topic work, recurring secondary exposure and mixed timed transfer checks. Derive splits from evidence or label them a trial.
 
 EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
@@ -2254,7 +2257,7 @@ MEMORY AND CONTINUITY
 Use SESSION, ACTIVE EXERCISE, BEHAVIOURAL, TOPIC PROGRESSION, ACTIVE PLAN, PERSONAL GOAL and PROFILE CONTEXT memory before advising. Refer naturally to one relevant prior fact; never list memory or invent it. Never ask the student to resend an exercise Marg generated. If they submit answers, use the stored passage/questions/key immediately. Preserve an active plan unless a fresh result, changed constraint, completed milestone, illness or explicit redesign request justifies a change; state what changed and why.
 
 PROGRESSIVE PROFILE BUILDING
-Never run a profile survey. Answer first. Only when their message creates a natural opening, ask one follow-up that changes current mentoring: topic familiarity (first pass, gap revision or rusty), mock strategy, routine, resources, attempt or goal. Prefer topical context after a topic plan. An offline task is a pause; a live exercise, review, emotion or action now is not. Never re-ask or chain questions.
+Never run a profile survey. Answer first, then use a natural pause for one useful missing detail: topic familiarity, mock strategy, routine, resources, attempt or goal. Never interrupt live work, re-ask or chain profile questions.
 
 CONTINUATION CONTRACT
 Use diagnosis → confirmation → smallest validation → evidence → one next step. A new date does not erase valid unfinished work. Review completed evidence before assigning more. On return, resume an unfinished check or unreviewed result before a greeting. Never require Send to review a result Marg already has.
@@ -2582,9 +2585,26 @@ function getGeminiText(payload) {
   return text;
 }
 
+var HOME_DIAGNOSIS_OPENING = 'Pick the area where your marks feel least predictable.';
+
+function isHomeDiagnosisOpeningMessage(message) {
+  if (!message || message.role !== 'assistant') return false;
+  var normalized = String(message.content || '').replace(/<br\s*\/?>/gi, ' ').replace(/\s+/g, ' ').trim();
+  if (normalized === HOME_DIAGNOSIS_OPENING) return true;
+  // Some older deployments persisted the prompt together with the option labels.
+  // Treat those rows as UI scaffolding too, rather than feeding or rendering them
+  // as if Marg had repeated a conversational response.
+  if (normalized.indexOf(HOME_DIAGNOSIS_OPENING + ' ') !== 0) return false;
+  var remainder = normalized.slice(HOME_DIAGNOSIS_OPENING.length).trim();
+  return /^(?:VARC\s*)?(?:DILR\s*)?(?:QA\s*)?(?:Mock Analysis\s*)?(?:Confidence\s*)?(?:Strategy\s*)?$/i.test(remainder);
+}
+
 function cleanHistory(history) {
   if (!history || !history.length) return history;
-  var cleanedHistory = history.filter(function(m) { return !isInternalMemoryMessage(m) && !isLegacyAutoMissionReminder(m); }).map(function(m) {
+  var cleanedHistory = history.filter(function(m) {
+    if (isInternalMemoryMessage(m) || isLegacyAutoMissionReminder(m) || isHomeDiagnosisOpeningMessage(m)) return false;
+    return true;
+  }).map(function(m) {
     if (m.role !== 'assistant' || !m.content || typeof m.content !== 'string') return m;
     var cleaned = m.content
       .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -4541,6 +4561,33 @@ function showLanding() {
   observeHomepageComposerVisibility();
 }
 
+var chatScrollFrameId = 0;
+var chatScrollTimerId = 0;
+
+function scrollChatToLatest() {
+  var container = document.getElementById('messages');
+  if (!container) return;
+  var commit = function() { container.scrollTop = container.scrollHeight; };
+  commit();
+  if (chatScrollFrameId && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(chatScrollFrameId);
+  if (typeof requestAnimationFrame === 'function') {
+    chatScrollFrameId = requestAnimationFrame(function() {
+      commit();
+      chatScrollFrameId = requestAnimationFrame(function() {
+        commit();
+        chatScrollFrameId = 0;
+      });
+    });
+  }
+  if (chatScrollTimerId) clearTimeout(chatScrollTimerId);
+  // Fonts, option buttons and long bubbles can change height after insertion.
+  // Re-anchor after layout settles so the final lines stay above the composer.
+  chatScrollTimerId = setTimeout(function() {
+    commit();
+    chatScrollTimerId = 0;
+  }, 220);
+}
+
 function addMessage(role, html, showAvatar) {
   if (showAvatar === undefined) showAvatar = true;
   if (role === 'marg' && typeof html === 'string') html = convertLatexToPlainText(html);
@@ -4581,7 +4628,7 @@ function addMessage(role, html, showAvatar) {
     wrap.style.marginLeft = '38px';
   }
   container.appendChild(wrap);
-  container.scrollTop = container.scrollHeight;
+  scrollChatToLatest();
   return wrap;
 }
 
@@ -4592,7 +4639,7 @@ function addOnboardingCard(step) {
   const opts = onboardingFlow[step].options.map(function(o) { return '<button class="opt-btn" onclick="selectOption(\'' + o.replace(/'/g, "\\'") + '\', ' + step + ')">' + o + '</button>'; }).join('');
   card.innerHTML = '<div class="onboard-card"><div class="options-grid">' + opts + '</div></div>';
   container.appendChild(card);
-  container.scrollTop = container.scrollHeight;
+  scrollChatToLatest();
 }
 
 function selectOption(value, step) {
@@ -5915,7 +5962,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. Use the actual choice pattern as evidence and abandon the stored prediction when evidence contradicts it. For multiple answers, separate each question with a blank line and write naturally: “Q2 — You chose C; A is correct.” Explain the exact mismatch and correction without Diagnosis, Fix or Pattern Check labels. End with a plain score-and-pattern sentence. Ask no diagnostic intake question.';
   if (diagnosis.rcWrongAnswerReview) directive += '\nRC WRONG-ANSWER RESPONSE: The wrong option is already evidence. Explain the option mismatch, then state the likely mechanism directly and specifically. Do not ask whether the student used tone, general impression, wording, the specific verb, or another strategy. Do not ask for confirmation or reflection. The final visible sentence must be a confident mechanism statement tied to this choice, with no question mark, [OPTIONS], new exercise, source check, or engagement hook.' + (diagnosis.rcWrongAnswerMechanism ? '\nStored mistake signal: ' + diagnosis.rcWrongAnswerMechanism : '');
   if (diagnosis.intent === 'privacy_request') directive += '\nPRIVACY REQUEST MODE: Do not diagnose or reassure. Never say Marg is session-only. State that authenticated chats, profiles, cognitive/behavioural patterns, mock history, practice progress and check-ins can persist in Supabase, with some state also in browser storage. For deletion, direct the user to support@trymarg.com from their account email and state the published seven-business-day window. Clearing a chat or local storage is not full deletion.';
-  if (diagnosis.intent === 'mock_diagnosis') directive += '\nMOCK EVIDENCE-FIRST MODE: The score is an outcome, not a cause or capability measure. Begin with what the supplied numbers and narrative actually establish. Mark every causal explanation as a hypothesis until supported by attempt, accuracy, selection, timing, error, or behavioural evidence. Name the specific decision mechanism rather than a generic bucket such as time management, carelessness, or practice more. If an action follows, explain naturally why it tests this exact mechanism, then state the action and observable evidence—no clinical mission template. For a full requested plan, give one evidence-linked priority per named section and compare the next two mocks before changing the plan. Never promise or validate a specific percentile from this one mock.';
+  if (diagnosis.intent === 'mock_diagnosis') directive += '\nMOCK EVIDENCE-FIRST MODE: The score is an outcome, not a cause or capability measure. Begin with what the supplied numbers and narrative actually establish. Mark every causal explanation as a hypothesis until supported by attempt, accuracy, selection, timing, error, or behavioural evidence. Name the specific decision mechanism rather than a generic bucket such as time management, carelessness, or practice more. Silently check score arithmetic before interpreting it: MCQ wrong answers normally lose 1 while TITA wrong answers normally lose 0, so a total wrong count alone does not establish the negative marks. Never say every wrong answer cost one mark unless the MCQ/TITA split is known. A DILR score alone cannot prove sets solved, time spent, setup speed or a late exit; ask for set path/attempts/timing before naming those. Never project a higher score by merely deleting wrong attempts. If an action follows, explain naturally why it tests this exact mechanism, then state the action and observable evidence—no clinical mission template. For a full requested plan, give one evidence-linked priority per named section and compare the next two mocks before changing the plan. Never promise or validate a specific percentile from this one mock.';
   var diagnosisRecentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
   if (diagnosis.intent === 'mock_diagnosis' && /\b(?:sectional|accuracy|percentile|attempt(?:ed|s)?|scorecard)\b/i.test(messageText + ' ' + diagnosisRecentItems.slice(-6).map(function(item) { return item && item.content ? item.content : ''; }).join(' '))) directive += '\nSECTIONAL EVIDENCE RULE: Perfect accuracy proves only that attempted questions were correct. It does not prove zero concept gaps, elite foundations, that pace or volume is the sole bottleneck, or that extra attempts are pure upside. Do not divide 40 minutes by attempts and call that solve time unless time on scanning and skipped questions is known. Do not prescribe an attempt target, exit threshold, score jump or percentile outcome from one sectional without a labelled test and valid arithmetic. If the screenshot count and the student\'s count differ, state the mismatch neutrally and clarify what the screenshot metric represents; never overrule the student with false certainty.';
   if (/\b(?:just|just now|today|right now)\b.{0,35}\b(?:finished|completed|gave|taken|attempted|done with)\b.{0,20}\bmock\b|\b(?:finished|completed|gave|taken|attempted)\b.{0,20}\bmock\b.{0,20}\b(?:just|just now|today|right now)\b/i.test(messageText) || diagnosis.emotionalState === 'drained') directive += '\nFRESH-MOCK ENERGY CHECK: Give only one evidence-bounded first observation. Do not send a dense breakdown or Today\'s Mission yet. Ask whether the student wants the full analysis now, a short first read now, or to rest and revisit it later. If they explicitly requested the full breakdown now and sound ready, proceed without repeating the timing question.';
@@ -6113,10 +6160,23 @@ function guardSectionalEvidenceOverclaim(text, diagnosis) {
   return (correction + (value ? '\n\n' + value : '')).trim();
 }
 
+function guardMockScoreArithmeticOverclaim(text, diagnosis) {
+  var value = String(text || '');
+  if (!diagnosis || diagnosis.intent !== 'mock_diagnosis') return value;
+  value = value.replace(/[^.!?\n]*(?:DILR\s+)?(?:score|scoring)\s+(?:of\s+)?\d+[^.!?\n]*(?:means|proves|shows)\s+(?:that\s+)?you\s+(?:cracked|solved|completed)\s+(?:exactly\s+)?(?:one|1|two|2)(?:\s+\d+[- ]question)?\s+sets?[^.!?\n]*[.!?]?/gi,
+    'A DILR score alone does not tell us how many sets produced it or how long they took; that needs the set path, attempts or timing.');
+  value = value.replace(/[^.!?\n]*(?:those|the|your)\s+\d+\s+wrong(?:\s+answers?|\s+attempts?)?[^.!?\n]*(?:cost|lost|destroyed|removed)\s+\d+\s+marks?[^.!?\n]*[.!?]?/gi,
+    'A total wrong count does not reveal the full penalty because wrong TITA answers normally carry no negative mark; the MCQ/TITA split is needed first.');
+  value = value.replace(/[^.!?\n]*(?:cutting|dropping|removing|reducing)[^.!?\n]*wrong[^.!?\n]*(?:push(?:es)?|move(?:s)?|take(?:s)?|raise(?:s)?)[^.!?\n]*\d+[^.!?\n]*marks?[^.!?\n]*[.!?]?/gi,
+    'The new score cannot be projected by simply deleting wrong attempts; the MCQ/TITA split and the choices that would actually be skipped are still unknown.');
+  return value.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
+  text = guardMockScoreArithmeticOverclaim(text, diagnosis);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
@@ -6288,7 +6348,7 @@ function showConversationalOptions(options, context) {
 
   var messages = document.getElementById('messages');
   messages.appendChild(chipsDiv);
-  messages.scrollTop = messages.scrollHeight;
+  scrollChatToLatest();
 }
 
 async function handleConversationalResponse(answer, context) {
@@ -6970,7 +7030,12 @@ function restoreConversation() {
   // conversationHistory is loaded directly from Supabase and no longer starts
   // with two synthetic system records. Slicing here hid the user's first real
   // homepage choice and Marg's first diagnosis after every refresh.
-  const displayMessages = conversationHistory.filter(function(message) { return !isInternalMemoryMessage(message) && !isLegacyAutoMissionReminder(message); }).map(getConversationMessageForDisplay).filter(function(message, index, list) {
+  const displayMessages = conversationHistory.filter(function(message) {
+    // This sentence is navigation scaffolding, not conversation. Older versions
+    // saved it to Supabase, so never replay those legacy rows after a refresh.
+    if (isInternalMemoryMessage(message) || isLegacyAutoMissionReminder(message) || isHomeDiagnosisOpeningMessage(message)) return false;
+    return true;
+  }).map(getConversationMessageForDisplay).filter(function(message, index, list) {
     if (!message || message.role !== 'assistant' || index === 0) return true;
     var previous = list[index - 1];
     return !(previous && previous.role === 'assistant' && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
@@ -6982,6 +7047,7 @@ function restoreConversation() {
     });
   }
   if (displayMessages.length === 0) addSuggestionChips();
+  scrollChatToLatest();
   restoreCurrentChatDraft();
   if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
   focusComposer();
@@ -8984,10 +9050,40 @@ function resumeActiveMentorPlanFromHome() {
   setTimeout(function() { sendMessage(); }, 0);
 }
 
+function homeDiagnosisOpeningStorageKey() {
+  return 'marg_home_diagnosis_opening_seen_v1_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+
+function hasMeaningfulConversationHistory() {
+  return (conversationHistory || []).some(function(message) {
+    return message && !isInternalMemoryMessage(message) && !isLegacyAutoMissionReminder(message) && !isHomeDiagnosisOpeningMessage(message) && String(message.content || '').trim();
+  });
+}
+
+function hasHomeDiagnosisOpeningBeenShown() {
+  var inHistory = (conversationHistory || []).some(isHomeDiagnosisOpeningMessage);
+  if (inHistory) {
+    try { localStorage.setItem(homeDiagnosisOpeningStorageKey(), '1'); } catch(e) {}
+    return true;
+  }
+  try { return localStorage.getItem(homeDiagnosisOpeningStorageKey()) === '1'; } catch(e) { return false; }
+}
+
+function markHomeDiagnosisOpeningShown() {
+  try { localStorage.setItem(homeDiagnosisOpeningStorageKey(), '1'); } catch(e) {}
+}
+
 function launchHomeDiagnosis() {
   switchTab('chat');
   removeConversationalOptions();
-  addMentorLeadMessage('Pick the area where your marks feel least predictable.');
+  // The opening label is UI-only. Do not save it to conversationHistory or
+  // Supabase: doing so caused it to reappear after every refresh. Returning
+  // students can deliberately reopen the six choices without receiving the
+  // same assistant bubble again.
+  if (!hasHomeDiagnosisOpeningBeenShown() && !hasMeaningfulConversationHistory()) {
+    addMessage('marg', HOME_DIAGNOSIS_OPENING.replace(/\n/g, '<br>'), true);
+    markHomeDiagnosisOpeningShown();
+  }
   showConversationalOptions(['VARC', 'DILR', 'QA', 'Mock Analysis', 'Confidence', 'Strategy'], 'home_diagnosis_topic');
 }
 
