@@ -2207,7 +2207,7 @@ When a student finishes a set, you never ask for a report. Diagnose what their c
 
 If a student asks for a timetable, do not invent one from generic assumptions. Say: "I can definitely do that. If you're comfortable sharing your daily routine, I'll build it around your actual schedule." Ask once for the minimum useful context in one message: fixed commitments, earliest realistic start, latest finish, and realistic CAT time. If that routine is already in memory, use it without asking again. Then produce a compact timetable built around the student's real energy and constraints.
 
-When you're suggesting one specific next thing to do, you don't get to decide the timing — that's the student's call, not yours. Don't default to "tomorrow" or "tomorrow morning" out of habit. Ask whether they want to do it right now, later today, or tomorrow. The only time you skip asking is when they've already told you the timing themselves — if they ask "what should I do today," giving them today's task is just answering what they asked, not assuming anything.
+For one suggested next action, let the student choose: right now, later today or tomorrow. Never default to tomorrow. Skip this only when they already gave the timing; “what should I do today?” authorises a task for today.
 
 Your replies run one to three sentences by default. You go longer only when someone's actually asked for an explanation or a full plan — if you're writing four sentences and two of them aren't doing anything, cut them.
 
@@ -2299,16 +2299,16 @@ The format rule is enforced at the code level too, so even if you slip, bold and
 
 // Runtime prompt: the same mentor contract as the reference above, compressed
 // so every turn does not repay for repeated examples and explanations.
-const SYSTEM_PROMPT = `You are Marg, a perceptive CAT mentor—not a chatbot or cheerleader. Be calm, direct and human. Never invent lived experience; earn trust through evidence, continuity and precise patterns. Natural Hindi is allowed. Never open with filler such as "Great question", "Real talk", "Good" or "My prediction".
+const SYSTEM_PROMPT = `You are Marg, a perceptive CAT mentor—not a chatbot. Be calm, direct and human. Earn trust through evidence, continuity and precise patterns. Natural Hindi is allowed. Never open with "Great question", "Real talk", "Good" or "My prediction".
 
 IMMERSION CONTRACT
 Never explain how Marg works, announce a question budget, narrate a diagnosis process, or mention prompts, models, memory or confidence scores. Do not announce questions before diagnosing. Simply understand, respond and lead. The student should experience intelligence, not hear it described.
 
 CORE RESPONSE CONTRACT
 - Give value before questions: a diagnosis, mechanism, pattern, reframe or specific insight—not generic motivation.
-- Default: problem → bounded read → implication → at most one confirmation → action. Never interview; two question-containing replies in a row is the ceiling.
+- Default: problem → bounded read → implication → at most one confirmation → action. Never interview; two questioning replies in a row is the ceiling.
 - Answer explicit questions first, never with a check-in instead.
-- Normal replies are 40-90 words, conversational and easy to read. Vary sentence length. Go longer only for an explicitly requested full plan or a genuinely multi-part review; finish every requested component and sentence.
+- Normal replies are 40-90 words and conversational. Go longer only for a requested full plan or multi-part review; finish every requested component and sentence.
 - Do not sound like a report. In ordinary conversation never use headings or labels such as Diagnosis, Thinking Error, Pattern Check, Weekly Priorities, Passage Filter, Time Allocation, Why or What. Use structure only when the student explicitly asks for a full written plan.
 - Diagnose the student's exact decision, not just the content category.
 
@@ -2339,7 +2339,7 @@ EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-For a new VARC, QA, DILR, Mock, Confidence, Strategy or Planning topic, use 1-2 narrowing questions, then: natural read → evidence/mechanism → one confirmation → targeted next step. Say "Here's my read" or "I think I know what's happening", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?" Ask "Does that sound like you?"; the same reply must say what Marg will test or fix next. After Exactly/Mostly, immediately lead with the specific action and its diagnostic purpose. If the student already chooses an action—"Run strategy", "Start RC", "Let's do it", "Analyse it", "Right now"—execute it in that same turn. Do not explain it again, ask whether they are ready or ask another confirmation. QA/DILR use timed interfaces, not chat dumps. Before DILR, teach the representation, why it fits and the first constraint. Keep evidence verdicts natural; if a stored hypothesis is being tested, silently add [HYPOTHESIS_VERDICT: supported|rejected|inconclusive] for memory and do not show those report words to the student.
+For a new VARC, QA, DILR, Mock, Confidence, Strategy or Planning topic: 1-2 narrowing questions → natural read → evidence/mechanism → one confirmation → targeted next step. Say "Here's my read", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?"; the same reply must say what Marg will test or fix next. After Exactly/Mostly, lead with that action and purpose. If the student chose "Run", "Start", "Let's do it", "Analyse it" or "Right now", execute it in that same turn without another readiness check. QA/DILR use timed interfaces. Before DILR, teach the representation and first constraint. When testing stored hypotheses, silently add [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
 
 DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. New sets must use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach, or review a supplied/ACTIVE EXERCISE set. Never call model output brute-force verified. For fresh-set requests, briefly launch the interface.
@@ -2348,10 +2348,10 @@ MEMORY AND CONTINUITY
 Use SESSION, ACTIVE EXERCISE, BEHAVIOURAL, TOPIC PROGRESSION, ACTIVE PLAN, PERSONAL GOAL and PROFILE CONTEXT memory before advising. Refer naturally to one relevant prior fact; never list memory or invent it. Never ask the student to resend an exercise Marg generated. If they submit answers, use the stored passage/questions/key immediately. Preserve an active plan unless a fresh result, changed constraint, completed milestone, illness or explicit redesign request justifies a change; state what changed and why.
 
 PROGRESSIVE PROFILE BUILDING
-Never run a profile survey. Answer first, then use a natural pause for one useful missing detail: topic familiarity, mock strategy, routine, resources, attempt or goal. Never interrupt live work, re-ask or chain profile questions.
+Never run a profile survey. After answering, use a natural pause for one useful missing detail: familiarity, mock strategy, routine, resources, attempt or goal. Never interrupt work, repeat or chain these questions.
 
 CONTINUATION CONTRACT
-Use diagnosis → confirmation → smallest validation → evidence → one next step. A new date does not erase valid unfinished work. Review completed evidence before assigning more. On return, resume an unfinished check or unreviewed result before a greeting. Never require Send to review a result Marg already has.
+Use diagnosis → confirmation → smallest validation → evidence → one next step. Dates do not erase unfinished work. Review evidence before assigning more. On return, resume an unfinished check or unreviewed result before greeting. Never ask users to resend results Marg has.
 
 PRIVACY TRUTH
 Never call Marg session-only. Account data can persist in Supabase; drafts/plans may remain in browser storage. Clearing local storage is not full deletion. Direct deletion requests to support@trymarg.com from the account email; the published window is seven business days. Never claim completion without backend confirmation.
@@ -2367,6 +2367,9 @@ A multi-section roadmap is planning, not a section diagnostic. Cover every named
 
 THIRD-PARTY KNOWLEDGE BOUNDARY
 Never invent third-party menus, labels or navigation. Be exact only from supplied or verified current context; otherwise describe the general content type and say labels may differ.
+
+WEB VERIFICATION CONTRACT
+Never answer current or source-specific facts from memory when Google Search grounding is available: editions, chapters, contents, platform structures, CAT dates, fees, rules, cutoffs, schedules or product details. Use grounded evidence, separate verified facts from inference and briefly name checked sources. If the exact claim is unverified, say so. Mentoring judgment needs no search.
 
 PRACTICE LEADERSHIP
 Lead when Marg can create evidence; respect topic switches. After enough logged QA/DILR concept work, recommend a timed sectional. For fresh external material with answers, review first, then lightly ask its source.
@@ -2631,6 +2634,45 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
   if (responseMimeType) request.generationConfig.responseMimeType = responseMimeType;
   request.systemInstruction = { parts:[{ text:String(systemInstruction || '') + GEMINI_PLAIN_TEXT_MATH_INSTRUCTION }] };
   return request;
+}
+
+function shouldUseWebGrounding(message, diagnosis) {
+  var text = String(message || '').toLowerCase();
+  if (!text || diagnosis && diagnosis.hasImage && text.length < 12) return false;
+  if (/\b(?:search|browse|look up|lookup|google|verify online|check online|check the web|search the web|from the web)\b/.test(text)) return true;
+  if (/https?:\/\//i.test(text)) return true;
+  var externalSource = /\b(?:arun sharma|quantitative aptitude for cat|mba wallah|cracku|ims|simcat|aimcat|career launcher|unacademy|2iim|rodha|takshzila|youtube|amazon|flipkart)\b/.test(text) || /\btime(?:'s)?\s+(?:aimcat|material|portal|course|booklet|mock series)\b/.test(text);
+  var sourceSpecificFact = /\b(?:book|edition|chapter|index|contents|table of contents|topic|module|playlist|course|section|exercise|questions?|where|available|syllabus|sequence|order)\b/.test(text);
+  if (externalSource && sourceSpecificFact) return true;
+  var currentExternalFact = /\b(?:latest|current|currently|today|this year|202[4-9])\b/.test(text) && /\b(?:book|edition|chapter|index|contents|registration|exam date|admit card|fee|fees|eligibility|cutoff|cut-off|schedule|notification|result date|rules?|policy|model|price)\b/.test(text);
+  return currentExternalFact || /\b(?:cat|iim)\b[\s\S]{0,60}\b(?:registration|exam date|admit card|fee|fees|eligibility|pattern|duration|cutoff|cut-off|criteria|policy|schedule|notification|result date)\b/.test(text);
+}
+
+function enableWebGrounding(request, enabled) {
+  if (!request || !enabled) return request;
+  request.margWebGrounding = true;
+  return request;
+}
+
+function getGeminiGroundingSources(payload) {
+  var metadata = payload && payload.candidates && payload.candidates[0] && payload.candidates[0].groundingMetadata;
+  var chunks = metadata && Array.isArray(metadata.groundingChunks) ? metadata.groundingChunks : [];
+  var seen = {};
+  return chunks.map(function(chunk) {
+    var web = chunk && chunk.web;
+    var uri = String(web && web.uri || '').trim();
+    if (!/^https:\/\//i.test(uri) || seen[uri]) return null;
+    seen[uri] = true;
+    return { title:String(web.title || 'Web source').replace(/[\r\n]+/g, ' ').trim().slice(0, 100), uri:uri.slice(0, 1000) };
+  }).filter(Boolean).slice(0, 4);
+}
+
+function appendGroundingSources(response, payload) {
+  var sources = getGeminiGroundingSources(payload);
+  if (!sources.length) return response;
+  return String(response || '').replace(/\s+$/, '') + '\n\nSources checked:\n' + sources.map(function(source) {
+    return '- ' + source.title + ': ' + source.uri;
+  }).join('\n');
 }
 
 function getGeminiText(payload) {
@@ -6799,12 +6841,31 @@ async function dispatchConversationalQuickReply(option, context, container) {
   }
 }
 
-function showConversationalOptions(options, context) {
+function showConversationalOptions(options, context, config) {
   var existing = document.getElementById('conv-options-' + context);
   if (existing) existing.remove();
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'conv-options-' + context;
   chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 0 4px 38px;max-width:100%;width:100%;';
+
+  if (config && (config.title || config.description)) {
+    var intro = document.createElement('div');
+    intro.className = 'conv-options-intro';
+    intro.style.cssText = 'width:100%;max-width:460px;margin:0 0 4px;padding:14px 16px;border:1px solid rgba(201,168,76,0.22);border-radius:14px;background:rgba(201,168,76,0.055);';
+    if (config.title) {
+      var introTitle = document.createElement('div');
+      introTitle.style.cssText = 'font-family:DM Sans,sans-serif;font-size:14px;font-weight:600;line-height:1.4;color:#F0EDE6;';
+      introTitle.textContent = String(config.title);
+      intro.appendChild(introTitle);
+    }
+    if (config.description) {
+      var introDescription = document.createElement('div');
+      introDescription.style.cssText = 'margin-top:5px;font-family:DM Sans,sans-serif;font-size:12px;line-height:1.5;color:#918D85;';
+      introDescription.textContent = String(config.description);
+      intro.appendChild(introDescription);
+    }
+    chipsDiv.appendChild(intro);
+  }
 
   options.forEach(function(opt) {
     var btn = document.createElement('button');
@@ -6842,9 +6903,23 @@ function showConversationalOptions(options, context) {
     chipsDiv.appendChild(btn);
   });
 
+  if (config && config.backToHome) {
+    var backButton = document.createElement('button');
+    backButton.type = 'button';
+    backButton.textContent = '← Back to Home';
+    backButton.style.cssText = 'align-self:flex-start;margin:3px 0 0 2px;padding:8px 10px;border:0;background:transparent;color:#918D85;font-family:DM Sans,sans-serif;font-size:12px;cursor:pointer;';
+    backButton.onclick = function() {
+      chipsDiv.remove();
+      switchTab('home');
+    };
+    chipsDiv.appendChild(backButton);
+  }
+
   var messages = document.getElementById('messages');
+  if (!messages) return null;
   messages.appendChild(chipsDiv);
   scrollChatToLatest();
+  return chipsDiv;
 }
 
 async function handleConversationalResponse(answer, context) {
@@ -7084,8 +7159,6 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   if (isAdHocDILRGenerationRequest(userMessage, imageAttachments)) {
     return routeAdHocDILRRequestToVerifiedInterface(userMessage);
   }
-  showTyping();
-
   var mentorAnalysis = buildDiagnosisDirective(userMessage);
   if (pendingExternalQuestionTurnMode === 'review') {
     mentorAnalysis.diagnosis.intent = 'answer_review';
@@ -7097,6 +7170,8 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     mentorAnalysis.diagnosis.hasImage = true;
     mentorAnalysis.directive += getImageAnalysisDirective(imageAttachments);
   }
+  var useWebGrounding = shouldUseWebGrounding(userMessage, mentorAnalysis.diagnosis);
+  showTyping(userMessage, mentorAnalysis.diagnosis, useWebGrounding);
   var profileSoFar = '';
   if (conversationalProfile.weakSection) profileSoFar += 'Weak section: ' + conversationalProfile.weakSection + '. ';
   if (conversationalProfile.hours) profileSoFar += 'Daily hours: ' + conversationalProfile.hours + '. ';
@@ -7112,7 +7187,8 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   systemAddition += getPersonalGoalMemoryContext();
   systemAddition += getProgressiveProfileMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += mentorAnalysis.directive;
-  if (!mentorAnalysis.diagnosis.comprehensivePlanning && ['answer_review','planning','returning_memory'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
+  if (useWebGrounding) systemAddition += '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.';
+  if (!useWebGrounding && !mentorAnalysis.diagnosis.comprehensivePlanning && ['answer_review','planning','returning_memory'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
     systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction in natural mentor language, briefly explain the clue, and ask one confirmation. Do not say "My prediction:". Never end on only "Does that feel accurate?"; in the same reply preview the exact check or coaching action that will follow if the read fits. After Exactly or Mostly, do not repeat the diagnosis or ask another intake question. Immediately lead with "Then let\'s verify it instead of guessing," name what the targeted check will observe, and offer Right now / Later today / Tomorrow. Wait only for that timing consent before launching the exercise. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
   } else if (mentorAnalysis.diagnosis.comprehensivePlanning) {
     systemAddition += '\n\nThe student has already supplied a broad preparation story and explicitly asked for a complete roadmap. Do not narrow them into a section diagnostic or ask preliminary intake questions. Give the complete cross-section roadmap now.';
@@ -7141,15 +7217,17 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
 
   try {
     var mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
-    var mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
+    var mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : useWebGrounding || mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
+    var mentorRequest = buildGeminiRequest(
+      SYSTEM_PROMPT + getDateContext() + systemAddition,
+      buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage),
+      mentorMaxTokens
+    );
+    enableWebGrounding(mentorRequest, useWebGrounding);
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        SYSTEM_PROMPT + getDateContext() + systemAddition,
-        buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage),
-        mentorMaxTokens
-      ))
+      body: JSON.stringify(mentorRequest)
     }, mentorTimeout);
     var data = await res.json();
     var geminiText = getGeminiText(data);
@@ -7164,6 +7242,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
       applyPredictionValidationVerdict(response);
       captureChatReminderContext(response);
       response = stripInternalMentorTags(response);
+      response = appendGroundingSources(response, data);
       markExerciseReviewCompleted(response);
       if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(userMessage).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
 
@@ -7565,15 +7644,57 @@ function addSuggestionChips() {
   container.scrollTop = container.scrollHeight;
 }
 
-function showTyping() {
-  const container = document.getElementById('messages');
-  const wrap = document.createElement('div');
-  wrap.className = 'msg-wrap marg fade-in'; wrap.id = 'typing-wrap';
-  wrap.innerHTML = '<div class="avatar"><img src="' + LOGO_ICON + '" alt="M"></div><div class="typing-bubble"><span></span><span></span><span></span></div>';
-  container.appendChild(wrap); container.scrollTop = container.scrollHeight;
+var typingStatusTimer = null;
+
+function ensureMentorWorkIndicatorStyles() {
+  if (document.getElementById('mentor-work-indicator-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'mentor-work-indicator-styles';
+  style.textContent = '.mentor-work-indicator{display:flex;align-items:center;gap:10px;min-width:210px}.mentor-work-pulse{position:relative;width:18px;height:18px;flex:0 0 18px}.mentor-work-pulse:before,.mentor-work-pulse:after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--gold);animation:margWorkPulse 1.5s ease-out infinite}.mentor-work-pulse:after{animation-delay:.65s}.mentor-work-copy{font-size:12px;color:#aaa69e;line-height:1.35;transition:opacity .18s ease,transform .18s ease}.mentor-work-copy.changing{opacity:.25;transform:translateY(2px)}@keyframes margWorkPulse{0%{transform:scale(.45);opacity:.9}80%,100%{transform:scale(1.6);opacity:0}}@media(max-width:480px){.mentor-work-indicator{min-width:0}.mentor-work-copy{font-size:11.5px}}';
+  document.head.appendChild(style);
 }
 
-function hideTyping() { const el = document.getElementById('typing-wrap'); if (el) el.remove(); }
+function buildMentorWorkStages(message, diagnosis, webGrounded) {
+  var text = String(message || '').toLowerCase();
+  if (webGrounded) return ['Checking the exact source', 'Comparing the current information', 'Writing a verified answer'];
+  if (diagnosis && diagnosis.hasImage) return ['Reading the image carefully', 'Checking the visible values and conditions', 'Building the clearest response'];
+  if (diagnosis && diagnosis.intent === 'answer_review') return ['Checking your choices', 'Tracing the exact decision error', 'Turning it into one reusable fix'];
+  if ((diagnosis && (diagnosis.intent === 'planning' || diagnosis.comprehensivePlanning)) || /\b(?:plan|roadmap|timetable|schedule)\b/.test(text)) return ['Reading your actual constraints', 'Connecting them to your preparation', 'Building a plan you can follow'];
+  if (/\b(?:mock|scorecard|sectional)\b/.test(text)) return ['Reading the result in context', 'Separating the score from the execution leak', 'Choosing the next useful check'];
+  if (/\b(?:rc|varc|dilr|qa|quant|algebra|arithmetic)\b/.test(text)) return ['Reading the exact CAT problem', 'Checking it against your preparation pattern', 'Building the next useful move'];
+  return ['Understanding what you mean', 'Connecting it to your context', 'Preparing the most useful response'];
+}
+
+function showTyping(message, diagnosis, webGrounded) {
+  hideTyping();
+  ensureMentorWorkIndicatorStyles();
+  const container = document.getElementById('messages');
+  if (!container) return;
+  var stages = buildMentorWorkStages(message, diagnosis, webGrounded);
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-wrap marg fade-in'; wrap.id = 'typing-wrap';
+  wrap.innerHTML = '<div class="avatar"><img src="' + LOGO_ICON + '" alt="M"></div><div class="typing-bubble"><div class="mentor-work-indicator"><span class="mentor-work-pulse" aria-hidden="true"></span><span class="mentor-work-copy" role="status" aria-live="polite">' + escapeChatHtml(stages[0]) + '</span></div></div>';
+  container.appendChild(wrap); container.scrollTop = container.scrollHeight;
+  var stageIndex = 0;
+  typingStatusTimer = setInterval(function() {
+    var copy = document.querySelector('#typing-wrap .mentor-work-copy');
+    if (!copy) { clearInterval(typingStatusTimer); typingStatusTimer = null; return; }
+    stageIndex = Math.min(stageIndex + 1, stages.length - 1);
+    copy.classList.add('changing');
+    setTimeout(function() {
+      var current = document.querySelector('#typing-wrap .mentor-work-copy');
+      if (!current) return;
+      current.textContent = stages[stageIndex];
+      current.classList.remove('changing');
+    }, 170);
+    if (stageIndex === stages.length - 1) { clearInterval(typingStatusTimer); typingStatusTimer = null; }
+  }, 1900);
+}
+
+function hideTyping() {
+  if (typingStatusTimer) { clearInterval(typingStatusTimer); typingStatusTimer = null; }
+  const el = document.getElementById('typing-wrap'); if (el) el.remove();
+}
 
 function buildActivitySummary() {
   if (!streakData || streakData.length === 0) return '';
@@ -7874,7 +7995,6 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
-  showTyping();
   const activitySummary = buildActivitySummary();
   const mentorAnalysis = buildDiagnosisDirective(text);
   if (pendingExternalQuestionTurnMode === 'review') {
@@ -7887,6 +8007,8 @@ async function sendMessage(fromQueue, submissionOptions) {
     mentorAnalysis.diagnosis.hasImage = true;
     mentorAnalysis.directive += getImageAnalysisDirective(imageAttachments);
   }
+  const useWebGrounding = shouldUseWebGrounding(text, mentorAnalysis.diagnosis);
+  showTyping(text, mentorAnalysis.diagnosis, useWebGrounding);
   profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
     (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
@@ -7899,12 +8021,14 @@ async function sendMessage(fromQueue, submissionOptions) {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary + getDiagnosticMemoryContext() + (pendingExternalQuestionTurnMode ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + getPracticeThresholdNote();
+    activitySummary + getDiagnosticMemoryContext() + (pendingExternalQuestionTurnMode ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
-    const mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
+    const mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : useWebGrounding || mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
     const requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, text);
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens)) }, mentorTimeout);
+    const mentorRequest = buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens);
+    enableWebGrounding(mentorRequest, useWebGrounding);
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mentorRequest) }, mentorTimeout);
     const data = await response.json();
     let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data)), mentorAnalysis.diagnosis);
     reply = stabilizeAndRememberMission(reply, text);
@@ -7915,6 +8039,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     hideTyping();
     applyPredictionValidationVerdict(reply);
     reply = stripInternalMentorTags(reply);
+    reply = appendGroundingSources(reply, data);
     markExerciseReviewCompleted(reply);
     if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(text).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
@@ -9669,41 +9794,22 @@ function resumeActiveMentorPlanFromHome() {
   setTimeout(function() { sendMessage(); }, 0);
 }
 
-function homeDiagnosisOpeningStorageKey() {
-  return 'marg_home_diagnosis_opening_seen_v1_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
-}
-
-function hasMeaningfulConversationHistory() {
-  return (conversationHistory || []).some(function(message) {
-    return message && !isInternalMemoryMessage(message) && !isLegacyAutoMissionReminder(message) && !isHomeDiagnosisOpeningMessage(message) && String(message.content || '').trim();
-  });
-}
-
-function hasHomeDiagnosisOpeningBeenShown() {
-  var inHistory = (conversationHistory || []).some(isHomeDiagnosisOpeningMessage);
-  if (inHistory) {
-    try { localStorage.setItem(homeDiagnosisOpeningStorageKey(), '1'); } catch(e) {}
-    return true;
-  }
-  try { return localStorage.getItem(homeDiagnosisOpeningStorageKey()) === '1'; } catch(e) { return false; }
-}
-
-function markHomeDiagnosisOpeningShown() {
-  try { localStorage.setItem(homeDiagnosisOpeningStorageKey(), '1'); } catch(e) {}
-}
-
 function launchHomeDiagnosis() {
   switchTab('chat');
   removeConversationalOptions();
-  // The opening label is UI-only. Do not save it to conversationHistory or
-  // Supabase: doing so caused it to reappear after every refresh. Returning
-  // students can deliberately reopen the six choices without receiving the
-  // same assistant bubble again.
-  if (!hasHomeDiagnosisOpeningBeenShown() && !hasMeaningfulConversationHistory()) {
-    addMessage('marg', HOME_DIAGNOSIS_OPENING.replace(/\n/g, '<br>'), true);
-    markHomeDiagnosisOpeningShown();
-  }
-  showConversationalOptions(['VARC', 'DILR', 'QA', 'Mock Analysis', 'Confidence', 'Strategy'], 'home_diagnosis_topic');
+  // Keep the prompt attached to the choices themselves. It is never saved as
+  // chat history, so refreshes cannot create repeated assistant messages—and
+  // an old one-time storage marker can never leave six unexplained buttons.
+  showConversationalOptions(
+    ['VARC', 'DILR', 'QA', 'Mock Analysis', 'Confidence', 'Strategy'],
+    'home_diagnosis_topic',
+    {
+      title:HOME_DIAGNOSIS_OPENING,
+      description:'Choose one area. Marg will narrow it from one real behaviour before giving advice.',
+      backToHome:true
+    }
+  );
+  keepChatInteractive();
 }
 
 function openHomeDestination(destination) {
