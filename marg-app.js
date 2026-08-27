@@ -1282,6 +1282,53 @@ async function saveWebPushSubscription(subscription) {
   return true;
 }
 
+async function syncGrantedBrowserPushSubscription() {
+  if (!browserPushSupported() || Notification.permission !== 'granted') return false;
+  try {
+    await ensureWebPushSubscription();
+    return true;
+  } catch(error) {
+    console.error('Existing push subscription sync failed:', error);
+    return false;
+  }
+}
+
+async function getDailyPushReminderState() {
+  if (!currentUser || !SUPABASE_TOKEN) return null;
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?select=daily_reminders_enabled&user_id=eq.' + currentUser.id + '&enabled=eq.true', {
+      headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN }
+    });
+    if (!response.ok) return null;
+    var rows = await response.json();
+    if (!Array.isArray(rows) || !rows.length) return null;
+    return rows.some(function(row) { return row.daily_reminders_enabled !== false; });
+  } catch(error) { return null; }
+}
+
+async function setDailyPushRemindersEnabled(enabled) {
+  if (!currentUser || !SUPABASE_TOKEN) return false;
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?user_id=eq.' + currentUser.id, {
+      method:'PATCH',
+      headers:{
+        'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY,
+        'Authorization':'Bearer ' + SUPABASE_TOKEN, 'Prefer':'return=minimal'
+      },
+      body:JSON.stringify({
+        daily_reminders_enabled:!!enabled,
+        daily_reminders_disabled_at:enabled ? null : new Date().toISOString(),
+        updated_at:new Date().toISOString()
+      })
+    });
+    if (!response.ok) throw new Error('Daily reminder preference failed (' + response.status + ')');
+    return true;
+  } catch(error) {
+    console.error('Daily reminder preference error:', error);
+    return false;
+  }
+}
+
 async function ensureWebPushSubscription() {
   if (!browserPushSupported()) throw new Error('This browser does not support web push');
   var registration = await navigator.serviceWorker.register('/sw.js?v=20260824-1', { scope:'/' });
@@ -1474,7 +1521,7 @@ async function enableBrowserPushFromCard(card, statusEl) {
     await ensureWebPushSubscription();
     var pending = loadPendingPushReminder();
     if (pending) await enqueuePushReminder(pending);
-    card.innerHTML = '<div style="width:42px;height:42px;border-radius:13px;background:rgba(76,175,125,.12);border:1px solid rgba(76,175,125,.28);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:13px;">✓</div><div style="font-size:17px;color:#F0EDE6;font-weight:650;margin-bottom:7px;">Reminder enabled.</div><div style="font-size:13px;color:#AAA69E;line-height:1.55;margin-bottom:16px;">Marg will nudge you for work you deliberately schedule—not send guilt messages because you were away.</div><button type="button" onclick="closePushReminderCard()" style="width:100%;background:#222;color:#E8E4DC;border:1px solid #383838;border-radius:10px;padding:11px 14px;font:600 13px DM Sans,sans-serif;cursor:pointer;">Done</button>';
+    card.innerHTML = '<div style="width:42px;height:42px;border-radius:13px;background:rgba(76,175,125,.12);border:1px solid rgba(76,175,125,.28);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:13px;">✓</div><div style="font-size:17px;color:#F0EDE6;font-weight:650;margin-bottom:7px;">CAT reminders are on.</div><div style="font-size:13px;color:#AAA69E;line-height:1.55;margin-bottom:16px;">Marg will send two CAT-only nudges each day and will still bring back work you deliberately schedule. You can switch the daily reminders off from More → Study reminders.</div><button type="button" onclick="closePushReminderCard()" style="width:100%;background:#222;color:#E8E4DC;border:1px solid #383838;border-radius:10px;padding:11px 14px;font:600 13px DM Sans,sans-serif;cursor:pointer;">Done</button>';
     return true;
   } catch(error) {
     console.error('Browser push setup failed:', error);
@@ -1486,6 +1533,44 @@ async function enableBrowserPushFromCard(card, statusEl) {
 function closePushReminderCard() {
   var existing = document.getElementById('push-reminder-card');
   if (existing) existing.remove();
+}
+
+function renderDailyPushSettingsCard(enabled) {
+  closePushReminderCard();
+  var wrap = document.createElement('div');
+  wrap.id = 'push-reminder-card';
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.76);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:18px;';
+  var card = document.createElement('div');
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+  card.style.cssText = 'width:min(100%,410px);border:1px solid rgba(76,175,125,.32);border-radius:18px;background:linear-gradient(145deg,#121a16,#111);box-shadow:0 24px 70px rgba(0,0,0,.62);padding:22px;';
+  card.innerHTML = '<div style="font-size:20px;margin-bottom:10px;">🔔</div><div style="font-size:17px;color:#F0EDE6;font-weight:650;margin-bottom:7px;">Twice-daily CAT reminders are ' + (enabled ? 'on' : 'off') + '.</div><div style="font-size:13px;color:#AAA69E;line-height:1.55;margin-bottom:16px;">When on, Marg sends one morning and one evening CAT-prep nudge. If you have a saved task, that task takes priority over a generic tip.</div>';
+  var status = document.createElement('div');
+  status.setAttribute('role', 'status');
+  status.style.cssText = 'font-size:11px;color:#D9B95B;min-height:18px;margin-bottom:8px;';
+  var toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.textContent = enabled ? 'Switch daily reminders off' : 'Switch daily reminders on';
+  toggle.style.cssText = 'width:100%;background:' + (enabled ? '#272727' : '#4CAF7D') + ';color:' + (enabled ? '#E8E4DC' : '#08110c') + ';border:1px solid ' + (enabled ? '#3A3A3A' : '#4CAF7D') + ';border-radius:10px;padding:11px 13px;font:650 13px DM Sans,sans-serif;cursor:pointer;margin-bottom:8px;';
+  toggle.onclick = async function() {
+    toggle.disabled = true;
+    status.textContent = enabled ? 'Switching daily reminders off…' : 'Switching daily reminders on…';
+    var saved = await setDailyPushRemindersEnabled(!enabled);
+    if (!saved) { status.textContent = 'That setting could not be saved. Try again.'; toggle.disabled = false; return; }
+    renderDailyPushSettingsCard(!enabled);
+  };
+  var done = document.createElement('button');
+  done.type = 'button';
+  done.textContent = 'Done';
+  done.style.cssText = 'width:100%;background:transparent;color:#AAA69E;border:0;padding:9px;font:500 13px DM Sans,sans-serif;cursor:pointer;';
+  done.onclick = closePushReminderCard;
+  card.appendChild(status);
+  card.appendChild(toggle);
+  card.appendChild(done);
+  wrap.appendChild(card);
+  wrap.onclick = function(event) { if (event.target === wrap) closePushReminderCard(); };
+  document.body.appendChild(wrap);
+  return true;
 }
 
 function renderPushReminderCard(forceByUser) {
@@ -1513,7 +1598,7 @@ function renderPushReminderCard(forceByUser) {
   var pendingPreview = loadPendingPushReminder();
   var previewCopy = pendingPreview ? getPushReminderCopy(pendingPreview) : null;
   var content = document.createElement('div');
-  content.innerHTML = '<div style="width:42px;height:42px;border-radius:13px;background:rgba(76,175,125,.1);border:1px solid rgba(76,175,125,.24);display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:13px;">🔔</div><div id="push-reminder-title" style="font-size:17px;color:#F0EDE6;font-weight:650;line-height:1.35;margin:0 32px 7px 0;">Want Marg to bring you back to this?</div><div style="font-size:13px;color:#AAA69E;line-height:1.55;margin-bottom:14px;">One useful nudge when this exact task is due. No phone number. No “we miss you” spam.</div>' + (previewCopy ? '<div style="border:1px solid rgba(255,255,255,.08);border-left:2px solid #4CAF7D;border-radius:9px;padding:10px 11px;margin:0 0 14px;background:rgba(0,0,0,.18);color:#C8C4BC;font-size:12px;line-height:1.5;"><span style="display:block;color:#77736C;font-size:9px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px;">Notification preview</span><span style="color:#F0EDE6;font-weight:600;">' + escapeChatHtml(previewCopy.title) + '</span><br>' + escapeChatHtml(previewCopy.body) + '</div>' : '') + '<div style="font-size:10px;color:#6F6B64;line-height:1.45;margin-bottom:10px;">It uses the scheduled task and does not expose your full chat.</div>';
+  content.innerHTML = '<div style="width:42px;height:42px;border-radius:13px;background:rgba(76,175,125,.1);border:1px solid rgba(76,175,125,.24);display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:13px;">🔔</div><div id="push-reminder-title" style="font-size:17px;color:#F0EDE6;font-weight:650;line-height:1.35;margin:0 32px 7px 0;">Let Marg keep the next move visible?</div><div style="font-size:13px;color:#AAA69E;line-height:1.55;margin-bottom:14px;">Allow notifications once. Marg will send two CAT-only nudges each day and reminders for work you deliberately schedule—no phone number and no guilt messages.</div>' + (previewCopy ? '<div style="border:1px solid rgba(255,255,255,.08);border-left:2px solid #4CAF7D;border-radius:9px;padding:10px 11px;margin:0 0 14px;background:rgba(0,0,0,.18);color:#C8C4BC;font-size:12px;line-height:1.5;"><span style="display:block;color:#77736C;font-size:9px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px;">Task reminder preview</span><span style="color:#F0EDE6;font-weight:600;">' + escapeChatHtml(previewCopy.title) + '</span><br>' + escapeChatHtml(previewCopy.body) + '</div>' : '') + '<div style="font-size:10px;color:#6F6B64;line-height:1.45;margin-bottom:10px;">Saved tasks take priority. Full chats, scores and private disclosures never appear on the lock screen.</div>';
   card.appendChild(content);
   var status = document.createElement('div');
   status.setAttribute('role', 'status');
@@ -1522,7 +1607,7 @@ function renderPushReminderCard(forceByUser) {
   actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;';
   var enable = document.createElement('button');
   enable.type = 'button';
-  enable.textContent = 'Enable this reminder';
+  enable.textContent = 'Allow CAT reminders';
   enable.style.cssText = 'flex:1;min-width:170px;background:#4CAF7D;color:#08110c;border:0;border-radius:10px;padding:11px 13px;font:650 13px DM Sans,sans-serif;cursor:pointer;';
   enable.onclick = function() { enable.disabled = true; enableBrowserPushFromCard(card, status).then(function(ok) { if (!ok) enable.disabled = false; }); };
   var later = document.createElement('button');
@@ -1577,10 +1662,16 @@ async function maybeScheduleChatGroundedReminder(answer, context) {
   return scheduled;
 }
 
-function appMenuPushReminders() {
+async function appMenuPushReminders() {
   closeAppMenu();
   switchTab('chat');
   pushOptInRenderedSession = false;
+  if (browserPushSupported() && Notification.permission === 'granted') {
+    await syncGrantedBrowserPushSubscription();
+    var enabled = await getDailyPushReminderState();
+    renderDailyPushSettingsCard(enabled !== false);
+    return;
+  }
   renderPushReminderCard(true);
 }
 
@@ -3287,6 +3378,7 @@ function confirmDiagnostic(level) {
   diagnosticSessionAttempted[topic] = true;
   activeDiagnosticTopic = topic;
   saveDiagnosticMemory();
+  persistMentorDiagnosis(entry);
   if (level !== 'Not Really') {
     recordBehaviorPattern(topic, entry.confirmedDiagnosis, entry.selectedPattern, 'diagnostic');
     recordEngagementEvent('diagnosis_confirmed', { topic:topic, pattern_id:pattern.id, confirmation:level }, 'diagnosis-' + topic + '-' + pattern.id + '-' + entry.updatedAt);
@@ -3559,6 +3651,340 @@ window.runMargSubmissionStateTests = runSubmissionStateTests;
 var INTERNAL_MEMORY_PREFIX = '[MARG_INTERNAL:';
 var activeGeneratedExercise = null;
 var behavioralMemory = { patterns:[] };
+var mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], loaded:false, unavailable:false };
+
+function canUseMentorExecutionLoop() {
+  return !!(currentUser && SUPABASE_TOKEN && !isGuestMode && !mentorExecutionLoop.unavailable);
+}
+
+function executionLoopHeaders(prefer) {
+  var headers = {
+    'Content-Type':'application/json',
+    'apikey':SUPABASE_ANON_KEY,
+    'Authorization':'Bearer ' + SUPABASE_TOKEN
+  };
+  if (prefer) headers.Prefer = prefer;
+  return headers;
+}
+
+function markExecutionLoopUnavailable(response, label) {
+  if (!response || response.status !== 404) return false;
+  mentorExecutionLoop.unavailable = true;
+  console.warn('Mentor execution tables are not available yet:', label);
+  return true;
+}
+
+function normalizeExecutionSection(section) {
+  var value = String(section || 'general').toLowerCase();
+  if (value === 'rc' || value === 'va' || value === 'varc_mixed') return 'varc';
+  return ['varc','dilr','qa','mock','confidence','strategy','study_plan','general'].indexOf(value) !== -1 ? value : 'general';
+}
+
+function mentorDiagnosisClientRef(entry) {
+  var topic = normalizeExecutionSection(entry && entry.topic);
+  var pattern = String(entry && entry.patternId || 'general').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 80);
+  return 'diagnosis:' + topic + ':' + pattern;
+}
+
+function mentorTaskClientRefForDiagnosis(entry) {
+  return 'validation:' + mentorDiagnosisClientRef(entry);
+}
+
+function mentorTaskDefinition(entry) {
+  var section = normalizeExecutionSection(entry && entry.topic);
+  var patternId = String(entry && entry.patternId || 'general');
+  var title = section === 'varc' ? 'VARC decision check'
+    : section === 'dilr' ? 'DILR decision check'
+      : section === 'qa' ? 'QA adaptive diagnostic'
+        : section === 'mock' ? 'Compact mock execution check'
+          : section === 'confidence' ? 'Confidence evidence check'
+            : 'CAT decision check';
+  var successMetric = 'Use the completed attempt to support, reject or narrow the working diagnosis before assigning another task.';
+  if (section === 'varc' && /last_two|scope|tone|extreme/.test(patternId)) successMetric = 'Compare each final option with the passage’s exact claim; record whether scope or tone—not comprehension—causes the loss.';
+  if (section === 'dilr' && /dead_set|selection|time/.test(patternId)) successMetric = 'Record the stay-or-exit decision and the minute useful progress stopped; completed-set count is not the success measure.';
+  if (section === 'qa' && /recogn|mixed|slow_method/.test(patternId)) successMetric = 'Separate concept recall, method recognition and execution from the pattern across the attempted questions.';
+  return {
+    section:section,
+    taskType:section === 'mock' ? 'mock_review' : section === 'strategy' ? 'strategy_check' : section === 'confidence' || section === 'study_plan' ? 'reflection' : 'diagnostic',
+    title:title,
+    objective:'Test whether ' + String(entry && entry.confirmedDiagnosis || 'the current CAT decision pattern is accurate').replace(/[.!?]+$/, '') + '.',
+    successMetric:successMetric,
+    destination:section === 'qa' || section === 'dilr' ? 'sectionals' : 'chat',
+    duration:section === 'dilr' ? 12 : section === 'mock' ? 15 : 8
+  };
+}
+
+async function persistMentorDiagnosis(entry) {
+  if (!entry || !canUseMentorExecutionLoop()) return null;
+  var status = entry.status === 'rejected' || entry.confirmation === 'Rejected' || entry.confirmation === 'Not Really' ? 'rejected'
+    : entry.status === 'uncertain' || entry.confirmation === 'Inconclusive' ? 'inconclusive'
+      : entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly' || entry.status === 'confirmed' ? 'confirmed' : 'hypothesis';
+  var payload = {
+    user_id:currentUser.id,
+    client_ref:mentorDiagnosisClientRef(entry),
+    section:normalizeExecutionSection(entry.topic),
+    topic:String(entry.subcategory || entry.topic || '').slice(0, 120) || null,
+    pattern_id:String(entry.patternId || '').slice(0, 120) || null,
+    mechanism:String(entry.confirmedDiagnosis || entry.originalPrediction || entry.selectedPattern || 'Working CAT diagnosis').slice(0, 1200),
+    evidence_summary:String(entry.selectedPattern || entry.lastEvidence || '').slice(0, 1200) || null,
+    confidence:Math.max(0, Math.min(1, Number(entry.confidence) || 0.5)),
+    confirmation_level:['Exactly','Mostly','Not Really','Inconclusive'].indexOf(entry.confirmation) !== -1 ? entry.confirmation : null,
+    status:status,
+    source:String(entry.source || 'mentor_chat').slice(0, 80),
+    confirmed_at:status === 'confirmed' ? (entry.confirmedAt || entry.updatedAt || new Date().toISOString()) : null,
+    validated_at:entry.validatedAt || null,
+    updated_at:new Date().toISOString()
+  };
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_diagnoses?on_conflict=user_id,client_ref&select=*', {
+      method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      markExecutionLoopUnavailable(response, 'mentor_diagnoses');
+      throw new Error('Diagnosis persistence failed (' + response.status + ')');
+    }
+    var rows = await response.json();
+    var saved = Array.isArray(rows) ? rows[0] : rows;
+    if (saved) {
+      entry.dbDiagnosisId = saved.id;
+      mentorExecutionLoop.diagnoses = mentorExecutionLoop.diagnoses.filter(function(item) { return item.client_ref !== saved.client_ref; });
+      mentorExecutionLoop.diagnoses.push(saved);
+      try { saveDiagnosticMemory(); } catch(e) {}
+    }
+    return saved || null;
+  } catch(error) {
+    if (!mentorExecutionLoop.unavailable) console.error('Diagnosis persistence error:', error);
+    return null;
+  }
+}
+
+async function upsertMentorTaskForDiagnosis(entry, options) {
+  if (!entry || !canUseMentorExecutionLoop()) return null;
+  options = options || {};
+  var diagnosis = await persistMentorDiagnosis(entry);
+  if (!diagnosis || !diagnosis.id) return null;
+  var definition = mentorTaskDefinition(entry);
+  var payload = {
+    user_id:currentUser.id,
+    diagnosis_id:diagnosis.id,
+    client_ref:mentorTaskClientRefForDiagnosis(entry),
+    section:definition.section,
+    topic:String(entry.subcategory || entry.topic || '').slice(0, 120) || null,
+    task_type:definition.taskType,
+    title:String(options.title || definition.title).slice(0, 180),
+    objective:String(options.objective || definition.objective).slice(0, 1200),
+    success_metric:String(options.successMetric || definition.successMetric).slice(0, 1200),
+    destination:options.destination || definition.destination,
+    duration_minutes:Number(options.durationMinutes || definition.duration),
+    artifact_ref:String(options.artifactRef || '').slice(0, 180) || null,
+    action_payload:Object.assign({ pattern_id:entry.patternId || null, confirmation:entry.confirmation || null, timing:options.timing || null }, options.actionPayload || {}),
+    scheduled_for:options.scheduledFor || null,
+    status:options.status || 'ready',
+    started_at:options.status === 'in_progress' ? (options.startedAt || new Date().toISOString()) : null,
+    completed_at:options.completedAt || null,
+    reviewed_at:options.reviewedAt || null,
+    updated_at:new Date().toISOString()
+  };
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
+      method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      markExecutionLoopUnavailable(response, 'mentor_tasks');
+      throw new Error('Mentor task persistence failed (' + response.status + ')');
+    }
+    var rows = await response.json();
+    var saved = Array.isArray(rows) ? rows[0] : rows;
+    if (saved) {
+      mentorExecutionLoop.tasks = mentorExecutionLoop.tasks.filter(function(item) { return item.client_ref !== saved.client_ref; });
+      mentorExecutionLoop.tasks.push(saved);
+    }
+    return saved || null;
+  } catch(error) {
+    if (!mentorExecutionLoop.unavailable) console.error('Mentor task persistence error:', error);
+    return null;
+  }
+}
+
+async function persistGeneratedExerciseTask(exercise) {
+  if (!exercise || !canUseMentorExecutionLoop()) return null;
+  var status = exercise.reviewedAt ? 'reviewed' : exercise.result ? 'evidence_ready' : exercise.awaitingAnswers === false ? 'ready' : 'in_progress';
+  var saved = null;
+  if (exercise.hypothesis) {
+    saved = await upsertMentorTaskForDiagnosis(exercise.hypothesis, {
+      status:status,
+      artifactRef:exercise.id,
+      title:exercise.title,
+      objective:exercise.purpose,
+      completedAt:exercise.completedAt || null,
+      reviewedAt:exercise.reviewedAt || null,
+      actionPayload:{ artifact_snapshot:{
+        id:exercise.id, type:exercise.type, source:exercise.source, title:exercise.title,
+        purpose:exercise.purpose, hypothesis:exercise.hypothesis || null, content:exercise.content,
+        generatedAt:exercise.generatedAt, awaitingAnswers:exercise.awaitingAnswers,
+        result:exercise.result || null, reviewPending:exercise.reviewPending,
+        completedAt:exercise.completedAt || null, reviewedAt:exercise.reviewedAt || null,
+        validationVerdict:exercise.validationVerdict || null,
+        uiSelections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : []
+      } }
+    });
+  } else {
+    var section = normalizeExecutionSection(exercise.type);
+    var clientRef = 'exercise:' + String(exercise.id).slice(0, 150);
+    var payload = {
+      user_id:currentUser.id, diagnosis_id:null, client_ref:clientRef, section:section,
+      topic:String(exercise.title || exercise.type || '').slice(0, 120) || null,
+      task_type:exercise.source && exercise.source.indexOf('sectional') !== -1 ? 'sectional' : 'practice',
+      title:String(exercise.title || 'CAT practice').slice(0, 180),
+      objective:String(exercise.purpose || 'Complete a focused CAT practice attempt and use the result as evidence.').slice(0, 1200),
+      success_metric:'Review the completed attempt and identify the next decision pattern from the saved evidence.',
+      destination:section === 'qa' || section === 'dilr' ? 'sectionals' : 'practice',
+      duration_minutes:null, artifact_ref:String(exercise.id).slice(0, 180),
+      action_payload:{ source:exercise.source || 'practice', artifact_snapshot:{
+        id:exercise.id, type:exercise.type, source:exercise.source, title:exercise.title,
+        purpose:exercise.purpose, content:exercise.content, generatedAt:exercise.generatedAt,
+        awaitingAnswers:exercise.awaitingAnswers, result:exercise.result || null,
+        reviewPending:exercise.reviewPending, completedAt:exercise.completedAt || null,
+        reviewedAt:exercise.reviewedAt || null,
+        uiSelections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : []
+      } }, scheduled_for:null, status:status,
+      started_at:exercise.generatedAt || new Date().toISOString(), completed_at:exercise.completedAt || null,
+      reviewed_at:exercise.reviewedAt || null, updated_at:new Date().toISOString()
+    };
+    try {
+      var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
+        method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
+      });
+      if (!response.ok) { markExecutionLoopUnavailable(response, 'mentor_tasks'); return null; }
+      var rows = await response.json();
+      saved = Array.isArray(rows) ? rows[0] : rows;
+      if (saved) {
+        mentorExecutionLoop.tasks = mentorExecutionLoop.tasks.filter(function(item) { return item.client_ref !== saved.client_ref; });
+        mentorExecutionLoop.tasks.push(saved);
+      }
+    } catch(error) { console.error('Exercise task persistence error:', error); }
+  }
+  if (saved && activeGeneratedExercise && activeGeneratedExercise.id === exercise.id) {
+    activeGeneratedExercise.mentorTaskId = saved.id;
+    try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+  }
+  return saved;
+}
+
+async function persistMentorTaskAttempt(exercise, result) {
+  if (!exercise || !result || !canUseMentorExecutionLoop()) return null;
+  var task = await persistGeneratedExerciseTask(exercise);
+  if (!task || !task.id) return null;
+  var completedAt = exercise.completedAt || new Date().toISOString();
+  var total = Number(result.total || (Number(result.correct || 0) + Number(result.wrong || 0) + Number(result.skipped || 0)));
+  var elapsed = null;
+  var isTimedExercise = /(?:sectional|prediction-validation)/.test(String(exercise.source || '')) && ['qa','dilr','mini_mock'].indexOf(String(exercise.type || '')) !== -1;
+  if (isTimedExercise && typeof timedTestSecondsTotal === 'number' && typeof timedTestSecondsLeft === 'number' && timedTestSecondsTotal >= timedTestSecondsLeft) elapsed = timedTestSecondsTotal - timedTestSecondsLeft;
+  var payload = {
+    user_id:currentUser.id, task_id:task.id,
+    client_ref:String(exercise.id + ':attempt:' + completedAt).slice(0, 200),
+    correct:Number(result.correct || 0), wrong:Number(result.wrong || 0), skipped:Number(result.skipped || 0),
+    marks:typeof result.marks === 'number' ? result.marks : null,
+    max_marks:typeof result.maxMarks === 'number' ? result.maxMarks : null,
+    time_spent_seconds:elapsed,
+    behaviour_data:{
+      total:total,
+      answers:Array.isArray(result.answers) ? result.answers.slice(0, 30) : [],
+      selections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : [],
+      mistakes:Array.isArray(result.mistakes) ? result.mistakes.slice(0, 10) : [],
+      source:exercise.source || 'practice'
+    },
+    evidence_summary:String(result.evidenceSummary || (Number(result.correct || 0) + '/' + total + ' correct; ' + Number(result.wrong || 0) + ' wrong; ' + Number(result.skipped || 0) + ' skipped.')).slice(0, 1600),
+    verdict:exercise.validationVerdict ? String(exercise.validationVerdict).toLowerCase() : null,
+    started_at:exercise.generatedAt || null, completed_at:completedAt, updated_at:new Date().toISOString()
+  };
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?on_conflict=user_id,client_ref&select=*', {
+      method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
+    });
+    if (!response.ok) { markExecutionLoopUnavailable(response, 'mentor_task_attempts'); return null; }
+    var rows = await response.json();
+    var saved = Array.isArray(rows) ? rows[0] : rows;
+    if (saved) {
+      mentorExecutionLoop.attempts = mentorExecutionLoop.attempts.filter(function(item) { return item.client_ref !== saved.client_ref; });
+      mentorExecutionLoop.attempts.push(saved);
+      exercise.mentorAttemptId = saved.id;
+      try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(exercise)); } catch(e) {}
+    }
+    return saved || null;
+  } catch(error) {
+    if (!mentorExecutionLoop.unavailable) console.error('Task attempt persistence error:', error);
+    return null;
+  }
+}
+
+async function updateMentorExecutionReview(exercise, responseText) {
+  if (!exercise || !canUseMentorExecutionLoop()) return false;
+  var taskId = exercise.mentorTaskId || null;
+  var attemptId = exercise.mentorAttemptId || null;
+  var verdict = exercise.validationVerdict ? String(exercise.validationVerdict).toLowerCase() : null;
+  try {
+    if (taskId) await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(taskId), {
+      method:'PATCH', headers:executionLoopHeaders('return=minimal'), body:JSON.stringify({ status:'reviewed', reviewed_at:exercise.reviewedAt || new Date().toISOString(), updated_at:new Date().toISOString() })
+    });
+    if (attemptId) await fetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?id=eq.' + encodeURIComponent(attemptId), {
+      method:'PATCH', headers:executionLoopHeaders('return=minimal'), body:JSON.stringify({ verdict:verdict, evidence_summary:String(responseText || '').slice(0, 1600), reviewed_at:exercise.reviewedAt || new Date().toISOString(), updated_at:new Date().toISOString() })
+    });
+    return true;
+  } catch(error) { console.error('Execution review persistence error:', error); return false; }
+}
+
+async function loadMentorExecutionLoop() {
+  if (!canUseMentorExecutionLoop()) return false;
+  try {
+    var responses = await Promise.all([
+      fetch(SUPABASE_URL + '/rest/v1/mentor_diagnoses?select=*&user_id=eq.' + currentUser.id + '&order=updated_at.desc&limit=20', { headers:executionLoopHeaders() }),
+      fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?select=*&user_id=eq.' + currentUser.id + '&order=updated_at.desc&limit=30', { headers:executionLoopHeaders() }),
+      fetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?select=*&user_id=eq.' + currentUser.id + '&order=completed_at.desc&limit=30', { headers:executionLoopHeaders() })
+    ]);
+    if (responses.some(function(response) { return !response.ok; })) {
+      responses.forEach(function(response) { markExecutionLoopUnavailable(response, 'load'); });
+      return false;
+    }
+    mentorExecutionLoop.diagnoses = await responses[0].json();
+    mentorExecutionLoop.tasks = await responses[1].json();
+    mentorExecutionLoop.attempts = await responses[2].json();
+    mentorExecutionLoop.loaded = true;
+    loadDiagnosticMemory();
+    mentorExecutionLoop.diagnoses.slice().reverse().forEach(function(saved) {
+      var topic = normalizeExecutionSection(saved.section);
+      var existing = diagnosticMemory[topic];
+      if (!existing || String(saved.updated_at || '') > String(existing.updatedAt || '')) {
+        diagnosticMemory[topic] = {
+          selectedSection:getDiagnosticTopicLabel(topic), topic:topic, subcategory:saved.topic,
+          patternId:saved.pattern_id, selectedPattern:saved.evidence_summary,
+          confirmedDiagnosis:saved.mechanism,
+          confirmation:saved.confirmation_level || (saved.status === 'rejected' ? 'Not Really' : saved.status === 'inconclusive' ? 'Inconclusive' : 'Mostly'),
+          confidence:Number(saved.confidence || 0.5), status:saved.status,
+          validatedAt:saved.validated_at, updatedAt:saved.updated_at, dbDiagnosisId:saved.id,
+          doNotReuse:saved.status === 'rejected'
+        };
+      }
+    });
+    saveDiagnosticMemory();
+    if (!loadActiveGeneratedExercise()) {
+      var durableArtifactTask = mentorExecutionLoop.tasks.find(function(task) {
+        return task && task.action_payload && task.action_payload.artifact_snapshot && ['ready','in_progress','evidence_ready'].indexOf(task.status) !== -1;
+      });
+      if (durableArtifactTask) {
+        activeGeneratedExercise = durableArtifactTask.action_payload.artifact_snapshot;
+        activeGeneratedExercise.mentorTaskId = durableArtifactTask.id;
+        var durableAttempt = mentorExecutionLoop.attempts.find(function(attempt) { return attempt.task_id === durableArtifactTask.id; });
+        if (durableAttempt) activeGeneratedExercise.mentorAttemptId = durableAttempt.id;
+        try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+      }
+    }
+    return true;
+  } catch(error) {
+    console.error('Mentor execution loop load failed:', error);
+    return false;
+  }
+}
 
 function getUserScopedKey(name) {
   return name + '_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
@@ -3594,6 +4020,10 @@ function storeActiveGeneratedExercise(exercise) {
   activeGeneratedExercise = exercise;
   try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(exercise)); } catch(e) {}
   saveInternalMemoryMessage('EXERCISE', exercise);
+  // The student-facing claim that an exercise exists is now backed by a real,
+  // owner-scoped task row. This remains fire-and-forget so the UI never waits
+  // on persistence before showing an already-validated artifact.
+  persistGeneratedExerciseTask(exercise);
 }
 
 function loadActiveGeneratedExercise() {
@@ -3637,6 +4067,7 @@ function markExerciseReviewCompleted(responseText) {
   activeGeneratedExercise.reviewedAt = new Date().toISOString();
   activeGeneratedExercise.reviewSummary = String(responseText || '').substring(0, 600);
   storeActiveGeneratedExercise(activeGeneratedExercise);
+  updateMentorExecutionReview(activeGeneratedExercise, responseText);
   loadActiveMentorPlan();
   if (isOpenMentorPlan(activeMentorPlan) && activeMentorPlan.status === 'evidence_ready') {
     activeMentorPlan.status = 'completed';
@@ -3849,7 +4280,9 @@ function applyPredictionValidationVerdict(responseText) {
   }
   diagnosticMemory[hypothesis.topic] = entry;
   saveDiagnosticMemory();
+  persistMentorDiagnosis(entry);
   storeActiveGeneratedExercise(activeGeneratedExercise);
+  if (activeGeneratedExercise.result) persistMentorTaskAttempt(activeGeneratedExercise, activeGeneratedExercise.result);
   return verdict;
 }
 
@@ -3976,6 +4409,64 @@ function saveActiveMentorPlan(plan) {
   studentProfile.activePlan = plan;
   try { localStorage.setItem(activePlanStorageKey(), JSON.stringify(plan)); } catch(e) {}
   saveInternalMemoryMessage('PLAN', plan);
+  persistActiveMentorPlanTask(plan);
+}
+
+function simpleStableHash(value) {
+  var text = String(value || '');
+  var hash = 2166136261;
+  for (var i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function inferMentorPlanSection(plan) {
+  var text = String(plan && plan.mission || '').toLowerCase();
+  if (/\b(?:varc|rc|reading|verbal)\b/.test(text)) return 'varc';
+  if (/\b(?:dilr|lrdi|logical reasoning|data interpretation)\b/.test(text)) return 'dilr';
+  if (/\b(?:qa|quant|algebra|arithmetic|geometry|number system)\b/.test(text)) return 'qa';
+  if (/\bmock\b/.test(text)) return 'mock';
+  return 'general';
+}
+
+async function persistActiveMentorPlanTask(plan) {
+  if (!plan || !plan.mission || !canUseMentorExecutionLoop()) return null;
+  var section = inferMentorPlanSection(plan);
+  var focus = missionField(plan.mission, 'Focus') || 'Saved CAT mission';
+  var why = missionField(plan.mission, 'Why') || 'Turn the current diagnosis into one observable result.';
+  var action = missionField(plan.mission, 'Action') || compactHomeText(plan.mission, 700);
+  var evidence = missionField(plan.mission, 'Evidence') || 'Complete the action and bring the result back before changing the plan.';
+  var status = plan.status === 'completed' ? 'reviewed' : plan.status === 'evidence_ready' ? 'evidence_ready' : plan.status === 'superseded' || plan.status === 'invalidated' ? 'cancelled' : 'ready';
+  var clientRef = 'mission:' + simpleStableHash(plan.mission);
+  var latestDiagnosis = (mentorExecutionLoop.diagnoses || []).find(function(item) {
+    return item.section === section && item.status === 'confirmed';
+  });
+  var payload = {
+    user_id:currentUser.id, diagnosis_id:latestDiagnosis ? latestDiagnosis.id : null,
+    client_ref:clientRef, section:section, topic:focus.slice(0, 120), task_type:section === 'mock' ? 'mock_review' : 'strategy_check',
+    title:focus.slice(0, 180), objective:why.slice(0, 1200), success_metric:evidence.slice(0, 1200), destination:'chat',
+    duration_minutes:null, artifact_ref:null, action_payload:{ mission:plan.mission, action:action, version:plan.version || null },
+    scheduled_for:plan.scheduledFor || null, status:status, started_at:plan.startedAt || null,
+    completed_at:plan.completedAt || null, reviewed_at:plan.lastReviewedAt || null, updated_at:new Date().toISOString()
+  };
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
+      method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
+    });
+    if (!response.ok) { markExecutionLoopUnavailable(response, 'mentor_plan_task'); return null; }
+    var rows = await response.json();
+    var saved = Array.isArray(rows) ? rows[0] : rows;
+    if (saved) {
+      mentorExecutionLoop.tasks = mentorExecutionLoop.tasks.filter(function(item) { return item.client_ref !== saved.client_ref; });
+      mentorExecutionLoop.tasks.push(saved);
+    }
+    return saved || null;
+  } catch(error) {
+    if (!mentorExecutionLoop.unavailable) console.error('Mentor plan persistence error:', error);
+    return null;
+  }
 }
 
 var mentorEvidenceMemory = { corrections:[] };
@@ -5320,6 +5811,7 @@ function saveChatDiagnosticEntry(level, prediction) {
   diagnosticSessionAttempted[topic] = true;
   activeDiagnosticTopic = topic;
   saveDiagnosticMemory();
+  persistMentorDiagnosis(entry);
   return entry;
 }
 
@@ -5380,6 +5872,7 @@ async function handlePredictionExerciseTiming(answer) {
   if (!pending || !pending.entry) return;
   var normalized = String(answer || '').toLowerCase();
   if (/yes|let.?s do|right now|now/.test(normalized)) {
+    upsertMentorTaskForDiagnosis(pending.entry, { status:'generating', timing:'right_now' });
     if (pending.entry.topic === 'dilr') {
       addMentorLeadMessage(getDILROpeningLesson(pending.entry));
       savePendingDiagnosticExercise(pending.entry, 'ready_after_lesson');
@@ -5394,6 +5887,9 @@ async function handlePredictionExerciseTiming(answer) {
   }
   var timing = /tomorrow/.test(normalized) ? 'tomorrow' : 'later_today';
   savePendingDiagnosticExercise(pending.entry, timing);
+  upsertMentorTaskForDiagnosis(pending.entry, {
+    status:'ready', timing:timing, scheduledFor:getPushReminderTime(timing).toISOString()
+  });
   completeChatFirstOnboarding(null);
   addMentorLeadMessage(timing === 'tomorrow'
     ? "Tomorrow works. I’ve kept the same targeted check ready; when you open Marg, say “start the check” and we’ll use it before changing your plan."
@@ -7218,9 +7714,9 @@ function isDataDeletionRequest(message) {
 
 function buildPrivacyRequestReply(message) {
   if (isDataDeletionRequest(message)) {
-    return 'Marg does retain data across sessions. For signed-in users, this can include conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, check-ins, engagement milestones and—only if submitted—a community invite phone number in Supabase; some drafts, exercises and plan state are also stored in your browser.\n\nClearing this chat or browser storage does not delete the Supabase records. To request deletion of your account and associated data, email support@trymarg.com from the email linked to your Marg account. The published processing time is within 7 business days.';
+    return 'Marg does retain data across sessions. For signed-in users, this can include conversation history, study profile, diagnoses, assigned mentor tasks, attempts and evidence reviews, cognitive and behavioural patterns, mock history, practice progress, check-ins, engagement milestones, and browser-push subscription and delivery records. A community invite phone number is stored only if you submit it. Some drafts and task state are also stored in your browser.\n\nClearing this chat or browser storage does not delete the Supabase records. To request deletion of your account and associated data, email support@trymarg.com from the email linked to your Marg account. The published processing time is within 7 business days.';
   }
-  return 'Marg is not session-only. Signed-in conversation history, study profile, cognitive and behavioural patterns, mock history, practice progress, check-ins and engagement milestones can persist in Supabase across sessions. A community invite phone number is stored only if you choose to submit it, directly in Supabase rather than in Gemini or chat history. Some drafts, exercises and plan state are also stored in your browser, and submitted chat content may be processed through Gemini to generate replies.\n\nFor deletion or a privacy request, email support@trymarg.com from your account email. Clearing local storage alone does not remove Supabase records.';
+  return 'Marg is not session-only. Signed-in conversation history, study profile, diagnoses, assigned tasks, attempts and evidence reviews, cognitive and behavioural patterns, mock history, practice progress, check-ins, engagement milestones, and browser-push subscription and delivery records can persist in Supabase across sessions. A community invite phone number is stored only if you choose to submit it. Some drafts and task state are also stored in your browser, and submitted chat content may be processed through Gemini to generate replies.\n\nFor deletion or a privacy request, email support@trymarg.com from your account email. Clearing local storage alone does not remove Supabase records.';
 }
 
 function maybeHandlePrivacyRequest(message) {
@@ -7869,6 +8365,10 @@ async function initSession() {
     }
     showWelcome(async function() {
       const hasHistory = await loadUserData();
+      // These are durable product records, not generated memory. Loading them
+      // here lets Home continue the exact diagnosis/task thread across devices.
+      await loadMentorExecutionLoop();
+      syncGrantedBrowserPushSubscription();
       const onboardingKey2 = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
       const prevOnboarded2 = localStorage.getItem(onboardingKey2);
       var requestedInitialTab = '';
@@ -8889,6 +9389,30 @@ function getLatestTopicProgress() {
   })[0] || null;
 }
 
+function getDurableMentorTaskRecommendation() {
+  if (!mentorExecutionLoop || !mentorExecutionLoop.loaded) return null;
+  var openTasks = (mentorExecutionLoop.tasks || []).filter(function(task) {
+    return task && ['ready','generating','in_progress','evidence_ready'].indexOf(task.status) !== -1;
+  }).sort(function(a, b) {
+    var rank = { evidence_ready:0, in_progress:1, generating:2, ready:3 };
+    var aRank = Object.prototype.hasOwnProperty.call(rank, a.status) ? rank[a.status] : 9;
+    var bRank = Object.prototype.hasOwnProperty.call(rank, b.status) ? rank[b.status] : 9;
+    var difference = aRank - bRank;
+    return difference || String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+  });
+  var task = openTasks[0];
+  if (!task) return null;
+  var attempt = (mentorExecutionLoop.attempts || []).find(function(item) { return item.task_id === task.id; });
+  var evidence = attempt ? [attempt.correct + '/' + (Number(attempt.correct || 0) + Number(attempt.wrong || 0) + Number(attempt.skipped || 0)) + ' correct', attempt.evidence_summary].filter(Boolean).join('. ') : '';
+  return {
+    title:task.status === 'evidence_ready' ? 'Your result is saved. Now decide what it proved.' : task.title,
+    copy:compactHomeText(task.status === 'evidence_ready' ? (evidence || task.success_metric) : task.objective, 230),
+    label:task.status === 'evidence_ready' ? 'Evidence waiting' : 'Your saved next move',
+    cta:task.status === 'evidence_ready' ? 'Review the evidence →' : 'Start the saved task →',
+    action:{ destination:'durable_task', taskId:task.id }
+  };
+}
+
 function buildHomeRecommendation() {
   loadPendingDiagnosticExercise();
   loadActiveGeneratedExercise();
@@ -8919,6 +9443,9 @@ function buildHomeRecommendation() {
       label:'Your current priority', cta:activeMentorPlan.status === 'evidence_ready' ? 'Review the result →' : 'Resume this mission →', action:{ destination:activeMentorPlan.status === 'evidence_ready' ? 'review_result' : 'resume_plan' }
     };
   }
+
+  var durableTaskRecommendation = getDurableMentorTaskRecommendation();
+  if (durableTaskRecommendation) return durableTaskRecommendation;
 
   if (studentProfile && studentProfile.lastTask) {
     return {
@@ -8964,10 +9491,11 @@ function buildHomeRecommendation() {
 }
 
 function renderMentorHome() {
+  ensureHomePriorityStyles();
   var title = document.getElementById('mentor-home-title');
   var name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
   var recommendation = buildHomeRecommendation();
-  if (title) title.textContent = getHomeTimeGreeting() + (name ? ', ' + name : '') + (recommendation.action && ['review_result','resume_diagnostic','resume_plan'].indexOf(recommendation.action.destination) !== -1 ? '. Here is the thread worth continuing.' : '. What do you need today?');
+  if (title) title.textContent = getHomeTimeGreeting() + (name ? ', ' + name : '') + (recommendation.action && ['review_result','resume_diagnostic','resume_plan','durable_task'].indexOf(recommendation.action.destination) !== -1 ? '. Here is the thread worth continuing.' : '. What do you need today?');
   homeRecommendationAction = recommendation.action || { destination:'diagnosis' };
   var label = document.querySelector('#home-recommendation .home-rec-label');
   var recTitle = document.getElementById('home-rec-title');
@@ -8977,6 +9505,66 @@ function renderMentorHome() {
   if (recTitle) recTitle.textContent = recommendation.title;
   if (copy) copy.textContent = recommendation.copy;
   if (cta) cta.textContent = recommendation.cta;
+  renderHomePriorityStrip();
+}
+
+function ensureHomePriorityStyles() {
+  if (document.getElementById('home-priority-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'home-priority-styles';
+  style.textContent = '.home-priority-strip{display:none;margin:-8px 0 26px;padding:16px 18px;border:1px solid var(--border2);border-radius:15px;background:rgba(255,255,255,.018)}.home-priority-strip.visible{display:block}.home-priority-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:11px}.home-priority-title{font-size:13px;font-weight:650;color:var(--text)}.home-priority-note{font-size:10px;color:var(--text-dim)}.home-priority-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.home-priority-item{padding:11px 12px;border:1px solid var(--border);border-radius:11px;background:#111;color:var(--text);font-family:DM Sans,sans-serif;text-align:left;cursor:pointer}.home-priority-item:hover{border-color:rgba(201,168,76,.36);transform:none}.home-priority-section{display:block;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-light);margin-bottom:4px}.home-priority-task{display:block;font-size:11px;line-height:1.45;color:#c8c4bc}.home-priority-status{display:block;margin-top:5px;font-size:9px;color:#77736c}@media(max-width:768px){.home-priority-strip{margin:-5px 0 21px;padding:14px}.home-priority-list{grid-template-columns:1fr}}';
+  document.head.appendChild(style);
+}
+
+function renderHomePriorityStrip() {
+  var strip = document.getElementById('home-priority-strip');
+  var list = document.getElementById('home-priority-list');
+  if (!strip) {
+    var recommendation = document.getElementById('home-recommendation');
+    if (!recommendation || !recommendation.parentNode) return;
+    strip = document.createElement('div');
+    strip.id = 'home-priority-strip';
+    strip.className = 'home-priority-strip';
+    strip.setAttribute('aria-label', "This week's CAT priorities");
+    strip.innerHTML = '<div class="home-priority-head"><div class="home-priority-title">This week</div><div class="home-priority-note">Only evidence-backed priorities</div></div><div class="home-priority-list" id="home-priority-list"></div>';
+    recommendation.parentNode.insertBefore(strip, recommendation.nextSibling);
+    list = document.getElementById('home-priority-list');
+  }
+  if (!strip || !list) return;
+  list.innerHTML = '';
+  if (!mentorExecutionLoop || !mentorExecutionLoop.loaded) { strip.classList.remove('visible'); return; }
+  var sectionOrder = ['varc','dilr','qa','mock'];
+  var openStatuses = ['evidence_ready','in_progress','generating','ready'];
+  var tasks = sectionOrder.map(function(section) {
+    return (mentorExecutionLoop.tasks || []).filter(function(task) {
+      return task && task.section === section && openStatuses.indexOf(task.status) !== -1;
+    }).sort(function(a, b) {
+      var rank = { evidence_ready:0, in_progress:1, generating:2, ready:3 };
+      var aRank = Object.prototype.hasOwnProperty.call(rank, a.status) ? rank[a.status] : 9;
+      var bRank = Object.prototype.hasOwnProperty.call(rank, b.status) ? rank[b.status] : 9;
+      return (aRank - bRank) || String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+    })[0] || null;
+  }).filter(Boolean).slice(0, 3);
+  if (!tasks.length) { strip.classList.remove('visible'); return; }
+  var statusLabels = { evidence_ready:'Evidence waiting', in_progress:'In progress', generating:'Preparing', ready:'Test next' };
+  tasks.forEach(function(task) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'home-priority-item';
+    button.onclick = function() { resumeDurableMentorTask(task.id); };
+    var section = document.createElement('span');
+    section.className = 'home-priority-section';
+    section.textContent = String(task.section || 'CAT').toUpperCase();
+    var title = document.createElement('span');
+    title.className = 'home-priority-task';
+    title.textContent = compactHomeText(task.title || task.objective, 90);
+    var status = document.createElement('span');
+    status.className = 'home-priority-status';
+    status.textContent = statusLabels[task.status] || 'Continue';
+    button.appendChild(section); button.appendChild(title); button.appendChild(status);
+    list.appendChild(button);
+  });
+  strip.classList.add('visible');
 }
 
 function runHomeRecommendation() {
@@ -8984,6 +9572,7 @@ function runHomeRecommendation() {
   if (action.destination === 'review_result') { reviewLatestPracticeWithMarg(); return; }
   if (action.destination === 'resume_diagnostic') { resumePendingDiagnosticFromHome(); return; }
   if (action.destination === 'resume_plan') { resumeActiveMentorPlanFromHome(); return; }
+  if (action.destination === 'durable_task') { resumeDurableMentorTask(action.taskId); return; }
   if (action.destination === 'sectionals') {
     switchTab('sectionals');
     var selectId = action.section === 'dilr' ? 'home-dilr-sectional-topic' : 'home-qa-sectional-topic';
@@ -9002,6 +9591,36 @@ function runHomeRecommendation() {
     return;
   }
   openHomeDestination(action.destination || 'diagnosis');
+}
+
+function resumeDurableMentorTask(taskId) {
+  var task = (mentorExecutionLoop.tasks || []).find(function(item) { return item && item.id === taskId; });
+  if (!task) { openHomeDestination('chat'); return; }
+  if (task.action_payload && task.action_payload.artifact_snapshot) {
+    activeGeneratedExercise = task.action_payload.artifact_snapshot;
+    activeGeneratedExercise.mentorTaskId = task.id;
+    var attempt = (mentorExecutionLoop.attempts || []).find(function(item) { return item.task_id === task.id; });
+    if (attempt) activeGeneratedExercise.mentorAttemptId = attempt.id;
+    try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+  }
+  if (task.status === 'evidence_ready') {
+    switchTab('chat');
+    reviewLatestPracticeWithMarg();
+    return;
+  }
+  var entry = diagnosticMemory[normalizeExecutionSection(task.section)] || null;
+  if ((task.section === 'qa' || task.section === 'dilr') && entry) {
+    startTimedTest(task.section, task.topic || (task.section === 'qa' ? 'Mixed QA' : 'Diagnostic Set'), task.section === 'qa' ? 3 : 4, entry);
+    return;
+  }
+  if (task.section === 'varc' && entry) {
+    switchTab('chat');
+    runPredictionValidationExercise(entry);
+    return;
+  }
+  switchTab('chat');
+  prefillMessage('Resume my saved CAT task: ' + task.title + '. The goal was: ' + task.objective);
+  setTimeout(function() { sendMessage(); }, 0);
 }
 
 function resumePendingDiagnosticFromHome() {
@@ -10238,6 +10857,7 @@ function submitTimedTest(isAutoSubmit) {
     activeGeneratedExercise.reviewPending = true;
     activeGeneratedExercise.completedAt = new Date().toISOString();
     storeActiveGeneratedExercise(activeGeneratedExercise);
+    persistMentorTaskAttempt(activeGeneratedExercise, activeGeneratedExercise.result);
   }
 
   noteActiveMentorPlanEvidence((timedTestSection === 'qa' ? 'QA' : 'DILR') + ' ' + timedTestTopic + ': ' + correct + '/' + total + ' correct, ' + wrong + ' wrong, ' + skipped + ' skipped.');
@@ -10781,6 +11401,7 @@ function showPracticeSummary() {
     activeGeneratedExercise.reviewPending = true;
     activeGeneratedExercise.completedAt = new Date().toISOString();
     storeActiveGeneratedExercise(activeGeneratedExercise);
+    persistMentorTaskAttempt(activeGeneratedExercise, activeGeneratedExercise.result);
   }
   noteActiveMentorPlanEvidence(type + ' ' + progressTopic + ': ' + Number(sessionResults.correct || 0) + '/' + Number(sessionResults.total || 0) + ' correct.');
   var content = document.getElementById('practice-content');
