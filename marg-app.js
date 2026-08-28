@@ -34,6 +34,7 @@ var isGuestMode = false;
 var onboardingComplete = false;
 var pendingDeepLinkQuestion = null;
 var deepLinkQuestionDispatchScheduled = false;
+var deepLinkQuestionDispatchAttempts = 0;
 var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question';
 var DEEP_LINK_QUESTION_MAX_LENGTH = 8000;
 
@@ -105,23 +106,36 @@ function tryDispatchPendingDeepLinkQuestion() {
     hasQuestion:!!question,
     authenticated:!!(currentUser && SUPABASE_TOKEN && !isGuestMode),
     onboarded:!!onboardingComplete,
-    chatVisible:!!(chatApp && chatApp.style.display !== 'none'),
+    chatVisible:!!(currentTab === 'chat' && chatApp && chatApp.style.display !== 'none'),
     inputDisabled:!!(!input || input.disabled),
     loading:!!isLoading,
     queueFull:!!queuedOutgoingMessage,
     hasDraft:!!(input && input.value.trim())
   });
 
-  if (decision === 'none') return true;
+  if (decision === 'none') {
+    deepLinkQuestionDispatchAttempts = 0;
+    return true;
+  }
   if (decision === 'draft_conflict') {
     showComposerStatus('Your linked question is ready. Send or clear the draft already in the composer first.', 'info', true);
     return false;
   }
-  if (decision !== 'dispatch') return false;
+  if (decision !== 'dispatch') {
+    // OAuth, profile loading and the chat transition complete on separate
+    // ticks. Keep the durable question alive and retry readiness instead of
+    // requiring the student to open Chat or edit the composer manually.
+    deepLinkQuestionDispatchAttempts++;
+    if (deepLinkQuestionDispatchAttempts <= 80 && currentUser && SUPABASE_TOKEN) {
+      schedulePendingDeepLinkQuestionDispatch(Math.min(1000, 150 + deepLinkQuestionDispatchAttempts * 50));
+    }
+    return false;
+  }
 
   // Clear durable state before sending so auth callbacks, reloads and repeated
   // readiness hooks cannot submit the same external question twice.
   pendingDeepLinkQuestion = null;
+  deepLinkQuestionDispatchAttempts = 0;
   try { localStorage.removeItem(DEEP_LINK_QUESTION_STORAGE_KEY); } catch(e) {}
   if (currentTab !== 'chat') switchTab('chat');
   input.value = question;
@@ -2608,7 +2622,10 @@ const GEMINI_PLAIN_TEXT_MATH_INSTRUCTION = '\n\nOUTPUT FORMAT — PLAIN-TEXT MAT
 
 function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType) {
   var requestedOutputTokens = Number(maxOutputTokens) || 500;
-  var minimumOutputTokens = responseMimeType === 'application/json' ? 16384 : 4096;
+  // JSON does not inherently need a 16k floor. That old floor made a
+  // three-question QA set as expensive and slow as a full sectional. Each
+  // call site now owns the budget appropriate to the artifact it requests.
+  var minimumOutputTokens = 4096;
   var effectiveOutputTokens = Math.min(32768, Math.max(requestedOutputTokens, minimumOutputTokens));
   var contents = [];
   (messages || []).forEach(function(message) {
@@ -2628,7 +2645,7 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
       maxOutputTokens:effectiveOutputTokens,
       // Ordinary mentor chat is short and does not need paid medium reasoning.
       // Preserve medium reasoning for plans, images, answer reviews and content generation.
-      thinkingConfig:{ thinkingLevel:requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
+      thinkingConfig:{ thinkingLevel:responseMimeType === 'application/json' && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
     }
   };
   if (responseMimeType) request.generationConfig.responseMimeType = responseMimeType;
@@ -3123,6 +3140,14 @@ function buildHistoryWithImageAttachment(history, attachments, userText) {
   }
   requestHistory.push({ role:'user', parts:multimodalParts });
   return requestHistory;
+}
+
+function trimHistoryForGroundedRequest(requestHistory) {
+  var history = Array.isArray(requestHistory) ? requestHistory : [];
+  // Source verification is driven by the current claim. Durable profile and
+  // diagnostic memory are already in the system context; resending 24 chat
+  // turns makes Google Search grounding slower without improving the lookup.
+  return history.length > 6 ? history.slice(-6) : history;
 }
 
 function getImageAnalysisDirective(attachments) {
@@ -7218,9 +7243,11 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   try {
     var mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     var mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : useWebGrounding || mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
+    var conversationalRequestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage);
+    if (useWebGrounding) conversationalRequestHistory = trimHistoryForGroundedRequest(conversationalRequestHistory);
     var mentorRequest = buildGeminiRequest(
       SYSTEM_PROMPT + getDateContext() + systemAddition,
-      buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage),
+      conversationalRequestHistory,
       mentorMaxTokens
     );
     enableWebGrounding(mentorRequest, useWebGrounding);
@@ -8025,7 +8052,8 @@ async function sendMessage(fromQueue, submissionOptions) {
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : useWebGrounding || mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
-    const requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, text);
+    let requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, text);
+    if (useWebGrounding) requestHistory = trimHistoryForGroundedRequest(requestHistory);
     const mentorRequest = buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens);
     enableWebGrounding(mentorRequest, useWebGrounding);
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mentorRequest) }, mentorTimeout);
@@ -8500,6 +8528,7 @@ async function initSession() {
       try { requestedInitialTab = new URLSearchParams(window.location.search).get('tab') || ''; } catch(e) {}
       if (['home','chat','practice','mock','sectionals','progress'].indexOf(requestedInitialTab) === -1) requestedInitialTab = '';
       if (hasHistory || prevOnboarded2) {
+        onboardingComplete = true;
         var arrivedWithHomepageIntent = hasPendingHomepageIntent();
         var arrivedWithHomepageDestination = hasPendingHomepageDestination();
         var arrivedWithDeepLinkQuestion = hasPendingDeepLinkQuestion();
@@ -8516,6 +8545,7 @@ async function initSession() {
           openPendingHomepageDestination();
         } else if (arrivedWithHomepageIntent || arrivedWithDeepLinkQuestion || recoveredInterruptedGeneration) {
           switchTab('chat');
+          if (arrivedWithDeepLinkQuestion) schedulePendingDeepLinkQuestionDispatch(180);
         } else {
           switchTab(requestedInitialTab || 'home');
         }
@@ -8530,6 +8560,13 @@ async function initSession() {
         } else if (hasPendingHomepageIntent()) {
           switchTab('chat');
           prepareHomepageIntentChat();
+        } else if (hasPendingDeepLinkQuestion()) {
+          // A linked CAT question is already the student's intent. Do not put a
+          // new account through generic onboarding before continuing it.
+          onboardingComplete = true;
+          try { localStorage.setItem('marg_onboarding_done_' + currentUser.id, '1'); } catch(e) {}
+          switchTab('chat');
+          schedulePendingDeepLinkQuestionDispatch(180);
         } else if (mobLoginForMock) {
           mobLoginForMock = false;
           showMockOnboarding();
@@ -9842,6 +9879,7 @@ function startSectionalFromHub(section) {
 function switchTab(tab) {
   if (['home','chat','practice','mock','sectionals','progress'].indexOf(tab) === -1) tab = 'home';
   if (currentTab === 'chat') saveCurrentChatDraft();
+  clearInsightToast();
   currentTab = tab;
   document.querySelectorAll('.tab-section').forEach(function(s) { s.classList.remove('active'); });
   document.querySelectorAll('.bnav-btn').forEach(function(b) { b.classList.remove('active'); });
@@ -9859,6 +9897,7 @@ function switchTab(tab) {
       if (el) el.style.display = '';
     });
     restoreCurrentChatDraft();
+    if (hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(120);
     if (window._practiceCompleteSummary) {
       setTimeout(function() {
         prefillMessage(window._practiceCompleteSummary);
@@ -9895,6 +9934,7 @@ function showBottomNav() {
   if (desktopNav) desktopNav.classList.add('visible');
 }
 function switchPracticeTab(type) {
+  clearInsightToast();
   currentPracticeType = type;
   currentSetIndex = 0;
   currentQuestionIndex = 0;
@@ -10137,7 +10177,7 @@ function buildQAPrompt(topic) {
   }
   var topicLine = topic ? 'TOPIC LOCK: every one of the 3 questions must have the exact primary topic "' + topic + '". Do not generate a standalone Geometry, Algebra, Number Systems, or other-topic question. A secondary technique may appear only inside a question whose central tested idea remains ' + topic + '. The question statement and solution must visibly demonstrate why ' + topic + ' is the central mathematical concept; writing the topic only in metadata is not compliance. Set every question\'s topic field exactly to "' + topic + '" and set topics_combined to ["' + topic + '"] only. ' : 'Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics, but never force a pairing merely to make it look difficult. Give every question an explicit primary topic field. ';
   var pyqDesignMap = ' PYQ-INFORMED DESIGN MAP: Match the reasoning character of recent CAT QA without copying, paraphrasing, or merely changing numbers in any past question. Draw from recurring structures such as ratios hidden inside percentage language; averages or mixtures with a conservation constraint; time-work or time-speed problems requiring relative rates; integer, remainder, digit or divisibility restrictions; algebra where the useful substitution must be discovered; and geometry where similarity, area ratios or a construction reveals the route. Create original situations and relationships. Across the set include 1 medium, 1 medium-hard and 1 hard question; at least one must reward a short non-obvious insight rather than lengthy calculation; and no two questions may share the same solution skeleton.';
-  return 'Generate exactly 3 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + pyqDesignMap + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x").' + QA_STRUCTURAL_REQUIREMENTS + ' Aim for the difficulty where a prepared student still needs roughly 90-180 seconds because the representation or insight is not immediately obvious. Wrong options should be believable results of identifiable reasoning errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT before responding: independently solve every question without trusting your first answer; verify the data are consistent, every condition is necessary, exactly one of the four options is correct, the correct index matches that option, and the written solution reaches it. If a topic lock is present, reject and replace any question whose central tested concept is not that exact topic. Keep "solution" to 2-4 compact steps and include enough working to verify the answer. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with exactly 3 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1"],"questions":[{"topic":"exact primary topic","q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-4 verifiable steps","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
+  return 'Generate exactly 3 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + pyqDesignMap + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Use clean student-facing English and verify articles such as a/an; never write "a auditorium".' + QA_STRUCTURAL_REQUIREMENTS + ' Aim for the difficulty where a prepared student still needs roughly 90-180 seconds because the representation or insight is not immediately obvious. Wrong options should be believable results of identifiable reasoning errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT before responding: independently solve every question without trusting your first answer; verify the data are consistent, every condition is necessary, exactly one of the four options is correct, the correct index matches that option, and the written solution reaches it. If a topic lock is present, reject and replace any question whose central tested concept is not that exact topic. Keep "solution" to 2-4 compact steps and include enough working to verify the answer. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with exactly 3 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1"],"questions":[{"topic":"exact primary topic","q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-4 verifiable steps","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
 }
 
 function validateQASetShape(data, expectedTopic, expectedCount) {
@@ -10187,7 +10227,6 @@ function getVerifiedPercentagesFallback() {
 
 function getVerifiedFallbackPractice(section, questionCount, topic) {
   if (section === 'rc') return getVerifiedRCFallback();
-  if (section === 'dilr') return null;
   if (section === 'qa' && normalizePracticeTopicName(topic) === 'percentages' && (questionCount || 3) <= 3) return getVerifiedPercentagesFallback();
   if (section === 'qa' && topic) return null;
   if (section === 'qa' && (questionCount || 3) <= 3) {
@@ -10197,13 +10236,24 @@ function getVerifiedFallbackPractice(section, questionCount, topic) {
       { topic:'Algebra', q:'For a positive real number x, x + 1/x = 3. What is x^5 + 1/x^5?', options:['A. 99','B. 111','C. 123','D. 135'], correct:2, solution:'With Sₙ=xⁿ+x⁻ⁿ, Sₙ=3Sₙ₋₁−Sₙ₋₂. From S₀=2,S₁=3, obtain S₅=123.', common_mistake:'Expanding the fifth power directly', concept_check:'Algebraic recurrence', marg_insight:'Recognition of a recurrence is the speed-saving insight.' }
     ] };
   }
-  if (section === 'dilr' && (questionCount || 4) <= 4) {
-    return { sets:[{ set_title:'Six Presentations', difficulty:'Medium-Hard', constraint_types:['Sequencing','Conditional ordering'], setup:'Six people A, B, C, D, E and F give one presentation each in six consecutive slots. C presents immediately after A. B presents before D. E and F are not in consecutive slots. Exactly one of B and E presents before A. F presents before C.', questions:[
-      { q:'Which of the following must be true?', options:['A. B presents before F','B. F presents before A','C. D presents after E','D. E presents last'], correct:1, explanation:'Since C is immediately after A and F is before C, F cannot fit between A and C and must be before A.', common_mistake:'Treating “before C” as allowing the occupied slot after A', marg_insight:'Use the fixed AC block before testing the other constraints.' },
-      { q:'Which of the following is the complete set of slots in which D can present?', options:['A. {2,3,5}','B. {2,3,5,6}','C. {3,4,5,6}','D. {2,4,5,6}'], correct:1, explanation:'Enumerating placements around the AC block gives D in slots 2, 3, 5 or 6, and each is feasible.', common_mistake:'Eliminating slot 2 without testing B in slot 1', marg_insight:'Track feasible slots across cases instead of committing to one arrangement.' },
-      { q:'If E presents in slot 6, which person must present in slot 3?', options:['A. A','B. B','C. D','D. F'], correct:0, explanation:'With E last, the only feasible orders are BFACDE and FBACDE, so A is third.', common_mistake:'Ignoring the exactly-one-of-B-and-E condition', marg_insight:'A local condition can collapse several cases at once.' },
-      { q:'If D presents immediately before A, how many complete schedules are possible?', options:['A. 1','B. 2','C. 3','D. 4'], correct:2, explanation:'The feasible schedules are BDFACE, BFDACE and FBDACE.', common_mistake:'Counting a schedule where E and F are consecutive', marg_insight:'Re-check every global constraint after adding the hypothetical.' }
-    ] }] };
+  if (section === 'dilr' && (questionCount || 4) <= 4 && (!topic || /arrangement|ranking|scheduling|allocation|mixed/i.test(topic))) {
+    // This set and all four keys are enumerated in the regression suite. It is
+    // the safe instant fallback for the two matching topic families only; a
+    // Routes/DI/Venn request must never be silently replaced by seating.
+    return { sets:[{
+      set_title:'Eight Workshop Schedule',
+      difficulty:'Hard',
+      estimated_solve_minutes:16,
+      constraint_types:['Scheduling & Allocation','Conditional sequencing'],
+      derived_constraints:['B must occupy slot 1','A can occupy only slots 2, 3 or 4','G can occupy only slots 5, 6 or 7'],
+      setup:'Eight workshops A, B, C, D, E, F, G and H are scheduled in eight consecutive slots, numbered 1 to 8, with exactly one workshop in each slot. C is scheduled immediately after A. H is scheduled exactly three slots after D. B is earlier than E, while F is later than C. G is in neither the first nor the last slot. Exactly one of B and G is earlier than A. E and F are not in consecutive slots. If D is earlier than B, then G is later than E. A is in neither slot 1 nor slot 5. All references to “earlier” and “later” are strict, and no two workshops share a slot. Use all these conditions together; no additional ordering relation may be assumed.',
+      questions:[
+        { q:'Which of the following must be true in every valid schedule?', reasoning_type:'must-cannot', options:['A. B is in slot 1','B. D is in slot 2','C. E is later than H','D. F is in slot 8'], correct:0, explanation:'The B-after-A branch contradicts the AC block, DH gap, F-after-C and E-F separation. The remaining 13 schedules all place B first.', common_mistake:'Committing to one AC position before testing the exact-one condition', marg_insight:'Use the conditional branches to find what survives every case.' },
+        { q:'How many complete schedules satisfy all the conditions?', reasoning_type:'case-count', options:['A. 10','B. 11','C. 12','D. 13'], correct:3, explanation:'After B is fixed first, AC beginning in slots 2, 3 and 4 yields 8, 4 and 1 schedules respectively: 8 + 4 + 1 = 13.', common_mistake:'Counting a schedule with E and F adjacent', marg_insight:'Split on the fixed block, then count only after applying the global exclusions.' },
+        { q:'What is the maximum possible number of workshops scheduled between E and F?', reasoning_type:'optimization', options:['A. 2','B. 3','C. 4','D. 5'], correct:3, explanation:'The schedule BEDACHGF is valid and places five workshops between E and F. Eight slots cannot permit a larger separation.', common_mistake:'Assuming the non-consecutive rule limits the pair to a small gap', marg_insight:'For a maximum, establish a bound and then exhibit one feasible schedule.' },
+        { q:'If D is in slot 2, which of the following must be true?', reasoning_type:'local-hypothetical', options:['A. E is in slot 8','B. F is in slot 6','C. G is in slot 7','D. A is in slot 2'], correct:2, explanation:'D in slot 2 forces H in slot 5 and AC into slots 3-4. The two feasible schedules are BDACHEGF and BDACHFGE, both with G in slot 7.', common_mistake:'Applying the added condition without rebuilding the DH and AC blocks', marg_insight:'A local hypothetical should trigger a fresh reduced case set.' }
+      ]
+    }] };
   }
   if (section === 'rc') {
     return { sets:[{ difficulty:'Medium-Hard', topic:'Measurement and institutions', passage:'Public indicators are often treated as passive descriptions of social reality. A ranking of universities, a measure of hospital efficiency, or a national index of innovation appears merely to condense facts that already exist. Yet once such an indicator becomes consequential, the institutions being measured reorganise themselves around it. Universities redirect effort toward countable publications; hospitals may prefer cases that protect reported outcomes; governments fund activities that move an index even when those activities are only weakly connected to the index’s stated purpose.\n\nThis does not make measurement useless. Decisions made without common measures can be opaque, inconsistent and vulnerable to private judgment. The problem is instead that an indicator participates in the world it claims only to observe. Its categories reward some forms of work, render others invisible, and encourage people to substitute success on the measure for success in the underlying activity. Better statistical design can reduce these distortions, but cannot eliminate them, because every measure selects a limited representation of a more complex goal.\n\nThe appropriate response is therefore neither blind trust nor abandonment. Indicators should be treated as institutional interventions whose effects require scrutiny. A useful measure is not merely accurate at the moment of construction; it must also remain informative after people begin adapting to it. That requires revising measures, comparing them with qualitative evidence, and asking who bears the cost when organisations optimise what can be counted.', questions:[
@@ -10324,7 +10374,21 @@ function normalizePracticeAnswers(data, type) {
       if (setObj && Array.isArray(setObj.questions)) setObj.questions.forEach(normalizeCorrectIndex);
     });
   }
+  normalizeGeneratedGrammar(data);
   return normalizeSolutionPresentation(data, type);
+}
+
+function normalizeGeneratedGrammar(value) {
+  if (!value || typeof value !== 'object') return value;
+  Object.keys(value).forEach(function(key) {
+    if (typeof value[key] === 'string') {
+      // A narrow deterministic repair for an error repeatedly seen in
+      // generated QA stems. Avoid a broad a/an rule because English words such
+      // as “university” and “one” do not follow their first letter.
+      value[key] = value[key].replace(/\bA auditorium\b/g, 'An auditorium').replace(/\ba auditorium\b/g, 'an auditorium');
+    } else if (value[key] && typeof value[key] === 'object') normalizeGeneratedGrammar(value[key]);
+  });
+  return value;
 }
 
 async function repairGeneratedSolutionPresentation(section, generatedData, expectedTopic) {
@@ -11087,6 +11151,24 @@ async function loadDailyPractice() {
   practiceLoadTarget = loadTarget;
   var mySeq = ++practiceLoadSeq;
 
+  // For the topic families where Marg has a locally enumerated hard DILR set,
+  // serve it immediately. This removes the generate→audit wait and guarantees
+  // that a student never receives an unaudited free-form puzzle.
+  if (currentPracticeType === 'dilr') {
+    var instantVerifiedDILR = getVerifiedFallbackPractice('dilr', 4, selectedPracticeTopic);
+    if (instantVerifiedDILR && validateDILRPracticeSet(instantVerifiedDILR)) {
+      practiceLoadInFlight = false;
+      practiceData.dilr = instantVerifiedDILR;
+      storeActiveGeneratedExercise({ type:'dilr', source:'verified-practice-bank', title:(selectedPracticeTopic || 'Mixed DILR') + ' verified practice', purpose:'Hard CAT practice with an enumerated feasible-case bank and verified answer keys', content:instantVerifiedDILR });
+      currentSetIndex = 0;
+      currentQuestionIndex = 0;
+      practiceAnswered = false;
+      practiceSessionCounted = false;
+      renderPractice(instantVerifiedDILR);
+      return;
+    }
+  }
+
   var typeName = currentPracticeType === 'rc' ? 'RC' : currentPracticeType === 'dilr' ? 'DILR' : 'QA';
   content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is generating today\'s personalised ' + typeName + ' practice based on your profile...</div></div>';
 
@@ -11095,7 +11177,7 @@ async function loadDailyPractice() {
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
   else prompt = buildQAPrompt(selectedPracticeTopic);
 
-  var maxTokens = currentPracticeType === 'dilr' ? 20480 : currentPracticeType === 'rc' ? 16384 : 12288;
+  var maxTokens = currentPracticeType === 'dilr' ? 12288 : currentPracticeType === 'rc' ? 8192 : 6144;
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
@@ -11107,7 +11189,7 @@ async function loadDailyPractice() {
         maxTokens,
         'application/json'
       ))
-    }, 120000);
+    }, currentPracticeType === 'dilr' ? 80000 : currentPracticeType === 'rc' ? 65000 : 50000);
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
@@ -11669,9 +11751,21 @@ function showInsightToast(message) {
   if (!toast || !text) return;
   text.innerHTML = message;
   toast.classList.add('show');
-  setTimeout(function() {
+  if (window._margInsightToastTimer) clearTimeout(window._margInsightToastTimer);
+  window._margInsightToastTimer = setTimeout(function() {
     toast.classList.remove('show');
+    text.innerHTML = '';
+    window._margInsightToastTimer = null;
   }, 3500);
+}
+
+function clearInsightToast() {
+  var toast = document.getElementById('insight-toast');
+  var text = document.getElementById('toast-text');
+  if (window._margInsightToastTimer) clearTimeout(window._margInsightToastTimer);
+  window._margInsightToastTimer = null;
+  if (toast) toast.classList.remove('show');
+  if (text) text.innerHTML = '';
 }
 function getTodayPracticeKey(type) {
   return 'marg_practice_done_' + type + '_' + getTodayDate();
