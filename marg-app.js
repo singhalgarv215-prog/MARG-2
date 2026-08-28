@@ -2536,10 +2536,10 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     throw cooldownError;
   }
   var controller = new AbortController();
-  // The caller owns the timeout budget. Long generation call sites already pass
-  // 120-240 seconds; ordinary chat really must stop at its requested 45 seconds.
+  // The caller owns the timeout budget. Ordinary mentor chat now allows 60
+  // seconds; larger generation flows pass their own longer budgets.
   var requestedTimeout = Number(timeoutMs);
-  var effectiveTimeout = Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? requestedTimeout : 45000;
+  var effectiveTimeout = Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? requestedTimeout : 60000;
   var timeoutId = setTimeout(function() { controller.abort(); }, effectiveTimeout);
   try {
     var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
@@ -2583,7 +2583,7 @@ function isGeminiServiceError(error) {
 }
 
 function getGeminiErrorMessage(error) {
-  if (error && error.name === 'AbortError') return 'Marg took too long to respond. Your message is safe—please try it once more.';
+  if (error && error.name === 'AbortError') return 'Marg took too long to respond. Your message is still above—please try it once more.';
   var status = Number(error && error.status) || 0;
   if (status === 429) return 'Marg is handling unusually high demand. Please wait a moment before trying again.';
   if (status === 503) return 'Marg is temporarily overloaded. Please wait a moment before trying again.';
@@ -2592,6 +2592,17 @@ function getGeminiErrorMessage(error) {
   if (status >= 500) return 'Marg’s connection failed temporarily. Please try once more in a moment.';
   if (error && error.name === 'GeminiEmptyResponseError') return 'Marg received no usable answer for this request. Please try once more.';
   return 'Marg could not complete that request. Please try once more.';
+}
+
+function showGeminiServiceFailure(error) {
+  var serviceMessage = getGeminiErrorMessage(error);
+  addMessage('marg', serviceMessage);
+  // The full error already exists as a chat turn. Repeating the same sentence
+  // under the composer made one timeout look like two separate failures.
+  var composerMessage = 'The chat is ready for one retry.';
+  if (error && error.requestId) composerMessage += ' Reference: ' + error.requestId;
+  showComposerStatus(composerMessage, 'error', true);
+  return serviceMessage;
 }
 
 function normalizeGeminiInlineImagePart(part) {
@@ -2780,9 +2791,10 @@ function cleanHistory(history) {
     var previous = list[index - 1];
     return !(previous && previous.role === 'assistant' && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
   });
-  // Long raw transcripts slow every response. Durable summaries, diagnostic
-  // memory, progression and active-exercise memory are supplied separately.
-  return cleanedHistory.length > 24 ? cleanedHistory.slice(-24) : cleanedHistory;
+  // Long raw transcripts slow every response. Durable diagnostic, progression,
+  // exercise and plan memory are supplied separately, so 16 recent turns keep
+  // conversational continuity without resending the same session repeatedly.
+  return cleanedHistory.length > 16 ? cleanedHistory.slice(-16) : cleanedHistory;
 }
 
 let currentUser = null;
@@ -6868,6 +6880,14 @@ function getMentorResponseMaxTokens(diagnosis) {
   return 4096;
 }
 
+function getMentorRequestTimeout(diagnosis, useWebGrounding) {
+  if (diagnosis && diagnosis.comprehensivePlanning) return 90000;
+  if (useWebGrounding || diagnosis && (diagnosis.hasImage || diagnosis.intent === 'answer_review' || diagnosis.intent === 'planning')) return 75000;
+  // Forty-five seconds was producing false failures even when Gemini was still
+  // completing an otherwise healthy short mentor response.
+  return 60000;
+}
+
 function buildMentorFallbackReply(diagnosis) {
   if (!diagnosis) return 'My read is that the visible problem is not the whole problem. Start with the last concrete question or set that went wrong and look for the decision that caused it.';
   if (diagnosis.intent === 'answer_review') return activeGeneratedExercise ? 'I still have the exercise and your submitted choices, but the answer check did not finish loading. Your passage is not lost—retry the same message and I will check it directly.' : 'I cannot find a reliable active exercise in memory, so I will not invent an answer key. Paste only your choices and the question numbers you want checked.';
@@ -7367,7 +7387,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
 
   try {
     var mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
-    var mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : useWebGrounding || mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
+    var mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
     var conversationalRequestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage);
     if (useWebGrounding) conversationalRequestHistory = trimHistoryForGroundedRequest(conversationalRequestHistory);
     var mentorRequest = buildGeminiRequest(
@@ -7438,9 +7458,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   } catch(e) {
     hideTyping();
     if (isGeminiServiceError(e)) {
-      var serviceMessage = getGeminiErrorMessage(e);
-      addMessage('marg', serviceMessage);
-      showComposerStatus(serviceMessage + (e.requestId ? ' Reference: ' + e.requestId : ''), 'error', true);
+      showGeminiServiceFailure(e);
       await maybeScheduleChatGroundedReminder(userMessage, context);
       return false;
     }
@@ -8217,7 +8235,9 @@ async function sendMessage(fromQueue, submissionOptions) {
   }
   const useWebGrounding = shouldUseWebGrounding(text, mentorAnalysis.diagnosis);
   showTyping(text, mentorAnalysis.diagnosis, useWebGrounding);
-  profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
+  // Recent turns are already supplied in requestHistory. Do not duplicate them
+  // inside the system instruction on every authenticated chat request.
+  profileContext = getDateContext() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
     (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
     (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
     (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
@@ -8232,7 +8252,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     activitySummary + getDiagnosticMemoryContext() + (pendingExternalQuestionTurnMode ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
-    const mentorTimeout = mentorAnalysis.diagnosis.comprehensivePlanning ? 90000 : useWebGrounding || mentorAnalysis.diagnosis.hasImage || mentorAnalysis.diagnosis.intent === 'answer_review' || mentorAnalysis.diagnosis.intent === 'planning' ? 75000 : 45000;
+    const mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
     let requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, text);
     if (useWebGrounding) requestHistory = trimHistoryForGroundedRequest(requestHistory);
     const mentorRequest = buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens);
@@ -8275,9 +8295,7 @@ async function sendMessage(fromQueue, submissionOptions) {
   } catch (e) {
     hideTyping();
     if (isGeminiServiceError(e)) {
-      var serviceMessage = getGeminiErrorMessage(e);
-      addMessage('marg', serviceMessage);
-      showComposerStatus(serviceMessage + (e.requestId ? ' Reference: ' + e.requestId : ''), 'error', true);
+      showGeminiServiceFailure(e);
       if (homepageIntentForSend && typeof failHomepageIntent === 'function') failHomepageIntent(homepageIntentForSend, e);
       return;
     }
@@ -10288,7 +10306,7 @@ function buildRCPrompt() {
       recentMistakes = 'Recent specific mistakes to target: ' + rcMistakes.map(function(m) { return m.insight; }).join('; ') + '. Generate questions that specifically expose and help fix these exact mistakes.';
     }
   }
-  return 'Generate exactly 1 CAT-level RC passage with exactly 3 questions. ' + focusArea + recentMistakes + ' PASSAGE LENGTH IS NON-NEGOTIABLE: the passage alone must contain 480-550 words. Count the words before returning; if it is below 480 or above 550, rewrite it. Do not count questions, options or metadata. Use a topic from Philosophy, Economics, Science, Technology, Social Issues, Environment, History, Culture, or Psychology. Write with the density of a real CAT RC passage: academic or serious opinion writing, not explainer prose or a story. Build one central thesis, a counter-consideration or qualification, and at least one subtle shift in the author\'s position. Use layered sentence structure and precise subject-appropriate vocabulary. A skim must not be enough.' + RC_CALIBRATION_EXAMPLE + ' Structure the passage as 4 distinct paragraphs separated by \\n\\n inside the JSON string. The 3 questions must test Primary Purpose, Author Attitude, and Inference. Every question needs four distinct options; at least two should look plausible, while wrong options use controlled traps such as overstatement, scope shift, partial truth, causal reversal, or confusing the author\'s view with a view discussed in the passage. Independently verify the answer key before responding. Keep each explanation to one or two short sentences. Return ONLY valid JSON, no markdown, exactly this shape with exactly 1 object in the sets array: {"sets":[{"passage":"480-550 word text with \\n\\n between four paragraphs","difficulty":"Medium-Hard or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"one or two short sentences","trap_type":"short trap label","marg_insight":"one short sentence"}]}]}';
+  return 'Generate exactly 1 CAT-level RC passage with exactly 3 questions. ' + focusArea + recentMistakes + ' PASSAGE LENGTH IS NON-NEGOTIABLE: the passage alone must contain 480-550 words. Count the words before returning; if it is below 480 or above 550, rewrite it. Do not count questions, options or metadata. Use a topic from Philosophy, Economics, Science, Technology, Social Issues, Environment, History, Culture, or Psychology. Write with the density of a real CAT RC passage: academic or serious opinion writing, not explainer prose or a story. Build one central thesis, a counter-consideration or qualification, and at least one subtle shift in the author\'s position. Use layered sentence structure and precise subject-appropriate vocabulary. A skim must not be enough.' + RC_CALIBRATION_EXAMPLE + ' Structure the passage as 4 distinct paragraphs separated by \\n\\n inside the JSON string. The 3 questions must test Primary Purpose, Author Attitude, and Inference. Every question needs four distinct options; at least two should look plausible, while wrong options use controlled traps such as overstatement, scope shift, partial truth, causal reversal, or confusing the author\'s view with a view discussed in the passage. Independently verify the answer key before responding. Use only claims stated in or necessarily implied by the passage. Keep each explanation to one or two short sentences. For every question include a private sufficiency_check explaining why the passage alone is enough and an option_check confirming why exactly one option survives; these fields are validation evidence and are not shown to the student. Return ONLY valid JSON, no markdown, exactly this shape with exactly 1 object in the sets array: {"sets":[{"passage":"480-550 word text with \\n\\n between four paragraphs","difficulty":"Medium-Hard or Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"one or two short sentences","sufficiency_check":"why the passage fully determines the answer","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one short sentence"}]}]}';
 }
 
 function buildDILRPrompt(topic) {
@@ -10305,7 +10323,7 @@ function buildDILRPrompt(topic) {
   }
   var topicLine = topic ? 'The set must center on ' + topic + ' and may blend a secondary data representation where it arises naturally. ' : 'Choose one CAT-relevant family from arrangements/rankings, scheduling/allocation, distribution/grouping, games/tournaments, routes/networks, tables/charts/caselets, or Venn/set data. Prefer a genuine DI-LR hybrid rather than a routine pure arrangement puzzle. ';
   var dilrPyqMap = ' PYQ-INFORMED DESIGN MAP: reproduce the reasoning character of CAT DILR PYQs without copying, paraphrasing, or changing only names/numbers. Real CAT sets are compact but data-rich; require choosing a useful table, grid, graph, cases or variables; make several constraints interact; and usually have a decisive inference that is not stated directly. Use 5-8 entities or a comparably rich data table. Include quantitative relationships where natural—totals, percentages, ratios, capacities, scores, ranks, distances or counts—so DI and LR reinforce each other. Avoid school-level blood-relation chains, a simple row of people with direct positions, one-clue-one-cell grids, standalone arithmetic tables, and trivia-like data sufficiency.';
-  return 'Generate exactly 1 complete CAT-level DILR set with exactly 4 questions. ' + topicLine + focusArea + recentMistakes + dilrPyqMap + ' DIFFICULTY: HARD, never easy or routine; a prepared CAT student should need roughly 14-18 minutes. SET CONSTRUCTION: use 7-9 entities or equivalent data density and 7-10 meaningful constraints. At least three deductions must emerge only by combining multiple constraints. The initial information must permit multiple cases until a non-obvious deduction, bound, conservation relationship, or conditional split narrows them. A direct one-clue-one-placement arrangement is forbidden. Do not make difficulty through long prose, ambiguity, exhaustive brute force or excessive arithmetic. Every condition must be necessary and the complete set must be feasible. QUESTION CONSTRUCTION: use four distinct reasoning types chosen from must/cannot be true, number of feasible cases, maximum/minimum or exact value requiring optimization, and a local hypothetical that forces re-deduction. No question may be a direct lookup after the base representation is completed.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently enumerate or logically verify all feasible cases; solve every question without trusting the first answer; confirm four distinct options, exactly one correct option, the correct zero-based index and an explanation that reaches it. List three genuine derived constraints in derived_constraints; these must be deductions, not restatements of clues. Silently repair or replace any inconsistent, ambiguous, underdetermined or trivial set. Keep setup precise and between 120 and 300 words. Keep explanation to 1-2 compact but verifiable sentences and each diagnostic field to one short phrase. Return ONLY valid parseable JSON, no markdown, exactly this shape with exactly 1 set object and 4 question objects: {"sets":[{"set_title":"specific descriptive title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["primary structure","secondary structure or data type"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete self-contained set with all data and constraints","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"1-2 compact verifiable sentences","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
+  return 'Generate exactly 1 complete CAT-level DILR set with exactly 4 questions. ' + topicLine + focusArea + recentMistakes + dilrPyqMap + ' DIFFICULTY: HARD, never easy or routine; a prepared CAT student should need roughly 14-18 minutes. SET CONSTRUCTION: use 7-9 entities or equivalent data density and 7-10 meaningful constraints. At least three deductions must emerge only by combining multiple constraints. The initial information must permit multiple cases until a non-obvious deduction, bound, conservation relationship, or conditional split narrows them. A direct one-clue-one-placement arrangement is forbidden. Do not make difficulty through long prose, ambiguity, exhaustive brute force or excessive arithmetic. Every condition must be necessary and the complete set must be feasible. QUESTION CONSTRUCTION: use four distinct reasoning types chosen from must/cannot be true, number of feasible cases, maximum/minimum or exact value requiring optimization, and a local hypothetical that forces re-deduction. No question may be a direct lookup after the base representation is completed.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: enumerate every feasible base case using only the written setup; never use an unstated assumption, convention or relationship. Solve every question without trusting the first answer; confirm four distinct options, exactly one correct option, the correct zero-based index and an explanation that reaches it. List three genuine derived constraints in derived_constraints; these must be deductions, not restatements of clues. For every question include a private sufficiency_check explaining why the setup fully determines the answer and an option_check confirming why exactly one option survives. Silently repair or replace any inconsistent, ambiguous, underdetermined or trivial set. Keep setup precise and between 120 and 300 words. Keep explanation to 1-2 compact but verifiable sentences and each diagnostic field to one short phrase. Return ONLY valid parseable JSON, no markdown, exactly this shape with exactly 1 set object and 4 question objects: {"sets":[{"set_title":"specific descriptive title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["primary structure","secondary structure or data type"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete self-contained set with all data and constraints","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"1-2 compact verifiable sentences","sufficiency_check":"why the written setup is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
 }
 
 function validateDILRPracticeSet(data, expectedSetCount) {
@@ -10351,7 +10369,34 @@ function buildQAPrompt(topic) {
   }
   var topicLine = topic ? 'TOPIC LOCK: every one of the 3 questions must have the exact primary topic "' + topic + '". Do not generate a standalone Geometry, Algebra, Number Systems, or other-topic question. A secondary technique may appear only inside a question whose central tested idea remains ' + topic + '. The question statement and solution must visibly demonstrate why ' + topic + ' is the central mathematical concept; writing the topic only in metadata is not compliance. Set every question\'s topic field exactly to "' + topic + '" and set topics_combined to ["' + topic + '"] only. ' : 'Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics, but never force a pairing merely to make it look difficult. Give every question an explicit primary topic field. ';
   var pyqDesignMap = ' PYQ-INFORMED DESIGN MAP: Match the reasoning character of recent CAT QA without copying, paraphrasing, or merely changing numbers in any past question. Draw from recurring structures such as ratios hidden inside percentage language; averages or mixtures with a conservation constraint; time-work or time-speed problems requiring relative rates; integer, remainder, digit or divisibility restrictions; algebra where the useful substitution must be discovered; and geometry where similarity, area ratios or a construction reveals the route. Create original situations and relationships. Across the set include 1 medium, 1 medium-hard and 1 hard question; at least one must reward a short non-obvious insight rather than lengthy calculation; and no two questions may share the same solution skeleton.';
-  return 'Generate exactly 3 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + pyqDesignMap + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Use clean student-facing English and verify articles such as a/an; never write "a auditorium".' + QA_STRUCTURAL_REQUIREMENTS + ' Aim for the difficulty where a prepared student still needs roughly 90-180 seconds because the representation or insight is not immediately obvious. Wrong options should be believable results of identifiable reasoning errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT before responding: independently solve every question without trusting your first answer; verify the data are consistent, every condition is necessary, exactly one of the four options is correct, the correct index matches that option, and the written solution reaches it. If a topic lock is present, reject and replace any question whose central tested concept is not that exact topic. Keep "solution" to 2-4 compact steps and include enough working to verify the answer. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with exactly 3 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1"],"questions":[{"topic":"exact primary topic","q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-4 verifiable steps","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
+  return 'Generate exactly 3 genuinely CAT-difficulty QA questions — not textbook or school-level. ' + topicLine + focusArea + recentMistakes + pyqDesignMap + ' Hard requirement: no direct single-step equations (never something like "3x + 7 = 22, find x"). Use clean student-facing English and verify articles such as a/an; never write "a auditorium".' + QA_STRUCTURAL_REQUIREMENTS + ' Aim for the difficulty where a prepared student still needs roughly 90-180 seconds because the representation or insight is not immediately obvious. Wrong options should be believable results of identifiable reasoning errors, not random numbers.' + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT before responding: solve every question using only information present in its stem. Any value, relationship, diagram property or convention used by the solution must be stated or necessarily derived; if an unstated assumption is needed, discard the question. Verify the data are consistent, every condition is necessary, exactly one of the four options is correct, the correct index matches that option, and the written solution reaches it. If a topic lock is present, reject and replace any question whose central tested concept is not that exact topic. For each question add a private sufficiency_check naming why the given data determine one answer and an option_check that substitutes or eliminates all four options; these fields are validation evidence and are never shown to the student. Keep "solution" to 2-4 compact steps and include enough working to verify the answer. Keep "common_mistake", "concept_check" and "marg_insight" to one short sentence each. Return ONLY valid JSON, no markdown, exactly this shape with exactly 3 objects in the questions array: {"difficulty":"Mixed","topics_combined":["Topic1"],"questions":[{"topic":"exact primary topic","q":"full question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"2-4 verifiable steps","sufficiency_check":"why no information is missing","option_check":"why exactly one option is correct","common_mistake":"one short sentence","concept_check":"one short phrase","marg_insight":"one short sentence"}]}';
+}
+
+function collectGeneratedPracticeCompletenessIssues(data, section) {
+  var issues = [];
+  var questions = [];
+  if (section === 'qa') questions = data && Array.isArray(data.questions) ? data.questions : [];
+  else (data && Array.isArray(data.sets) ? data.sets : []).forEach(function(setObj, setIndex) {
+    (setObj && Array.isArray(setObj.questions) ? setObj.questions : []).forEach(function(question, questionIndex) {
+      questions.push(Object.assign({ _path:'sets[' + setIndex + '].questions[' + questionIndex + ']' }, question));
+    });
+  });
+  questions.forEach(function(question, index) {
+    var path = question._path || 'questions[' + index + ']';
+    var stem = String(question.q || '').trim();
+    var solution = String(question.solution || question.explanation || '').trim();
+    var sufficiency = String(question.sufficiency_check || '').trim();
+    var optionCheck = String(question.option_check || '').trim();
+    if (stem.length < 28 || /(?:\.{3}|\[\s*(?:data|value|number|condition)\s*\]|\bTBD\b|information (?:is|was) not (?:given|provided)|cannot be determined|insufficient data)/i.test(stem)) issues.push(path + ' has an incomplete question statement');
+    if (solution.length < 24 || /\b(?:assuming|if we assume|suppose without loss|not enough information|insufficient data|cannot be determined from|depends on an unstated)\b/i.test(solution)) issues.push(path + ' uses an unstated assumption or has an incomplete solution');
+    if (sufficiency.length < 18 || /\b(?:assum|missing|insufficient|cannot determine|not given)\b/i.test(sufficiency)) issues.push(path + ' has no credible data-sufficiency check');
+    if (optionCheck.length < 24 || !/(?:exactly one|only|eliminat|substitut|option|choice|A\b|B\b|C\b|D\b)/i.test(optionCheck)) issues.push(path + ' has no credible unique-option check');
+  });
+  return issues;
+}
+
+function validateGeneratedPracticeCompleteness(data, section) {
+  return collectGeneratedPracticeCompletenessIssues(data, section).length === 0;
 }
 
 function validateQASetShape(data, expectedTopic, expectedCount) {
@@ -10486,7 +10531,7 @@ function preventStructuredOutputLeak(text) {
   return raw;
 }
 
-async function auditGeneratedCATContent(section, generatedData, expectedTopic, knownPresentationIssues) {
+async function auditGeneratedCATContent(section, generatedData, expectedTopic, knownPresentationIssues, auditOptions) {
   var topicAudit = section === 'qa' && expectedTopic ? ' TOPIC PURITY: every question must centrally test exactly "' + expectedTopic + '" and carry that exact topic field; using an unrelated Geometry, Algebra, Number Systems or other question is an automatic failure.' : '';
   var levelAudit = section === 'rc'
     ? ' RC LENGTH AND LEVEL: independently count passage words; 450-550 is mandatory. Reject shorter passages, direct retrieval questions, weak distractors, or fewer than three paragraphs.'
@@ -10497,19 +10542,21 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
   var knownFailure = knownPresentationIssues && knownPresentationIssues.length
     ? ' KNOWN PRESENTATION FAILURES: ' + knownPresentationIssues.join('; ') + '. You MUST return valid:false with complete corrected_data; valid:true is forbidden for this audit.'
     : '';
-  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. Check that every condition is mutually consistent and sufficient, every question is answerable, exactly one option is correct, the stored correct index points to that option, and the explanation/solution actually reaches it.' + topicAudit + levelAudit + presentationAudit + knownFailure + ' If everything passes, return ONLY {"valid":true,"issues":[]}. If anything fails, repair only the faulty items while preserving the exact schema and item count, independently re-solve the repairs, and return ONLY {"valid":false,"issues":["specific issue"],"corrected_data":<the complete corrected material>}. Never return prose or markdown.\n\nMATERIAL:\n' + JSON.stringify(generatedData);
+  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. DATA COMPLETENESS IS MANDATORY: solve from the student-visible question/setup alone. Reject any item whose solution imports a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple feasible answers exist even if only one happens to appear in the options. Check that every condition is mutually consistent and sufficient, every question is answerable, exactly one option is correct, the stored correct index points to that option, and the explanation/solution actually reaches it. Verify that each sufficiency_check and option_check is specific and true, not generic assurance.' + topicAudit + levelAudit + presentationAudit + knownFailure + ' If everything passes, return ONLY {"valid":true,"issues":[]}. If anything fails, repair only the faulty items while preserving the exact schema and item count, independently re-solve the repairs, and return ONLY {"valid":false,"issues":["specific issue"],"corrected_data":<the complete corrected material>}. Never return prose or markdown.\n\nMATERIAL:\n' + JSON.stringify(generatedData);
   var setCount = generatedData && Array.isArray(generatedData.sets) ? generatedData.sets.length : 1;
-  var auditMaxTokens = section === 'dilr' ? Math.min(32768, 16384 + setCount * 5000) : section === 'rc' ? 16384 : 20480;
+  auditOptions = auditOptions || {};
+  var auditMaxTokens = Number(auditOptions.maxTokens) || (section === 'dilr' ? Math.min(32768, 16384 + setCount * 5000) : section === 'rc' ? 16384 : 20480);
+  var auditTimeout = Number(auditOptions.timeoutMs) || 120000;
   try {
     var auditResponse = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' },
       body:JSON.stringify(buildGeminiRequest(
-        'You are a strict CAT question-set auditor and repairer. A plausible-looking but flawed item must fail. When repairing, change the minimum necessary data, options, key, or explanation and verify the result. Return only valid JSON.' + getDateContext(),
+        'You are a strict CAT question-set auditor and repairer. A plausible-looking but flawed item must fail. Never infer missing data. When repairing, change the minimum necessary data, options, key, or explanation and verify the result. Return only valid JSON.',
         [{ role:'user', content:auditPrompt }],
         auditMaxTokens,
         'application/json'
       ))
-    }, 120000);
+    }, auditTimeout);
     if (!auditResponse.ok) return { valid:false, issues:['Audit service failed'] };
     var auditPayload = await auditResponse.json();
     var auditText = getGeminiText(auditPayload);
@@ -11431,22 +11478,25 @@ async function loadDailyPractice() {
   practiceLoadTarget = loadTarget;
   var mySeq = ++practiceLoadSeq;
 
-  // For the topic families where Marg has a locally enumerated hard DILR set,
-  // serve it immediately. This removes the generate→audit wait and guarantees
-  // that a student never receives an unaudited free-form puzzle.
-  if (currentPracticeType === 'dilr') {
-    var instantVerifiedDILR = getVerifiedFallbackPractice('dilr', 4, selectedPracticeTopic);
-    if (instantVerifiedDILR && validateDILRPracticeSet(instantVerifiedDILR)) {
-      practiceLoadInFlight = false;
-      practiceData.dilr = instantVerifiedDILR;
-      storeActiveGeneratedExercise({ type:'dilr', source:'verified-practice-bank', title:(selectedPracticeTopic || 'Mixed DILR') + ' verified practice', purpose:'Hard CAT practice with an enumerated feasible-case bank and verified answer keys', content:instantVerifiedDILR });
-      currentSetIndex = 0;
-      currentQuestionIndex = 0;
-      practiceAnswered = false;
-      practiceSessionCounted = false;
-      renderPractice(instantVerifiedDILR);
-      return;
-    }
+  // Never make a student wait for Gemini when an independently verified,
+  // topic-matched pack already exists locally. This currently covers RC,
+  // Percentages, Mixed QA and the enumerated DILR families.
+  var instantVerifiedPractice = getVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic);
+  var instantVerifiedValid = instantVerifiedPractice && (currentPracticeType === 'qa'
+    ? validateQASetShape(instantVerifiedPractice, selectedPracticeTopic, 3)
+    : currentPracticeType === 'dilr'
+      ? validateDILRPracticeSet(instantVerifiedPractice)
+      : validateRCPracticeSet(instantVerifiedPractice));
+  if (instantVerifiedValid) {
+    practiceLoadInFlight = false;
+    practiceData[currentPracticeType] = instantVerifiedPractice;
+    storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-bank', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Topic-matched CAT practice with verified statements and answer keys', content:instantVerifiedPractice });
+    currentSetIndex = 0;
+    currentQuestionIndex = 0;
+    practiceAnswered = false;
+    practiceSessionCounted = false;
+    renderPractice(instantVerifiedPractice);
+    return;
   }
 
   var typeName = currentPracticeType === 'rc' ? 'RC' : currentPracticeType === 'dilr' ? 'DILR' : 'QA';
@@ -11464,12 +11514,12 @@ async function loadDailyPractice() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildGeminiRequest(
-        'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
+        'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().',
         [{ role: 'user', content: prompt }],
         maxTokens,
         'application/json'
       ))
-    }, currentPracticeType === 'dilr' ? 80000 : currentPracticeType === 'rc' ? 65000 : 50000);
+    }, currentPracticeType === 'dilr' ? 60000 : currentPracticeType === 'rc' ? 45000 : 40000);
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
@@ -11485,36 +11535,38 @@ async function loadDailyPractice() {
       console.error('Practice JSON parse failed. Raw model output:', text);
       throw parseErr;
     }
-    if (currentPracticeType === 'qa' || currentPracticeType === 'dilr') {
-      practiceJson = await repairGeneratedSolutionPresentation(currentPracticeType, practiceJson, selectedPracticeTopic);
-    }
     var practiceHasContent = currentPracticeType === 'qa' ? (practiceJson.questions && practiceJson.questions.length > 0) : (practiceJson.sets && practiceJson.sets.length > 0);
     if (!practiceHasContent) {
       console.error('Practice parsed OK but yielded no questions/sets. Parsed shape:', practiceJson, 'Raw model output:', text);
       throw new Error('No questions generated');
     }
-    if (currentPracticeType === 'qa') {
-      if (!validateQASetShape(practiceJson, selectedPracticeTopic, 3)) throw new Error('Generated QA set failed structural or topic validation');
-    } else if (currentPracticeType === 'dilr') {
-      if (!validateDILRPracticeSet(practiceJson)) throw new Error('Generated DILR sets failed structural validation');
-    } else if (currentPracticeType === 'rc') {
-      if (!validateRCPracticeSet(practiceJson)) throw new Error('Generated RC set failed structural validation');
+    // Structural checks cannot detect a missing relationship or a solution that
+    // quietly assumes unstated information. Every live-generated RC, DILR and
+    // QA set now passes one independent solve-and-sufficiency audit before it is
+    // shown. Presentation and completeness failures share this same repair call
+    // so the user does not pay for two sequential audits.
+    var knownPracticeIssues = collectSolutionPresentationIssues(practiceJson, currentPracticeType)
+      .concat(collectGeneratedPracticeCompletenessIssues(practiceJson, currentPracticeType));
+    content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">The questions are ready. Marg is now checking that the given information leads to one complete answer...</div></div>';
+    var practiceAudit = await auditGeneratedCATContent(
+      currentPracticeType,
+      practiceJson,
+      selectedPracticeTopic,
+      knownPracticeIssues,
+      { timeoutMs:currentPracticeType === 'dilr' ? 75000 : 60000, maxTokens:currentPracticeType === 'dilr' ? 18432 : currentPracticeType === 'rc' ? 12288 : 12288 }
+    );
+    if (!practiceAudit.valid) {
+      console.error('Practice failed semantic audit:', practiceAudit.issues);
+      if (!practiceAudit.correctedData) throw new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
+      practiceJson = normalizePracticeAnswers(practiceAudit.correctedData, currentPracticeType);
     }
-    // QA and RC already require self-verification in the generation prompt and
-    // pass deterministic schema/topic/length checks above. DILR retains one
-    // independent semantic audit because interacting constraints are not
-    // reliably verifiable with shape checks alone. Never auto-regenerate: use
-    // an audited repair or the verified local fallback.
-    if (currentPracticeType === 'dilr') {
-      content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is checking every answer and condition before showing your practice...</div></div>';
-      var practiceAudit = await auditGeneratedCATContent(currentPracticeType, practiceJson, selectedPracticeTopic);
-      if (!practiceAudit.valid) {
-        console.error('Practice failed semantic audit:', practiceAudit.issues);
-        var repairedPractice = practiceAudit.correctedData;
-        var repairedValid = validateDILRPracticeSet(repairedPractice);
-        if (repairedValid) practiceJson = repairedPractice;
-        else throw new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
-      }
+    var finalPracticeValid = currentPracticeType === 'qa'
+      ? validateQASetShape(practiceJson, selectedPracticeTopic, 3)
+      : currentPracticeType === 'dilr'
+        ? validateDILRPracticeSet(practiceJson)
+        : validateRCPracticeSet(practiceJson);
+    if (!finalPracticeValid || !validateGeneratedPracticeCompleteness(practiceJson, currentPracticeType)) {
+      throw new Error('Generated practice remained incomplete or had no unique verified answer after audit');
     }
     practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
@@ -11546,7 +11598,11 @@ async function loadDailyPractice() {
       renderPractice(fallbackPractice);
       return;
     }
-    var errorMessage = isGeminiServiceError(e) ? getGeminiErrorMessage(e) : 'Having trouble generating practice right now. Try again in a moment.';
+    var errorMessage = e && e.name === 'AbortError'
+      ? 'This practice set did not finish its answer check in time, so Marg discarded it instead of showing incomplete questions.'
+      : isGeminiServiceError(e)
+        ? 'The practice service is busy right now. No unverified questions were shown.'
+        : 'This practice draft failed its completeness or answer check, so Marg discarded it.';
     content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
   }
 }
