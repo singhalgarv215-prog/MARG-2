@@ -5510,6 +5510,70 @@ function loadPendingDiagnosticExercise() {
   return pendingDiagnosticExercise;
 }
 
+function deferredTimingFollowUpKey(entry) {
+  var identity = entry && (entry.updatedAt || entry.patternId || entry.topic) || 'general';
+  return getUserScopedKey('marg_deferred_timing_follow_up_' + String(identity).replace(/[^a-z0-9_-]+/gi, '_'));
+}
+
+function getOtherSectionPulse(entry) {
+  var topic = entry && entry.topic || 'general';
+  if (topic === 'varc') return {
+    question:'While the RC check waits, which of the other two sections feels less predictable right now?',
+    options:['DILR', 'QA', 'Both feel manageable']
+  };
+  if (topic === 'dilr') return {
+    question:'While the DILR check waits, which of the other two sections feels less predictable right now?',
+    options:['VARC', 'QA', 'Both feel manageable']
+  };
+  if (topic === 'qa') return {
+    question:'While the QA check waits, which of the other two sections feels less predictable right now?',
+    options:['VARC', 'DILR', 'Both feel manageable']
+  };
+  return {
+    question:'One quick thing before you go—which section currently feels least predictable?',
+    options:['VARC', 'DILR', 'QA']
+  };
+}
+
+function buildDeferredTimingFollowUp(entry) {
+  var key = deferredTimingFollowUpKey(entry);
+  try { if (localStorage.getItem(key) === '1') return null; } catch(e) {}
+  var memory = loadProgressiveProfileMemory();
+  var firstName = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name
+    ? String(currentUser.user_metadata.full_name).trim().split(/\s+/)[0]
+    : '';
+  var followUp;
+  if (!memory.attemptNumber && !memory.followUps.attemptNumber && !memory.awaitingField) {
+    var question = (firstName ? firstName + ', one thing' : 'One thing') + ' will help me read this pattern properly: is this your first CAT attempt, second, or third/later?';
+    followUp = {
+      question:question,
+      options:['First attempt', 'Second attempt', 'Third or later'],
+      context:'profile_attempt'
+    };
+    markProgressiveProfileFollowUpIfAsked(question + '\n[OPTIONS: First attempt|Second attempt|Third or later][CONTEXT: profile_attempt]');
+  } else {
+    var pulse = getOtherSectionPulse(entry);
+    followUp = { question:pulse.question, options:pulse.options, context:'deferred_section_pulse' };
+  }
+  try { localStorage.setItem(key, '1'); } catch(e) {}
+  return followUp;
+}
+
+function buildDeferredAttemptContinuation(answer, entry) {
+  var normalized = String(answer || '').toLowerCase();
+  var topic = entry && entry.topic ? String(entry.topic).toUpperCase() : 'CAT';
+  var opening;
+  if (/first/.test(normalized)) {
+    opening = 'First attempt helps: I won\'t treat this as an old exam habit. The saved ' + topic + ' check will show whether this is a current decision pattern.';
+  } else if (/second/.test(normalized)) {
+    opening = 'Second attempt changes the read slightly. We should check whether this pattern survived your earlier preparation instead of assuming the section itself is weak.';
+  } else {
+    opening = 'With multiple attempts, the useful question is not whether you have studied this before. It is which decision habit has survived the preparation—and the saved check is built to expose that.';
+  }
+  var pulse = getOtherSectionPulse(entry);
+  return { text:opening + '\n\n' + pulse.question, options:pulse.options };
+}
+
 function getGuidedGenerationStorageKey() {
   return 'marg_guided_generation_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
 }
@@ -5962,11 +6026,14 @@ async function handlePredictionExerciseTiming(answer) {
     status:'ready', timing:timing, scheduledFor:getPushReminderTime(timing).toISOString()
   });
   completeChatFirstOnboarding(null);
-  addMentorLeadMessage(timing === 'tomorrow'
+  var acknowledgement = timing === 'tomorrow'
     ? "Tomorrow works. I’ve kept the same targeted check ready; when you open Marg, say “start the check” and we’ll use it before changing your plan."
-    : "Later today works. I’ve kept the same targeted check ready; say “start the check” whenever you’re ready and we’ll continue from here.");
+    : "Later today works. I’ve kept the same targeted check ready; say “start the check” whenever you’re ready and we’ll continue from here.";
+  var followUp = buildDeferredTimingFollowUp(pending.entry);
+  addMentorLeadMessage(acknowledgement + (followUp ? '\n\n' + followUp.question : ''));
+  if (followUp) showConversationalOptions(followUp.options, followUp.context);
   await scheduleMentorPushReminder(timing, pending.entry.topic || 'general', buildDiagnosticReminderContext(pending.entry));
-  maybePresentCommunityInvite();
+  if (!followUp) maybePresentCommunityInvite();
 }
 
 var personalGoalMemory = null;
@@ -7029,6 +7096,11 @@ async function handleConversationalResponse(answer, context) {
     if (!isGuestMode) saveChatMessage('user', answer);
     await handlePredictionExerciseTiming(answer);
 
+  } else if (context === 'resume_scheduled_diagnostic') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await handlePredictionExerciseTiming('Right now');
+
   } else if (context === 'profile_attempt') {
     var attemptMemory = loadProgressiveProfileMemory();
     var normalizedAttempt = String(answer || '').toLowerCase();
@@ -7037,7 +7109,19 @@ async function handleConversationalResponse(answer, context) {
     attemptMemory.awaitingField = null;
     saveProgressiveProfileMemory(attemptMemory);
     await saveProfileProgressively();
-    await sendConversationalMessage(answer, 'profile_attempt');
+    loadPendingDiagnosticExercise();
+    if (pendingDiagnosticExercise && pendingDiagnosticExercise.entry && /later_today|tomorrow/.test(String(pendingDiagnosticExercise.timing || ''))) {
+      conversationHistory.push({ role:'user', content:answer });
+      if (!isGuestMode) saveChatMessage('user', answer);
+      var deferredContinuation = buildDeferredAttemptContinuation(answer, pendingDiagnosticExercise.entry);
+      addMentorLeadMessage(deferredContinuation.text);
+      showConversationalOptions(deferredContinuation.options, 'deferred_section_pulse');
+    } else {
+      await sendConversationalMessage(answer, 'profile_attempt');
+    }
+
+  } else if (context === 'deferred_section_pulse') {
+    await sendConversationalMessage(answer, 'deferred_section_pulse');
 
   } else if (context === 'profile_topic_familiarity') {
     var topicMemory = loadProgressiveProfileMemory();
@@ -7265,6 +7349,9 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   }
   if (context === 'profile_attempt') {
     systemAddition += '\n\nPROFILE ANSWER CONTINUATION: The student answered the light attempt-number question. Acknowledge it in at most one clause and apply it only as context—not proof of any diagnosis. Continue the exact CAT thread from before the question. Do not ask another profile question in this reply and do not repeat generic theory.';
+  }
+  if (context === 'deferred_section_pulse') {
+    systemAddition += '\n\nDEFERRED-SESSION CONTINUATION: The targeted check is already saved for later, so do not launch it, reschedule it, or repeat its timing choices. The student just named how another section currently feels. Give one short, specific reason that answer matters, then ask exactly ONE easy behavioural question about the moment that section usually breaks. Keep the reply compact and personal. Do not give a full diagnosis yet, do not assign homework, and do not ask another background/profile question.';
   }
   if (context === 'profile_topic_familiarity') {
     systemAddition += '\n\nTOPIC-FAMILIARITY CONTINUATION: The student just said whether this topic is a first pass, revision after a gap, or familiar-but-rusty. Acknowledge it in one natural clause and adjust the already-promised plan: first pass needs one compact concept scaffold, revision needs retrieval plus targeted questions, and rusty-but-comfortable needs an earlier timed check. Continue the exact topic thread. Do not ask another profile question or restart the explanation.';
@@ -9870,6 +9957,16 @@ function resumePendingDiagnosticFromHome() {
   if (pending.timing === 'ready_after_lesson') {
     renderTransientMentorContinuity('pending-dilr-lesson', getDILROpeningLesson(pending.entry), pending.entry.confirmedDiagnosis);
     showConversationalOptions(['Start the set'], 'start_dilr_validation');
+    return;
+  }
+  if (pending.timing === 'later_today' || pending.timing === 'tomorrow') {
+    var savedWhen = pending.timing === 'tomorrow' ? 'tomorrow' : 'later today';
+    renderTransientMentorContinuity(
+      'pending-diagnostic',
+      'Your choice is already saved for ' + savedWhen + '. The same targeted check is ready whenever you want to begin—there is no need to schedule it again.',
+      pending.entry.confirmedDiagnosis
+    );
+    showConversationalOptions(['Start the check'], 'resume_scheduled_diagnostic');
     return;
   }
   renderTransientMentorContinuity('pending-diagnostic', 'The working read is still saved: ' + pending.entry.confirmedDiagnosis + '\n\nThe next useful move is ' + diagnosticForwardPreview(pending.entry) + '. Choose when you want to run the same check.', pending.entry.confirmedDiagnosis);
