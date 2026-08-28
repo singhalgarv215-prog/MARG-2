@@ -7270,7 +7270,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     systemAddition += '\n\nTOPIC-FAMILIARITY CONTINUATION: The student just said whether this topic is a first pass, revision after a gap, or familiar-but-rusty. Acknowledge it in one natural clause and adjust the already-promised plan: first pass needs one compact concept scaffold, revision needs retrieval plus targeted questions, and rusty-but-comfortable needs an earlier timed check. Continue the exact topic thread. Do not ask another profile question or restart the explanation.';
   }
   if (context === 'mock_section_evidence') {
-    systemAddition += '\n\nMOCK SECTION DEEP-DIVE: The student chose ' + String(activeMockReviewPriority || 'this section').toUpperCase() + ' first and just answered one evidence question. Use the original multi-section mock story plus this answer. Give one clear, plain-language read of this section only. Explain the exact moment that caused the marks to fall. If one genuinely important fact is still missing, ask one short follow-up that would change the diagnosis. Do not start, generate, or offer a practice exercise yet. Do not move to another section until the student chooses to.';
+    systemAddition += '\n\nMOCK SECTION DEEP-DIVE: The student chose ' + String(activeMockReviewPriority || 'this section').toUpperCase() + ' first and just answered one evidence question. Use the mock scores or detailed story already present in conversation history plus this answer. Give one clear, plain-language read of this section only. Explain the exact moment that may have caused the marks to fall. If one genuinely important fact is still missing, ask one short follow-up that would change the diagnosis. Do not start, generate, or offer a practice exercise yet. Do not move to another section until the student chooses to.';
   }
   if (conversationalProfile.awaitingPatternCorrection) {
     systemAddition += '\n\nThe student just explained what happened with a specific wrong answer, after you asked one clarifying question following a diagnosis they said was not quite right. Do not ask another open-ended question. State a one-sentence read on their actual pattern based on what they just told you, then move on to your next onboarding question.';
@@ -7939,6 +7939,7 @@ function maybeHandleAmbiguousShortInput(message) {
 }
 
 var activeMockReviewPriority = '';
+var activeMockReviewSource = '';
 
 function isMultiSectionMockNarrative(message) {
   var text = String(message || '').toLowerCase();
@@ -7954,6 +7955,7 @@ function isMultiSectionMockNarrative(message) {
 function maybeStartMultiSectionMockReview(message) {
   if (!isMultiSectionMockNarrative(message)) return false;
   activeMockReviewPriority = '';
+  activeMockReviewSource = 'narrative';
   addMentorLeadMessage(
     'There are three different problems here, and mixing them would give you a shallow answer.\n\n' +
     'DILR: one set took too much time and the setup became unreliable.\n\n' +
@@ -7968,16 +7970,22 @@ function maybeStartMultiSectionMockReview(message) {
 function askMockSectionEvidenceQuestion(section) {
   activeMockReviewPriority = String(section || '').toLowerCase();
   if (activeMockReviewPriority === 'dilr') {
-    addMentorLeadMessage('In that 20–22 minute set, what kept you there near the end?');
+    addMentorLeadMessage(activeMockReviewSource === 'scores'
+      ? 'Think about the DILR set that consumed the most time. Near the end, what was happening?'
+      : 'In that 20–22 minute set, what kept you there near the end?');
     showConversationalOptions(['I was still finding useful deductions', 'I was trying cases without real progress', 'A bit of both'], 'mock_section_evidence');
     return;
   }
   if (activeMockReviewPriority === 'varc') {
-    addMentorLeadMessage('When you say you rushed VARC, where did the marks mostly go?');
+    addMentorLeadMessage(activeMockReviewSource === 'scores'
+      ? 'Thinking about VARC, where did the marks mostly slip?'
+      : 'When you say you rushed VARC, where did the marks mostly go?');
     showConversationalOptions(['I misunderstood the passage', 'I got stuck between two options', 'I ran out of time near the end'], 'mock_section_evidence');
     return;
   }
-  addMentorLeadMessage('In the Arithmetic questions you attempted, what stopped you most often?');
+  addMentorLeadMessage(activeMockReviewSource === 'scores'
+    ? 'For the QA questions you left or got wrong, what happened most often?'
+    : 'In the Arithmetic questions you attempted, what stopped you most often?');
   showConversationalOptions(['I could not spot the method', 'I knew the method but was too slow', 'I made mistakes after the setup'], 'mock_section_evidence');
 }
 
@@ -9318,49 +9326,32 @@ async function submitMockScores() {
 
   switchTab('chat');
 
-
-  const mockMsg = `I just completed a mock. My scores are: VARC: ${varc}, DILR: ${dilr}, QA: ${qa}. Please analyse my mock and tell me exactly which bucket is costing me marks — concept gap, execution lag, or careless mistake. Give me one specific task to fix before my next mock.`;
-  const mentorAnalysis = buildDiagnosisDirective(mockMsg);
+  const mockMsg = `I just completed a mock. My scores are: VARC: ${varc}, DILR: ${dilr}, QA: ${qa}. Help me find the decision that cost me marks, but do not infer the cause from the scores alone.`;
 
   addMessage('user', `📊 Mock scores — VARC: ${varc} | DILR: ${dilr} | QA: ${qa}`);
-
-
   conversationHistory.push({ role: 'user', content: mockMsg });
   if (!isGuestMode) saveChatMessage('user', mockMsg);
-  if (typeof saveMockScore === 'function') await saveMockScore(varc, dilr, qa);
-  showTyping();
-
-  try {
-    const res = await fetchWithTimeout(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
-        cleanHistory(conversationHistory),
-        400
-      ))
-    }, 45000);
-    const data = await res.json();
-    const geminiText = getGeminiText(data);
-    const response = geminiText ? applyMentorResponseGuard(geminiText, mentorAnalysis.diagnosis) : null;
-    hideTyping();
-    if (response) {
-      addMargMessage(response);
-      conversationHistory.push({ role: 'assistant', content: response });
-      if (!isGuestMode) saveChatMessage('assistant', response);
-    } else {
-      var emptyFallback = buildMockScoreFirstRead(varc, dilr, qa);
-      addMessage('marg', emptyFallback);
-      conversationHistory.push({ role:'assistant', content:emptyFallback });
-      if (!isGuestMode) saveChatMessage('assistant', emptyFallback);
-    }
-  } catch(e) {
-    hideTyping();
-    var errorFallback = buildMockScoreFirstRead(varc, dilr, qa);
-    addMessage('marg', errorFallback);
-    conversationHistory.push({ role:'assistant', content:errorFallback });
-    if (!isGuestMode) saveChatMessage('assistant', errorFallback);
+  if (typeof saveMockScore === 'function') {
+    try { await saveMockScore(varc, dilr, qa); }
+    catch(saveError) { console.warn('Mock score save failed; continuing diagnosis:', saveError); }
   }
+
+  activeMockReviewPriority = '';
+  activeMockReviewSource = 'scores';
+  var availableSections = [];
+  if (varc !== 0) availableSections.push('VARC');
+  if (dilr !== 0) availableSections.push('DILR');
+  if (qa !== 0) availableSections.push('QA');
+
+  if (availableSections.length === 1) {
+    addMentorLeadMessage('That score shows where the marks fell, but not why. Let’s locate the actual moment before deciding what you should practise.');
+    askMockSectionEvidenceQuestion(availableSections[0]);
+    return true;
+  }
+
+  addMentorLeadMessage('These scores show where the marks fell, but they cannot tell us why. Which section felt most different from your normal practice?');
+  showConversationalOptions(availableSections, 'mock_section_priority');
+  return true;
 }
 let newUserProfile = {};
 
