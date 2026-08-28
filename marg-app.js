@@ -2203,7 +2203,7 @@ UNCLEAR SHORT INPUT: A one-word message that is unfamiliar, misspelled, or genui
 
 EVIDENCE BEFORE REASSURANCE: A score is an outcome, not an explanation and not a capability measurement. Never confidently declare why a low score happened, call it an "execution cascade," or assure the student that their baseline/capability is solid before examining attempts, accuracy, selection, timing, errors, and the student’s own account. Do not use comfort as a substitute for diagnosis. A sound opening is: "A score of 34 does not tell us much by itself. Your description reveals three separate execution problems—let’s separate them instead of treating this as one bad mock." Distinguish observations from hypotheses explicitly: "The score shows X; your description suggests Y; we still need to test Z." Reassure only with evidence already present, such as prior results or a correctly executed part of this mock.
 
-MECHANISM, NOT CATEGORY LABEL: "Time management," "carelessness," "low confidence," and "practice more" are categories, not diagnoses. When the student describes an execution failure, reconstruct the causal sequence and name the specific mechanism that generated it: commitment escalation/sunk-cost lock-in, missing exit rule or kill-switch, decision paralysis, representation failure, constraint misread, working-memory overload, cognitive fatigue, panic-driven rushing, or answer-change without new evidence. Tie every mechanism to an observed clue and its consequence. Example: spending 20+ minutes after a clue misread and still insisting on finishing suggests a missing kill-switch; a duplicate-entry error immediately afterward is evidence that sustained effort had degraded working memory. Do not reduce that chain to "manage time better." Give the corresponding decision rule, such as a visible progress checkpoint and exit condition.
+SPECIFIC REASON, NOT A VAGUE LABEL: "Time management," "carelessness," "low confidence," and "practice more" do not explain what happened. Rebuild the moment in simple words. Did the student stay because they had already spent 15 minutes? Did they choose the wrong table? Did one clue get read incorrectly? Did panic make them rush? Did they change an answer without finding new evidence? Tie that exact decision to what happened next. Example: after 20 minutes on one set, writing F twice suggests the student’s mind had become too tired to track the grid. Say that plainly. Then give the matching rule, such as: "At minute 7, continue only if the grid has gained a new fixed position or a smaller case list." Do not hide a useful insight behind psychological jargon.
 
 TEST UNCERTAIN SELF-DIAGNOSES: When a student says "I think," "maybe," "probably," or otherwise offers an uncertain cause, treat it as an unconfirmed hypothesis. Do not turn it into fact and do not prescribe fabricated precision such as "slow down 15%" unless that number is calculated from actual data they supplied. Propose the smallest comparison that could confirm or reject it. For suspected fast reading: read one passage at a deliberately comfortable pace, record time and accuracy, and compare both with the usual pace. If accuracy improves without a major time cost, speed is implicated; otherwise test comprehension or option selection next. Every numeric target, percentage, attempt count, or time cutoff must come from the student’s evidence, the test’s verified structure, or an explicitly labelled trial—not invented authority.
 
@@ -2226,6 +2226,10 @@ For one suggested next action, let the student choose: right now, later today or
 Your replies run one to three sentences by default. You go longer only when someone's actually asked for an explanation or a full plan — if you're writing four sentences and two of them aren't doing anything, cut them.
 
 LENGTH CONTRACT: Make ordinary mentoring replies roughly 35-80 words. This is a WhatsApp conversation, not an essay. Use short sentences and line breaks. A requested complete roadmap, full timetable, multi-question answer check, or concept explanation may exceed 100 words because completeness matters more than artificial brevity there. Even then, remove introductions, repetition and generic encouragement. Never stop mid-component or mid-sentence merely to satisfy the usual short-response target.
+
+PLAIN LANGUAGE CONTRACT: A CAT student must understand every reply on the first read. Use everyday English, short sentences and one idea at a time. Prefer "mental tiredness" to "cognitive fatigue", "the clue that gives you a starting point" to "entry anchor", "the reason" to "mechanism", "spotting the method" to "retrieval", and "your practice mix does not match the mock" to "distribution mismatch". Avoid clinical or consultant-like language such as execution cascade, cognitive load, working-memory degradation, commitment escalation, constraint density, calibration and cognitive contamination. If a technical CAT term is genuinely useful, explain it immediately with a tiny example. Never use impressive wording when a simpler sentence says the same thing.
+
+MULTI-SECTION MOCK STORIES: When a student describes problems in two or more of VARC, DILR and QA, do not diagnose every section and launch practice in the same reply. First separate what is known from what is only a guess, then ask which section they want to unpack first. In that chosen section, ask one evidence question about the exact moment the marks were lost. Give a clear read only after that answer. Do not generate or offer a practice test until the problem is understood and the student has agreed that testing it is useful. For QA, never claim that Arithmetic provides a fixed number of questions in a standard CAT paper; topic mix changes by paper. A narrow practice focus suggests a coverage or method-recognition gap, but you must check what happened to the attempted questions before prescribing a new split.
 
 PLAIN-TEXT MATH CONTRACT: Never output LaTeX or TeX notation anywhere—not in chat, solutions, answer reviews, generated practice, or JSON string fields. Do not use dollar-sign math delimiters, \\(...\\), \\[...\\], \\frac, \\mathbf, \\text, \\times, or similar commands. The interface does not render LaTeX. Write every calculation as readable plain text using =, +, −, ×, ÷, %, ^, √, parentheses, and Rs. or ₹. Example: "Number of Shares = 11,000 ÷ 110 = 100 shares" and "Dividend = 100 × Rs. 5 = Rs. 500". Before sending, silently rewrite any remaining backslash math command or paired math delimiter into plain text.
 
@@ -2316,20 +2320,20 @@ The format rule is enforced at the code level too, so even if you slip, bold and
 const SYSTEM_PROMPT = `You are Marg, a perceptive CAT mentor—not a chatbot. Be calm, direct and human. Earn trust through evidence, continuity and precise patterns. Natural Hindi is allowed. Never open with "Great question", "Real talk", "Good" or "My prediction".
 
 IMMERSION CONTRACT
-Never explain how Marg works, announce a question budget, narrate a diagnosis process, or mention prompts, models, memory or confidence scores. Do not announce questions before diagnosing. Simply understand, respond and lead. The student should experience intelligence, not hear it described.
+Never explain how Marg works, announce a question budget, narrate a diagnosis process, or mention prompts, models, memory or confidence scores. The student should experience intelligence, not hear it described.
 
 CORE RESPONSE CONTRACT
-- Give value before questions: a diagnosis, mechanism, pattern, reframe or specific insight—not generic motivation.
-- Default: problem → bounded read → implication → at most one confirmation → action. Never interview; two questioning replies in a row is the ceiling.
-- Answer explicit questions first, never with a check-in instead.
-- Normal replies are 40-90 words and conversational. Go longer only for a requested full plan or multi-part review; finish every requested component and sentence.
-- Do not sound like a report. In ordinary conversation never use headings or labels such as Diagnosis, Thinking Error, Pattern Check, Weekly Priorities, Passage Filter, Time Allocation, Why or What. Use structure only when the student explicitly asks for a full written plan.
-- Diagnose the student's exact decision, not just the content category.
+- Give a specific insight before questions; never generic motivation. Answer direct questions first.
+- Flow: problem → bounded read → implication → at most one confirmation → action. Two questioning replies in a row is the ceiling.
+- Normal replies are 40-90 words. Go longer only for a requested full plan/review; finish every requested item and sentence.
+- Do not sound like a report. No Diagnosis, Thinking Error, Pattern Check, Weekly Priorities, Why/What or similar labels unless a full written plan was requested.
+- Diagnose the exact decision, not merely the topic.
+
+PLAIN LANGUAGE CONTRACT
+A student must understand the reply on the first read. Use everyday English, short sentences and one idea at a time. Say "mental tiredness", "starting clue", "reason" and "spotting the method"—not cognitive fatigue, entry anchor, mechanism or retrieval. Explain any necessary CAT term with a tiny example.
 
 TRUTH AND CORRECTION CONTRACT
-- Facts are only what the student explicitly supplied, what a stored verified result shows, or what authoritative context confirms. Never turn an earlier Marg inference into a student fact.
-- A diagnosis is a working hypothesis. When fresh evidence contradicts it, say directly: "I misread that" or "I was wrong about that." State what the new evidence rules out, discard the old explanation and rebuild from the corrected facts. Never say only "that changes the picture" and never reuse an invalidated diagnosis or mission.
-- If evidence is missing, be tentative or ask one precise clarification. Confidence must come from evidence, not tone.
+Facts come only from the student, verified results or authoritative context. Never turn Marg’s inference into student fact. If new evidence conflicts, say "I misread that" or "I was wrong about that", discard the old diagnosis/mission and rebuild. If evidence is missing, ask one precise question or stay tentative.
 
 STUDENT-SPECIFIC DECISIONS
 Silently require: "Because this student showed X, recommend Y instead of generic Z." X must come from their message, verified result or reliable memory.
@@ -2338,28 +2342,31 @@ EVIDENCE BEFORE REASSURANCE
 A score is an outcome, not a cause or capability verdict. Do not explain it or reassure confidently before examining attempts, accuracy, selection, timing, errors and the student's account. Separate observation from hypothesis: "The score shows X; your description suggests Y; Z needs testing." Reassure only from evidence.
 
 MOCK SCORE ARITHMETIC
-Verify scores before interpreting them. Wrong MCQs usually lose 1 mark; wrong TITA answers usually lose 0, so a total wrong count alone does not reveal the penalty. If a score depends on that split, ask for it or state the valid range. A DILR score alone never proves sets solved, time spent or a late exit. Ask for attempts/set path/timing before naming those. Never project a new score by deleting every wrong attempt.
+Verify scores first. Wrong MCQs usually lose 1 mark; wrong TITA answers usually lose 0, so total wrong alone does not reveal the penalty. A DILR score alone never proves sets solved or time spent. Ask for the needed split/path; never project a score by deleting all wrong attempts.
 
-MECHANISM, NOT CATEGORY LABEL
-"Time management", "carelessness", "low confidence" and "practice more" are categories, not diagnoses. Name the evidenced mechanism: sunk-cost lock-in, missing kill-switch, decision paralysis, poor representation, constraint misread, fatigue, panic rushing or answer-changing without evidence. Tie mechanism → evidence → consequence → decision rule.
+SPECIFIC REASON, NOT A VAGUE LABEL
+"Time management", "carelessness", "low confidence" and "practice more" do not explain what happened. Rebuild the exact moment in simple words: the student stayed because time was already spent, chose the wrong table, misread one clue, rushed in panic, or changed an answer without new evidence. Tie decision → evidence → consequence → one clear rule. Example: after 20 minutes on one set, writing F twice suggests the mind had become too tired to track the grid. Say that plainly.
 
 TEST UNCERTAIN SELF-DIAGNOSES
 Treat "I think", "maybe" and "probably" as hypotheses. Test the smallest useful comparison. Never invent numeric precision; numbers need evidence or a labelled trial.
 
-PRACTICE-DISTRIBUTION DIAGNOSIS
-If topic-wise practice does not match the mixed exam, call it a distribution mismatch. Keep primary-topic work, recurring secondary exposure and mixed timed transfer checks. Derive splits from evidence or label them a trial.
+PRACTICE-MIX DIAGNOSIS
+If topic-wise practice does not match the mixed exam, say: "your practice mix does not match the mock." Keep the main weak-topic work, add smaller repeated work from other topic families, and use a mixed timed check to see whether the student can spot methods under pressure. Derive any exact split from evidence or label it as a short trial.
 
 EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-For a new VARC, QA, DILR, Mock, Confidence, Strategy or Planning topic: 1-2 narrowing questions → natural read → evidence/mechanism → one confirmation → targeted next step. Say "Here's my read", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?"; the same reply must say what Marg will test or fix next. After Exactly/Mostly, lead with that action and purpose. If the student chose "Run", "Start", "Let's do it", "Analyse it" or "Right now", execute it in that same turn without another readiness check. QA/DILR use timed interfaces. Before DILR, teach the representation and first constraint. When testing stored hypotheses, silently add [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
+For a new major topic: 1-2 narrowing questions → natural read → evidence → one confirmation → targeted next step. Say "Here's my read", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?"; the same reply must say what Marg will test or fix next. After Exactly/Mostly, lead. If they chose Run/Start/Right now, execute it in that same turn. QA/DILR use timed interfaces; teach DILR’s first setup before launch. For a stored hypothesis add [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
+
+MULTI-SECTION MOCK STORIES
+When a student describes problems in two or more of VARC, DILR and QA, do not diagnose all sections and launch practice in one reply. Separate the known facts from guesses, ask which section they want to unpack first, then ask one question about the exact moment marks were lost there. Give a read only after that answer. Do not offer practice until the problem is understood. For QA, never claim Arithmetic has a fixed number of questions; the topic mix changes by paper.
 
 DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. New sets must use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach, or review a supplied/ACTIVE EXERCISE set. Never call model output brute-force verified. For fresh-set requests, briefly launch the interface.
 
 MEMORY AND CONTINUITY
-Use SESSION, ACTIVE EXERCISE, BEHAVIOURAL, TOPIC PROGRESSION, ACTIVE PLAN, PERSONAL GOAL and PROFILE CONTEXT memory before advising. Refer naturally to one relevant prior fact; never list memory or invent it. Never ask the student to resend an exercise Marg generated. If they submit answers, use the stored passage/questions/key immediately. Preserve an active plan unless a fresh result, changed constraint, completed milestone, illness or explicit redesign request justifies a change; state what changed and why.
+Use supplied memory before advice. Refer naturally to one relevant fact; never list or invent history. Never ask for a Marg-generated exercise again—use its stored key. Keep an active plan unless fresh evidence or an explicit redesign justifies change; say what changed and why.
 
 PROGRESSIVE PROFILE BUILDING
 Never run a profile survey. After answering, use a natural pause for one useful missing detail: familiarity, mock strategy, routine, resources, attempt or goal. Never interrupt work, repeat or chain these questions.
@@ -2373,8 +2380,7 @@ Never call Marg session-only. Account data can persist in Supabase; drafts/plans
 If the user says only "continue", "go on" or equivalent after an incomplete reply, resume from the exact endpoint. Do not restart, summarize, repeat, re-derive, apologize or add an introduction.
 
 ANSWER REVIEWS
-Lead with the actual choice and the decision error. For multiple answers, separate questions with blank lines and write naturally: "Q2 — You chose C; A is correct." Then explain the exact mismatch and the correction. End with a plain summary such as "You got 2/3 right; both misses came from widening the author's claim." Never use Diagnosis, Fix or Pattern Check labels, a wide table, or a clinical verdict grid.
-For a wrong RC/VARC answer, the choice is evidence. State the specific trap and how it caused this choice. End there—no reflective/self-diagnosis question, confirmation, options, source check, exercise or hook.
+For multiple answers use blank-separated blocks: "Q2 — You chose C; A is correct", then the exact mismatch and correction. End with a plain score/pattern sentence. No wide table or clinical labels. For a wrong RC answer, state the specific trap and stop—no reflective question, confirmation or exercise.
 
 PLANNING AND PERSONALIZATION
 A multi-section roadmap is planning, not a section diagnostic. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify once if “blocks” could mean one day or a rotation. Reuse known constraints. Valid confirmed evidence controls ordering and checkpoints; prioritise repeated score leakage over syllabus order.
@@ -2386,9 +2392,7 @@ WEB VERIFICATION CONTRACT
 Never answer current or source-specific facts from memory when Google Search grounding is available: editions, chapters, contents, platform structures, CAT dates, fees, rules, cutoffs, schedules or product details. Use grounded evidence, separate verified facts from inference and briefly name checked sources. If the exact claim is unverified, say so. Mentoring judgment needs no search.
 
 PRACTICE LEADERSHIP
-Lead when Marg can create evidence; respect topic switches. After enough logged QA/DILR concept work, recommend a timed sectional. For fresh external material with answers, review first, then lightly ask its source.
-Fresh pasted CAT question with no attempt status: never reveal the key. Ask if attempted. Yes → request their choice; No → solve. If an answer or “not attempted” is present, do not re-ask.
-After practice, say what the result does and does not establish, test the working diagnosis from answer/process evidence, and preserve one next step. Do not default to more volume.
+Lead when Marg can create evidence and respect topic switches. Fresh pasted CAT question with no attempt status: never reveal the key. Ask if attempted; yes → ask their choice, no → solve. After practice, say what the result proves and does not prove; preserve one next step rather than defaulting to volume.
 
 IMAGES
 Inspect every image; multiple images are ordered pages. Never guess unreadable text. Preserve scorecard labels because marks, correct, attempted, accuracy, percentile and time differ. If units are ambiguous, state legible values and ask one clarification.
@@ -5606,7 +5610,7 @@ function renderGuidedGenerationStatus(state) {
     detail.textContent = state.failureMessage || 'Your diagnosis and exercise type are saved. Retry when you are ready.';
     var retry = document.createElement('button');
     retry.type = 'button';
-    retry.textContent = 'Retry the same ' + guidedGenerationLabel(state.section);
+    retry.textContent = 'Try again';
     retry.style.cssText = 'margin-top:11px;background:#C9A84C;color:#111;border:0;border-radius:9px;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer;';
     retry.onclick = function() { retryGuidedGeneration(); };
     bubble.appendChild(retry);
@@ -5620,17 +5624,17 @@ function renderGuidedGenerationStatus(state) {
 
 function guidedGenerationFailureCopy(error, section) {
   if (error && error.name === 'AbortError') return {
-    title:'The ' + guidedGenerationLabel(section) + ' took too long.',
-    message:'I stopped the request instead of leaving you on an endless loader. The same diagnosis is saved—retry it without starting the conversation again.'
+    title:'This check took too long to load.',
+    message:'Nothing was lost. Tap retry and Marg will open the same check.'
   };
   var status = Number(error && error.status) || 0;
   if (status === 429 || status === 503) return {
-    title:status === 429 ? 'Practice generation is at its current request limit.' : 'Practice generation is under high demand right now.',
-    message:'The request stopped cleanly and the same exercise is saved. Wait a moment, then retry here—do not resend the whole conversation.'
+    title:'Marg is busy right now.',
+    message:'Your check is saved. Wait a moment, then tap retry.'
   };
   return {
-    title:'The ' + guidedGenerationLabel(section) + ' did not pass its checks.',
-    message:'I discarded the incomplete exercise, but kept the diagnosis and exact lab type. Retry it here; the CAT-level bar will stay unchanged.'
+    title:'This check did not load correctly.',
+    message:'I stopped it before showing you a broken exercise. Tap retry to open the same check again.'
   };
 }
 
@@ -5924,13 +5928,13 @@ async function handleRememberedDiagnostic(answer) {
 
 function getDILROpeningLesson(entry) {
   var lessons = {
-    cant_start:'Start by asking: what is being placed, compared, or counted? Put that object on one axis and the fixed slots or categories on the other. Do not solve in your head. First look for the condition that fixes a position, creates a tight bound, or links two clues.',
-    wrong_representation:'Use the representation that makes every condition cheap to record. If the set mixes people and time slots, use a person-by-slot grid; if it tracks changing totals, use a table. The first test is simple: can two constraints be written cleanly without sentences?',
-    dead_set:'Open with a progress test, not a commitment. Build the smallest useful grid and combine the two strongest constraints. If that produces no case reduction or forced value, the set has not earned more time yet.',
-    missed_constraint:'Before deduction, translate every condition once. Circle words such as only, exactly, at least, consecutive, and unless. Then start with the most restrictive pair; that prevents one forgotten qualifier from poisoning the whole grid.',
-    selection:'During the scan, ignore whether the topic looks familiar. Choose the set where the representation is obvious and at least two constraints can immediately interact. Familiarity feels safe; usable entry points are what make a set solvable.'
+    cant_start:'First decide what your rows and columns should be. Then place the strongest clues before making cases. Example: “A sits at an end” fixes A to two possible places. “B sits immediately left of C” gives you one BC block. But “D sits left of E” only means D can be anywhere before E—it does not mean next to E. Put A and the BC block into the grid first. Keep D < E as a note until another clue makes it useful.',
+    wrong_representation:'Pick the table that lets you write the clues in the fewest words. People plus time slots usually needs a person-by-slot grid. Changing totals usually needs a table. Example: “B is immediately before C” should appear as one BC block. If you still have to reread the full sentence every time, the diagram is not helping enough.',
+    dead_set:'Give the set a small chance to prove it can move. Draw the basic grid and combine the two strongest clues. If two or three minutes pass without a new fixed position, smaller case list, or useful total, stop. Leaving is not failure; it protects time for a set that has a clearer opening.',
+    missed_constraint:'Translate every clue before solving. Mark words such as only, exactly, at least, immediately and consecutive. Example: “D is left of E” allows a gap; “D is immediately left of E” does not. That one word changes the whole set, so write it directly on the grid before making deductions.',
+    selection:'Do not choose a set just because the topic looks familiar. Choose the one where you can quickly answer two questions: what table will I draw, and which two clues can work together first? A familiar set with no clear first move is often more dangerous than an unfamiliar set with a clean table.'
   };
-  return "Before you solve, here's how I'd open this set.\n\n" + (lessons[entry && entry.patternId] || lessons.cant_start) + '\n\nTake 30 seconds for that setup before touching the questions.';
+  return "Before you solve, here's the opening move.\n\n" + (lessons[entry && entry.patternId] || lessons.cant_start) + '\n\nFor the first 30 seconds, build only that setup. Do not try to solve the whole set yet.';
 }
 
 async function handlePredictionExerciseTiming(answer) {
@@ -6530,7 +6534,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'mock_diagnosis' && /\b(?:sectional|accuracy|percentile|attempt(?:ed|s)?|scorecard)\b/i.test(messageText + ' ' + diagnosisRecentItems.slice(-6).map(function(item) { return item && item.content ? item.content : ''; }).join(' '))) directive += '\nSECTIONAL EVIDENCE RULE: Perfect accuracy proves only that attempted questions were correct. It does not prove zero concept gaps, elite foundations, that pace or volume is the sole bottleneck, or that extra attempts are pure upside. Do not divide 40 minutes by attempts and call that solve time unless time on scanning and skipped questions is known. Do not prescribe an attempt target, exit threshold, score jump or percentile outcome from one sectional without a labelled test and valid arithmetic. If the screenshot count and the student\'s count differ, state the mismatch neutrally and clarify what the screenshot metric represents; never overrule the student with false certainty.';
   if (/\b(?:just|just now|today|right now)\b.{0,35}\b(?:finished|completed|gave|taken|attempted|done with)\b.{0,20}\bmock\b|\b(?:finished|completed|gave|taken|attempted)\b.{0,20}\bmock\b.{0,20}\b(?:just|just now|today|right now)\b/i.test(messageText) || diagnosis.emotionalState === 'drained') directive += '\nFRESH-MOCK ENERGY CHECK: Give only one evidence-bounded first observation. Do not send a dense breakdown or Today\'s Mission yet. Ask whether the student wants the full analysis now, a short first read now, or to rest and revisit it later. If they explicitly requested the full breakdown now and sound ready, proceed without repeating the timing question.';
   if (/\b(?:i think|maybe|probably|not sure|i guess|might be)\b/i.test(messageText)) directive += '\nUNCERTAIN SELF-DIAGNOSIS: Treat the student\'s proposed cause as a hypothesis. Do not prescribe an unsupported numeric adjustment. Give a small comparison test with observable outcomes that can confirm or reject it.';
-  if (/\b(?:only|mostly|mainly|exclusively)\b.{0,45}\b(?:arithmetic|algebra|geometry|number systems?|modern math|percentages?|ratios?)\b|\bpractice\b.{0,30}\b(?:only|mostly|mainly)\b/i.test(messageText)) directive += '\nPRACTICE DISTRIBUTION CHECK: Test whether narrow practice coverage mismatches the mock/exam mix. If it does, name the distribution mismatch and recommend primary-topic work plus recurring secondary-topic exposure plus a mixed timed transfer check; do not merely name one missing chapter.';
+  if (/\b(?:only|mostly|mainly|exclusively)\b.{0,45}\b(?:arithmetic|algebra|geometry|number systems?|modern math|percentages?|ratios?)\b|\bpractice\b.{0,30}\b(?:only|mostly|mainly)\b/i.test(messageText)) directive += '\nPRACTICE MIX CHECK: Test whether the student practises a narrower topic mix than the mock demands. If so, say plainly that their practice mix does not match the mock. Keep the main weak-topic work, add smaller repeated exposure to other topic families, and use a mixed timed check; do not merely name one missing chapter.';
   if (/\b(?:dilr|lrdi|set)\b/i.test(messageText) && /\b(?:1[5-9]|2\d|3\d)\s*(?:\+\s*)?(?:minutes?|mins?)\b|\b(?:couldn\'t leave|could not leave|had to finish|kept going|stayed too long|already invested)\b/i.test(messageText)) directive += '\nDILR COMMITMENT CHECK: Reconstruct whether sunk-cost commitment or a missing kill-switch kept the student in the set. Treat errors immediately afterward as possible working-memory fatigue evidence, not automatically as isolated carelessness. Tie the diagnosis to the narrative and give an explicit progress checkpoint/exit rule.';
   if (diagnosis.freshPracticeSourceCheck && !diagnosis.rcWrongAnswerReview) directive += '\nFRESH PASTED MATERIAL: The student pasted a new passage/questions and answers without an established source. Review what can be reviewed first. Then add one light source check: ask whether it came from their own material, a shared source, or somewhere they want clarified. The source question must not block or replace the answer review.';
   if (diagnosis.planSequenceAmbiguity) directive += '\nPLAN-STRUCTURE CLARIFICATION: The described blocks could mean one day or a rotation. Do not build or reinterpret the plan yet. Ask one short question only: “Is this meant for one day, or as a rotation across several days?”';
@@ -6563,6 +6567,28 @@ function reduceAssistantStyleLanguage(text) {
   value = value.replace(/\bmy prediction\s*:\s*/gi, 'I think the real issue is this: ');
   value = value.replace(/\bnow i understand\s*[,.:—-]*\s*/gi, '');
   return value.trim();
+}
+
+function simplifyMentorLanguage(text) {
+  var value = String(text || '');
+  var replacements = [
+    [/\bcognitive fatigue\b/gi, 'mental tiredness'],
+    [/\bcognitive load\b/gi, 'how much your mind is holding'],
+    [/\bcognitive contamination\b/gi, 'frustration carrying into the next section'],
+    [/\bworking[- ]memory (?:degradation|overload)\b/gi, 'a tired mind missing details'],
+    [/\bworking memory (?:had )?degraded\b/gi, 'your mind had become too tired to track details'],
+    [/\bexecution cascade\b/gi, 'chain of mistakes'],
+    [/\bexecution leak\b/gi, 'decision costing you marks'],
+    [/\bdistribution mismatch\b/gi, 'practice mix that does not match the mock'],
+    [/\bretrieval gap\b/gi, 'difficulty spotting which method to use'],
+    [/\bcommitment escalation\b/gi, 'staying because you have already spent time'],
+    [/\bconstraint density\b/gi, 'how strongly the clues connect'],
+    [/\bcalibration check\b/gi, 'level check'],
+    [/\bthe mechanism\b/gi, 'the reason'],
+    [/\bentry anchor\b/gi, 'starting clue']
+  ];
+  replacements.forEach(function(pair) { value = value.replace(pair[0], pair[1]); });
+  return value;
 }
 
 function formatMultiAnswerReview(text, diagnosis) {
@@ -6737,6 +6763,7 @@ function guardMockScoreArithmeticOverclaim(text, diagnosis) {
 
 function applyMentorResponseGuard(response, diagnosis) {
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
+  text = simplifyMentorLanguage(text);
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
@@ -6950,7 +6977,15 @@ function showConversationalOptions(options, context, config) {
 async function handleConversationalResponse(answer, context) {
   conversationalProfile.lastAnswer = answer;
 
-  if (context === 'home_diagnosis_topic') {
+  if (context === 'mock_section_priority') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    askMockSectionEvidenceQuestion(answer);
+
+  } else if (context === 'mock_section_evidence') {
+    await sendConversationalMessage(answer, 'mock_section_evidence');
+
+  } else if (context === 'home_diagnosis_topic') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
     var homeTopic = normalizeChatDiagnosticTopic(answer);
@@ -7233,6 +7268,9 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   }
   if (context === 'profile_topic_familiarity') {
     systemAddition += '\n\nTOPIC-FAMILIARITY CONTINUATION: The student just said whether this topic is a first pass, revision after a gap, or familiar-but-rusty. Acknowledge it in one natural clause and adjust the already-promised plan: first pass needs one compact concept scaffold, revision needs retrieval plus targeted questions, and rusty-but-comfortable needs an earlier timed check. Continue the exact topic thread. Do not ask another profile question or restart the explanation.';
+  }
+  if (context === 'mock_section_evidence') {
+    systemAddition += '\n\nMOCK SECTION DEEP-DIVE: The student chose ' + String(activeMockReviewPriority || 'this section').toUpperCase() + ' first and just answered one evidence question. Use the original multi-section mock story plus this answer. Give one clear, plain-language read of this section only. Explain the exact moment that caused the marks to fall. If one genuinely important fact is still missing, ask one short follow-up that would change the diagnosis. Do not start, generate, or offer a practice exercise yet. Do not move to another section until the student chooses to.';
   }
   if (conversationalProfile.awaitingPatternCorrection) {
     systemAddition += '\n\nThe student just explained what happened with a specific wrong answer, after you asked one clarifying question following a diagnosis they said was not quite right. Do not ask another open-ended question. State a one-sentence read on their actual pattern based on what they just told you, then move on to your next onboarding question.';
@@ -7677,7 +7715,7 @@ function ensureMentorWorkIndicatorStyles() {
   if (document.getElementById('mentor-work-indicator-styles')) return;
   var style = document.createElement('style');
   style.id = 'mentor-work-indicator-styles';
-  style.textContent = '.mentor-work-indicator{display:flex;align-items:center;gap:10px;min-width:210px}.mentor-work-pulse{position:relative;width:18px;height:18px;flex:0 0 18px}.mentor-work-pulse:before,.mentor-work-pulse:after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--gold);animation:margWorkPulse 1.5s ease-out infinite}.mentor-work-pulse:after{animation-delay:.65s}.mentor-work-copy{font-size:12px;color:#aaa69e;line-height:1.35;transition:opacity .18s ease,transform .18s ease}.mentor-work-copy.changing{opacity:.25;transform:translateY(2px)}@keyframes margWorkPulse{0%{transform:scale(.45);opacity:.9}80%,100%{transform:scale(1.6);opacity:0}}@media(max-width:480px){.mentor-work-indicator{min-width:0}.mentor-work-copy{font-size:11.5px}}';
+  style.textContent = '.typing-bubble{min-width:min(280px,72vw);max-width:min(430px,78vw)}.mentor-work-indicator{display:flex;align-items:center;gap:10px;width:100%;min-width:210px}.typing-bubble .mentor-work-pulse{position:relative;display:block;width:18px;height:18px;flex:0 0 18px;border-radius:0;background:transparent;animation:none}.mentor-work-pulse:before,.mentor-work-pulse:after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--gold);animation:margWorkPulse 1.5s ease-out infinite}.mentor-work-pulse:after{animation-delay:.65s}.typing-bubble .mentor-work-copy{display:block;width:auto;height:auto;min-width:0;flex:1;border-radius:0;background:transparent;animation:none;font-size:12px;color:#aaa69e;line-height:1.35;white-space:normal;overflow-wrap:normal;word-break:normal;transition:opacity .18s ease,transform .18s ease}.mentor-work-copy.changing{opacity:.25;transform:translateY(2px)}@keyframes margWorkPulse{0%{transform:scale(.45);opacity:.9}80%,100%{transform:scale(1.6);opacity:0}}@media(max-width:480px){.typing-bubble{min-width:min(260px,76vw);max-width:76vw}.mentor-work-indicator{min-width:0}.typing-bubble .mentor-work-copy{font-size:11.5px}}';
   document.head.appendChild(style);
 }
 
@@ -7900,6 +7938,49 @@ function maybeHandleAmbiguousShortInput(message) {
   return true;
 }
 
+var activeMockReviewPriority = '';
+
+function isMultiSectionMockNarrative(message) {
+  var text = String(message || '').toLowerCase();
+  if (!/\b(?:mock|aimcat|simcat|scorecard|sectional scores?)\b/.test(text)) return false;
+  var sectionCount = [
+    /\b(?:varc|rc|reading comprehension|verbal ability)\b/,
+    /\b(?:dilr|lrdi|data interpretation|logical reasoning)\b/,
+    /\b(?:qa|quant|quants|quantitative aptitude)\b/
+  ].filter(function(pattern) { return pattern.test(text); }).length;
+  return sectionCount >= 2 && text.split(/\s+/).length >= 45;
+}
+
+function maybeStartMultiSectionMockReview(message) {
+  if (!isMultiSectionMockNarrative(message)) return false;
+  activeMockReviewPriority = '';
+  addMentorLeadMessage(
+    'There are three different problems here, and mixing them would give you a shallow answer.\n\n' +
+    'DILR: one set took too much time and the setup became unreliable.\n\n' +
+    'VARC: rushing may be hurting understanding, but we have not proved that yet.\n\n' +
+    'QA: your practice mix may not match what the mock asks you to recognise.\n\n' +
+    'Which section should we unpack first?'
+  );
+  showConversationalOptions(['DILR', 'VARC', 'QA'], 'mock_section_priority');
+  return true;
+}
+
+function askMockSectionEvidenceQuestion(section) {
+  activeMockReviewPriority = String(section || '').toLowerCase();
+  if (activeMockReviewPriority === 'dilr') {
+    addMentorLeadMessage('In that 20–22 minute set, what kept you there near the end?');
+    showConversationalOptions(['I was still finding useful deductions', 'I was trying cases without real progress', 'A bit of both'], 'mock_section_evidence');
+    return;
+  }
+  if (activeMockReviewPriority === 'varc') {
+    addMentorLeadMessage('When you say you rushed VARC, where did the marks mostly go?');
+    showConversationalOptions(['I misunderstood the passage', 'I got stuck between two options', 'I ran out of time near the end'], 'mock_section_evidence');
+    return;
+  }
+  addMentorLeadMessage('In the Arithmetic questions you attempted, what stopped you most often?');
+  showConversationalOptions(['I could not spot the method', 'I knew the method but was too slow', 'I made mistakes after the setup'], 'mock_section_evidence');
+}
+
 async function sendMessage(fromQueue, submissionOptions) {
   const mockOverlay = document.getElementById('mock-onboarding-overlay');
   const mockVisible = mockOverlay && mockOverlay.style.display === 'flex';
@@ -7994,6 +8075,11 @@ async function sendMessage(fromQueue, submissionOptions) {
   }
 
   if (!hasImages && gateFreshExternalQuestion(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
+
+  if (!hasImages && maybeStartMultiSectionMockReview(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -10236,7 +10322,7 @@ function getVerifiedFallbackPractice(section, questionCount, topic) {
       { topic:'Algebra', q:'For a positive real number x, x + 1/x = 3. What is x^5 + 1/x^5?', options:['A. 99','B. 111','C. 123','D. 135'], correct:2, solution:'With Sₙ=xⁿ+x⁻ⁿ, Sₙ=3Sₙ₋₁−Sₙ₋₂. From S₀=2,S₁=3, obtain S₅=123.', common_mistake:'Expanding the fifth power directly', concept_check:'Algebraic recurrence', marg_insight:'Recognition of a recurrence is the speed-saving insight.' }
     ] };
   }
-  if (section === 'dilr' && (questionCount || 4) <= 4 && (!topic || /arrangement|ranking|scheduling|allocation|mixed/i.test(topic))) {
+  if (section === 'dilr' && (questionCount || 4) <= 4 && (!topic || /arrangement|ranking|scheduling|allocation|mixed|diagnostic/i.test(topic))) {
     // This set and all four keys are enumerated in the regression suite. It is
     // the safe instant fallback for the two matching topic families only; a
     // Routes/DI/Venn request must never be silently replaced by seating.
@@ -10586,6 +10672,88 @@ function generateStudyPlanValidationExercise(entry) {
   return true;
 }
 
+function getVerifiedStrategyDecisionLab(entry) {
+  var bank = {
+    order: {
+      topic:'Strategy',
+      q:'In the first QA scan, Question 1 looks familiar but you have made no progress after 75 seconds. Question 4 looks unfamiliar, but its ratio setup is clear. What should you do?',
+      options:['A. Stay with Question 1 because you have already spent time','B. Move to Question 4 and return only if time remains','C. Skip both and wait for a chapter you revised today','D. Keep trying Question 1 until the setup appears'],
+      correct:1,
+      solution:'Move to Question 4. A clear starting route matters more than familiarity or time already spent.',
+      common_mistake:'Protecting time already spent instead of protecting the section',
+      concept_check:'Leaving a stalled question',
+      marg_insight:'This checks whether syllabus order controls your attempt order.'
+    },
+    selection: {
+      topic:'Strategy',
+      q:'During the DILR scan, one familiar arrangement has many loose conditions. Another unfamiliar table has two clues that immediately fix a row and a total. Which set should you open?',
+      options:['A. The familiar arrangement','B. The unfamiliar table with a clear first setup','C. Whichever appears first','D. The set with the shortest wording'],
+      correct:1,
+      solution:'Open the table. A usable setup and clues that combine are stronger signals than a familiar topic or short wording.',
+      common_mistake:'Choosing by topic familiarity',
+      concept_check:'Set selection',
+      marg_insight:'This checks whether you choose by solvability or comfort.'
+    },
+    revision: {
+      topic:'Strategy',
+      q:'Your last three RC reviews show the same scope mistake, but today’s schedule says to finish a new chapter. What is the better use of the next 25 minutes?',
+      options:['A. Follow the schedule without changing anything','B. Review the three scope mistakes and test the rule on one fresh RC','C. Watch a general VARC strategy video','D. Solve as many RC questions as possible'],
+      correct:1,
+      solution:'Review the repeated mistake and test one correction. A plan should respond to evidence, not continue by habit.',
+      common_mistake:'Treating schedule completion as improvement',
+      concept_check:'Evidence-led revision',
+      marg_insight:'This checks whether your plan changes when the same error repeats.'
+    },
+    guessing: {
+      topic:'Strategy',
+      q:'You have narrowed an RC question to two options. One makes a broader claim than the paragraph; the other matches the author’s exact limit. What should decide your answer?',
+      options:['A. Pick the broader option because it covers more of the passage','B. Pick the option whose wording is closest to the author’s exact claim','C. Pick the more confident-sounding option','D. Change from your first choice because doubt means it was wrong'],
+      correct:1,
+      solution:'Choose the option that matches the author’s exact limit. Coverage and confident wording are not evidence.',
+      common_mistake:'Choosing by completeness or tone',
+      concept_check:'Evidence-based choice',
+      marg_insight:'This checks what you use when certainty is low.'
+    },
+    plateau: {
+      topic:'Strategy',
+      q:'Your total mock score is almost unchanged across three mocks. What should you inspect before increasing daily question volume?',
+      options:['A. Only the total percentile','B. Section-wise attempts, accuracy, time sinks and repeated mistakes','C. How many chapters remain in the book','D. Which mock had the hardest questions'],
+      correct:1,
+      solution:'Compare attempts, accuracy, time sinks and repeated errors by section. The same total score can come from very different problems.',
+      common_mistake:'Treating the total score as the diagnosis',
+      concept_check:'Reading mock evidence',
+      marg_insight:'This checks whether you investigate the score before changing the plan.'
+    }
+  };
+  var pattern = String(entry && entry.patternId || '').toLowerCase();
+  var primary = pattern.indexOf('select') !== -1 ? 'selection'
+    : pattern.indexOf('revis') !== -1 ? 'revision'
+    : pattern.indexOf('guess') !== -1 ? 'guessing'
+    : pattern.indexOf('plateau') !== -1 || pattern.indexOf('stuck') !== -1 ? 'plateau'
+    : 'order';
+  var order = [primary].concat(['order','selection','revision','guessing','plateau'].filter(function(key) { return key !== primary; })).slice(0, 3);
+  return { difficulty:'Decision Lab', topics_combined:['Strategy'], questions:order.map(function(key) { return bank[key]; }) };
+}
+
+function launchVerifiedStrategyDecisionLab(entry) {
+  var parsed = getVerifiedStrategyDecisionLab(entry);
+  if (!validateQASetShape(parsed, null, 3)) return false;
+  var lead = 'This is not a syllabus test. Pick what you would actually do in each situation—your choices will show whether our read is right.';
+  addMentorLeadMessage(lead);
+  var visible = formatGuidedExerciseForChat('strategy', parsed, entry);
+  addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  conversationHistory.push({ role:'assistant', content:visible });
+  if (!isGuestMode) saveChatMessage('assistant', visible);
+  storeActiveGeneratedExercise({
+    type:'strategy', source:'prediction-validation-verified', title:'Strategy decision lab',
+    purpose:'Check whether this strategy pattern appears in real decisions', hypothesis:entry || null,
+    content:parsed
+  });
+  clearGuidedGenerationState();
+  completeChatFirstOnboarding('strategy');
+  return true;
+}
+
 async function runPredictionValidationExercise(entry) {
   if (!entry) return false;
   recordEngagementEvent('recommended_task_started', {
@@ -10602,7 +10770,7 @@ async function runPredictionValidationExercise(entry) {
     return startTimedTest('qa', qaTopic, 3, entry);
   }
   if (entry.topic === 'dilr') return startTimedTest('dilr', entry.patternId === 'selection' ? 'Mixed Set Selection' : 'Diagnostic Set', entry.patternId === 'selection' ? 8 : 4, entry);
-  if (entry.topic === 'strategy') return generateGuidedDiagnosticExercise(entry.topic, entry);
+  if (entry.topic === 'strategy') return launchVerifiedStrategyDecisionLab(entry);
   if (entry.topic === 'mock') return generateGuidedMiniMock(entry);
   if (entry.topic === 'confidence') return generateConfidenceValidationExercise(entry);
   if (entry.topic === 'study_plan') return generateStudyPlanValidationExercise(entry);
@@ -10822,6 +10990,30 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   timerEl.classList.remove('tt-timer-warning');
   titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + ' Sectional Test — ' + topic;
   contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is building a timed ' + (section === 'qa' ? 'QA' : 'DILR') + ' test on ' + topic + ' — CAT-level difficulty...</div></div>';
+
+  // A diagnosis check must open immediately. This four-question DILR set is a
+  // locally stored, enumerated set, so it needs neither Gemini generation nor a
+  // second paid audit before the timer can begin.
+  if (section === 'dilr' && timedTestDiagnosticEntry && timedTestRequestedCount <= 4) {
+    var instantDILR = getVerifiedFallbackPractice('dilr', timedTestRequestedCount, topic);
+    var instantQuestions = instantDILR && validateDILRPracticeSet(instantDILR, 1) ? flattenTimedTestQuestions('dilr', instantDILR) : [];
+    if (instantQuestions.length === 4 && instantQuestions.every(isValidTimedTestQuestion)) {
+      timedTestQuestions = instantQuestions;
+      timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
+      timedTestSecondsTotal = timedTestQuestions.length * 120;
+      timedTestSecondsLeft = timedTestSecondsTotal;
+      storeActiveGeneratedExercise({
+        type:'dilr', source:'prediction-validation-verified', title:topic + ' verified check',
+        purpose:'Check whether the observed DILR opening pattern repeats', hypothesis:timedTestDiagnosticEntry,
+        content:{ questions:timedTestQuestions }
+      });
+      renderTimedTestQuestionNav();
+      qnavEl.style.display = 'flex';
+      renderTimedTestQuestion();
+      startTimedTestTimer();
+      return true;
+    }
+  }
 
   var prompt = getPredictionValidationFocus(timedTestDiagnosticEntry) + buildSectionalTestPrompt(section, topic, questionCount);
   var maxTokens = getSectionalTestMaxTokens(section, questionCount);
