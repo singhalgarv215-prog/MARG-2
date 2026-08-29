@@ -2335,6 +2335,12 @@ A student must understand the reply on the first read. Use everyday English, sho
 TRUTH AND CORRECTION CONTRACT
 Facts come only from the student, verified results or authoritative context. Never turn Marg’s inference into student fact. If new evidence conflicts, say "I misread that" or "I was wrong about that", discard the old diagnosis/mission and rebuild. If evidence is missing, ask one precise question or stay tentative.
 
+EVIDENCE LADDER
+Keep these separate: student report; working hypothesis; one usable observed attempt; a second independent supporting attempt; confirmed repeated pattern. “Exactly” or “Mostly” means familiar, not proven. One usable attempt can support or reject. Confirm only after two usable supporting attempts or equally strong multi-attempt mock data. Say what the evidence proves and does not.
+
+PRODUCT-FAILURE FIREWALL
+A slow, missing, incomplete, malformed or unrendered exercise is product evidence, not student evidence. An all-skipped submission without meaningful interaction is inconclusive: never diagnose setup freeze, avoidance, low skill or poor selection from it. Fix or reopen the same verified exercise first. Never replace a requested “same set” with reconstructed numbers or a new set; use ACTIVE EXERCISE memory exactly.
+
 STUDENT-SPECIFIC DECISIONS
 Silently require: "Because this student showed X, recommend Y instead of generic Z." X must come from their message, verified result or reliable memory.
 
@@ -3310,7 +3316,14 @@ function hydrateDiagnosticMemoryFromHistory() {
       subcategory:match[2].trim() === 'general' ? null : match[2].trim(),
       selectedPattern:match[3].trim(), confirmedDiagnosis:match[4].trim(),
       confirmation:confirmation,
-      confidence:confirmation === 'Exactly' ? .95 : confirmation === 'Mostly' ? .75 : .3,
+      confidence:confirmation === 'Exactly' ? .62 : confirmation === 'Mostly' ? .52 : .2,
+      status:confirmation === 'Not Really' ? 'rejected' : 'hypothesis',
+      evidenceHistory:[{
+        clientRef:'legacy-self-report-' + simpleStableHash(message.content), type:'self_report',
+        claim:'The student said the working read felt ' + confirmation + '.',
+        supports:confirmation !== 'Not Really', strength:confirmation === 'Exactly' ? .4 : confirmation === 'Mostly' ? .3 : .7,
+        occurredAt:message.created_at || new Date(0).toISOString(), payload:{ legacy:true }
+      }],
       updatedAt:message.created_at || new Date(0).toISOString()
     };
   });
@@ -3319,7 +3332,10 @@ function hydrateDiagnosticMemoryFromHistory() {
 
 function hasConfirmedDiagnostic(topic) {
   var entry = diagnosticMemory[topic];
-  return !!(entry && !entry.doNotReuse && entry.status !== 'rejected' && (entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && entry.confidence >= 0.7);
+  return !!(entry && !entry.doNotReuse && entry.status !== 'rejected' && (
+    entry.status === 'supported' || entry.status === 'confirmed' ||
+    ((entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && entry.status === 'hypothesis')
+  ));
 }
 
 function shouldLaunchDiagnosticTopic(topic) {
@@ -3439,7 +3455,7 @@ function confirmDiagnostic(level) {
   var topic = diagnosticFlowState.topic;
   var pattern = diagnosticFlowState.pattern;
   if (!topic || !pattern) return;
-  var confidence = level === 'Exactly' ? 0.95 : level === 'Mostly' ? 0.75 : 0.3;
+  var confidence = level === 'Exactly' ? 0.62 : level === 'Mostly' ? 0.52 : 0.2;
   var subcategoryLabel = null;
   if (topic === 'varc' && diagnosticFlowState.subcategory) {
     var subcategoryMatch = DIAGNOSTIC_TOPICS.varc.subcategories.find(function(item) { return item.id === diagnosticFlowState.subcategory; });
@@ -3454,6 +3470,8 @@ function confirmDiagnostic(level) {
     confirmedDiagnosis:pattern.prediction,
     confirmation:level,
     confidence:confidence,
+    status:level === 'Not Really' ? 'rejected' : 'hypothesis',
+    evidenceHistory:[],
     action:pattern.action,
     updatedAt:new Date().toISOString()
   };
@@ -3461,9 +3479,13 @@ function confirmDiagnostic(level) {
   diagnosticSessionAttempted[topic] = true;
   activeDiagnosticTopic = topic;
   saveDiagnosticMemory();
-  persistMentorDiagnosis(entry);
+  persistDiagnosisEvidence(entry, {
+    type:'self_report', supports:level !== 'Not Really', strength:level === 'Exactly' ? .4 : level === 'Mostly' ? .3 : .7,
+    claim:'The student said the working read felt ' + level + '.',
+    clientRef:'diagnostic-confirmation-' + entry.updatedAt,
+    payload:{ confirmation:level, selected_pattern:entry.selectedPattern }
+  });
   if (level !== 'Not Really') {
-    recordBehaviorPattern(topic, entry.confirmedDiagnosis, entry.selectedPattern, 'diagnostic');
     recordEngagementEvent('diagnosis_confirmed', { topic:topic, pattern_id:pattern.id, confirmation:level }, 'diagnosis-' + topic + '-' + pattern.id + '-' + entry.updatedAt);
   }
   finishDiagnosticFlow(entry);
@@ -3661,11 +3683,17 @@ async function maybeStartGuidedExperienceFromMessage(message) {
 }
 
 function getDiagnosticMemoryContext() {
-  var entries = Object.keys(diagnosticMemory).filter(hasConfirmedDiagnostic).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && entry.confirmedDiagnosis; });
+  var entries = Object.keys(diagnosticMemory).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && entry.confirmedDiagnosis && entry.status !== 'rejected' && !entry.doNotReuse; });
   if (!entries.length) return '';
-  return '\n\nCONFIRMED DIAGNOSTIC MEMORY (reuse it; do not repeat this flow):\n' + entries.map(function(entry) {
-    return '- ' + entry.selectedSection + (entry.subcategory ? ' / ' + entry.subcategory.toUpperCase() : '') + ': ' + entry.confirmedDiagnosis + ' Confirmation=' + entry.confirmation + ', confidence=' + entry.confidence + '.';
-  }).join('\n');
+  return '\n\nDIAGNOSTIC EVIDENCE MEMORY (respect the evidence level; do not present a hypothesis as fact):\n' + entries.map(function(entry) {
+    var counts = observedDiagnosisEvidenceCounts(entry);
+    var status = normalizeDiagnosisStatus(entry);
+    var evidenceLabel = status === 'confirmed' ? 'CONFIRMED REPEATED PATTERN'
+      : status === 'supported' ? 'SUPPORTED ONCE'
+        : status === 'inconclusive' ? 'INCONCLUSIVE'
+          : 'WORKING HYPOTHESIS';
+    return '- ' + entry.selectedSection + (entry.subcategory ? ' / ' + entry.subcategory.toUpperCase() : '') + ': ' + entry.confirmedDiagnosis + ' [' + evidenceLabel + '; self-report=' + (entry.confirmation || 'none') + '; usable observed support=' + counts.supporting + '; observed contradiction=' + counts.contradicting + '].';
+  }).join('\n') + '\nUse supported/confirmed entries for decisions. A working hypothesis may guide one test, but must be labelled as a read and never treated as established history.';
 }
 
 function runDiagnosticFlowTests() {
@@ -3734,7 +3762,7 @@ window.runMargSubmissionStateTests = runSubmissionStateTests;
 var INTERNAL_MEMORY_PREFIX = '[MARG_INTERNAL:';
 var activeGeneratedExercise = null;
 var behavioralMemory = { patterns:[] };
-var mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], loaded:false, unavailable:false };
+var mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
 
 function canUseMentorExecutionLoop() {
   return !!(currentUser && SUPABASE_TOKEN && !isGuestMode && !mentorExecutionLoop.unavailable);
@@ -3761,6 +3789,83 @@ function normalizeExecutionSection(section) {
   var value = String(section || 'general').toLowerCase();
   if (value === 'rc' || value === 'va' || value === 'varc_mixed') return 'varc';
   return ['varc','dilr','qa','mock','confidence','strategy','study_plan','general'].indexOf(value) !== -1 ? value : 'general';
+}
+
+function normalizeDiagnosisStatus(entry) {
+  var value = String(entry && entry.status || '').toLowerCase();
+  if (entry && (entry.confirmation === 'Rejected' || entry.confirmation === 'Not Really')) return 'rejected';
+  if (value === 'uncertain') return 'inconclusive';
+  if (['hypothesis','supported','confirmed','rejected','inconclusive','superseded'].indexOf(value) !== -1) return value;
+  // A student's confirmation is self-report, not behavioural proof. It keeps
+  // the read alive as a hypothesis until a correctly delivered attempt tests it.
+  return 'hypothesis';
+}
+
+function diagnosisEvidenceClientRef(entry, evidence) {
+  var base = mentorDiagnosisClientRef(entry);
+  var type = String(evidence && evidence.type || 'self_report').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+  var identity = String(evidence && (evidence.clientRef || evidence.attemptId || evidence.occurredAt || evidence.claim) || Date.now());
+  return (base + ':' + type + ':' + simpleStableHash(identity)).slice(0, 200);
+}
+
+function localDiagnosisEvidence(entry) {
+  if (!entry) return [];
+  if (!Array.isArray(entry.evidenceHistory)) entry.evidenceHistory = [];
+  return entry.evidenceHistory;
+}
+
+function appendLocalDiagnosisEvidence(entry, evidence) {
+  if (!entry || !evidence) return null;
+  var history = localDiagnosisEvidence(entry);
+  var suppliedRef = String(evidence.clientRef || '');
+  var clientRef = suppliedRef.indexOf('diagnosis:') === 0 ? suppliedRef.slice(0, 200) : diagnosisEvidenceClientRef(entry, evidence);
+  var existing = history.find(function(item) { return item && item.clientRef === clientRef; });
+  if (existing) return existing;
+  var item = {
+    clientRef:clientRef,
+    type:evidence.type || 'self_report',
+    claim:String(evidence.claim || '').slice(0, 1600),
+    supports:typeof evidence.supports === 'boolean' ? evidence.supports : null,
+    strength:Math.max(0, Math.min(1, Number(evidence.strength) || 0.5)),
+    attemptId:evidence.attemptId || null,
+    occurredAt:evidence.occurredAt || new Date().toISOString(),
+    payload:evidence.payload || {}
+  };
+  history.push(item);
+  entry.evidenceHistory = history.slice(-20);
+  return item;
+}
+
+function observedDiagnosisEvidenceCounts(entry) {
+  var rows = localDiagnosisEvidence(entry).filter(function(item) { return item && item.type === 'observed_attempt'; });
+  return {
+    supporting:rows.filter(function(item) { return item.supports === true && Number(item.strength || 0) >= 0.65; }).length,
+    contradicting:rows.filter(function(item) { return item.supports === false && Number(item.strength || 0) >= 0.65; }).length,
+    observed:rows.length
+  };
+}
+
+function promoteDiagnosisFromEvidence(entry) {
+  if (!entry) return entry;
+  var counts = observedDiagnosisEvidenceCounts(entry);
+  if (counts.contradicting > 0) {
+    entry.status = 'rejected';
+    entry.doNotReuse = true;
+    entry.confidence = Math.min(Number(entry.confidence || 0.2), 0.2);
+  } else if (counts.supporting >= 2) {
+    entry.status = 'confirmed';
+    entry.doNotReuse = false;
+    entry.confidence = Math.max(Number(entry.confidence || 0), 0.92);
+    entry.confirmedAt = new Date().toISOString();
+  } else if (counts.supporting === 1) {
+    entry.status = 'supported';
+    entry.doNotReuse = false;
+    entry.confidence = Math.max(Number(entry.confidence || 0), 0.78);
+  } else if (entry.status !== 'inconclusive') {
+    entry.status = 'hypothesis';
+    entry.confidence = Math.min(Number(entry.confidence || 0.55), 0.65);
+  }
+  return entry;
 }
 
 function mentorDiagnosisClientRef(entry) {
@@ -3799,9 +3904,7 @@ function mentorTaskDefinition(entry) {
 
 async function persistMentorDiagnosis(entry) {
   if (!entry || !canUseMentorExecutionLoop()) return null;
-  var status = entry.status === 'rejected' || entry.confirmation === 'Rejected' || entry.confirmation === 'Not Really' ? 'rejected'
-    : entry.status === 'uncertain' || entry.confirmation === 'Inconclusive' ? 'inconclusive'
-      : entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly' || entry.status === 'confirmed' ? 'confirmed' : 'hypothesis';
+  var status = normalizeDiagnosisStatus(entry);
   var payload = {
     user_id:currentUser.id,
     client_ref:mentorDiagnosisClientRef(entry),
@@ -3838,6 +3941,46 @@ async function persistMentorDiagnosis(entry) {
   } catch(error) {
     if (!mentorExecutionLoop.unavailable) console.error('Diagnosis persistence error:', error);
     return null;
+  }
+}
+
+async function persistDiagnosisEvidence(entry, evidence) {
+  if (!entry || !evidence) return null;
+  var localEvidence = appendLocalDiagnosisEvidence(entry, evidence);
+  saveDiagnosticMemory();
+  if (!canUseMentorExecutionLoop() || mentorExecutionLoop.evidenceUnavailable) return localEvidence;
+  var diagnosis = entry.dbDiagnosisId ? { id:entry.dbDiagnosisId } : await persistMentorDiagnosis(entry);
+  if (!diagnosis || !diagnosis.id) return localEvidence;
+  var payload = {
+    user_id:currentUser.id,
+    diagnosis_id:diagnosis.id,
+    client_ref:localEvidence.clientRef,
+    section:normalizeExecutionSection(entry.topic),
+    evidence_type:localEvidence.type,
+    claim:localEvidence.claim || 'Evidence recorded for the working diagnosis.',
+    supports:localEvidence.supports,
+    strength:localEvidence.strength,
+    evidence_payload:Object.assign({}, localEvidence.payload || {}, { attempt_id:localEvidence.attemptId || null }),
+    occurred_at:localEvidence.occurredAt
+  };
+  try {
+    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_diagnosis_evidence?on_conflict=user_id,client_ref&select=*', {
+      method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      if (response.status === 404) mentorExecutionLoop.evidenceUnavailable = true;
+      throw new Error('Diagnosis evidence persistence failed (' + response.status + ')');
+    }
+    var rows = await response.json();
+    var saved = Array.isArray(rows) ? rows[0] : rows;
+    if (saved) {
+      mentorExecutionLoop.evidence = mentorExecutionLoop.evidence.filter(function(item) { return item.client_ref !== saved.client_ref; });
+      mentorExecutionLoop.evidence.push(saved);
+    }
+    return saved || localEvidence;
+  } catch(error) {
+    if (!mentorExecutionLoop.evidenceUnavailable) console.error('Diagnosis evidence persistence error:', error);
+    return localEvidence;
   }
 }
 
@@ -3963,6 +4106,7 @@ async function persistMentorTaskAttempt(exercise, result) {
   var elapsed = null;
   var isTimedExercise = /(?:sectional|prediction-validation)/.test(String(exercise.source || '')) && ['qa','dilr','mini_mock'].indexOf(String(exercise.type || '')) !== -1;
   if (isTimedExercise && typeof timedTestSecondsTotal === 'number' && typeof timedTestSecondsLeft === 'number' && timedTestSecondsTotal >= timedTestSecondsLeft) elapsed = timedTestSecondsTotal - timedTestSecondsLeft;
+  var evidenceQuality = assessExerciseEvidenceQuality(exercise);
   var payload = {
     user_id:currentUser.id, task_id:task.id,
     client_ref:String(exercise.id + ':attempt:' + completedAt).slice(0, 200),
@@ -3974,8 +4118,13 @@ async function persistMentorTaskAttempt(exercise, result) {
       total:total,
       answers:Array.isArray(result.answers) ? result.answers.slice(0, 30) : [],
       selections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : [],
+      interactions:Array.isArray(exercise.interactions) ? exercise.interactions.slice(-80) : [],
       mistakes:Array.isArray(result.mistakes) ? result.mistakes.slice(0, 10) : [],
-      source:exercise.source || 'practice'
+      source:exercise.source || 'practice',
+      delivery_state:exercise.deliveryState || null,
+      delivered_at:exercise.deliveredAt || null,
+      generation_duration_ms:Number(exercise.generationDurationMs || 0) || null,
+      evidence_quality:evidenceQuality
     },
     evidence_summary:String(result.evidenceSummary || (Number(result.correct || 0) + '/' + total + ' correct; ' + Number(result.wrong || 0) + ' wrong; ' + Number(result.skipped || 0) + ' skipped.')).slice(0, 1600),
     verdict:exercise.validationVerdict ? String(exercise.validationVerdict).toLowerCase() : null,
@@ -4032,6 +4181,13 @@ async function loadMentorExecutionLoop() {
     mentorExecutionLoop.diagnoses = await responses[0].json();
     mentorExecutionLoop.tasks = await responses[1].json();
     mentorExecutionLoop.attempts = await responses[2].json();
+    try {
+      var evidenceResponse = await fetch(SUPABASE_URL + '/rest/v1/mentor_diagnosis_evidence?select=*&user_id=eq.' + currentUser.id + '&order=occurred_at.desc&limit=80', { headers:executionLoopHeaders() });
+      if (evidenceResponse.ok) mentorExecutionLoop.evidence = await evidenceResponse.json();
+      else if (evidenceResponse.status === 404) mentorExecutionLoop.evidenceUnavailable = true;
+    } catch(evidenceError) {
+      console.error('Diagnosis evidence load failed:', evidenceError);
+    }
     mentorExecutionLoop.loaded = true;
     loadDiagnosticMemory();
     mentorExecutionLoop.diagnoses.slice().reverse().forEach(function(saved) {
@@ -4045,7 +4201,15 @@ async function loadMentorExecutionLoop() {
           confirmation:saved.confirmation_level || (saved.status === 'rejected' ? 'Not Really' : saved.status === 'inconclusive' ? 'Inconclusive' : 'Mostly'),
           confidence:Number(saved.confidence || 0.5), status:saved.status,
           validatedAt:saved.validated_at, updatedAt:saved.updated_at, dbDiagnosisId:saved.id,
-          doNotReuse:saved.status === 'rejected'
+          doNotReuse:saved.status === 'rejected',
+          evidenceHistory:(mentorExecutionLoop.evidence || []).filter(function(item) { return item.diagnosis_id === saved.id; }).map(function(item) {
+            return {
+              clientRef:item.client_ref, type:item.evidence_type, claim:item.claim,
+              supports:item.supports, strength:Number(item.strength || 0.5),
+              attemptId:item.evidence_payload && item.evidence_payload.attempt_id || null,
+              occurredAt:item.occurred_at, payload:item.evidence_payload || {}
+            };
+          })
         };
       }
     });
@@ -4133,6 +4297,98 @@ function loadActiveGeneratedExercise() {
   return activeGeneratedExercise;
 }
 
+function markActiveExerciseDelivered(surface) {
+  if (!activeGeneratedExercise) return;
+  if (!activeGeneratedExercise.deliveredAt) activeGeneratedExercise.deliveredAt = new Date().toISOString();
+  activeGeneratedExercise.deliveryState = 'rendered';
+  activeGeneratedExercise.deliverySurface = surface || activeGeneratedExercise.deliverySurface || 'unknown';
+  if (activeGeneratedExercise.generationStartedAt && !activeGeneratedExercise.generationDurationMs) {
+    activeGeneratedExercise.generationDurationMs = Math.max(0, Date.parse(activeGeneratedExercise.deliveredAt) - Date.parse(activeGeneratedExercise.generationStartedAt));
+  }
+  try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+}
+
+function markActiveExerciseInteraction(kind, detail) {
+  if (!activeGeneratedExercise) return;
+  if (!Array.isArray(activeGeneratedExercise.interactions)) activeGeneratedExercise.interactions = [];
+  activeGeneratedExercise.interactions.push({ kind:String(kind || 'interaction'), detail:detail || null, at:new Date().toISOString() });
+  activeGeneratedExercise.interactions = activeGeneratedExercise.interactions.slice(-80);
+  try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+}
+
+function assessExerciseEvidenceQuality(exercise) {
+  if (!exercise || !exercise.result) return { level:'none', usable:false, reason:'No completed attempt is available.' };
+  var result = exercise.result || {};
+  var total = Number(result.total || (Number(result.correct || 0) + Number(result.wrong || 0) + Number(result.skipped || 0)));
+  var answered = Number(result.correct || 0) + Number(result.wrong || 0);
+  var interactions = Array.isArray(exercise.interactions) ? exercise.interactions.length : Array.isArray(exercise.uiSelections) ? exercise.uiSelections.length : 0;
+  var visibleSeconds = exercise.deliveredAt && exercise.completedAt
+    ? Math.max(0, Math.round((Date.parse(exercise.completedAt) - Date.parse(exercise.deliveredAt)) / 1000))
+    : null;
+  if (exercise.deliveryState && exercise.deliveryState !== 'rendered') return { level:'product_confounded', usable:false, reason:'The exercise was not confirmed as visible to the student.', answered:answered, total:total, interactions:interactions, visibleSeconds:visibleSeconds };
+  if (total > 0 && answered === 0) return {
+    level:'insufficient', usable:false,
+    reason:'All questions were skipped. This records non-attempt, but it cannot identify whether the cause was setup difficulty, interface trouble, interruption, or a deliberate choice.',
+    answered:answered, total:total, interactions:interactions, visibleSeconds:visibleSeconds
+  };
+  if (answered === 1) return { level:'limited', usable:true, reason:'One attempted answer can test this moment, but it cannot establish a repeated pattern.', answered:answered, total:total, interactions:interactions, visibleSeconds:visibleSeconds };
+  return { level:'observed', usable:true, reason:'The attempt contains multiple observable choices that can support, narrow, or reject the working read.', answered:answered, total:total, interactions:interactions, visibleSeconds:visibleSeconds };
+}
+
+function getExerciseEvidenceContext(exercise) {
+  var quality = assessExerciseEvidenceQuality(exercise);
+  if (quality.level === 'none') return '';
+  return '\nEVIDENCE QUALITY: ' + quality.level.toUpperCase() + '. ' + quality.reason +
+    ' Answered: ' + Number(quality.answered || 0) + '/' + Number(quality.total || 0) +
+    '; recorded interactions: ' + Number(quality.interactions || 0) +
+    (quality.visibleSeconds === null ? '' : '; visible for about ' + quality.visibleSeconds + ' seconds') +
+    '. Never diagnose a cognitive or preparation cause from product-confounded or insufficient evidence.';
+}
+
+function isExactExerciseReplayRequest(message) {
+  var text = String(message || '').trim();
+  return /\b(?:same|previous|last|that)\s+(?:set|exercise|passage|questions?)\b[\s\S]{0,35}\b(?:again|once more|show|send|give|open|repeat)\b/i.test(text) ||
+    /\b(?:show|send|give|open|repeat)\b[\s\S]{0,35}\b(?:same|previous|last|that)\s+(?:set|exercise|passage|questions?)\b/i.test(text) ||
+    /^(?:where is|show me)\s+(?:the|that)\s+(?:set|exercise|passage)\??$/i.test(text) ||
+    /\bmain set data\b[\s\S]{0,25}\bquestions?\b/i.test(text);
+}
+
+function formatStoredExerciseForReplay(exercise) {
+  if (!exercise || !exercise.content) return '';
+  var content = exercise.content;
+  if (typeof content.exerciseText === 'string' && content.exerciseText.trim()) return content.exerciseText.trim();
+  if (Array.isArray(content.sets) && content.sets.length) {
+    var section = exercise.type === 'varc' ? 'rc' : exercise.type;
+    if (section === 'rc' || section === 'dilr') return formatGuidedExerciseForChat(section, content, null);
+  }
+  if (!Array.isArray(content.questions) || !content.questions.length) return '';
+  var parts = [String(exercise.title || 'Saved CAT exercise')];
+  var shownSetups = {};
+  content.questions.forEach(function(question, index) {
+    var setup = String(question.setupText || '').trim();
+    var setupKey = String(question.setLabel || '') + '::' + setup;
+    if (setup && !shownSetups[setupKey]) {
+      parts.push((question.setLabel ? question.setLabel + '\n\n' : '') + setup);
+      shownSetups[setupKey] = true;
+    }
+    parts.push(formatQuestionBlock(question, index + 1));
+  });
+  parts.push('Send your answers in one line, for example: 1-A, 2-C, 3-B, 4-D.');
+  return parts.join('\n\n');
+}
+
+function maybeReplayActiveExercise(message) {
+  if (!isExactExerciseReplayRequest(message)) return false;
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  var replay = formatStoredExerciseForReplay(activeGeneratedExercise);
+  if (!replay) return false;
+  addMessage('marg', escapeGuidedExerciseText(replay).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  conversationHistory.push({ role:'assistant', content:replay });
+  if (!isGuestMode) saveChatMessage('assistant', replay);
+  markActiveExerciseDelivered('chat-replay');
+  return true;
+}
+
 function hasPendingExerciseReview() {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
   return !!(activeGeneratedExercise && activeGeneratedExercise.result && activeGeneratedExercise.reviewPending !== false && !activeGeneratedExercise.reviewedAt);
@@ -4178,9 +4434,13 @@ function isAnswerReviewRequest(message) {
     /^\s*\d{1,2}\s*[-:.)]?\s*[abcd](?:\s*[,;|/]\s*\d{1,2}\s*[-:.)]?\s*[abcd])*\s*$/i.test(message || '') || answerPairs.length >= 2 || explicitWrongQuestionReview;
 }
 
+function isPredictionValidationExercise(exercise) {
+  return !!(exercise && /^prediction-validation(?:-|$)/.test(String(exercise.source || '')));
+}
+
 function isPredictionValidationReply(message) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
-  if (!activeGeneratedExercise || activeGeneratedExercise.source !== 'prediction-validation' || !activeGeneratedExercise.awaitingAnswers) return false;
+  if (!isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.awaitingAnswers) return false;
   var text = String(message || '').trim();
   if (!text) return false;
   var explicitSwitch = /\b(switch|change topic|now help|help me with|want help with|work on|focus on|weak in)\b/i.test(text) && detectExplicitDiagnosticTopic(text);
@@ -4293,7 +4553,7 @@ function buildDirectRCWrongAnswerDiagnosis(mechanism) {
 }
 
 function buildPredictionValidationFallback(message) {
-  if (!activeGeneratedExercise || activeGeneratedExercise.source !== 'prediction-validation' || !activeGeneratedExercise.hypothesis) return '';
+  if (!isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.hypothesis) return '';
   var localCheck = buildLocalAnswerCheck(message);
   if (localCheck) return localCheck;
   return 'I saved your response, but the evidence check did not finish cleanly. I’m not treating the earlier read as proven; retry the review and I’ll test it from the same answers.\n[HYPOTHESIS_VERDICT: inconclusive]';
@@ -4303,13 +4563,13 @@ function getGeneratedExerciseMemoryContext(message) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
   var text = String(message || '').toLowerCase();
   var isFollowUp = isAnswerReviewRequest(message) || isExerciseResultReviewRequest(message) || /\b(?:q(?:uestion)?\s*\d+|why\s+(?:is|was)|explain\s+(?:this|the|q|question|answer|option)|this\s+(?:question|set|passage)|the\s+(?:question|set|passage))\b/.test(text);
-  var isValidationFollowUp = activeGeneratedExercise && activeGeneratedExercise.source === 'prediction-validation' &&
+  var isValidationFollowUp = isPredictionValidationExercise(activeGeneratedExercise) &&
     (activeGeneratedExercise.awaitingAnswers || activeGeneratedExercise.lastSubmittedAnswers === String(message || '').substring(0, 1000));
   if (!activeGeneratedExercise || (!isFollowUp && !isValidationFollowUp)) return '';
   var memoryJson = JSON.stringify(activeGeneratedExercise);
   if (memoryJson.length > 24000) memoryJson = memoryJson.substring(0, 24000) + '...';
   return '\n\nACTIVE GENERATED EXERCISE MEMORY — this was created by Marg. Never ask the student to resend it. Check the current response against it now:\n' + memoryJson +
-    (activeGeneratedExercise.result && activeGeneratedExercise.reviewPending !== false ? '\nThe completed result is waiting for interpretation. Lead with what this evidence does and does not show, connect it to the stored hypothesis or error pattern, and give exactly one next move. Do not answer with score praise or another generic volume target.' : '') +
+    (activeGeneratedExercise.result && activeGeneratedExercise.reviewPending !== false ? '\nThe completed result is waiting for interpretation. Lead with what this evidence does and does not show, connect it to the stored hypothesis or error pattern, and give exactly one next move. Do not answer with score praise or another generic volume target.' + getExerciseEvidenceContext(activeGeneratedExercise) : '') +
     (activeGeneratedExercise.hypothesis ? '\nThis exercise tested a stored hypothesis. Explain the evidence naturally. Silently include exactly one [HYPOTHESIS_VERDICT: supported|rejected|inconclusive] tag so memory can update; never show report-style verdict labels to the student. Do not protect the original prediction if evidence contradicts it.' : '');
 }
 
@@ -4328,10 +4588,14 @@ function markActiveExerciseAttempt(answerText, force) {
 
 function applyPredictionValidationVerdict(responseText) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
-  if (!activeGeneratedExercise || activeGeneratedExercise.source !== 'prediction-validation' || !activeGeneratedExercise.hypothesis) return null;
+  if (!isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.hypothesis) return null;
   var match = String(responseText || '').match(/\[HYPOTHESIS_VERDICT:\s*(supported|rejected|inconclusive)\s*\]/i) || String(responseText || '').match(/\b(SUPPORTED|REJECTED|INCONCLUSIVE)\b/i);
   if (!match) return null;
   var verdict = match[1].toUpperCase();
+  var evidenceQuality = assessExerciseEvidenceQuality(activeGeneratedExercise);
+  // No model may turn an all-skipped or delivery-confounded attempt into a
+  // cognitive diagnosis. The only honest verdict in that state is inconclusive.
+  if (!evidenceQuality.usable) verdict = 'INCONCLUSIVE';
   var hypothesis = activeGeneratedExercise.hypothesis;
   activeGeneratedExercise.validationVerdict = verdict;
   activeGeneratedExercise.validatedAt = new Date().toISOString();
@@ -4340,11 +4604,23 @@ function applyPredictionValidationVerdict(responseText) {
   entry.validationVerdict = verdict;
   entry.validatedAt = activeGeneratedExercise.validatedAt;
   if (verdict === 'SUPPORTED') {
-    entry.status = 'confirmed';
-    entry.doNotReuse = false;
-    entry.confidence = Math.max(entry.confidence || 0, 0.98);
-    recordBehaviorPattern(hypothesis.topic, hypothesis.confirmedDiagnosis, hypothesis.selectedPattern, 'validated-diagnostic');
+    appendLocalDiagnosisEvidence(entry, {
+      type:'observed_attempt', supports:true, strength:evidenceQuality.level === 'observed' ? .85 : .68,
+      claim:'A correctly delivered attempt supported the working read: ' + hypothesis.confirmedDiagnosis,
+      attemptId:activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id,
+      clientRef:'supported-' + (activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id),
+      payload:{ quality:evidenceQuality, result:activeGeneratedExercise.result || {} }
+    });
+    promoteDiagnosisFromEvidence(entry);
+    if (entry.status === 'confirmed') recordBehaviorPattern(hypothesis.topic, hypothesis.confirmedDiagnosis, hypothesis.selectedPattern, 'repeated-observed-diagnostic');
   } else if (verdict === 'REJECTED') {
+    appendLocalDiagnosisEvidence(entry, {
+      type:'observed_attempt', supports:false, strength:evidenceQuality.level === 'observed' ? .85 : .68,
+      claim:'A correctly delivered attempt contradicted the working read: ' + hypothesis.confirmedDiagnosis,
+      attemptId:activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id,
+      clientRef:'rejected-' + (activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id),
+      payload:{ quality:evidenceQuality, result:activeGeneratedExercise.result || {} }
+    });
     entry.confirmation = 'Rejected';
     entry.status = 'rejected';
     entry.doNotReuse = true;
@@ -4357,13 +4633,22 @@ function applyPredictionValidationVerdict(responseText) {
       saveActiveMentorPlan(activeMentorPlan);
     }
   } else {
+    appendLocalDiagnosisEvidence(entry, {
+      type:'observed_attempt', supports:null, strength:evidenceQuality.usable ? .5 : .2,
+      claim:'The attempt was inconclusive for the working read. ' + evidenceQuality.reason,
+      attemptId:activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id,
+      clientRef:'inconclusive-' + (activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id),
+      payload:{ quality:evidenceQuality, result:activeGeneratedExercise.result || {} }
+    });
     entry.confirmation = 'Inconclusive';
-    entry.status = 'uncertain';
+    entry.status = 'inconclusive';
     entry.confidence = 0.55;
   }
   diagnosticMemory[hypothesis.topic] = entry;
   saveDiagnosticMemory();
   persistMentorDiagnosis(entry);
+  var latestEvidence = localDiagnosisEvidence(entry).slice(-1)[0];
+  if (latestEvidence) persistDiagnosisEvidence(entry, latestEvidence);
   storeActiveGeneratedExercise(activeGeneratedExercise);
   if (activeGeneratedExercise.result) persistMentorTaskAttempt(activeGeneratedExercise, activeGeneratedExercise.result);
   return verdict;
@@ -4374,6 +4659,9 @@ function recordActiveExerciseSelection(position, selectedIndex, correctIndex) {
   if (!activeGeneratedExercise.uiSelections) activeGeneratedExercise.uiSelections = [];
   activeGeneratedExercise.uiSelections.push({ position:position, selected:selectedIndex, correct:correctIndex, at:new Date().toISOString() });
   activeGeneratedExercise.uiSelections = activeGeneratedExercise.uiSelections.slice(-30);
+  if (!Array.isArray(activeGeneratedExercise.interactions)) activeGeneratedExercise.interactions = [];
+  activeGeneratedExercise.interactions.push({ kind:'answer_selected', detail:{ position:position, selected:selectedIndex }, at:new Date().toISOString() });
+  activeGeneratedExercise.interactions = activeGeneratedExercise.interactions.slice(-80);
   activeGeneratedExercise.awaitingAnswers = true;
   try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
 }
@@ -4524,7 +4812,7 @@ async function persistActiveMentorPlanTask(plan) {
   var status = plan.status === 'completed' ? 'reviewed' : plan.status === 'evidence_ready' ? 'evidence_ready' : plan.status === 'superseded' || plan.status === 'invalidated' ? 'cancelled' : 'ready';
   var clientRef = 'mission:' + simpleStableHash(plan.mission);
   var latestDiagnosis = (mentorExecutionLoop.diagnoses || []).find(function(item) {
-    return item.section === section && item.status === 'confirmed';
+    return item.section === section && (item.status === 'supported' || item.status === 'confirmed');
   });
   var payload = {
     user_id:currentUser.id, diagnosis_id:latestDiagnosis ? latestDiagnosis.id : null,
@@ -5342,15 +5630,10 @@ async function savePracticeAttempt(attempt) {
   try {
 
     if (!attempt.correct && attempt.trapType) {
-      var col = attempt.type === 'rc' ? 'varc_cognitive_pattern' :
-                attempt.type === 'dilr' ? 'dilr_cognitive_pattern' : 'qa_cognitive_pattern';
-      var updates = { user_id: currentUser.id };
-      updates[col] = attempt.trapType;
-      await fetch(SUPABASE_URL + '/rest/v1/profiles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
-        body: JSON.stringify(updates)
-      });
+      var observedPattern = recordBehaviorPattern(attempt.type, attempt.trapType, attempt.question || attempt.commonMistake || '', 'daily-practice');
+      // One miss is a data point, not a persistent cognitive pattern. Promote
+      // it to the profile only after the same mechanism is observed again.
+      if (observedPattern && observedPattern.occurrences >= 2) await updateCognitivePattern(attempt.type, observedPattern.label);
     }
   } catch(e) { console.error('savePracticeAttempt error:', e); }
 }
@@ -5746,7 +6029,7 @@ function restorePendingGuidedGeneration() {
   var state = loadGuidedGenerationState();
   if (!state) return false;
   loadActiveGeneratedExercise();
-  var generatedAfterRequest = activeGeneratedExercise && activeGeneratedExercise.source === 'prediction-validation' &&
+  var generatedAfterRequest = isPredictionValidationExercise(activeGeneratedExercise) &&
     Date.parse(activeGeneratedExercise.generatedAt || 0) >= Date.parse(state.startedAt || 0);
   if (generatedAfterRequest) {
     clearGuidedGenerationState();
@@ -5937,7 +6220,7 @@ function buildRevisedDiagnosticPrediction() {
 function saveChatDiagnosticEntry(level, prediction) {
   var topic = chatDiagnosticState.topic;
   var pattern = chatDiagnosticState.pattern;
-  var confidence = level === 'Exactly' ? 0.95 : 0.75;
+  var confidence = level === 'Exactly' ? 0.62 : 0.52;
   var subcategoryLabel = chatDiagnosticState.subcategory;
   if (topic === 'varc') {
     var sub = DIAGNOSTIC_TOPICS.varc.subcategories.find(function(item) { return item.id === chatDiagnosticState.subcategory; });
@@ -5951,6 +6234,7 @@ function saveChatDiagnosticEntry(level, prediction) {
     confirmedDiagnosis:prediction || pattern.prediction,
     originalPrediction:pattern.prediction,
     confirmation:level, confidence:confidence,
+    status:'hypothesis', evidenceHistory:[],
     action:pattern.action,
     updatedAt:new Date().toISOString()
   };
@@ -5958,7 +6242,12 @@ function saveChatDiagnosticEntry(level, prediction) {
   diagnosticSessionAttempted[topic] = true;
   activeDiagnosticTopic = topic;
   saveDiagnosticMemory();
-  persistMentorDiagnosis(entry);
+  persistDiagnosisEvidence(entry, {
+    type:'self_report', supports:true, strength:level === 'Exactly' ? .4 : .3,
+    claim:'The student said the working read felt ' + level + '.',
+    clientRef:'chat-diagnostic-confirmation-' + entry.updatedAt,
+    payload:{ confirmation:level, selected_pattern:entry.selectedPattern }
+  });
   return entry;
 }
 
@@ -6110,7 +6399,7 @@ function progressiveProfileStorageKey() {
 }
 
 function createEmptyProgressiveProfile() {
-  return { mockSeries:[], dreamCollege:null, studyHours:null, attemptStrategy:null, prepResources:[], attemptNumber:null, targetYear:null, topicFamiliarity:{}, followUps:{}, awaitingField:null, awaitingTopic:null, lastFollowUpUserTurn:0, updatedAt:null };
+  return { mockSeries:[], dreamCollege:null, studyHours:null, attemptStrategy:null, prepResources:[], attemptNumber:null, targetYear:null, topicFamiliarity:{}, followUps:{}, awaitingField:null, awaitingTopic:null, awaitingPrompt:null, lastFollowUpUserTurn:0, updatedAt:null };
 }
 
 function normalizeProfileList(values) {
@@ -6222,12 +6511,55 @@ function topicProfileKey(topic) {
   return String(topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
+function latestAssistantActuallyAskedProfileField(field) {
+  var value = getLatestVisibleAssistantMessage();
+  var savedPrompt = progressiveProfileMemory && progressiveProfileMemory.awaitingField === field ? String(progressiveProfileMemory.awaitingPrompt || '') : '';
+  if (savedPrompt) return true;
+  if (!value && !savedPrompt) return false;
+  var checks = {
+    attemptNumber:/first CAT attempt|first attempt.{0,30}second|second.{0,30}third|third.{0,15}later/i,
+    mockSeries:/(?:which|what).{0,35}(?:mock|test)\s*series|TIME.{0,25}IMS.{0,25}mix/i,
+    dreamCollege:/(?:which|what).{0,35}(?:dream|target).{0,25}(?:college|b[- ]?school)/i,
+    studyHours:/(?:how much|how many).{0,30}(?:CAT|study|prep).{0,25}(?:time|hours)|(?:time|hours).{0,30}(?:ordinary|realistic|protect)/i,
+    attemptStrategy:/(?:fixed|current).{0,30}(?:attempt|pacing|mock)\s*strateg|following one fixed attempt strategy/i,
+    prepResources:/(?:what|which).{0,30}(?:material|resource|book|course|coaching|source).{0,30}(?:using|use|most days|right now)/i,
+    topicFamiliarity:/first proper pass|revising it after|comfortable.{0,15}rusty/i,
+    targetYear:/which CAT year|target exam year/i
+  };
+  return !!(checks[field] && (checks[field].test(value) || checks[field].test(savedPrompt)));
+}
+
+function isClearlyNotAProfileAnswer(text) {
+  var value = String(text || '').trim();
+  return /^(?:please\s+)?(?:can|could|would|will)\s+(?:i|you)\b/i.test(value) ||
+    /^(?:please\s+)?(?:give|show|send|solve|review|analyse|analyze|explain|repeat|open|start|retry|continue|leave)\b/i.test(value) ||
+    /\b(?:same|previous|last)\s+(?:set|question|exercise|passage)\b/i.test(value);
+}
+
+function looksLikeFreeTextAttemptStrategy(text) {
+  var value = String(text || '').trim();
+  if (value.length < 3 || value.length > 360 || isClearlyNotAProfileAnswer(value)) return false;
+  return /\b(?:fixed|change|vary|scan|first pass|second pass|round|skip|leave|attempt order|start with|section order|questions?|sets?|minutes?)\b/i.test(value);
+}
+
+function looksLikeNamedMockSeries(text) {
+  var value = String(text || '').trim();
+  if (isClearlyNotAProfileAnswer(value)) return false;
+  return /\b(?:mock|test)\s*series\b|\b(?:AIMCAT|SIMCAT|CDC|TIME|IMS|Career Launcher|Cracku)\b/i.test(value);
+}
+
 function captureProgressiveProfileDetails(message) {
   var text = String(message || '').trim();
   if (!text) return null;
   var memory = loadProgressiveProfileMemory();
   var before = JSON.stringify(memory);
   var awaiting = memory.awaitingField || '';
+  if (awaiting && !latestAssistantActuallyAskedProfileField(awaiting)) {
+    // A stale optional follow-up must never swallow a later request as profile
+    // data. This was how “give the same set once more” became attempt strategy.
+    if (isClearlyNotAProfileAnswer(text) || text.length > 100) memory.awaitingField = null;
+    awaiting = '';
+  }
   if (awaiting === 'topicFamiliarity' && memory.awaitingTopic) {
     var familiarity = '';
     if (/^\s*(?:first proper pass|first pass|new to (?:this|it)|starting (?:this|it))\s*$/i.test(text)) familiarity = 'first proper pass';
@@ -6267,11 +6599,12 @@ function captureProgressiveProfileDetails(message) {
   }
 
   var strategyOpening = /\b(?:my|i)\b[\s\S]{0,35}\b(?:attempt|scan|skip|leave|round|start with|section order|question selection|set selection)\b/i.test(text) && /\b(?:mock|section|varc|dilr|qa|question|set|attempt)\b/i.test(text);
-  if ((awaiting === 'attemptStrategy' || strategyOpening) && text.length >= 8 && text.length <= 360) memory.attemptStrategy = text.substring(0, 360);
+  if ((awaiting === 'attemptStrategy' && looksLikeFreeTextAttemptStrategy(text) || strategyOpening) && text.length >= 8 && text.length <= 360 && !isClearlyNotAProfileAnswer(text)) memory.attemptStrategy = text.substring(0, 360);
 
-  if (awaiting === 'prepResources' && !resources.length && text.length >= 2 && text.length <= 180) memory.prepResources = normalizeProfileList(memory.prepResources.concat([text]));
-  if (awaiting === 'mockSeries' && !mockSeries.length && text.length >= 2 && text.length <= 100) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat([text]));
+  if (awaiting === 'prepResources' && !resources.length && text.length >= 2 && text.length <= 180 && !isClearlyNotAProfileAnswer(text) && /\b(?:book|material|course|coaching|videos?|notes?|module|website|app)\b/i.test(text)) memory.prepResources = normalizeProfileList(memory.prepResources.concat([text]));
+  if (awaiting === 'mockSeries' && !mockSeries.length && text.length >= 2 && text.length <= 100 && looksLikeNamedMockSeries(text)) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat([text]));
   if (awaiting && ((awaiting === 'mockSeries' && memory.mockSeries.length) || (awaiting === 'dreamCollege' && memory.dreamCollege) || (awaiting === 'studyHours' && memory.studyHours) || (awaiting === 'attemptStrategy' && memory.attemptStrategy) || (awaiting === 'prepResources' && memory.prepResources.length) || (awaiting === 'attemptNumber' && memory.attemptNumber) || (awaiting === 'targetYear' && memory.targetYear))) memory.awaitingField = null;
+  if (!memory.awaitingField) memory.awaitingPrompt = null;
 
   if (JSON.stringify(memory) !== before) {
     saveProgressiveProfileMemory(memory);
@@ -6359,6 +6692,7 @@ function markProgressiveProfileFollowUpIfAsked(response) {
     memory.followUps['topicFamiliarity:' + topicKey] = new Date().toISOString();
     memory.awaitingField = 'topicFamiliarity';
     memory.awaitingTopic = topic;
+    memory.awaitingPrompt = value.substring(0, 800);
     memory.lastFollowUpUserTurn = (conversationHistory || []).filter(function(item) { return item && item.role === 'user' && !isInternalMemoryMessage(item); }).length;
     saveProgressiveProfileMemory(memory);
     return;
@@ -6366,6 +6700,7 @@ function markProgressiveProfileFollowUpIfAsked(response) {
   if ((field === 'attemptNumber' && memory.attemptNumber) || (field === 'mockSeries' && memory.mockSeries.length) || (field === 'dreamCollege' && memory.dreamCollege) || (field === 'attemptStrategy' && memory.attemptStrategy) || (field === 'studyHours' && memory.studyHours) || (field === 'prepResources' && memory.prepResources.length)) return;
   memory.followUps[field] = new Date().toISOString();
   memory.awaitingField = field;
+  memory.awaitingPrompt = value.substring(0, 800);
   memory.lastFollowUpUserTurn = (conversationHistory || []).filter(function(item) { return item && item.role === 'user' && !isInternalMemoryMessage(item); }).length;
   saveProgressiveProfileMemory(memory);
 }
@@ -6621,8 +6956,8 @@ function buildDiagnosisDirective(message) {
   else if (diagnosis.intent === 'planning' && diagnosis.requestedPlanningComponents.length) directive += '\nEXPLICIT REQUEST COVERAGE: Mandatory checklist: ' + diagnosis.requestedPlanningComponents.join(', ') + '. Compare the draft against every item before sending. Repeated/missed items get priority. If one cannot be covered now, name it and why; never silently omit it or make the student ask again.';
   if (isPlanCoverageCorrection(messageText)) directive += '\nMISSED-ITEM REPAIR: The student is correcting an earlier omission. Acknowledge it in one short line, then supply every missing named item now. Do not repeat only the parts already covered.';
   if (diagnosis.intent === 'planning') {
-    var confirmedPlanDiagnoses = Object.keys(diagnosticMemory || {}).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && !entry.doNotReuse && entry.status !== 'rejected' && (entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && entry.confirmedDiagnosis; });
-    directive += '\nDIAGNOSIS-TO-PLAN TRACE: A plan must operationalise the confirmed diagnosis in its ordering, allocation, practice format and checkpoints; it must not revert to syllabus/textbook order.' + (confirmedPlanDiagnoses.length ? ' Apply these confirmed reads explicitly: ' + confirmedPlanDiagnoses.map(function(entry) { return entry.selectedSection + ' — ' + entry.confirmedDiagnosis; }).join(' | ') + '.' : ' Use the strongest established diagnosis from conversation and memory, if present.') + ' Silently verify each major plan block against that diagnosis before sending.';
+    var confirmedPlanDiagnoses = Object.keys(diagnosticMemory || {}).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && !entry.doNotReuse && (entry.status === 'supported' || entry.status === 'confirmed') && entry.confirmedDiagnosis; });
+    directive += '\nDIAGNOSIS-TO-PLAN TRACE: A plan must operationalise supported or confirmed evidence in its ordering, allocation, practice format and checkpoints; it must not revert to syllabus/textbook order.' + (confirmedPlanDiagnoses.length ? ' Apply these evidence-backed reads explicitly: ' + confirmedPlanDiagnoses.map(function(entry) { return entry.selectedSection + ' — ' + entry.confirmedDiagnosis; }).join(' | ') + '.' : ' No diagnosis has enough observed support to control the plan yet; use supplied facts and label short trials instead of treating self-confirmation as proof.') + ' Silently verify each major plan block against that evidence before sending.';
   }
   if (/\b(?:cracku|ims|career launcher|cl portal|time portal|time coaching|rodha|2iim|unacademy|byju'?s|hitbullseye|anastasis|takshzila)\b/i.test(messageText)) directive += '\nTHIRD-PARTY PLATFORM SAFETY: Do not invent exact category names, menus, tabs, navigation paths, labels or course structure. Use exact platform-specific details only if the student supplied them in this conversation or they appear in verified current context. Otherwise say labels may differ and describe the general content type to look for.';
   if (/\b(book|books|source|material|resource|course|coaching|youtube channel)\b/i.test(String(message || ''))) directive += '\nSOURCE-TRUST MODE: The practical source question may be hiding loss of trust or fear of choosing wrong. Name that uncertainty first in one calm line, use prior progress to show whether the current source actually failed, then make one practical recommendation. Do not offer a shopping list of alternatives and do not reset an existing plan merely because the student feels uncertain.';
@@ -6840,12 +7175,31 @@ function guardMockScoreArithmeticOverclaim(text, diagnosis) {
   return value.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function guardUnusableExerciseEvidence(text, diagnosis) {
+  if (!activeGeneratedExercise || !activeGeneratedExercise.result) return text;
+  var quality = assessExerciseEvidenceQuality(activeGeneratedExercise);
+  if (quality.usable) return text;
+  var recentMessage = findRecentUserMessage();
+  var reviewing = diagnosis && diagnosis.intent === 'answer_review' ||
+    isExerciseResultReviewRequest(recentMessage) ||
+    isPredictionValidationExercise(activeGeneratedExercise);
+  if (!reviewing) return text;
+  var productIssue = quality.level === 'product_confounded' ||
+    activeGeneratedExercise.deliveryState && activeGeneratedExercise.deliveryState !== 'rendered';
+  var response = productIssue
+    ? 'This attempt cannot tell us anything reliable about your CAT ability because the exercise was not confirmed as visible and usable. I am treating it as a product failure, not a student mistake. Reopen the same saved exercise first; only choices made after it renders properly will count as evidence.'
+    : 'This result only shows that no question was answered. It does not tell us whether the cause was the setup, an interruption, a deliberate skip, or the interface. I am treating this attempt as inconclusive—not as proof of a weakness. Reopen the same saved exercise and we will judge the pattern only after it displays and you interact with it.';
+  if (activeGeneratedExercise.hypothesis) response += '\n[HYPOTHESIS_VERDICT: inconclusive]';
+  return response;
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
   text = simplifyMentorLanguage(text);
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
+  text = guardUnusableExerciseEvidence(text, diagnosis);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
@@ -8198,6 +8552,10 @@ async function sendMessage(fromQueue, submissionOptions) {
   }
 
   loadActiveGeneratedExercise();
+  if (!hasImages && maybeReplayActiveExercise(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
   noteMentorPlanCompletionClaim(text);
   var predictionValidationReply = isPredictionValidationReply(text);
   if (!pendingExternalQuestionTurnMode && (isAnswerReviewRequest(text) || predictionValidationReply)) markActiveExerciseAttempt(text, predictionValidationReply);
@@ -9632,6 +9990,13 @@ var selectedPracticeTopic = null;
 var practiceLoadSeq = 0;
 var practiceLoadInFlight = false;
 var practiceLoadTarget = null;
+var practiceLoadMetrics = { startedAt:0, shellVisibleAt:0, contentVisibleAt:0, source:'none' };
+window.getMargPracticeLoadMetrics = function() {
+  return Object.assign({}, practiceLoadMetrics, {
+    shellDelayMs:practiceLoadMetrics.shellVisibleAt && practiceLoadMetrics.startedAt ? practiceLoadMetrics.shellVisibleAt - practiceLoadMetrics.startedAt : 0,
+    contentDelayMs:practiceLoadMetrics.contentVisibleAt && practiceLoadMetrics.startedAt ? practiceLoadMetrics.contentVisibleAt - practiceLoadMetrics.startedAt : null
+  });
+};
 
 var practiceTopics = {
   dilr: ['Arrangements & Rankings', 'Scheduling & Allocation', 'Distribution & Grouping', 'Games & Tournaments', 'Routes & Networks', 'Tables, Charts & DI Caselets', 'Venn Diagrams & Set Data', 'Mixed — surprise me']
@@ -9659,6 +10024,7 @@ var timedTestTimerHandle = null;
 var timedTestSubmitted = false;
 var timedTestDiagnosticEntry = null;
 var timedTestRequestedCount = 0;
+var timedTestGenerationStartedAt = null;
 var topicProgression = {};
 
 function topicProgressionStorageKey() {
@@ -10693,7 +11059,7 @@ function getPredictionValidationFocus(entry) {
     plateau:'Test whether strategy adapts to changed accuracy, speed, and selection evidence.'
   };
   var design = patternDesign[entry.topic + ':' + entry.patternId] || patternDesign[entry.patternId] || 'Build contrastive items whose error patterns can distinguish the working diagnosis from a general knowledge gap.';
-  return ' DIAGNOSTIC VALIDATION PURPOSE: The confirmed working prediction is: "' + entry.confirmedDiagnosis + '" The student selected this symptom: "' + entry.selectedPattern + '". ' + design + ' This is not generic practice. Across the items, make the answer patterns capable of SUPPORTING, REJECTING, or leaving this prediction INCONCLUSIVE. Diagnostic fields must name the observable decision error, not repeat the topic. ';
+  return ' DIAGNOSTIC VALIDATION PURPOSE: The working hypothesis—not a confirmed fact—is: "' + entry.confirmedDiagnosis + '" The student selected this symptom: "' + entry.selectedPattern + '". ' + design + ' This is not generic practice. Across the items, make the answer patterns capable of SUPPORTING, REJECTING, or leaving this hypothesis INCONCLUSIVE. Diagnostic fields must name the observable decision error, not repeat the topic. ';
 }
 
 function buildVerbalValidationPrompt(entry, mixed) {
@@ -10959,11 +11325,11 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   if (sendButton) sendButton.disabled = true;
   var generationState = beginGuidedGenerationState(section, diagnosticEntry);
   var lead = section === 'rc' || section === 'va' || section === 'varc_mixed'
-    ? "This VARC check is built around the prediction we just agreed on. The distractors are designed to expose that exact decision pattern."
+    ? "This VARC check is built around the read that sounded familiar. The distractors will test whether that decision pattern actually appears."
     : section === 'qa'
-      ? "These three QA questions target the predicted gap and a competing explanation. The pattern across them matters more than the score."
+      ? "These three QA questions test the suspected gap against another possible explanation. The choices matter more than the score."
       : section === 'strategy'
-        ? "This is a decision lab, not a syllabus test. Your choices will show whether the strategy pattern we predicted is actually present."
+        ? "This is a decision lab, not a syllabus test. Your choices will show whether the suspected strategy pattern is actually present."
         : section === 'dilr_selection'
           ? "This selection lab separates familiar-looking sets from genuinely workable ones. Your first-pass choices will test the exact rule we predicted."
         : "This DILR set is built to expose the predicted failure point while keeping alternative causes visible.";
@@ -11112,6 +11478,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   timedTestAnswers = [];
   timedTestIndex = 0;
   timedTestSubmitted = false;
+  timedTestGenerationStartedAt = new Date().toISOString();
 
   var overlay = document.getElementById('timed-test-overlay');
   var titleEl = document.getElementById('tt-title');
@@ -11140,11 +11507,13 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       storeActiveGeneratedExercise({
         type:'dilr', source:'prediction-validation-verified', title:topic + ' verified check',
         purpose:'Check whether the observed DILR opening pattern repeats', hypothesis:timedTestDiagnosticEntry,
+        generationStartedAt:timedTestGenerationStartedAt, generationDurationMs:0,
         content:{ questions:timedTestQuestions }
       });
       renderTimedTestQuestionNav();
       qnavEl.style.display = 'flex';
       renderTimedTestQuestion();
+      markActiveExerciseDelivered('timed-test');
       startTimedTestTimer();
       return true;
     }
@@ -11208,11 +11577,12 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
     timedTestSecondsTotal = timedTestQuestions.length * 120;
     timedTestSecondsLeft = timedTestSecondsTotal;
-    storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation' : 'sectional', title:topic + ' sectional', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Timed CAT sectional diagnosis for ' + topic, hypothesis:timedTestDiagnosticEntry || null, content:{ questions:timedTestQuestions } });
+    storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation' : 'sectional', title:topic + ' sectional', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Timed CAT sectional diagnosis for ' + topic, hypothesis:timedTestDiagnosticEntry || null, generationStartedAt:timedTestGenerationStartedAt, content:{ questions:timedTestQuestions } });
 
     renderTimedTestQuestionNav();
     qnavEl.style.display = 'flex';
     renderTimedTestQuestion();
+    markActiveExerciseDelivered('timed-test');
     startTimedTestTimer();
 
   } catch(e) {
@@ -11223,10 +11593,11 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
       timedTestSecondsTotal = timedTestQuestions.length * 120;
       timedTestSecondsLeft = timedTestSecondsTotal;
-      storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation-fallback' : 'sectional-fallback', title:topic + ' verified fallback', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Reliable timed CAT practice for ' + topic, hypothesis:timedTestDiagnosticEntry || null, content:{ questions:timedTestQuestions } });
+      storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation-fallback' : 'sectional-fallback', title:topic + ' verified fallback', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Reliable timed CAT practice for ' + topic, hypothesis:timedTestDiagnosticEntry || null, generationStartedAt:timedTestGenerationStartedAt, content:{ questions:timedTestQuestions } });
       renderTimedTestQuestionNav();
       qnavEl.style.display = 'flex';
       renderTimedTestQuestion();
+      markActiveExerciseDelivered('timed-test');
       startTimedTestTimer();
       return;
     }
@@ -11277,6 +11648,7 @@ function selectTimedTestAnswer(idx) {
 function goToTimedTestQuestion(i) {
   if (i < 0 || i >= timedTestQuestions.length) return;
   timedTestIndex = i;
+  markActiveExerciseInteraction('question_navigated', { question:i + 1 });
   renderTimedTestQuestionNav();
   renderTimedTestQuestion();
 }
@@ -11349,7 +11721,11 @@ function submitTimedTest(isAutoSubmit) {
   }, 'timed-complete-' + timedTestSection + '-' + compactEngagementValue(timedTestTopic, 60) + '-' + getEngagementSessionKey());
 
   if (activeGeneratedExercise) {
-    activeGeneratedExercise.result = { correct:correct, wrong:wrong, skipped:skipped, marks:marks, maxMarks:maxMarks, answers:timedTestAnswers.slice() };
+    markActiveExerciseInteraction(isAutoSubmit ? 'timer_auto_submit' : 'manual_submit', { answered:correct + wrong, skipped:skipped });
+    activeGeneratedExercise.result = {
+      correct:correct, wrong:wrong, skipped:skipped, total:total,
+      marks:marks, maxMarks:maxMarks, answers:timedTestAnswers.slice(), autoSubmitted:!!isAutoSubmit
+    };
     activeGeneratedExercise.awaitingAnswers = false;
     activeGeneratedExercise.reviewPending = true;
     activeGeneratedExercise.completedAt = new Date().toISOString();
@@ -11434,7 +11810,9 @@ function buildActiveExerciseReviewRequest() {
   var diagnosis = activeGeneratedExercise.hypothesis && activeGeneratedExercise.hypothesis.confirmedDiagnosis
     ? ' This was meant to test: ' + activeGeneratedExercise.hypothesis.confirmedDiagnosis + '. Give a SUPPORTED, REJECTED, or INCONCLUSIVE verdict only from the saved evidence.'
     : '';
-  return 'Review my completed ' + (activeGeneratedExercise.title || activeGeneratedExercise.type || 'practice') + ' result: ' + score + Number(result.correct || 0) + '/' + total + ' correct, ' + Number(result.wrong || 0) + ' wrong, ' + Number(result.skipped || 0) + ' skipped.' + diagnosis + ' Tell me what this evidence does and does not show, then give one next move tied to the actual pattern—not another generic question target.';
+  var quality = assessExerciseEvidenceQuality(activeGeneratedExercise);
+  var qualityNote = ' Evidence quality: ' + quality.level + '. ' + quality.reason;
+  return 'Review my completed ' + (activeGeneratedExercise.title || activeGeneratedExercise.type || 'practice') + ' result: ' + score + Number(result.correct || 0) + '/' + total + ' correct, ' + Number(result.wrong || 0) + ' wrong, ' + Number(result.skipped || 0) + ' skipped.' + qualityNote + diagnosis + ' Tell me what this evidence does and does not show, then give one next move tied to the actual pattern—not another generic question target.';
 }
 
 async function reviewLatestPracticeWithMarg() {
@@ -11456,6 +11834,9 @@ async function reviewLatestPracticeWithMarg() {
 async function loadDailyPractice() {
   sessionResults = { correct: 0, wrong: 0, total: 0, mistakes: [], passageTitle: '' };
   var content = document.getElementById('practice-content');
+  var practiceLoadStartedMs = Date.now();
+  var practiceGenerationStartedAt = new Date(practiceLoadStartedMs).toISOString();
+  practiceLoadMetrics = { startedAt:practiceLoadStartedMs, shellVisibleAt:0, contentVisibleAt:0, source:'loading' };
 
   if (isPracticeDoneToday(currentPracticeType)) {
     showDailyLimitCard(currentPracticeType);
@@ -11489,8 +11870,9 @@ async function loadDailyPractice() {
       : validateRCPracticeSet(instantVerifiedPractice));
   if (instantVerifiedValid) {
     practiceLoadInFlight = false;
+    practiceLoadMetrics.source = 'verified-local';
     practiceData[currentPracticeType] = instantVerifiedPractice;
-    storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-bank', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Topic-matched CAT practice with verified statements and answer keys', content:instantVerifiedPractice });
+    storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-bank', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Topic-matched CAT practice with verified statements and answer keys', generationStartedAt:practiceGenerationStartedAt, generationDurationMs:0, content:instantVerifiedPractice });
     currentSetIndex = 0;
     currentQuestionIndex = 0;
     practiceAnswered = false;
@@ -11501,6 +11883,9 @@ async function loadDailyPractice() {
 
   var typeName = currentPracticeType === 'rc' ? 'RC' : currentPracticeType === 'dilr' ? 'DILR' : 'QA';
   content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is generating today\'s personalised ' + typeName + ' practice based on your profile...</div></div>';
+  practiceLoadMetrics.shellVisibleAt = Date.now();
+  var totalPracticeBudgetMs = currentPracticeType === 'dilr' ? 70000 : currentPracticeType === 'rc' ? 60000 : 55000;
+  var practiceDeadlineMs = practiceLoadStartedMs + totalPracticeBudgetMs;
 
   var prompt = '';
   if (currentPracticeType === 'rc') prompt = buildRCPrompt();
@@ -11519,7 +11904,7 @@ async function loadDailyPractice() {
         maxTokens,
         'application/json'
       ))
-    }, currentPracticeType === 'dilr' ? 60000 : currentPracticeType === 'rc' ? 45000 : 40000);
+    }, currentPracticeType === 'dilr' ? 35000 : currentPracticeType === 'rc' ? 30000 : 25000);
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
@@ -11548,12 +11933,16 @@ async function loadDailyPractice() {
     var knownPracticeIssues = collectSolutionPresentationIssues(practiceJson, currentPracticeType)
       .concat(collectGeneratedPracticeCompletenessIssues(practiceJson, currentPracticeType));
     content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">The questions are ready. Marg is now checking that the given information leads to one complete answer...</div></div>';
+    var auditBudgetMs = Math.max(8000, Math.min(
+      currentPracticeType === 'dilr' ? 45000 : 35000,
+      practiceDeadlineMs - Date.now()
+    ));
     var practiceAudit = await auditGeneratedCATContent(
       currentPracticeType,
       practiceJson,
       selectedPracticeTopic,
       knownPracticeIssues,
-      { timeoutMs:currentPracticeType === 'dilr' ? 75000 : 60000, maxTokens:currentPracticeType === 'dilr' ? 18432 : currentPracticeType === 'rc' ? 12288 : 12288 }
+      { timeoutMs:auditBudgetMs, maxTokens:currentPracticeType === 'dilr' ? 18432 : currentPracticeType === 'rc' ? 12288 : 12288 }
     );
     if (!practiceAudit.valid) {
       console.error('Practice failed semantic audit:', practiceAudit.issues);
@@ -11569,9 +11958,10 @@ async function loadDailyPractice() {
       throw new Error('Generated practice remained incomplete or had no unique verified answer after audit');
     }
     practiceLoadInFlight = false;
+    practiceLoadMetrics.source = 'generated-audited';
     if (mySeq !== practiceLoadSeq) return;
     practiceData[currentPracticeType] = practiceJson;
-    storeActiveGeneratedExercise({ type:currentPracticeType, source:'practice-tab', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' practice', purpose:'Targeted CAT practice based on the student’s current mistake patterns', content:practiceJson });
+    storeActiveGeneratedExercise({ type:currentPracticeType, source:'practice-tab', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' practice', purpose:'Targeted CAT practice based on the student’s current mistake patterns', generationStartedAt:practiceGenerationStartedAt, content:practiceJson });
     currentSetIndex = 0;
     currentQuestionIndex = 0;
     practiceAnswered = false;
@@ -11589,8 +11979,9 @@ async function loadDailyPractice() {
         ? validateDILRPracticeSet(fallbackPractice)
         : validateRCPracticeSet(fallbackPractice));
     if (fallbackValid) {
+      practiceLoadMetrics.source = 'verified-fallback';
       practiceData[currentPracticeType] = fallbackPractice;
-      storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-fallback', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Reliable CAT practice used after a generated draft failed validation', content:fallbackPractice });
+      storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-fallback', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Reliable CAT practice used after a generated draft failed validation', generationStartedAt:practiceGenerationStartedAt, content:fallbackPractice });
       currentSetIndex = 0;
       currentQuestionIndex = 0;
       practiceAnswered = false;
@@ -11603,8 +11994,34 @@ async function loadDailyPractice() {
       : isGeminiServiceError(e)
         ? 'The practice service is busy right now. No unverified questions were shown.'
         : 'This practice draft failed its completeness or answer check, so Marg discarded it.';
-    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
+    var recoveryLabel = currentPracticeType === 'qa' ? 'Use verified Mixed QA' : currentPracticeType === 'dilr' ? 'Use a verified DILR set' : 'Use the verified RC';
+    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Retry the same topic</button><button class="pcard-nav-btn secondary" onclick="useVerifiedPracticeRecovery()" style="margin-top:8px;max-width:220px;">' + recoveryLabel + '</button></div>';
   }
+}
+
+function useVerifiedPracticeRecovery() {
+  var recovery = getVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, null);
+  var valid = recovery && (currentPracticeType === 'qa'
+    ? validateQASetShape(recovery, null, 3)
+    : currentPracticeType === 'dilr'
+      ? validateDILRPracticeSet(recovery)
+      : validateRCPracticeSet(recovery));
+  if (!valid) {
+    var content = document.getElementById('practice-content');
+    if (content) content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">No verified recovery set is available for this section yet. Retry the same topic instead.</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Retry the same topic</button></div>';
+    return false;
+  }
+  // The user explicitly chose a mixed recovery pack. This is never presented
+  // as if it matched the previously selected topic.
+  selectedPracticeTopic = null;
+  practiceData[currentPracticeType] = recovery;
+  storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-recovery', title:(currentPracticeType === 'qa' ? 'Mixed QA' : currentPracticeType === 'dilr' ? 'Verified DILR' : 'Verified RC') + ' recovery set', purpose:'Reliable CAT practice selected after live topic generation failed', content:recovery });
+  currentSetIndex = 0;
+  currentQuestionIndex = 0;
+  practiceAnswered = false;
+  practiceSessionCounted = false;
+  renderPractice(recovery);
+  return true;
 }
 
 function getMorningPromptHtml() {
@@ -11665,6 +12082,8 @@ function renderPractice(data) {
   var nextLabel = isLastOverall ? 'Finish session' : (usesSets(currentPracticeType) && currentQuestionIndex === total - 1 ? 'Next set' : 'Next question');
 
   content.innerHTML = morningPrompt + '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">' + headerLabel + '</div><div class="pcard-difficulty">' + diffLabel + '</div></div><div class="pcard-body">' + bodyHtml + '<div class="pcard-explanation" id="explanation-box"><div class="explanation-title">Answer &amp; Analysis</div><div class="explanation-body" id="explanation-body"></div><div class="marg-insight" id="marg-insight"></div></div></div><div class="pcard-nav">' + prevBtn + '<button class="pcard-nav-btn primary" id="next-btn" onclick="nextQuestion()" disabled>' + nextLabel + '</button></div></div>';
+  markActiveExerciseDelivered('practice-tab');
+  if (practiceLoadMetrics && !practiceLoadMetrics.contentVisibleAt) practiceLoadMetrics.contentVisibleAt = Date.now();
 }
 
 function selectAnswer(selectedIndex) {
@@ -11732,9 +12151,13 @@ function selectAnswer(selectedIndex) {
 
   if (!isCorrect) {
     var insight = q.marg_insight || q.common_mistake || ('Made a ' + currentPracticeType.toUpperCase() + ' error');
-    updateCognitivePattern(currentPracticeType, insight);
-    showInsightToast('<strong>Marg just learned something</strong><br>' + insight);
-    storeWrongAnswer(currentPracticeType, q, insight);
+    var storedPattern = storeWrongAnswer(currentPracticeType, q, insight);
+    if (storedPattern && storedPattern.occurrences >= 2) {
+      updateCognitivePattern(currentPracticeType, storedPattern.label);
+      showInsightToast('<strong>This pattern has repeated</strong><br>' + storedPattern.label);
+    } else {
+      showInsightToast('<strong>Saved as one data point</strong><br>' + insight);
+    }
 
     // Show Ask Marg button in explanation
     setTimeout(function() {
@@ -11779,8 +12202,8 @@ function storeWrongAnswer(type, question, insight) {
     existing = existing.slice(0, 10);
     localStorage.setItem(key, JSON.stringify(existing));
     studentProfile.recentMistakes = existing;
-    recordBehaviorPattern(type, insight, question.q || entry.questionText, 'practice');
-  } catch(e) {}
+    return recordBehaviorPattern(type, insight, question.q || entry.questionText, 'practice');
+  } catch(e) { return null; }
 }
 
 function loadRecentMistakes() {
