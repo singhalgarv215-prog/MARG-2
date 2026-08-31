@@ -2237,7 +2237,7 @@ If the student says only "continue", "go on", "finish it", or an equivalent afte
 
 For a wrong-answer review, lead with the student's thinking error—not a lecture on the option. Use three compact lines when useful: "Diagnosis:" names the decision error, "Evidence:" points to the exact mismatch, and "Fix:" gives one reusable rule. This is the only exception to the usual no-headers preference. Prefer memorable language such as "You didn't miss the passage. You added a step the author never gave you."
 
-RC WRONG-ANSWER CLOSE: When an RC/VARC answer is wrong, do not end by asking the student to self-diagnose, reflect on whether they used tone or text, or choose between two possible reasons. The wrong choice is already behavioural evidence. State the most specific supported mechanism directly—tone-matching, over-interpretation, scope expansion, familiar-word matching, extreme-language attraction, author/viewpoint confusion, or another evidenced trap—and connect it to this exact choice: "You matched the passage's overall tone to the option instead of checking its exact claim—you did that here." Then stop. No trailing question, confirmation request, options, new exercise, or engagement hook. The student may challenge the read without being forced to answer it.
+RC WRONG-ANSWER PROGRESSION: Never ask the student to diagnose their own wrong RC choice. Explain the exact mismatch simply and speak like a mentor beside them, not an evaluator presenting a report. After two useful decisions, say naturally that their passage understanding is working but the option check needs another look. Offer one more question from the same passage; after that, lead to a full CAT-length RC. Do not use phrases such as "the evidence supports", "does not prove a pattern", "Did it help?" or "Want more passages?". Keep any uncertainty natural: "I want to see this once more before calling it a regular pattern."
 
 When reviewing multiple answers, readability is mandatory. Give every question its own block with a blank line before the next one: Q[number], Your Answer, Correct Answer, Diagnosis, and Fix when needed. Finish with "Pattern Check: X/Y right." Never combine several RC, DILR, QA or sectional answers into one dense paragraph, and do not use a wide table on mobile.
 
@@ -2330,7 +2330,7 @@ CORE RESPONSE CONTRACT
 - Diagnose the exact decision, not merely the topic.
 
 PLAIN LANGUAGE CONTRACT
-A student must understand the reply on the first read. Use everyday English, short sentences and one idea at a time. Say "mental tiredness", "starting clue", "reason" and "spotting the method"—not cognitive fatigue, entry anchor, mechanism or retrieval. Explain any necessary CAT term with a tiny example.
+Use everyday English, short sentences and one idea at a time. Say "mental tiredness", "starting clue", "reason" and "spotting the method"—not cognitive fatigue, entry anchor, mechanism or retrieval. Explain necessary CAT terms with a tiny example.
 
 TRUTH AND CORRECTION CONTRACT
 Facts come only from the student, verified results or authoritative context. Never turn Marg’s inference into student fact. If new evidence conflicts, say "I misread that" or "I was wrong about that", discard the old diagnosis/mission and rebuild. If evidence is missing, ask one precise question or stay tentative.
@@ -2386,7 +2386,7 @@ Never call Marg session-only. Account data can persist in Supabase; drafts/plans
 If the user says only "continue", "go on" or equivalent after an incomplete reply, resume from the exact endpoint. Do not restart, summarize, repeat, re-derive, apologize or add an introduction.
 
 ANSWER REVIEWS
-For multiple answers use blank-separated blocks: "Q2 — You chose C; A is correct", then the exact mismatch and correction. End with a plain score/pattern sentence. No wide table or clinical labels. For a wrong RC answer, state the specific trap and stop—no reflective question, confirmation or exercise.
+Separate multiple answers with blank lines; give the choice, correct answer and exact mismatch. For one wrong RC answer, state the trap with no reflective question. After two micro-check decisions, offer one more question from the same passage, then a full RC. Keep it conversational, never an evidence report.
 
 PLANNING AND PERSONALIZATION
 A multi-section roadmap is planning, not a section diagnostic. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify once if “blocks” could mean one day or a rotation. Reuse known constraints. Valid confirmed evidence controls ordering and checkpoints; prioritise repeated score leakage over syllabus order.
@@ -4541,6 +4541,39 @@ function getRCWrongAnswerEvidence(message) {
   return { matches:wrongMechanisms.length > 0 || explicitRCWrong, mechanism:mechanism };
 }
 
+function isRCDecisionReply(text) {
+  var value = String(text || '').trim();
+  if (/^[A-D](?:\s*(?:[,.\/]|and|or)\s*[A-D])?[.?!\s]*$/i.test(value)) return true;
+  return /\b(?:answer|choice|choose|chose|picked|marked|confused|stuck|between)\b[\s\S]{0,60}\b[A-D]\b/i.test(value);
+}
+
+function getRecentRCDecisionCount(message) {
+  var recent = Array.isArray(conversationHistory) ? conversationHistory.slice(-16) : [];
+  var recentAssistantText = recent.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return String(item.content || ''); }).join('\n');
+  var activeIsRC = !!(activeGeneratedExercise && (activeGeneratedExercise.type === 'rc' || activeGeneratedExercise.type === 'varc'));
+  var looksLikeRCThread = activeIsRC || (/\b(?:passage|author|primary claim|central argument|author'?s (?:tone|attitude|purpose))\b/i.test(recentAssistantText) && /(?:^|\n)\s*A[).]/m.test(recentAssistantText));
+  if (!looksLikeRCThread) return 0;
+  var replies = recent.filter(function(item) { return item && item.role === 'user' && isRCDecisionReply(item.content); }).map(function(item) { return String(item.content || '').trim(); });
+  var current = String(message || '').trim();
+  if (isRCDecisionReply(current) && replies[replies.length - 1] !== current) replies.push(current);
+  return replies.length;
+}
+
+function isRCProgressionReady(message, rcWrongAnswerEvidence) {
+  // Progression is based on completing the short RC check, not only on being
+  // wrong. A correct second decision is still useful evidence and should not
+  // leave the student at a dead end.
+  if (!isRCDecisionReply(message)) return false;
+  var decisionCount = getRecentRCDecisionCount(message);
+  if (decisionCount < 2) return false;
+  var activeQuestions = getActiveExerciseQuestions();
+  // A full stored passage must be reviewed completely. The two-decision rule
+  // is reserved for ad-hoc micro-checks whose questions were delivered one by
+  // one and therefore are not available as one complete stored set.
+  if (activeQuestions.length > 2) return decisionCount >= activeQuestions.length;
+  return true;
+}
+
 function buildDirectRCWrongAnswerDiagnosis(mechanism) {
   var value = String(mechanism || '').toLowerCase();
   if (/tone|attitude|confidence/.test(value)) return "You matched the passage's overall tone to the option instead of checking the option's exact claim—you did that here.";
@@ -4550,6 +4583,28 @@ function buildDirectRCWrongAnswerDiagnosis(mechanism) {
   if (/extreme|absolute|always|never|only|entirely/.test(value)) return "You let the option's agreement with the passage hide an unsupported absolute claim—that is the extreme-language trap here.";
   if (/author|viewpoint|speaker|ownership/.test(value)) return "You assigned a viewpoint discussed in the passage to the author, instead of checking who actually owned the claim—that is the viewpoint-confusion error here.";
   return "You chose on overall fit instead of checking the option's exact claim against the text—that is the decision error here.";
+}
+
+function hasPendingRCMicroFollowup() {
+  if (!pendingDiagnosticExercise && typeof loadPendingDiagnosticExercise === 'function') loadPendingDiagnosticExercise();
+  return !!(pendingDiagnosticExercise && pendingDiagnosticExercise.entry && pendingDiagnosticExercise.timing === 'rc_micro_followup');
+}
+
+function buildRCProgressionClose(isFollowupComplete) {
+  if (isFollowupComplete) {
+    return "That gives us enough to move beyond this short passage. Now let’s test the same option habit inside one full CAT-length RC.\n[OPTIONS: Start the full RC|Later today|Tomorrow][CONTEXT: rc_full_progression_timing]";
+  }
+  return "You’ve understood the passage. I want to check the option decision once more before we call it your regular pattern.\n\nWant to try one more question like this while the passage is still fresh? After that, we’ll practise it on a full RC.\n[OPTIONS: Yes, one more|Move to a full RC|Later][CONTEXT: rc_progression_timing]";
+}
+
+function ensureRCProgressionClose(text, diagnosis) {
+  var value = String(text || '').trim();
+  if (!diagnosis || !diagnosis.rcProgressionReady) return value;
+  if (/\[CONTEXT:\s*rc_(?:full_)?progression_timing\]/i.test(value)) return value;
+  // If Marg has already begun another visible question, do not interrupt it
+  // with a progression card. The card belongs only at the end of the check.
+  if (/\n\s*(?:Which of the following|What (?:is|was)|According to the passage)[\s\S]{0,500}\n\s*A[).]/i.test(value)) return value;
+  return (value + '\n\n' + buildRCProgressionClose(!!diagnosis.rcMicroFollowupActive)).replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function buildPredictionValidationFallback(message) {
@@ -6302,6 +6357,48 @@ function getDILROpeningLesson(entry) {
   return "Before you solve, here's the opening move.\n\n" + (lessons[entry && entry.patternId] || lessons.cant_start) + '\n\nFor the first 30 seconds, build only that setup. Do not try to solve the whole set yet.';
 }
 
+function buildRCProgressionEntry() {
+  var evidence = getRCWrongAnswerEvidence('RC wrong answer review');
+  var mechanism = evidence.mechanism || 'option-selection drift';
+  var directRead = buildDirectRCWrongAnswerDiagnosis(mechanism);
+  return {
+    selectedSection:'VARC', topic:'varc', subcategory:'Reading Comprehension', subcategoryId:'rc',
+    patternId:'rc_option_selection_followthrough', selectedPattern:'The main claim is clear, but the option decision can move away from it.',
+    confirmedDiagnosis:directRead,
+    originalPrediction:directRead,
+    confirmation:'Inconclusive', confidence:0.66,
+    status:'supported',
+    evidenceHistory:[{ type:'practice_attempt', supports:true, strength:0.65, claim:'A short RC check produced at least two usable option decisions.' }],
+    action:'Test whether the same option-selection drift appears inside one full CAT-length RC.',
+    source:'rc-micro-check', updatedAt:new Date().toISOString()
+  };
+}
+
+async function handleRCProgressionTiming(answer) {
+  var entry = buildRCProgressionEntry();
+  diagnosticMemory.varc = entry;
+  activeDiagnosticTopic = 'varc';
+  saveDiagnosticMemory();
+  savePendingDiagnosticExercise(entry, 'awaiting_choice');
+  persistDiagnosisEvidence(entry, {
+    type:'practice_attempt', supports:true, strength:.65,
+    claim:'The short RC check supported an option-selection issue once; a full passage is still needed.',
+    clientRef:'rc-progression-' + entry.updatedAt,
+    payload:{ source:'rc-micro-check', decision_count:getRecentRCDecisionCount('') }
+  });
+  var normalized = String(answer || '').toLowerCase();
+  if (/one more/.test(normalized)) {
+    savePendingDiagnosticExercise(entry, 'rc_micro_followup');
+    await sendConversationalMessage(answer, 'rc_micro_followup_existing');
+    return;
+  }
+  await handlePredictionExerciseTiming(/full rc/.test(normalized) ? 'Right now' : 'Later today');
+}
+
+async function handleRCFullProgressionTiming(answer) {
+  await handlePredictionExerciseTiming(/start|right now|now/.test(String(answer || '').toLowerCase()) ? 'Right now' : answer);
+}
+
 async function handlePredictionExerciseTiming(answer) {
   loadPendingDiagnosticExercise();
   var pending = pendingDiagnosticExercise;
@@ -6846,6 +6943,10 @@ function detectMentorIntent(message) {
   if (isDataPrivacyRequest(message)) return 'privacy_request';
   if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
   if (isAnswerReviewRequest(message)) return 'answer_review';
+  // Natural RC replies are often just "B" or "confused between B and C".
+  // Route them as answer reviews only when the nearby conversation actually
+  // contains an RC passage/question, so a standalone letter stays harmless.
+  if (typeof isRCDecisionReply === 'function' && typeof getRecentRCDecisionCount === 'function' && isRCDecisionReply(message) && getRecentRCDecisionCount(message) > 0) return 'answer_review';
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
   if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
   if (isPlanCoverageCorrection(message)) return 'planning';
@@ -6912,6 +7013,8 @@ function analyzeMentorInput(message) {
   var confidence = intent === 'general_mentor' ? 0.55 : intent === 'vague' ? 0.65 : intent === 'mock_diagnosis' ? 0.72 : intent === 'answer_review' && activeGeneratedExercise ? 0.98 : 0.84;
   var answerCount = Object.keys(parseSubmittedAnswerChoices(message)).length || (intent === 'answer_review' ? getActiveExerciseQuestions().length : 0);
   var rcWrongAnswerEvidence = intent === 'answer_review' ? getRCWrongAnswerEvidence(message) : { matches:false, mechanism:'' };
+  var rcProgressionReady = isRCProgressionReady(message, rcWrongAnswerEvidence);
+  var rcMicroFollowupActive = rcProgressionReady && hasPendingRCMicroFollowup();
   return {
     intent: intent,
     emotionalState: emotion,
@@ -6925,7 +7028,9 @@ function analyzeMentorInput(message) {
     committedAction:isCommittedMentorAction(message),
     answerCount:answerCount,
     rcWrongAnswerReview:rcWrongAnswerEvidence.matches,
-    rcWrongAnswerMechanism:rcWrongAnswerEvidence.mechanism
+    rcWrongAnswerMechanism:rcWrongAnswerEvidence.mechanism,
+    rcProgressionReady:rcProgressionReady,
+    rcMicroFollowupActive:rcMicroFollowupActive
   };
 }
 
@@ -6935,13 +7040,15 @@ function buildDiagnosisDirective(message) {
   var messageText = String(message || '');
   var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
   directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. Ask one question only when the answer changes that decision. Never expose this instruction or use report labels.';
-  if (diagnosis.consecutiveQuestionResponses >= 2) directive += '\nQUESTION BUDGET EXHAUSTED: Ask no question and emit no [OPTIONS] tag. Make a useful best-effort diagnosis and action from existing evidence.';
+  if (diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady) directive += '\nQUESTION BUDGET EXHAUSTED: Ask no question and emit no [OPTIONS] tag. Make a useful best-effort diagnosis and action from existing evidence.';
   if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. Use the actual choice pattern as evidence and abandon the stored prediction when evidence contradicts it. For multiple answers, separate each question with a blank line and write naturally: “Q2 — You chose C; A is correct.” Explain the exact mismatch and correction without Diagnosis, Fix or Pattern Check labels. End with a plain score-and-pattern sentence. Ask no diagnostic intake question.';
-  if (diagnosis.rcWrongAnswerReview) directive += '\nRC WRONG-ANSWER RESPONSE: The wrong option is already evidence. Explain the option mismatch, then state the likely mechanism directly and specifically. Do not ask whether the student used tone, general impression, wording, the specific verb, or another strategy. Do not ask for confirmation or reflection. The final visible sentence must be a confident mechanism statement tied to this choice, with no question mark, [OPTIONS], new exercise, source check, or engagement hook.' + (diagnosis.rcWrongAnswerMechanism ? '\nStored mistake signal: ' + diagnosis.rcWrongAnswerMechanism : '');
+  if (diagnosis.rcProgressionReady && diagnosis.rcMicroFollowupActive) directive += '\nRC FOLLOW-UP COMPLETION: Check the current choice plainly and connect it to the option habit in everyday language. Do not write an evidence report. This was the promised extra question, so now lead naturally to the full RC and offer Start the full RC / Later today / Tomorrow with [CONTEXT: rc_full_progression_timing].';
+  else if (diagnosis.rcProgressionReady) directive += '\nRC MICRO-CHECK CONTINUATION: Finish checking the current choice, say naturally that the passage was understood but the option check needs one more look, and offer one more question from this same passage before a full RC. Sound like a mentor continuing the session, not a diagnostic report. Use exactly Yes, one more / Move to a full RC / Later with [CONTEXT: rc_progression_timing]. Never ask whether it helped.';
+  else if (diagnosis.rcWrongAnswerReview) directive += '\nRC WRONG-ANSWER RESPONSE: The wrong option is already evidence. Explain the option mismatch, then state the likely mechanism directly and specifically. Do not ask whether the student used tone, general impression, wording, the specific verb, or another strategy. Do not ask for confirmation or reflection. The final visible sentence must be a confident mechanism statement tied to this choice, with no question mark, [OPTIONS], new exercise, source check, or engagement hook.' + (diagnosis.rcWrongAnswerMechanism ? '\nStored mistake signal: ' + diagnosis.rcWrongAnswerMechanism : '');
   if (diagnosis.intent === 'privacy_request') directive += '\nPRIVACY REQUEST MODE: Do not diagnose or reassure. Never say Marg is session-only. State that authenticated chats, profiles, cognitive/behavioural patterns, mock history, practice progress and check-ins can persist in Supabase, with some state also in browser storage. For deletion, direct the user to support@trymarg.com from their account email and state the published seven-business-day window. Clearing a chat or local storage is not full deletion.';
   if (diagnosis.intent === 'mock_diagnosis') directive += '\nMOCK EVIDENCE-FIRST MODE: The score is an outcome, not a cause or capability measure. Begin with what the supplied numbers and narrative actually establish. Mark every causal explanation as a hypothesis until supported by attempt, accuracy, selection, timing, error, or behavioural evidence. Name the specific decision mechanism rather than a generic bucket such as time management, carelessness, or practice more. Silently check score arithmetic before interpreting it: MCQ wrong answers normally lose 1 while TITA wrong answers normally lose 0, so a total wrong count alone does not establish the negative marks. Never say every wrong answer cost one mark unless the MCQ/TITA split is known. A DILR score alone cannot prove sets solved, time spent, setup speed or a late exit; ask for set path/attempts/timing before naming those. Never project a higher score by merely deleting wrong attempts. If an action follows, explain naturally why it tests this exact mechanism, then state the action and observable evidence—no clinical mission template. For a full requested plan, give one evidence-linked priority per named section and compare the next two mocks before changing the plan. Never promise or validate a specific percentile from this one mock.';
   var diagnosisRecentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
@@ -7200,7 +7307,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
   text = guardUnusableExerciseEvidence(text, diagnosis);
-  if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2) {
+  if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
   } else {
@@ -7214,6 +7321,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   }
   text = formatMultiAnswerReview(text, diagnosis);
   text = enforceDirectRCWrongAnswerClose(text, diagnosis);
+  text = ensureRCProgressionClose(text, diagnosis);
   text = ensureDiagnosisForwardLead(text, diagnosis);
   text = removeClinicalReportFormatting(text, diagnosis);
   text = removeTrailingActionQuestion(text, diagnosis);
@@ -7470,6 +7578,16 @@ async function handleConversationalResponse(answer, context) {
     if (!isGuestMode) saveChatMessage('user', answer);
     await handlePredictionExerciseTiming(answer);
 
+  } else if (context === 'rc_progression_timing') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await handleRCProgressionTiming(answer);
+
+  } else if (context === 'rc_full_progression_timing') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await handleRCFullProgressionTiming(answer);
+
   } else if (context === 'resume_scheduled_diagnostic') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
@@ -7668,7 +7786,7 @@ async function routeAdHocDILRRequestToVerifiedInterface(userMessage) {
 }
 
 async function sendConversationalMessage(userMessage, context, imageAttachments) {
-  if (context !== 'typed') {
+  if (context !== 'typed' && context !== 'rc_micro_followup_existing') {
     conversationHistory.push({ role: 'user', content: userMessage });
     capturePersonalGoalDetails(userMessage);
     captureProgressiveProfileDetails(userMessage);
@@ -7706,7 +7824,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   systemAddition += getProgressiveProfileMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += mentorAnalysis.directive;
   if (useWebGrounding) systemAddition += '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.';
-  if (!useWebGrounding && !mentorAnalysis.diagnosis.comprehensivePlanning && ['answer_review','planning','returning_memory'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
+  if (!useWebGrounding && !mentorAnalysis.diagnosis.comprehensivePlanning && context !== 'rc_micro_followup_existing' && ['answer_review','planning','returning_memory'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
     systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction in natural mentor language, briefly explain the clue, and ask one confirmation. Do not say "My prediction:". Never end on only "Does that feel accurate?"; in the same reply preview the exact check or coaching action that will follow if the read fits. After Exactly or Mostly, do not repeat the diagnosis or ask another intake question. Immediately lead with "Then let\'s verify it instead of guessing," name what the targeted check will observe, and offer Right now / Later today / Tomorrow. Wait only for that timing consent before launching the exercise. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
   } else if (mentorAnalysis.diagnosis.comprehensivePlanning) {
     systemAddition += '\n\nThe student has already supplied a broad preparation story and explicitly asked for a complete roadmap. Do not narrow them into a section diagnostic or ask preliminary intake questions. Give the complete cross-section roadmap now.';
@@ -7720,6 +7838,9 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   }
   if (context === 'diagnosis_action_timing') {
     systemAddition += '\n\nThe student is choosing when to do the concrete validation step you just proposed. If they chose Right now, begin that promised action immediately with no more confirmation or intake. For QA or DILR, launch the dedicated timed interface with the appropriate [START_TEST] tag instead of dumping questions into chat. If they chose Later today or Tomorrow, preserve the exact promised action, acknowledge the timing briefly, and state how the conversation will resume without inventing another task.';
+  }
+  if (context === 'rc_micro_followup_existing') {
+    systemAddition += '\n\nRC SAME-PASSAGE FOLLOW-UP: The student accepted one more question. Use the exact RC passage already present in recent conversation history. Give exactly ONE new CAT-style four-option question that tests precise option checking, not passage recall. Do not repeat the passage, reveal the answer, explain the earlier diagnosis, generate a full RC, ask another intake question, or add any text after “Which option do you choose?”.';
   }
   if (context === 'profile_attempt') {
     systemAddition += '\n\nPROFILE ANSWER CONTINUATION: The student answered the light attempt-number question. Acknowledge it in at most one clause and apply it only as context—not proof of any diagnosis. Continue the exact CAT thread from before the question. Do not ask another profile question in this reply and do not repeat generic theory.';
@@ -8940,6 +9061,20 @@ function parseChatGeneratedExercise(rawText) {
   return { visibleText:raw.replace(/\s*\[\[MARG_MEMORY\]\][\s\S]*?\[\[\/MARG_MEMORY\]\]\s*/g, '').trim(), memory:memory };
 }
 
+function validateChatGeneratedRCExercise(parsedExercise) {
+  var visible = String(parsedExercise && parsedExercise.visibleText || '');
+  var memoryAnswers = parsedExercise && parsedExercise.memory && Array.isArray(parsedExercise.memory.answers)
+    ? parsedExercise.memory.answers : [];
+  var passageMatch = visible.match(/PASSAGE\s*([\s\S]*?)\s*QUESTIONS/i);
+  var passageWords = passageMatch ? String(passageMatch[1]).trim().split(/\s+/).filter(Boolean).length : 0;
+  var questionCount = (visible.match(/^\s*[1-4][.)]\s+/gm) || []).length;
+  var optionCount = (visible.match(/(?:^|\n)\s*[A-D][.)]\s+/g) || []).length;
+  var answerKeyValid = memoryAnswers.length === 4 && memoryAnswers.every(function(answer, index) {
+    return Number(answer.question) === index + 1 && /^[A-D]$/i.test(String(answer.correct || '').trim());
+  });
+  return passageWords >= 450 && passageWords <= 520 && questionCount === 4 && optionCount >= 16 && answerKeyValid;
+}
+
 async function createRCPassage() {
   if (!currentArticle) return;
   closeVarcCard();
@@ -8952,10 +9087,13 @@ async function createRCPassage() {
   showTyping();
   profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   try {
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, [{ role: 'user', content: prompt + memoryDirective }], 12288)) }, 180000);
+    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, [{ role: 'user', content: prompt + memoryDirective }], 12288)) }, 75000);
+    if (!response.ok) throw new Error('Worker status ' + response.status);
     const data = await response.json();
     const reply = getGeminiText(data);
+    if (!reply) throw new Error('No RC response');
     const parsedExercise = parseChatGeneratedExercise(reply);
+    if (!validateChatGeneratedRCExercise(parsedExercise)) throw new Error('RC response was incomplete');
     const visibleReply = parsedExercise.visibleText;
     hideTyping();
     const formatted = visibleReply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
@@ -8964,7 +9102,7 @@ async function createRCPassage() {
     saveChatMessage('assistant', visibleReply);
     storeActiveGeneratedExercise({ type:'rc', source:'chat', title:currentArticle.title, purpose:parsedExercise.memory.purpose || 'CAT RC comprehension and option-elimination diagnosis', content:{ exerciseText:visibleReply, answerKey:parsedExercise.memory.answers || [] } });
     localStorage.setItem('marg_rc_article', JSON.stringify({ title: currentArticle.title, source: currentArticle.source, content: articleText }));
-  } catch(e) { hideTyping(); addMessage('marg', isGeminiServiceError(e) ? getGeminiErrorMessage(e) : 'Connection issue. Please try again in a moment.'); }
+  } catch(e) { hideTyping(); addMessage('marg', isGeminiServiceError(e) ? getGeminiErrorMessage(e) : 'The RC did not pass its completeness check, so I discarded it. Try generating it once more.'); }
 }
 
 async function checkVarcShownToday() {
@@ -10784,14 +10922,14 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
 
   if (section === 'qa') {
     var n = questionCount || 10;
-    return 'Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions. TOPIC LOCK: every question must have the exact primary topic "' + topic + '"; do not include any standalone question from Geometry, Algebra, Number Systems, or another topic. A secondary technique is allowed only when the central tested idea remains ' + topic + '. The question statement and solution must visibly demonstrate why ' + topic + ' is central; merely putting that value in the topic field is an automatic failure. Set topics_combined to ["' + topic + '"] and every question.topic exactly to "' + topic + '".' + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics appropriate to ' + topic + ' so no two questions share the same solution skeleton. Include roughly 30% medium, 50% medium-hard and 20% hard questions. At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently solve every item; verify topic purity, feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Silently replace any flawed or off-topic draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"Mixed","topics_combined":["' + topic + '"],"questions":[{"topic":"' + topic + '","q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
+    return 'Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions. TOPIC LOCK: every question must have the exact primary topic "' + topic + '"; do not include any standalone question from Geometry, Algebra, Number Systems, or another topic. A secondary technique is allowed only when the central tested idea remains ' + topic + '. The question statement and solution must visibly demonstrate why ' + topic + ' is central; merely putting that value in the topic field is an automatic failure. Set topics_combined to ["' + topic + '"] and every question.topic exactly to "' + topic + '".' + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics appropriate to ' + topic + ' so no two questions share the same solution skeleton. Include roughly 30% medium, 50% medium-hard and 20% hard questions. At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently solve every item; verify topic purity, feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Every item must include a specific sufficiency_check showing that the visible stem supplies every required fact and an option_check showing why exactly one option survives. Silently replace any flawed or off-topic draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"Mixed","topics_combined":["' + topic + '"],"questions":[{"topic":"' + topic + '","q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","sufficiency_check":"why the visible stem is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
   }
 
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
   var dilrTopicInstruction = /mixed set selection/i.test(topic)
     ? 'Use structurally different set families. Make one look familiar but have a weak entry point, while another looks less familiar but has a clean representation and two interacting starting constraints; this must reveal set-selection quality.'
     : 'Center every set on ' + topic + ', while keeping the mechanics distinct.';
-  return 'Generate exactly ' + setsCount + ' independent HARD CAT-level DILR sets, each with 7-9 entities or equivalent data density, 7-10 interacting constraints, and exactly 4 questions. ' + dilrTopicInstruction + difficultyGuard + ' A prepared CAT student should need 14-18 minutes per set. Each set must contain at least three genuine deductions that arise only by combining clues; direct one-clue-one-cell arrangements are forbidden. Multiple cases must remain until a decisive bound, conservation relationship, conditional split, or structural inference narrows them. Every question must require fresh reasoning after the base representation; use at least three distinct types across must/cannot, case count, optimization/exact value, and local hypothetical. No direct-lookup question.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure every condition is necessary, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Store three genuine deductions in derived_constraints, not restated clues. Keep each setup between 120 and 300 words and explanations compact. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["' + topic + '","secondary interacting structure"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete setup","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short verifiable sentence","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
+  return 'Generate exactly ' + setsCount + ' independent HARD CAT-level DILR sets, each with 7-9 entities or equivalent data density, 7-10 interacting constraints, and exactly 4 questions. ' + dilrTopicInstruction + difficultyGuard + ' A prepared CAT student should need 14-18 minutes per set. Each set must contain at least three genuine deductions that arise only by combining clues; direct one-clue-one-cell arrangements are forbidden. Multiple cases must remain until a decisive bound, conservation relationship, conditional split, or structural inference narrows them. Every question must require fresh reasoning after the base representation; use at least three distinct types across must/cannot, case count, optimization/exact value, and local hypothetical. No direct-lookup question.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure every condition is necessary, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Every question must include a specific sufficiency_check showing that the written setup supplies every required fact and an option_check showing why exactly one option survives. Store three genuine deductions in derived_constraints, not restated clues. Keep each setup between 120 and 300 words and explanations compact. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["' + topic + '","secondary interacting structure"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete setup","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short verifiable sentence","sufficiency_check":"why the written setup is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
 }
 
 function getVerifiedRCFallback() {
@@ -11438,28 +11576,33 @@ async function generateGuidedMiniMock(diagnosticEntry) {
   var sendButton = document.getElementById('send-btn');
   if (sendButton) sendButton.disabled = true;
   addMentorLeadMessage('This four-question check is about execution, not coverage. Record your attempt order and skips—the decisions matter as much as the score.');
-  showTyping();
   try {
-    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON with verified answers.' + getDateContext(), [{ role:'user', content:buildGuidedMiniMockPrompt(diagnosticEntry) }], 16384, 'application/json')) }, 240000);
-    if (!response.ok) throw new Error('Worker status ' + response.status);
-    var payload = await response.json();
-    var raw = getGeminiText(payload);
-    var parsed = normalizeGuidedMiniMock(parseGeneratedJson(raw));
+    // This check used to make a fresh model request with a four-minute timeout.
+    // Reuse independently verified RC and QA material instead: the diagnostic
+    // value comes from the student's attempt order and decisions, not novelty.
+    var verifiedRC = getVerifiedRCFallback();
+    var verifiedQA = getVerifiedFallbackPractice('qa', 3, null);
+    var rcSet = verifiedRC && verifiedRC.sets && verifiedRC.sets[0];
+    var parsed = normalizeGuidedMiniMock({
+      varc:{ passage:rcSet && rcSet.passage, questions:rcSet && rcSet.questions ? rcSet.questions.slice(0, 2) : [] },
+      qa:{ questions:verifiedQA && verifiedQA.questions ? verifiedQA.questions.slice(0, 2) : [] }
+    });
     if (!validateGuidedMiniMock(parsed)) throw new Error('Mini mock failed validation');
     hideTyping();
     var visible = formatGuidedMiniMock(parsed);
     addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
     conversationHistory.push({ role:'assistant', content:visible });
     if (!isGuestMode) saveChatMessage('assistant', visible);
-    storeActiveGeneratedExercise({ type:'mini_mock', source:'prediction-validation', title:'4-question CAT execution check', purpose:'Validate or reject: ' + (diagnosticEntry ? diagnosticEntry.confirmedDiagnosis : 'working mock diagnosis'), hypothesis:diagnosticEntry || null, content:{ questions:flattenGuidedMiniMock(parsed), sourceData:parsed } });
+    storeActiveGeneratedExercise({ type:'mini_mock', source:'prediction-validation-verified', title:'4-question CAT execution check', purpose:'Validate or reject: ' + (diagnosticEntry ? diagnosticEntry.confirmedDiagnosis : 'working mock diagnosis'), hypothesis:diagnosticEntry || null, content:{ questions:flattenGuidedMiniMock(parsed), sourceData:parsed } });
     completeChatFirstOnboarding(null);
   } catch(e) {
     hideTyping();
-    addMentorLeadMessage(isGeminiServiceError(e) ? getGeminiErrorMessage(e) : "The mini mock failed the answer-key check, so I discarded it. Let's regenerate a clean one rather than diagnose you from flawed questions.");
-    showConversationalOptions(['Regenerate mini mock'], 'mini_mock_retry');
+    addMentorLeadMessage("The verified mini mock could not open, so I stopped instead of diagnosing you from incomplete questions. Try the same check once more.");
+    showConversationalOptions(['Retry the same mini mock'], 'mini_mock_retry');
+  } finally {
+    isLoading = false;
+    if (sendButton) sendButton.disabled = false;
   }
-  isLoading = false;
-  if (sendButton) sendButton.disabled = false;
   return true;
 }
 
@@ -11493,20 +11636,28 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + ' Sectional Test — ' + topic;
   contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is building a timed ' + (section === 'qa' ? 'QA' : 'DILR') + ' test on ' + topic + ' — CAT-level difficulty...</div></div>';
 
-  // A diagnosis check must open immediately. This four-question DILR set is a
-  // locally stored, enumerated set, so it needs neither Gemini generation nor a
-  // second paid audit before the timer can begin.
-  if (section === 'dilr' && timedTestDiagnosticEntry && timedTestRequestedCount <= 4) {
-    var instantDILR = getVerifiedFallbackPractice('dilr', timedTestRequestedCount, topic);
-    var instantQuestions = instantDILR && validateDILRPracticeSet(instantDILR, 1) ? flattenTimedTestQuestions('dilr', instantDILR) : [];
-    if (instantQuestions.length === 4 && instantQuestions.every(isValidTimedTestQuestion)) {
+  // Short diagnostic checks should open immediately whenever a matching,
+  // independently verified pack already exists. This avoids spending a model
+  // call and audit delay merely to validate a working hypothesis.
+  if (timedTestDiagnosticEntry && timedTestRequestedCount <= 4) {
+    var instantExpectedTopic = topic;
+    var instantDiagnostic = getVerifiedFallbackPractice(section, timedTestRequestedCount, topic);
+    if (!instantDiagnostic && section === 'qa' && /^(?:mixed qa|diagnostic(?: qa)?|qa)$/i.test(String(topic || ''))) {
+      instantExpectedTopic = null;
+      instantDiagnostic = getVerifiedFallbackPractice('qa', timedTestRequestedCount, null);
+    }
+    var instantValid = instantDiagnostic && (section === 'qa'
+      ? validateQASetShape(instantDiagnostic, instantExpectedTopic, timedTestRequestedCount)
+      : validateDILRPracticeSet(instantDiagnostic, 1));
+    var instantQuestions = instantValid ? flattenTimedTestQuestions(section, instantDiagnostic) : [];
+    if (instantQuestions.length === timedTestRequestedCount && instantQuestions.every(isValidTimedTestQuestion)) {
       timedTestQuestions = instantQuestions;
       timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
       timedTestSecondsTotal = timedTestQuestions.length * 120;
       timedTestSecondsLeft = timedTestSecondsTotal;
       storeActiveGeneratedExercise({
-        type:'dilr', source:'prediction-validation-verified', title:topic + ' verified check',
-        purpose:'Check whether the observed DILR opening pattern repeats', hypothesis:timedTestDiagnosticEntry,
+        type:section, source:'prediction-validation-verified', title:topic + ' verified check',
+        purpose:'Check whether the suspected ' + section.toUpperCase() + ' decision pattern appears', hypothesis:timedTestDiagnosticEntry,
         generationStartedAt:timedTestGenerationStartedAt, generationDurationMs:0,
         content:{ questions:timedTestQuestions }
       });
@@ -11521,6 +11672,10 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
 
   var prompt = getPredictionValidationFocus(timedTestDiagnosticEntry) + buildSectionalTestPrompt(section, topic, questionCount);
   var maxTokens = getSectionalTestMaxTokens(section, questionCount);
+  var isCompactTimedCheck = !!(timedTestDiagnosticEntry && timedTestRequestedCount <= 4);
+  var timedFlowBudgetMs = isCompactTimedCheck ? (section === 'dilr' ? 75000 : 60000) : (section === 'dilr' ? 140000 : 110000);
+  var timedFlowDeadlineMs = Date.now() + timedFlowBudgetMs;
+  var timedGenerationTimeoutMs = isCompactTimedCheck ? (section === 'dilr' ? 35000 : 30000) : (section === 'dilr' ? 70000 : 55000);
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
@@ -11532,7 +11687,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
         maxTokens,
         'application/json'
       ))
-    }, 150000);
+    }, timedGenerationTimeoutMs);
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
@@ -11547,7 +11702,6 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       console.error('Timed test JSON parse failed. Raw model output:', text);
       throw parseErr;
     }
-    parsed = await repairGeneratedSolutionPresentation(section, parsed, topic);
     var expectedQuestionCount = section === 'qa' ? (questionCount || 10) : Math.max(1, Math.round((questionCount || 12) / 4)) * 4;
     var expectedSetCount = section === 'dilr' ? expectedQuestionCount / 4 : null;
     var sectionalShapeValid = section === 'qa'
@@ -11559,7 +11713,19 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       throw new Error('Generated test failed structural validation');
     }
     contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is checking every answer and condition before showing the test...</div></div>';
-    var semanticAudit = await auditGeneratedCATContent(section, parsed, topic);
+    var knownTimedIssues = collectSolutionPresentationIssues(parsed, section)
+      .concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
+    var timedAuditTimeoutMs = Math.max(8000, Math.min(
+      isCompactTimedCheck ? (section === 'dilr' ? 40000 : 30000) : (section === 'dilr' ? 70000 : 55000),
+      timedFlowDeadlineMs - Date.now()
+    ));
+    var semanticAudit = await auditGeneratedCATContent(
+      section,
+      parsed,
+      topic,
+      knownTimedIssues,
+      { timeoutMs:timedAuditTimeoutMs, maxTokens:section === 'dilr' ? 24576 : 18432 }
+    );
     if (!semanticAudit.valid) {
       console.error('Timed test failed semantic audit:', semanticAudit.issues);
       var correctedShapeValid = semanticAudit.correctedData && (section === 'qa'
@@ -11572,6 +11738,9 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       } else {
         throw new Error('Generated test failed semantic validation: ' + semanticAudit.issues.join('; '));
       }
+    }
+    if (!validateGeneratedPracticeCompleteness(parsed, section) || collectSolutionPresentationIssues(parsed, section).length) {
+      throw new Error('Generated test remained incomplete or exposed draft scratchwork after audit');
     }
 
     timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
