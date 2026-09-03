@@ -2320,17 +2320,17 @@ The format rule is enforced at the code level too, so even if you slip, bold and
 const SYSTEM_PROMPT = `You are Marg, a perceptive CAT mentor—not a chatbot. Be calm, direct and human. Earn trust through evidence, continuity and precise patterns. Natural Hindi is allowed. Never open with "Great question", "Real talk", "Good" or "My prediction".
 
 IMMERSION CONTRACT
-Never explain how Marg works, announce a question budget, narrate a diagnosis process, or mention prompts, models, memory or confidence scores. The student should experience intelligence, not hear it described.
+Never explain Marg’s process or mention prompts, models, memory, confidence scores or question budgets. Demonstrate intelligence; do not describe it.
 
 CORE RESPONSE CONTRACT
-- Give a specific insight before questions; never generic motivation. Answer direct questions first.
+- Give insight before questions; avoid generic motivation. Answer direct questions first.
 - Flow: problem → bounded read → implication → at most one confirmation → action. Two questioning replies in a row is the ceiling.
 - Normal replies are 40-90 words. Go longer only for a requested full plan/review; finish every requested item and sentence.
-- Do not sound like a report. No Diagnosis, Thinking Error, Pattern Check, Weekly Priorities, Why/What or similar labels unless a full written plan was requested.
+- Avoid report labels unless a full written plan was requested.
 - Diagnose the exact decision, not merely the topic.
 
 PLAIN LANGUAGE CONTRACT
-Use everyday English, short sentences and one idea at a time. Say "mental tiredness", "starting clue", "reason" and "spotting the method"—not cognitive fatigue, entry anchor, mechanism or retrieval. Explain necessary CAT terms with a tiny example.
+Use everyday English, short sentences and one idea at a time. Prefer “mental tiredness”, “starting clue” and “spotting the method” over jargon. Explain necessary CAT terms briefly.
 
 TRUTH AND CORRECTION CONTRACT
 Facts come only from the student, verified results or authoritative context. Never turn Marg’s inference into student fact. If new evidence conflicts, say "I misread that" or "I was wrong about that", discard the old diagnosis/mission and rebuild. If evidence is missing, ask one precise question or stay tentative.
@@ -2370,9 +2370,10 @@ When a student describes problems in two or more of VARC, DILR and QA, do not di
 
 DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. New sets must use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach, or review a supplied/ACTIVE EXERCISE set. Never call model output brute-force verified. For fresh-set requests, briefly launch the interface.
+When a student challenges a DILR solution, pause unrelated exercises and audit that condition first. For facing directions, keep one stated personal/page convention; never change it to protect a key. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.” Call the set valid only if one full arrangement satisfies every condition.
 
 MEMORY AND CONTINUITY
-Use supplied memory before advice. Refer naturally to one relevant fact; never list or invent history. Never ask for a Marg-generated exercise again—use its stored key. Keep an active plan unless fresh evidence or an explicit redesign justifies change; say what changed and why.
+Use memory before advice. Refer naturally to one relevant fact; never invent history or request Marg-generated material again. Change an active plan only for fresh evidence or an explicit redesign, and say why.
 
 PROGRESSIVE PROFILE BUILDING
 Never run a profile survey. After answering, use a natural pause for one useful missing detail: familiarity, mock strategy, routine, resources, attempt or goal. Never interrupt work, repeat or chain these questions.
@@ -2593,8 +2594,9 @@ function getGeminiErrorMessage(error) {
   var status = Number(error && error.status) || 0;
   if (status === 429) return 'Marg is handling unusually high demand. Please wait a moment before trying again.';
   if (status === 503) return 'Marg is temporarily overloaded. Please wait a moment before trying again.';
-  if (status === 401 || status === 403) return 'Marg cannot connect right now. Access needs checking before this request can work.';
-  if (status === 400 || status === 404) return 'Marg could not accept this request because its connection is misconfigured. Repeated retries will not help yet.';
+  if (status === 401 || status === 403) return 'Marg cannot connect right now because Gemini access was rejected. The API key or its permissions need checking.';
+  if (status === 400) return 'Gemini rejected the conversation format. Your message is safe and the chat has been unlocked.';
+  if (status === 404) return 'The Gemini model configured for Marg is not available to this API key right now.';
   if (status >= 500) return 'Marg’s connection failed temporarily. Please try once more in a moment.';
   if (error && error.name === 'GeminiEmptyResponseError') return 'Marg received no usable answer for this request. Please try once more.';
   return 'Marg could not complete that request. Please try once more.';
@@ -2606,6 +2608,7 @@ function showGeminiServiceFailure(error) {
   // The full error already exists as a chat turn. Repeating the same sentence
   // under the composer made one timeout look like two separate failures.
   var composerMessage = 'The chat is ready for one retry.';
+  if (error && error.status) composerMessage += ' Error ' + error.status + (error.code ? ' · ' + error.code : '') + '.';
   if (error && error.requestId) composerMessage += ' Reference: ' + error.requestId;
   showComposerStatus(composerMessage, 'error', true);
   return serviceMessage;
@@ -2639,6 +2642,28 @@ function getGeminiMessageParts(message) {
   return parts;
 }
 
+function normalizeGeminiConversationContents(contents) {
+  var normalized = [];
+  (contents || []).forEach(function(content) {
+    if (!content || (content.role !== 'user' && content.role !== 'model')) return;
+    var parts = Array.isArray(content.parts) ? content.parts.filter(function(part) {
+      return !!(part && (typeof part.text === 'string' && part.text.trim() || part.inlineData && part.inlineData.data));
+    }) : [];
+    if (!parts.length) return;
+    var previous = normalized[normalized.length - 1];
+    if (previous && previous.role === content.role) {
+      if (previous.parts.length && previous.parts[previous.parts.length - 1].text && parts[0].text) previous.parts.push({ text:'\n\n' });
+      Array.prototype.push.apply(previous.parts, parts);
+    } else normalized.push({ role:content.role, parts:parts });
+  });
+  // Gemini REST chat requires alternating turns and a final user turn. A
+  // sliced long history could previously begin with an assistant turn and be
+  // rejected as HTTP 400 before Marg had any chance to answer.
+  while (normalized.length && normalized[0].role !== 'user') normalized.shift();
+  while (normalized.length && normalized[normalized.length - 1].role !== 'user') normalized.pop();
+  return normalized;
+}
+
 const GEMINI_PLAIN_TEXT_MATH_INSTRUCTION = '\n\nOUTPUT FORMAT — PLAIN-TEXT MATH ONLY: Never use LaTeX/TeX, dollar-sign math delimiters, \\(...\\), \\[...\\], \\frac, \\mathbf, \\text, \\times, or related commands. Use readable plain arithmetic with =, +, −, ×, ÷, %, ^, √, parentheses, and Rs. or ₹. This rule also applies inside JSON string fields.';
 
 function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType) {
@@ -2660,6 +2685,7 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
       Array.prototype.push.apply(previous.parts, parts);
     } else contents.push({ role:role, parts:parts });
   });
+  contents = normalizeGeminiConversationContents(contents);
   var request = {
     contents:contents,
     generationConfig:{
@@ -2793,9 +2819,9 @@ function cleanHistory(history) {
       .trim();
     return { role: m.role, content: cleaned };
   }).filter(function(message, index, list) {
-    if (!message || message.role !== 'assistant' || index === 0) return true;
+    if (!message || index === 0) return true;
     var previous = list[index - 1];
-    return !(previous && previous.role === 'assistant' && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
+    return !(previous && previous.role === message.role && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
   });
   // Long raw transcripts slow every response. Durable diagnostic, progression,
   // exercise and plan memory are supplied separately, so 16 recent turns keep
@@ -2812,6 +2838,7 @@ let onboardingStep = 0;
 let isLoading = false;
 let lastSentMessage = '';
 let lastSentAt = 0;
+var lastFailedOutgoingMessage = null;
 var pendingImageAttachments = [];
 var MAX_IMAGE_ATTACHMENTS = 4;
 var MAX_TOTAL_IMAGE_BASE64_LENGTH = 18 * 1024 * 1024;
@@ -4034,7 +4061,7 @@ async function upsertMentorTaskForDiagnosis(entry, options) {
 
 async function persistGeneratedExerciseTask(exercise) {
   if (!exercise || !canUseMentorExecutionLoop()) return null;
-  var status = exercise.reviewedAt ? 'reviewed' : exercise.result ? 'evidence_ready' : exercise.awaitingAnswers === false ? 'ready' : 'in_progress';
+  var status = exercise.cancelledAt || exercise.status === 'cancelled' ? 'cancelled' : exercise.reviewedAt ? 'reviewed' : exercise.result ? 'evidence_ready' : exercise.awaitingAnswers === false ? 'ready' : 'in_progress';
   var saved = null;
   if (exercise.hypothesis) {
     saved = await upsertMentorTaskForDiagnosis(exercise.hypothesis, {
@@ -4050,6 +4077,7 @@ async function persistGeneratedExerciseTask(exercise) {
         generatedAt:exercise.generatedAt, awaitingAnswers:exercise.awaitingAnswers,
         result:exercise.result || null, reviewPending:exercise.reviewPending,
         completedAt:exercise.completedAt || null, reviewedAt:exercise.reviewedAt || null,
+        cancelledAt:exercise.cancelledAt || null,
         validationVerdict:exercise.validationVerdict || null,
         uiSelections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : []
       } }
@@ -4071,7 +4099,7 @@ async function persistGeneratedExerciseTask(exercise) {
         purpose:exercise.purpose, content:exercise.content, generatedAt:exercise.generatedAt,
         awaitingAnswers:exercise.awaitingAnswers, result:exercise.result || null,
         reviewPending:exercise.reviewPending, completedAt:exercise.completedAt || null,
-        reviewedAt:exercise.reviewedAt || null,
+        reviewedAt:exercise.reviewedAt || null, cancelledAt:exercise.cancelledAt || null,
         uiSelections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : []
       } }, scheduled_for:null, status:status,
       started_at:exercise.generatedAt || new Date().toISOString(), completed_at:exercise.completedAt || null,
@@ -4286,6 +4314,11 @@ function loadActiveGeneratedExercise() {
     }
   }
   if (activeGeneratedExercise) {
+    if (activeGeneratedExercise.cancelledAt || activeGeneratedExercise.status === 'cancelled') {
+      activeGeneratedExercise = null;
+    }
+  }
+  if (activeGeneratedExercise) {
     var storedSection = activeGeneratedExercise.type === 'qa' ? 'qa' : activeGeneratedExercise.type === 'dilr' ? 'dilr' : null;
     if (storedSection && collectSolutionPresentationIssues(activeGeneratedExercise.content, storedSection).length) {
       console.error('Discarded a saved exercise whose solution did not pass the clean-output gate.');
@@ -4443,8 +4476,53 @@ function isPredictionValidationReply(message) {
   if (!isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.awaitingAnswers) return false;
   var text = String(message || '').trim();
   if (!text) return false;
-  var explicitSwitch = /\b(switch|change topic|now help|help me with|want help with|work on|focus on|weak in)\b/i.test(text) && detectExplicitDiagnosticTopic(text);
-  return !explicitSwitch;
+  var answerPairs = parseSubmittedAnswerChoices(text);
+  if (Object.keys(answerPairs).length) return true;
+  var questions = getActiveExerciseQuestions();
+  return questions.length === 1 && /^\s*[abcd]\s*$/i.test(text);
+}
+
+function isActiveExerciseOptOut(message) {
+  var text = String(message || '').trim().toLowerCase().replace(/[’]/g, "'");
+  if (!text) return false;
+  return /^(?:nothing|not now|later|stop|cancel|skip|leave it|no thanks|no thank you)$/i.test(text) ||
+    /\b(?:i (?:do not|don't|dont) (?:want|wanna)|i(?:'m| am) not doing|stop|cancel|skip|leave)\b[\s\S]{0,55}\b(?:this|it|anything|exercise|check|lab|decision lab|task)\b/i.test(text);
+}
+
+function hasQuestionBeyondExerciseOptOut(message) {
+  return /\b(?:but|just tell|explain|why|how|is this|is the|what about|set valid|set false|constraint|condition)\b/i.test(String(message || ''));
+}
+
+function cancelActiveExerciseForChat(message) {
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  if (!activeGeneratedExercise || !activeGeneratedExercise.awaitingAnswers || !isActiveExerciseOptOut(message)) return false;
+  var cancelled = activeGeneratedExercise;
+  cancelled.awaitingAnswers = false;
+  cancelled.status = 'cancelled';
+  cancelled.cancelledAt = new Date().toISOString();
+  cancelled.cancelReason = 'student_declined';
+  // Keep a local tombstone so an older EXERCISE row from Supabase cannot
+  // resurrect this lab before the cancellation write has propagated.
+  try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(cancelled)); } catch(e) {}
+  saveInternalMemoryMessage('EXERCISE', cancelled);
+  savePendingDiagnosticExercise(null);
+  clearGuidedGenerationState();
+  var task = (mentorExecutionLoop.tasks || []).find(function(item) {
+    return item && (item.id === cancelled.mentorTaskId || item.artifact_ref === cancelled.id);
+  });
+  if (task) {
+    task.status = 'cancelled';
+    task.updated_at = cancelled.cancelledAt;
+    if (canUseMentorExecutionLoop()) fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(task.id), {
+      method:'PATCH', headers:executionLoopHeaders('return=minimal'),
+      body:JSON.stringify({ status:'cancelled', updated_at:cancelled.cancelledAt })
+    }).catch(function(error) { console.error('Exercise cancellation persistence error:', error); });
+  }
+  activeGeneratedExercise = null;
+  studentProfile.activeGeneratedExercise = null;
+  if (hasQuestionBeyondExerciseOptOut(message)) return false;
+  addMentorLeadMessage('Okay—we’ll leave the Decision Lab here. Nothing else is being started. You can keep chatting normally whenever you want.');
+  return true;
 }
 
 function getActiveExerciseQuestions() {
@@ -4619,7 +4697,13 @@ function getGeneratedExerciseMemoryContext(message) {
   var text = String(message || '').toLowerCase();
   var isFollowUp = isAnswerReviewRequest(message) || isExerciseResultReviewRequest(message) || /\b(?:q(?:uestion)?\s*\d+|why\s+(?:is|was)|explain\s+(?:this|the|q|question|answer|option)|this\s+(?:question|set|passage)|the\s+(?:question|set|passage))\b/.test(text);
   var isValidationFollowUp = isPredictionValidationExercise(activeGeneratedExercise) &&
-    (activeGeneratedExercise.awaitingAnswers || activeGeneratedExercise.lastSubmittedAnswers === String(message || '').substring(0, 1000));
+    (isPredictionValidationReply(message) || activeGeneratedExercise.lastSubmittedAnswers === String(message || '').substring(0, 1000));
+  if (activeGeneratedExercise && activeGeneratedExercise.type === 'strategy' &&
+      /\b(?:person|persons|standing|seating|line|constraint|condition|left of|right of|facing|corner|position)\b/.test(text) &&
+      !/\b(?:decision lab|strategy lab|question\s*[123]|1\s*[-:.)]\s*[abcd])\b/.test(text)) {
+    isFollowUp = false;
+    isValidationFollowUp = false;
+  }
   if (!activeGeneratedExercise || (!isFollowUp && !isValidationFollowUp)) return '';
   var memoryJson = JSON.stringify(activeGeneratedExercise);
   if (memoryJson.length > 24000) memoryJson = memoryJson.substring(0, 24000) + '...';
@@ -8256,9 +8340,9 @@ function restoreConversation() {
     if (isInternalMemoryMessage(message) || isLegacyAutoMissionReminder(message) || isHomeDiagnosisOpeningMessage(message)) return false;
     return true;
   }).map(getConversationMessageForDisplay).filter(function(message, index, list) {
-    if (!message || message.role !== 'assistant' || index === 0) return true;
+    if (!message || index === 0) return true;
     var previous = list[index - 1];
-    return !(previous && previous.role === 'assistant' && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
+    return !(previous && previous.role === message.role && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
   });
   if (displayMessages.length > 0) {
     displayMessages.forEach(function(msg) {
@@ -8585,7 +8669,11 @@ async function sendMessage(fromQueue, submissionOptions) {
   const hasImages = imageAttachments.length > 0;
   const hasContent = !!(typedText || hasImages);
   const text = typedText || (imageAttachments.length > 1 ? 'Please analyze these images in page order.' : 'Please analyze this image.');
-  const duplicate = !reuseHomepageUserMessage && !hasImages && text === lastSentMessage && (Date.now() - lastSentAt) < 4000;
+  var reuseFailedUserMessage = !!(!reuseHomepageUserMessage && !hasImages && lastFailedOutgoingMessage && lastFailedOutgoingMessage.text === text &&
+    conversationHistory.length && conversationHistory[conversationHistory.length - 1].role === 'user' &&
+    String(conversationHistory[conversationHistory.length - 1].content || '').trim() === text);
+  if (lastFailedOutgoingMessage && lastFailedOutgoingMessage.text !== text) lastFailedOutgoingMessage = null;
+  const duplicate = !reuseHomepageUserMessage && !reuseFailedUserMessage && !hasImages && text === lastSentMessage && (Date.now() - lastSentAt) < 4000;
   const chatReady = !!(onboardingComplete || mockVisible || inConversationalOnboarding || homepageIntentForSend);
   const submissionDecision = getMessageSubmissionDecision({
     hasContent:hasContent,
@@ -8628,7 +8716,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
     var storedImageMarker = hasImages ? '\n[' + imageAttachments.length + ' images attached in page order: ' + imageAttachments.map(function(item) { return item.name; }).join(', ') + ']' : '';
     var storedUserText = text + storedImageMarker;
-    if (!reuseHomepageUserMessage) {
+    if (!reuseHomepageUserMessage && !reuseFailedUserMessage) {
       addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
       conversationHistory.push({ role: 'user', content: storedUserText });
       capturePersonalGoalDetails(text);
@@ -8646,6 +8734,12 @@ async function sendMessage(fromQueue, submissionOptions) {
       conversationHistory.push({ role:'user', content:text });
     }
     if (homepageIntentForSend && typeof markHomepageIntentSubmitted === 'function') homepageIntentForSend = markHomepageIntentSubmitted(homepageIntentForSend) || homepageIntentForSend;
+
+  loadActiveGeneratedExercise();
+  if (!hasImages && cancelActiveExerciseForChat(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
 
   if (!hasImages && maybeHandlePrivacyRequest(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
@@ -8672,7 +8766,6 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
-  loadActiveGeneratedExercise();
   if (!hasImages && maybeReplayActiveExercise(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
@@ -8766,6 +8859,7 @@ async function sendMessage(fromQueue, submissionOptions) {
       .trim();
     const formatted = cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
     addMessage('marg', formatted);
+    lastFailedOutgoingMessage = null;
     checkAndRenderMargOptions(reply);
     checkAndRenderTestPrompt(reply);
     checkAndLogPracticeVolume(reply);
@@ -8774,6 +8868,13 @@ async function sendMessage(fromQueue, submissionOptions) {
   } catch (e) {
     hideTyping();
     if (isGeminiServiceError(e)) {
+      lastFailedOutgoingMessage = { text:text, failedAt:Date.now(), requestId:String(e && e.requestId || '') };
+      if (!hasImages && input && !input.value) {
+        input.value = typedText;
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        saveCurrentChatDraft();
+      }
       showGeminiServiceFailure(e);
       if (homepageIntentForSend && typeof failHomepageIntent === 'function') failHomepageIntent(homepageIntentForSend, e);
       return;
@@ -8788,6 +8889,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     addMessage('marg', fallbackReply);
     conversationHistory.push({ role: 'assistant', content: fallbackReply });
     if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
+    lastFailedOutgoingMessage = null;
     completePendingExternalQuestionTurn();
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
   }
@@ -9309,9 +9411,9 @@ function getVerifiedConversationHistory() {
   return (conversationHistory || []).filter(function(item) {
     return item && (item.role === 'user' || item.role === 'assistant') && !isInternalMemoryMessage(item) && !isLegacyAutoMissionReminder(item) && String(item.content || '').trim();
   }).filter(function(item, index, list) {
-    if (item.role !== 'assistant' || index === 0) return true;
+    if (index === 0) return true;
     var previous = list[index - 1];
-    return !(previous && previous.role === 'assistant' && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(item.content || '').replace(/\s+/g, ' ').trim());
+    return !(previous && previous.role === item.role && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(item.content || '').replace(/\s+/g, ' ').trim());
   });
 }
 
@@ -10451,6 +10553,15 @@ function resumeDurableMentorTask(taskId) {
     if (attempt) activeGeneratedExercise.mentorAttemptId = attempt.id;
     try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
   }
+  if (activeGeneratedExercise && activeGeneratedExercise.type === 'strategy' && activeGeneratedExercise.awaitingAnswers) {
+    switchTab('chat');
+    var strategyReplay = formatStoredExerciseForReplay(activeGeneratedExercise);
+    if (strategyReplay) {
+      renderTransientMentorContinuity('durable-task-' + task.id, strategyReplay, activeGeneratedExercise.id);
+      markActiveExerciseDelivered('home-resume');
+    }
+    return;
+  }
   if (task.status === 'evidence_ready') {
     switchTab('chat');
     reviewLatestPracticeWithMarg();
@@ -10467,8 +10578,11 @@ function resumeDurableMentorTask(taskId) {
     return;
   }
   switchTab('chat');
-  prefillMessage('Resume my saved CAT task: ' + task.title + '. The goal was: ' + task.objective);
-  setTimeout(function() { sendMessage(); }, 0);
+  renderTransientMentorContinuity(
+    'durable-task-' + task.id,
+    'Your saved task is still here: ' + task.title + '.\n\n' + task.objective,
+    task.id
+  );
 }
 
 function resumePendingDiagnosticFromHome() {
