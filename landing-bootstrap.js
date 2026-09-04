@@ -3,7 +3,7 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260904-2';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260904-3';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var HOMEPAGE_DESTINATION_STORAGE_KEY = 'marg_pending_homepage_destination_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
@@ -396,7 +396,12 @@
     try {
       fetch(SUPABASE_URL + '/rest/v1/acquisition_funnel_events', {
         method:'POST',
-        headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Prefer':'return=minimal' },
+        headers:{
+          'Content-Type':'application/json',
+          'apikey':SUPABASE_ANON_KEY,
+          'Authorization':'Bearer ' + SUPABASE_ANON_KEY,
+          'Prefer':'return=minimal'
+        },
         body:JSON.stringify(payload),
         keepalive:true
       }).catch(function() {});
