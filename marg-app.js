@@ -2608,6 +2608,10 @@ function getGeminiErrorMessage(error) {
 function showGeminiServiceFailure(error) {
   var serviceMessage = getGeminiErrorMessage(error);
   addMessage('marg', serviceMessage);
+  recordProductIncident('chat_request_failed', error, {
+    surface:'mentor_chat',
+    visible_message:serviceMessage
+  });
   // The full error already exists as a chat turn. Repeating the same sentence
   // under the composer made one timeout look like two separate failures.
   var composerMessage = 'The chat is ready for one retry.';
@@ -4285,6 +4289,25 @@ function saveInternalMemoryMessage(kind, payload) {
   saveChatMessage('assistant', content);
 }
 
+function recordProductIncident(kind, error, details) {
+  if (!currentUser || !SUPABASE_TOKEN) return;
+  var safeDetails = details && typeof details === 'object' ? details : {};
+  var payload = {
+    kind:String(kind || 'unknown').slice(0, 80),
+    occurredAt:new Date().toISOString(),
+    status:Number(error && error.status) || 0,
+    code:String(error && error.code || error && error.name || 'UNKNOWN').slice(0, 100),
+    requestId:String(error && error.requestId || '').slice(0, 160),
+    surface:String(safeDetails.surface || '').slice(0, 60),
+    section:String(safeDetails.section || '').slice(0, 30),
+    topic:String(safeDetails.topic || '').slice(0, 100),
+    visibleMessage:String(safeDetails.visible_message || '').slice(0, 240)
+  };
+  // Store only technical metadata. Never copy the student's message, image,
+  // scorecard or answer into an incident row.
+  saveInternalMemoryMessage('INCIDENT', payload);
+}
+
 function storeActiveGeneratedExercise(exercise) {
   if (!exercise) return;
   var exerciseSection = exercise.type === 'qa' ? 'qa' : exercise.type === 'dilr' ? 'dilr' : null;
@@ -5372,6 +5395,32 @@ function suppressUnrelatedActivePlanReminder(response, userMessage) {
   return cleaned || response;
 }
 
+function isCurrentMessageAboutActiveExercise(message) {
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  if (!activeGeneratedExercise) return false;
+  var text = String(message || '');
+  if (isPredictionValidationReply(text) || isAnswerReviewRequest(text) || isExerciseResultReviewRequest(text)) return true;
+  if (isExactExerciseReplayRequest(text)) {
+    var requestedType = requestedExerciseType(text);
+    var activeType = activeGeneratedExercise.type === 'varc' ? 'rc' : activeGeneratedExercise.type;
+    return !requestedType || requestedType === activeType;
+  }
+  if (/\b(?:resume|continue|start|complete|finish)\b[\s\S]{0,35}\b(?:decision lab|strategy lab|saved (?:task|exercise)|this (?:task|exercise|check))\b/i.test(text)) return true;
+  if (activeGeneratedExercise.type === 'strategy' && /\b(?:decision lab|strategy lab)\b/i.test(text)) return true;
+  return false;
+}
+
+function suppressUnrelatedExerciseContinuation(response, userMessage) {
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  if (!activeGeneratedExercise || isCurrentMessageAboutActiveExercise(userMessage)) return response;
+  var value = String(response || '');
+  // A saved exercise may inform continuity, but it must never seize a reply to
+  // a different current question. Remove only explicit resume/complete tails.
+  value = value.replace(/\n{1,3}(?:Now,?\s*)?(?:let(?:'|’)s|we(?:'|’)ll|please)\s+(?:return to|go back to|resume|continue|complete|finish)\b[\s\S]{0,80}\b(?:decision lab|strategy lab|saved (?:task|exercise)|older (?:task|exercise)|previous (?:task|exercise))[\s\S]*$/i, '');
+  value = value.replace(/\n{1,3}(?:Your|The)\s+(?:saved|previous|older)\s+(?:decision lab|strategy lab|task|exercise)\b[\s\S]*$/i, '');
+  return value.trim() || response;
+}
+
 function getTopicProgressionMemoryContext() {
   if (typeof loadTopicProgression !== 'function') return '';
   loadTopicProgression();
@@ -5923,9 +5972,19 @@ function hasChatFirstOpeningInHistory() {
 
 function addMentorLeadMessage(text) {
   var guardedText = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(text))));
+  var lastVisible = null;
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    if (!isInternalMemoryMessage(conversationHistory[i])) { lastVisible = conversationHistory[i]; break; }
+  }
+  // UI/state callbacks can race on refresh or a fast double tap. If no new
+  // student turn exists, never render and persist the same mentor message twice.
+  if (lastVisible && lastVisible.role === 'assistant' && normalizeMissionText(lastVisible.content) === normalizeMissionText(guardedText)) {
+    return false;
+  }
   addMessage('marg', guardedText.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
   conversationHistory.push({ role:'assistant', content:guardedText });
   if (!isGuestMode) saveChatMessage('assistant', guardedText);
+  return true;
 }
 
 function renderChatFirstOnboardingOnce() {
@@ -7009,11 +7068,22 @@ function hasExplicitNoAttemptOrSolutionRequest(message) {
     /\b(?:solve|work out)\s+(?:this|it|the question)\b/i.test(String(message || ''));
 }
 
+function hasExplicitNoAttemptDeclaration(message) {
+  return /\b(?:not attempted|haven't attempted|have not attempted|didn't attempt|did not attempt|couldn't attempt|could not attempt|not yet attempted)\b/i.test(String(message || ''));
+}
+
+function isReasonedExternalQuestionChallenge(message) {
+  var text = String(message || '');
+  var asksValidity = /\b(?:is (?:this|the set) (?:valid|invalid|false|wrong|solvable|unsolvable)|contradiction|doesn'?t satisfy|does not satisfy|missing (?:data|condition|information)|no (?:one|person|value|case)|cannot be true|can'?t be true)\b/i.test(text);
+  var showsReasoning = /\b(?:because|but|as |since|so |therefore|means|according to|i (?:think|got|found|placed|used|tried|noticed)|my (?:case|solution|working|arrangement))\b/i.test(text);
+  return asksValidity && showsReasoning;
+}
+
 function looksLikeFreshExternalCatQuestion(message) {
   var text = String(message || '').trim();
-  if (text.length < 70 || hasDeclaredQuestionAttempt(text) || hasExplicitNoAttemptOrSolutionRequest(text)) return false;
+  if (text.length < 70 || hasDeclaredQuestionAttempt(text) || hasExplicitNoAttemptDeclaration(text) || isReasonedExternalQuestionChallenge(text)) return false;
   var optionMarkers = text.match(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+/gm) || [];
-  var hasQuestionCue = /\b(?:question|which of the following|what is|what was|how many|find|determine|calculate|best captures|can be inferred)\b/i.test(text) || /\?\s*(?:\n|$)/.test(text);
+  var hasQuestionCue = /\b(?:question|which of the following|what is|what was|how many|find|determine|calculate|solve|work out|best captures|can be inferred|valid|invalid|solvable|unsolvable)\b/i.test(text) || /\?\s*(?:\n|$)/.test(text);
   if (optionMarkers.length >= 3 && hasQuestionCue) return true;
   var wordCount = text.split(/\s+/).length;
   if (wordCount >= 180 && hasQuestionCue && /\b(?:passage|author|argument|paragraph|statement)\b/i.test(text)) return true;
@@ -7090,6 +7160,7 @@ function detectMentorIntent(message) {
   var recentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
   var recentContext = recentItems.slice(-8).map(function(item) { return item && item.content ? String(item.content) : ''; }).join(' ').toLowerCase();
   if (isDataPrivacyRequest(message)) return 'privacy_request';
+  if (isDILRValidityChallenge(message)) return 'dilr_validity_review';
   if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
   if (isAnswerReviewRequest(message)) return 'answer_review';
   // Natural RC replies are often just "B" or "confused between B and C".
@@ -7127,6 +7198,7 @@ function detectEmotionalState(message) {
 function getLikelyHiddenProblem(intent, message) {
   var text = String(message || '').toLowerCase();
   if (intent === 'privacy_request') return 'This is a factual privacy request, not a mentoring diagnosis. State the real retention model and deletion path without minimizing what is stored.';
+  if (intent === 'dilr_validity_review') return 'The student is challenging the consistency or interpretation of a DILR condition. This needs a fresh constraint-by-constraint verification, not a diagnosis of the student and not a return to an older exercise.';
   if (intent === 'seamless_continuation') return 'The previous Marg response ended before the thought or deliverable was complete. Resume from its exact endpoint without repeating any earlier explanation.';
   if (intent === 'answer_review') return activeGeneratedExercise ? 'The student is submitting answers to Marg’s active generated exercise. Check them immediately from stored questions and answer keys, then diagnose the shared decision pattern across errors.' : 'The student wants an answer check. Use the recent conversation first and never ask them to resend content Marg already generated.';
   if (intent === 'confidence_breakdown') return 'A recent score or repeated miss has been converted into a verdict about ability; the immediate need is to separate evidence from identity and restore one controllable next step.';
@@ -7179,8 +7251,16 @@ function analyzeMentorInput(message) {
     rcWrongAnswerReview:rcWrongAnswerEvidence.matches,
     rcWrongAnswerMechanism:rcWrongAnswerEvidence.mechanism,
     rcProgressionReady:rcProgressionReady,
-    rcMicroFollowupActive:rcMicroFollowupActive
+    rcMicroFollowupActive:rcMicroFollowupActive,
+    dilrValidityCheck:isDILRValidityChallenge(message)
   };
+}
+
+function isDILRValidityChallenge(message) {
+  var text = String(message || '');
+  var hasLogicLanguage = /\b(?:dilr|lrdi|set|puzzle|constraint|condition|clue|arrangement|seating|standing|facing|left|right|rank|schedule|case)\b/i.test(text);
+  var challengesResult = /\b(?:valid|invalid|false|wrong|contradiction|solvable|unsolvable|possible|impossible|missing|doesn'?t satisfy|does not satisfy|cannot|can'?t|how is|why is)\b/i.test(text);
+  return hasLogicLanguage && challengesResult;
 }
 
 function buildDiagnosisDirective(message) {
@@ -7194,6 +7274,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
+  if (diagnosis.intent === 'dilr_validity_review') directive += '\nDILR VALIDITY REVIEW: Stop every older mission, Decision Lab and progression prompt for this reply. Re-read only the exact set and objection supplied by the student. First state whether the wording is unambiguous under the stated convention. Then either exhibit one complete assignment that satisfies EVERY clue, checking the disputed clue explicitly, or identify the exact pair of conditions that cannot coexist. Never call a set valid merely because one partial arrangement looks plausible. Never invent a missing convention, score, clue, question or arrangement. If the material in the visible transcript is incomplete, say exactly what is missing instead of reconstructing it from memory. Do not append a practice invitation or resume an older task.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. Use the actual choice pattern as evidence and abandon the stored prediction when evidence contradicts it. For multiple answers, separate each question with a blank line and write naturally: “Q2 — You chose C; A is correct.” Explain the exact mismatch and correction without Diagnosis, Fix or Pattern Check labels. End with a plain score-and-pattern sentence. Ask no diagnostic intake question.';
   if (diagnosis.rcProgressionReady && diagnosis.rcMicroFollowupActive) directive += '\nRC FOLLOW-UP COMPLETION: Check the current choice plainly and connect it to the option habit in everyday language. Do not write an evidence report. This was the promised extra question, so now lead naturally to the full RC and offer Start the full RC / Later today / Tomorrow with [CONTEXT: rc_full_progression_timing].';
   else if (diagnosis.rcProgressionReady) directive += '\nRC MICRO-CHECK CONTINUATION: Finish checking the current choice, say naturally that the passage was understood but the option check needs one more look, and offer one more question from this same passage before a full RC. Sound like a mentor continuing the session, not a diagnostic report. Use exactly Yes, one more / Move to a full RC / Later with [CONTEXT: rc_progression_timing]. Never ask whether it helped.';
@@ -7976,10 +8057,10 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
 
   var systemAddition = profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
   systemAddition += getDiagnosticMemoryContext();
-  systemAddition += pendingExternalQuestionTurnMode ? '' : getGeneratedExerciseMemoryContext(userMessage);
+  systemAddition += pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(userMessage);
   systemAddition += getBehavioralMemoryContext();
   systemAddition += getTopicProgressionMemoryContext();
-  systemAddition += getActivePlanMemoryContext();
+  systemAddition += mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getActivePlanMemoryContext();
   systemAddition += getPersonalGoalMemoryContext();
   systemAddition += getProgressiveProfileMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += mentorAnalysis.directive;
@@ -8042,6 +8123,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     if (response) response = enforceVerifiedDILRChatBoundary(response, mentorAnalysis.diagnosis, userMessage, imageAttachments);
     if (response) response = stabilizeAndRememberMission(response, userMessage);
     if (response) response = suppressUnrelatedActivePlanReminder(response, userMessage);
+    if (response) response = suppressUnrelatedExerciseContinuation(response, userMessage);
     if (response) markPersonalGoalFollowUpIfAsked(response);
     if (response) markProgressiveProfileFollowUpIfAsked(response);
     hideTyping();
@@ -8605,6 +8687,18 @@ function isPracticeProductQuestion(text) {
     /\b(?:is|are|does|do|can|will)\b[\s\S]{0,45}\b(?:repeat|limited|available|same|different|unique)\b/i.test(value);
 }
 
+function maybeHandlePracticeProductQuestion(text) {
+  if (!isPracticeProductQuestion(text)) return false;
+  var value = String(text || '');
+  var section = /\b(?:dilr|lrdi)\b/i.test(value) ? 'DILR' : /\b(?:rc|varc)\b/i.test(value) ? 'RC' : /\b(?:qa|quant|quants)\b/i.test(value) ? 'QA' : 'Practice';
+  var repeated = /\b(?:repeat(?:ed|ing|s)?|same)\b/i.test(value);
+  var reply = section + ' practice is not supposed to keep serving the same exercise. Marg has a limited verified fallback bank, and fresh generated material is shown only after its completeness and answer checks pass.';
+  if (repeated) reply += ' If a fresh safe set is not available, Marg should now say so instead of disguising a fallback as a new set.';
+  else reply += ' When no fresh safe exercise is available, Marg should tell you directly rather than show an unchecked one.';
+  addMentorLeadMessage(reply);
+  return true;
+}
+
 function maybeLeadWithProgression(text) {
   if (isComprehensiveRoadmapRequest(text)) return false;
   // Questions about how Practice itself works need a direct factual answer.
@@ -8862,7 +8956,7 @@ async function sendMessage(fromQueue, submissionOptions) {
   var predictionValidationReply = isPredictionValidationReply(text);
   if (!pendingExternalQuestionTurnMode && (isAnswerReviewRequest(text) || predictionValidationReply)) markActiveExerciseAttempt(text, predictionValidationReply);
 
-  if (!hasImages && (await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!hasImages && (maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -8909,7 +9003,7 @@ async function sendMessage(fromQueue, submissionOptions) {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary + getDiagnosticMemoryContext() + (pendingExternalQuestionTurnMode ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + getActivePlanMemoryContext() + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
+    activitySummary + getDiagnosticMemoryContext() + (pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + (mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getActivePlanMemoryContext()) + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
@@ -8922,6 +9016,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data)), mentorAnalysis.diagnosis);
     reply = stabilizeAndRememberMission(reply, text);
     reply = suppressUnrelatedActivePlanReminder(reply, text);
+    reply = suppressUnrelatedExerciseContinuation(reply, text);
     finalizeMentorPlanCompletionReview(text, reply);
     markPersonalGoalFollowUpIfAsked(reply);
     markProgressiveProfileFollowUpIfAsked(reply);
@@ -8970,6 +9065,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     let fallbackReply = buildPredictionValidationFallback(text) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
     fallbackReply = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackReply))), text);
     fallbackReply = suppressUnrelatedActivePlanReminder(fallbackReply, text);
+    fallbackReply = suppressUnrelatedExerciseContinuation(fallbackReply, text);
     finalizeMentorPlanCompletionReview(text, fallbackReply);
     applyPredictionValidationVerdict(fallbackReply);
     fallbackReply = stripInternalMentorTags(fallbackReply);
@@ -11205,6 +11301,35 @@ function practiceContentSignature(section, data) {
   return (hash >>> 0).toString(36);
 }
 
+function practiceStructureFingerprint(section, data) {
+  var tokens = [String(section || '')];
+  if (data && Array.isArray(data.sets)) data.sets.forEach(function(setObj) {
+    var constraintTypes = setObj && Array.isArray(setObj.constraint_types) ? setObj.constraint_types : [];
+    // DILR titles and entity names are cosmetic. Prefer the declared logical
+    // structure so the same tournament/seating template cannot masquerade as
+    // a fresh set after merely changing names and numbers.
+    if (section === 'dilr' && constraintTypes.length) tokens.push(constraintTypes.slice().sort().join(' '));
+    else if (section === 'rc') {
+      tokens.push(String(setObj && setObj.passage || '').slice(0, 700));
+      (setObj && Array.isArray(setObj.questions) ? setObj.questions : []).forEach(function(question) {
+        tokens.push(String(question && (question.trap_type || question.q) || ''));
+      });
+    } else tokens.push(String(setObj && setObj.setup || '').slice(0, 700));
+  });
+  if (data && Array.isArray(data.questions)) data.questions.forEach(function(question) {
+    // Same-topic QA questions are expected; include the actual stem so two
+    // different Percentages questions are not incorrectly treated as repeats.
+    tokens.push(String(question && question.q || ''));
+  });
+  var normalized = tokens.join(' ').toLowerCase()
+    .replace(/\b[a-z]\b/g, ' ')
+    .replace(/\d+(?:\.\d+)?/g, '#')
+    .replace(/[^a-z#]+/g, ' ')
+    .replace(/\b(?:the|a|an|and|or|of|to|in|with|from|each|exactly|team|person|persons)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return normalized.split(' ').slice(0, 42).join(' ');
+}
+
 function getSeenPracticeSignatures() {
   try {
     var seen = JSON.parse(localStorage.getItem(getUserScopedKey('marg_seen_practice')) || '[]');
@@ -11214,14 +11339,17 @@ function getSeenPracticeSignatures() {
 
 function wasPracticeRecentlySeen(section, data) {
   var signature = practiceContentSignature(section, data);
-  return getSeenPracticeSignatures().some(function(item) { return item && item.signature === signature; });
+  var fingerprint = practiceStructureFingerprint(section, data);
+  var recent = getSeenPracticeSignatures().filter(function(item) { return item && item.section === section; }).slice(-4);
+  return recent.some(function(item) { return item && (item.signature === signature || fingerprint && item.fingerprint === fingerprint); });
 }
 
 function markPracticeSeen(section, data) {
   if (!data) return;
   var signature = practiceContentSignature(section, data);
+  var fingerprint = practiceStructureFingerprint(section, data);
   var seen = getSeenPracticeSignatures().filter(function(item) { return item && item.signature !== signature; });
-  seen.push({ signature:signature, section:section, seenAt:new Date().toISOString() });
+  seen.push({ signature:signature, fingerprint:fingerprint, section:section, seenAt:new Date().toISOString() });
   try { localStorage.setItem(getUserScopedKey('marg_seen_practice'), JSON.stringify(seen.slice(-60))); } catch(e) {}
 }
 
@@ -11318,6 +11446,16 @@ function validateIndependentPracticeVerification(audit, generatedData, section) 
     if (caseCounts.length !== setCount || caseCounts.some(function(count) { return !Number.isInteger(count) || count < 1; })) {
       issues.push('The independent audit did not establish at least one feasible base case for every DILR set');
     }
+    var witnesses = verification && Array.isArray(verification.base_case_witnesses) ? verification.base_case_witnesses : [];
+    var checkedCounts = verification && Array.isArray(verification.checked_constraint_counts)
+      ? verification.checked_constraint_counts.map(Number)
+      : [];
+    if (witnesses.length !== setCount || witnesses.some(function(witness) { return typeof witness !== 'string' || witness.trim().length < 20; })) {
+      issues.push('The independent audit did not provide one complete feasible witness for every DILR set');
+    }
+    if (checkedCounts.length !== setCount || checkedCounts.some(function(count) { return !Number.isInteger(count) || count < 3; })) {
+      issues.push('The independent audit did not check every DILR set constraint-by-constraint');
+    }
   }
   return { valid:issues.length === 0, issues:issues };
 }
@@ -11355,10 +11493,10 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
     return { valid:false, issues:knownPresentationIssues.slice(), correctedData:null };
   }
   var validShape = section === 'dilr'
-    ? '{"valid":true,"issues":[],"verification":{"answer_indices":[0,1,2,3],"feasible_base_case_counts":[12]}}'
+    ? '{"valid":true,"issues":[],"verification":{"answer_indices":[0,1,2,3],"feasible_base_case_counts":[12],"base_case_witnesses":["one complete assignment satisfying every stated condition"],"checked_constraint_counts":[8]}}'
     : '{"valid":true,"issues":[],"verification":{"answer_indices":[0,1,2],"feasible_base_case_counts":[]}}';
   var studentVisibleMaterial = buildStudentVisiblePracticeForAudit(generatedData, section);
-  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), and return the positive number of feasible base cases for each set in order. Return the independently solved zero-based answer indices for every question in display order; the application will compare them with the hidden generator key. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not repair the material. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
+  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. Return the independently solved zero-based answer indices for every question in display order; the application will compare them with the hidden generator key. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not repair the material. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
   var setCount = generatedData && Array.isArray(generatedData.sets) ? generatedData.sets.length : 1;
   auditOptions = auditOptions || {};
   var auditMaxTokens = Number(auditOptions.maxTokens) || (section === 'dilr' ? Math.min(32768, 16384 + setCount * 5000) : section === 'rc' ? 16384 : 20480);
@@ -12061,6 +12199,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   } catch(e) {
     clearTimedStatus();
     console.error('Timed test generation error:', e);
+    recordProductIncident('timed_test_generation_failed', e, { surface:'timed_test', section:section, topic:topic });
     var verifiedFallback = getUnseenVerifiedFallbackPractice(section, questionCount, topic);
     if (verifiedFallback) {
       timedTestQuestions = flattenTimedTestQuestions(section, verifiedFallback);
@@ -12464,6 +12603,7 @@ async function loadDailyPractice() {
     practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
     console.error('Practice error:', e);
+    recordProductIncident('practice_generation_failed', e, { surface:'practice', section:currentPracticeType, topic:selectedPracticeTopic || '' });
     var fallbackPractice = getUnseenVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic);
     var fallbackValid = fallbackPractice && (currentPracticeType === 'qa'
       ? validateQASetShape(fallbackPractice, selectedPracticeTopic, 3)
