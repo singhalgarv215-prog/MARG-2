@@ -344,9 +344,9 @@ async function persistAcquisitionFunnelEvent(event) {
   var headers = {
     'Content-Type':'application/json',
     'apikey':SUPABASE_ANON_KEY,
+    'Authorization':'Bearer ' + (SUPABASE_TOKEN && currentUser && !isGuestMode ? SUPABASE_TOKEN : SUPABASE_ANON_KEY),
     'Prefer':'return=minimal'
   };
-  if (SUPABASE_TOKEN && currentUser && !isGuestMode) headers.Authorization = 'Bearer ' + SUPABASE_TOKEN;
   try {
     var response = await fetch(SUPABASE_URL + '/rest/v1/acquisition_funnel_events', {
       method:'POST',
