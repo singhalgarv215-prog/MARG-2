@@ -2243,7 +2243,11 @@ When reviewing multiple answers, readability is mandatory. Give every question i
 
 You remember exercises you generated. When ACTIVE GENERATED EXERCISE MEMORY is present, it is your own passage, set or questions, including the hidden answer key and purpose. If the student says "check my answers" or submits choices such as "1-A, 2-C", check them immediately from that memory. Never ask them to resend your passage, questions or set. Diagnose the pattern across their choices, then give the smallest useful fix.
 
+EXERCISE TRUST OVERRIDES MENTORING: A missing question stem, incomplete condition, contradictory set, incorrect key, answer absent from the options, or solution that assumes unstated data is a Marg product failure—not evidence about the student. Say exactly what is broken, discard the item, and do not infer a cognitive pattern, weakness, careless mistake or score implication from it. Never repair the key by confidently inventing a new answer. Only independently verified exercises may support a diagnosis.
+
 You also receive BEHAVIOURAL MEMORY, TOPIC PROGRESSION and ACTIVE PLAN MEMORY. Use them before advice. Begin from concrete evidence when it exists: "Last week you were at 86% in Percentages. Your ability did not disappear; your confidence in the source changed." Do not list memory mechanically. Use one relevant past result to show continuity, then make the current read. Never invent a score or previous event.
+
+Memory is relevance, not gravity. An open plan or saved mission must not pull an unrelated factual question, fresh section choice, personal conversation, or new exercise back to the old task. Use a saved plan only when the student resumes it, reports its result, changes availability, or asks about planning. Treat user-stated facts such as attempt number, daily study time, mock series, target college and completed topics as facts; do not ask for a field that is already present. Treat older diagnoses as hypotheses unless valid repeated evidence confirmed them.
 
 Plan consistency matters. Once a study plan or Today's Mission exists, treat it as the default commitment. Do not replace it because the student asks a nearby question or because you can imagine a better schedule. Change it only when the student gives strong new evidence: a fresh mock or practice result, a changed availability constraint, a completed milestone, an injury/illness, or an explicit request to redesign it. When a change is justified, say exactly what changed and why before giving the revised plan. Otherwise reinforce the current plan and solve the present concern inside it.
 
@@ -2261,9 +2265,13 @@ A broad story is not automatically a single-section diagnosis. When the student 
 
 Explicit request coverage is a contract. Treat every separately named section, topic, phase, sectional, mock, or review request as a checklist item—including separate QA topics such as TSD and Algebra. Before sending, compare the draft against the current request and recent corrections such as “you missed DILR and Algebra.” Address every item, especially anything the student already had to repeat. If an item genuinely cannot be covered now, name it and explain why; never silently omit it. A timetable alone is not a roadmap.
 
+When a student asks you to choose between sections—such as “VARC or QA first?”—do not diagnose either section before they choose. Ask which one they want to open and present those exact choices. Investigation begins after the choice, not before it.
+
 Do not guess the time structure of an unclear plan description. If several blocks could mean either one overloaded day or a rotation across several days and the student has not said which, ask one brief clarification before building: “Is this meant for one day, or as a rotation across several days?” Do not force the student to write a long correction after Marg assumed the literal one-day reading.
 
 Notice personal anchors, not only technical preparation details. A stated attempt number, dream college, reason for taking CAT, job constraint, or family commitment is evidence about the person and should influence the response naturally. Fulfil the main request first. Then, at a natural point, ask one light follow-up about an important unnamed anchor—for example, "Which college is the dream one, by the way?" Do not derail the answer, repeat a detail mechanically, or ask again once it is known.
+
+When the student names the personal anchor themselves—such as “FMS is my dream college”—do not answer with a generic acknowledgement and immediately redirect to a worksheet. Respond to why that goal matters in this student’s situation. If the useful answer is otherwise complete, one natural curiosity such as what draws them to that college is better than a forced task reminder. Never manufacture a claim that the goal is achievable from one conversation.
 
 This applies just as much mid-practice as it does to a check-in. A student who just spent 10 minutes on a passage and asks "can you check my answers" gets their answers checked — right there, fully, all of them — not "before we get into that, close your eyes and tell me what the passage was about." Your instinct to teach through reflection or memory-recall is a good one, but it's supplementary, never a gate in front of what they actually asked for. And once you've answered, let it land — don't immediately pivot into the next exercise in the same breath. If a student has to say "just tell me if I'm right or not" to get a straight answer out of you, you've already failed the moment — the fix isn't apologizing, it's actually answering in full and then stopping.
 
@@ -2284,6 +2292,8 @@ When a student switches from talking to you into practice, or from one section t
 CAT patterns can change by year, slot, or mock provider, so never invent or assume a fixed section-wise question count unless the student or current context provides it. For standard CAT scoring, MCQ questions are usually +3 for correct and -1 for wrong, while TITA questions are usually +3 for correct and zero for wrong; if the student is discussing a mock, verify that mock's stated rules before calculating. "Marks," "questions correct," and "questions attempted" are different numbers and must never be collapsed into one another. If a student gives you an ambiguous number, ask "is that your marks, your correct count, or how many you attempted?" before reasoning from it. Sanity-check totals only against a structure that is explicitly present in the conversation or trusted current context.
 
 VERIFIED CAT DURATION BASELINE: For non-PwD candidates, the current full CAT structure is 120 minutes total—2 hours—with three fixed 40-minute sections in this order: VARC, DILR, QA. A candidate cannot move between sections during those fixed windows. Treat a full-length CAT-pattern mock as two hours unless that mock provider explicitly states a different format. Never call CAT or a standard full CAT mock a three-hour test. Do not infer a fixed question count from the duration; question counts can change. PwD timing differs, so use the official/provider timing when that applies.
+
+Do not present a universal DILR exit minute, case-count limit, attempt target, reading-speed percentage or score jump as a CAT law. A checkpoint such as seven minutes may be proposed only as a labelled experiment tied to this student’s observed behaviour. Explain what progress signal the checkpoint tests, then revise it from actual attempts. Never fabricate numerical precision from a hunch.
 
 When scores or practice results come in, actually work through which number belongs to which section — out loud in your head, so to speak — before you say anything about which one is weak. Getting this backwards once and having the student correct you undoes the entire premise of a mentor who's supposed to know their own numbers better than they do. Once you've got it straight, diagnose specifically instead of generically — never "VARC is weak," instead something like "you attempted 28 questions at 40% accuracy, that's over-attempting — try 22 with better selection." You know the common traps by section without being told: in VARC, people answer from memory instead of the passage, chase extreme-sounding options, or flip a right answer at the last second. In DILR, people sit too long on the wrong set, misread a constraint, or panic and rush. In QA it's almost always one of three things — a concept gap, knowing it but executing badly, or plain carelessness — and you work out which one before you say anything. When you spot the pattern, name it once, quietly, and move on. Don't lecture about it.
 
@@ -4399,6 +4409,10 @@ function assessExerciseEvidenceQuality(exercise) {
   var visibleSeconds = exercise.deliveredAt && exercise.completedAt
     ? Math.max(0, Math.round((Date.parse(exercise.completedAt) - Date.parse(exercise.deliveredAt)) / 1000))
     : null;
+  var validationStatus = exercise.validationVerdict && String(exercise.validationVerdict.status || '').toLowerCase();
+  if (exercise.invalidatedAt || exercise.status === 'invalid' || /^(?:failed|invalid|rejected|discarded)$/.test(validationStatus)) {
+    return { level:'product_confounded', usable:false, reason:'The exercise failed its content or answer validation and cannot be used as evidence about the student.', answered:answered, total:total, interactions:interactions, visibleSeconds:visibleSeconds };
+  }
   if (exercise.deliveryState && exercise.deliveryState !== 'rendered') return { level:'product_confounded', usable:false, reason:'The exercise was not confirmed as visible to the student.', answered:answered, total:total, interactions:interactions, visibleSeconds:visibleSeconds };
   if (total > 0 && answered === 0) return {
     level:'insufficient', usable:false,
@@ -4947,6 +4961,14 @@ function saveBehavioralMemory() {
 
 function recordBehaviorPattern(section, insight, evidence, source) {
   if (!insight) return null;
+  // A wrong answer is not durable behavioural evidence unless the underlying
+  // Marg exercise has itself passed a known validation gate. External or
+  // free-form chat questions may still be explained, but must not become
+  // cross-session memory.
+  if (source === 'answer-review') {
+    var status = activeGeneratedExercise && activeGeneratedExercise.validationVerdict && String(activeGeneratedExercise.validationVerdict.status || activeGeneratedExercise.validationVerdict).toLowerCase();
+    if (['verified_local','independently_verified'].indexOf(status) === -1) return null;
+  }
   if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
   var normalized = normalizeBehaviorPattern(section, insight);
   var existing = behavioralMemory.patterns.find(function(pattern) { return pattern.section === normalized.section && pattern.key === normalized.key; });
@@ -4966,7 +4988,9 @@ function recordBehaviorPattern(section, insight, evidence, source) {
 
 function getBehavioralMemoryContext() {
   if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
-  var patterns = behavioralMemory.patterns.filter(function(pattern) { return pattern && pattern.status !== 'rejected' && !pattern.doNotReuse; }).slice(0, 6);
+  var patterns = behavioralMemory.patterns.filter(function(pattern) {
+    return pattern && pattern.status !== 'rejected' && !pattern.doNotReuse && pattern.source !== 'answer-review';
+  }).slice(0, 6);
   if (!patterns.length) return '';
   return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(function(pattern) {
     return '- ' + pattern.section.toUpperCase() + ': ' + pattern.label + '; seen ' + pattern.occurrences + ' time' + (pattern.occurrences === 1 ? '' : 's') + (pattern.previousSeen ? '; previous occurrence: ' + pattern.previousSeen : '') + '; latest: ' + pattern.lastSeen + '; latest evidence: ' + pattern.lastEvidence + '.';
@@ -5363,6 +5387,19 @@ function getActivePlanMemoryContext() {
   loadActiveMentorPlan();
   if (!isOpenMentorPlan(activeMentorPlan)) return '';
   return '\n\nACTIVE PLAN MEMORY — this remains open across calendar days until evidence is reviewed, completion is confirmed, or strong new evidence justifies a change:\nStarted: ' + activeMentorPlan.date + '; status: ' + activeMentorPlan.status + '; version: ' + (activeMentorPlan.version || 1) + '\nCurrent Mission:\n' + activeMentorPlan.mission + (activeMentorPlan.lastEvidence ? '\nLatest unreviewed evidence: ' + activeMentorPlan.lastEvidence : '') + '\nDo not replace it merely because the date changed. Use it when the student resumes it, reports evidence, asks about the plan, or asks a directly related practical question. For an unrelated factual or curiosity question, answer that question fully and do not append, restate, or remind them about this mission; it remains available on the Home resume card. If fresh evidence changes the priority, explain the evidence and exact change before revising it.';
+}
+
+function shouldIncludeActivePlanContext(message, diagnosis) {
+  loadActiveMentorPlan();
+  if (!isOpenMentorPlan(activeMentorPlan)) return false;
+  var text = String(message || '');
+  if (isUserResumingActivePlan(text, activeMentorPlan)) return true;
+  if (diagnosis && (diagnosis.intent === 'planning' || diagnosis.intent === 'returning_memory')) return true;
+  return /\b(?:today'?s mission|current mission|saved task|open task|study plan|timetable|schedule|roadmap|later today|tomorrow|reschedule|availability|available time|finished|completed|done with|result from|evidence from)\b/i.test(text);
+}
+
+function getRelevantActivePlanMemoryContext(message, diagnosis) {
+  return shouldIncludeActivePlanContext(message, diagnosis) ? getActivePlanMemoryContext() : '';
 }
 
 function isUserResumingActivePlan(message, plan) {
@@ -6897,7 +6934,7 @@ function captureProgressiveProfileDetails(message) {
   if (namedCollege && (awaiting === 'dreamCollege' || /\b(?:dream|target|aim|goal)\b/i.test(text))) memory.dreamCollege = namedCollege[1];
 
   var hoursMatch = text.match(/\b(\d+(?:\.\d+)?(?:\s*[-–]\s*\d+(?:\.\d+)?)?)\s*(?:hours?|hrs?)\b/i);
-  var hoursOpening = /\b(?:study|studying|prep|prepare|daily|every day|routine|schedule|available|can give|put in)\b/i.test(text) || awaiting === 'studyHours';
+  var hoursOpening = /\b(?:study|studying|prep|prepare|daily|every day|weekdays?|weekends?|routine|schedule|available|can (?:give|do|manage|spend)|put in)\b/i.test(text) || awaiting === 'studyHours';
   if (hoursMatch && hoursOpening) {
     memory.studyHours = hoursMatch[1].replace(/\s+/g, '') + ' hours';
     if (studentProfile) studentProfile.dailyHours = memory.studyHours;
@@ -7105,7 +7142,7 @@ function gateFreshExternalQuestion(message) {
 function isExternalQuestionAnswer(message) {
   var text = String(message || '').trim();
   return /^[A-D](?:\s|[).,:\-]|$)/i.test(text) ||
-    /\b(?:my answer|my choice|i (?:chose|choose|picked|marked)|answer is)\b[\s\S]{0,35}\b[A-D]\b/i.test(text) ||
+    /\b(?:my answer|my choice|i (?:chose|choose|picked|marked|selected)|answer is|selected option)\b[\s\S]{0,35}\b[A-D]\b/i.test(text) ||
     /\b\d{1,2}\s*[-:.)]\s*[A-D]\b/i.test(text);
 }
 
@@ -7540,6 +7577,15 @@ function guardVagueMentorAdvice(text, diagnosis) {
   return buildMentorFallbackReply(diagnosis);
 }
 
+function guardMalformedChatExercise(text) {
+  var value = String(text || '').trim();
+  var options = value.match(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+[^\n]+/gm) || [];
+  if (options.length < 3) return value;
+  var missingStem = /\b(?:question|try this|one more)\s*:?[ \t]*(?:\n\s*)?A\s*[).:\-]/i.test(value);
+  if (!missingStem) return value;
+  return 'I left out the question stem, so those options are unusable. I’m discarding that question, and I won’t use it to judge your VARC, DILR or QA ability.';
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
   text = simplifyMentorLanguage(text);
@@ -7548,6 +7594,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
   text = guardUnusableExerciseEvidence(text, diagnosis);
   text = guardVagueMentorAdvice(text, diagnosis);
+  text = guardMalformedChatExercise(text);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
@@ -8060,7 +8107,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   systemAddition += pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(userMessage);
   systemAddition += getBehavioralMemoryContext();
   systemAddition += getTopicProgressionMemoryContext();
-  systemAddition += mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getActivePlanMemoryContext();
+  systemAddition += mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += getPersonalGoalMemoryContext();
   systemAddition += getProgressiveProfileMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += mentorAnalysis.directive;
@@ -8680,19 +8727,25 @@ async function maybeStartSavedDiagnosticCheck(text) {
 var pendingSectionalRecommendation = null;
 
 function isPracticeProductQuestion(text) {
-  var value = String(text || '');
-  var mentionsPractice = /\b(?:practice|practise|questions?|sets?|sectionals?|rc|varc|dilr|lrdi|qa|quant|quants)\b/i.test(value);
-  if (!mentionsPractice) return false;
-  return /\b(?:how many|limited|limit|repeat(?:ed|ing|s)?|same|unique|different|new each|available|availability|question bank|set bank|do you have|will i get|why (?:does|do|is|are))\b/i.test(value) ||
-    /\b(?:is|are|does|do|can|will)\b[\s\S]{0,45}\b(?:repeat|limited|available|same|different|unique)\b/i.test(value);
+  var value = String(text || '').trim();
+  // Product-bank questions must explicitly ask about availability, freshness or
+  // repetition. A previous broad keyword rule intercepted ordinary mentoring
+  // sentences such as “these are three different problems” merely because the
+  // word “problems” looked like “questions”.
+  var explicitMaterial = /\b(?:practice|practise|question bank|set bank|practice questions?|practice sets?|rc passages?|dilr sets?|qa questions?|sectional tests?)\b/i.test(value);
+  if (!explicitMaterial) return false;
+  var availabilityQuestion = /\b(?:how many|limited|limit|available|availability|question bank|set bank|do you have|will i get)\b/i.test(value);
+  var repeatQuestion = /\b(?:same|repeat(?:ed|ing|s)?|unique|fresh|new each time|different each time)\b/i.test(value) &&
+    /(?:\?|\b(?:is|are|does|do|can|will|why|would)\b)/i.test(value);
+  return availabilityQuestion || repeatQuestion;
 }
 
 function maybeHandlePracticeProductQuestion(text) {
   if (!isPracticeProductQuestion(text)) return false;
   var value = String(text || '');
-  var section = /\b(?:dilr|lrdi)\b/i.test(value) ? 'DILR' : /\b(?:rc|varc)\b/i.test(value) ? 'RC' : /\b(?:qa|quant|quants)\b/i.test(value) ? 'QA' : 'Practice';
+  var section = /\b(?:dilr|lrdi)\b/i.test(value) ? 'DILR' : /\b(?:rc|varc)\b/i.test(value) ? 'RC' : /\b(?:qa|quant|quants)\b/i.test(value) ? 'QA' : '';
   var repeated = /\b(?:repeat(?:ed|ing|s)?|same)\b/i.test(value);
-  var reply = section + ' practice is not supposed to keep serving the same exercise. Marg has a limited verified fallback bank, and fresh generated material is shown only after its completeness and answer checks pass.';
+  var reply = (section ? section + ' practice' : 'Practice') + ' is not supposed to keep serving the same exercise. Marg has a limited verified fallback bank, and fresh generated material is shown only after its completeness and answer checks pass.';
   if (repeated) reply += ' If a fresh safe set is not available, Marg should now say so instead of disguising a fallback as a new set.';
   else reply += ' When no fresh safe exercise is available, Marg should tell you directly rather than show an unchecked one.';
   addMentorLeadMessage(reply);
@@ -8768,7 +8821,8 @@ function ambiguousShortInputClarification(message) {
   var known = new Set([
     'hi','hey','hello','help','bro','bhai','yes','no','yep','nope','ok','okay','exactly','mostly','continue',
     'varc','dilr','lrdi','qa','rc','mock','mocks','strategy','confidence','algebra','arithmetic','geometry',
-    'percentage','percentages','busy','tired','exhausted','stuck','confused','anxious','now','later','today','tomorrow'
+    'percentage','percentages','busy','tired','exhausted','stuck','confused','anxious','now','later','today','tomorrow',
+    'time','ims','aimcat','aimcats','simcat','simcats','cracku','cl','careerlauncher','catking','rodha'
   ]);
   if (known.has(normalized) || normalized.length < 3) return '';
   if (['bosy','bisy','bussy','buzy'].indexOf(normalized) !== -1) return 'Did you mean busy, or something else? What’s going on?';
@@ -8781,6 +8835,75 @@ function maybeHandleAmbiguousShortInput(message) {
   addMessage('marg', escapeChatHtml(reply));
   conversationHistory.push({ role:'assistant', content:reply });
   if (!isGuestMode) saveChatMessage('assistant', reply);
+  return true;
+}
+
+function parseExplicitPracticeLaunchRequest(message) {
+  var text = String(message || '').trim();
+  var action = /\b(?:give|generate|create|start|open|launch|let'?s do|i want to (?:do|practi[cs]e)|can we do)\b/i.test(text);
+  var material = /\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|set)\b/i.test(text);
+  if (!action || !material) return null;
+  // One conversational follow-up on an already visible passage belongs in
+  // chat. Multi-question/new-session requests belong in the verified widget.
+  if (/\b(?:one more|another)\s+question\b/i.test(text) && /\b(?:this|same)\s+passage\b/i.test(text)) return null;
+
+  var type = /\b(?:dilr|lrdi|logical reasoning|data interpretation)\b/i.test(text) ? 'dilr'
+    : /\b(?:rc|reading comprehension|varc passage)\b/i.test(text) ? 'rc'
+    : /\b(?:qa|quant|quants|percentages?|ratio|proportion|profit|loss|time[ -]speed|quadratic|linear equation|algebra|geometry|mensuration|logarithm|number system|probability|permutation|combination)\b/i.test(text) ? 'qa'
+    : null;
+  if (!type) return null;
+
+  var topics = [
+    ['Percentages', /\bpercentages?\b/i], ['Ratios & Proportions', /\b(?:ratios?|proportions?)\b/i],
+    ['Time-Speed-Distance', /\b(?:time[ -]speed[ -]distance|tsd)\b/i], ['Profit & Loss', /\bprofit\b|\bloss\b/i],
+    ['Linear Equations', /\blinear equations?\b/i], ['Quadratic Equations', /\bquadratic(?: equations?)?\b/i],
+    ['Functions & Inequalities', /\b(?:functions?|inequalities?)\b/i], ['Logarithms & Exponents', /\b(?:logarithms?|logs?|exponents?|indices)\b/i],
+    ['Geometry (Triangles, Circles)', /\b(?:geometry|triangles?|circles?)\b/i], ['Mensuration (2D & 3D)', /\bmensuration\b/i],
+    ['Number Systems', /\bnumber systems?\b/i], ['Permutation & Combination', /\b(?:permutation|combination|p\s*&\s*c)\b/i],
+    ['Probability', /\bprobability\b/i], ['Set Theory', /\bset theory\b/i]
+  ];
+  var topic = null;
+  if (type === 'qa') {
+    topics.some(function(item) { if (item[1].test(text)) { topic = item[0]; return true; } return false; });
+  } else if (type === 'dilr') topic = getVerifiedDILRTopicFromRequest(text);
+  return { type:type, topic:topic };
+}
+
+function maybeLaunchExplicitPracticeRequest(message) {
+  var request = parseExplicitPracticeLaunchRequest(message);
+  if (!request) return false;
+  currentPracticeType = request.type;
+  currentSetIndex = 0;
+  currentQuestionIndex = 0;
+  practiceAnswered = false;
+  practiceTopicChosen = request.type === 'rc' || !!request.topic;
+  selectedPracticeTopic = request.topic || null;
+  document.querySelectorAll('.ptab-btn').forEach(function(button) { button.classList.remove('active'); });
+  var button = document.getElementById('ptab-' + request.type);
+  if (button) button.classList.add('active');
+  switchTab('practice');
+  return true;
+}
+
+function maybeHandleSectionChoicePrompt(message) {
+  var text = String(message || '').trim();
+  var match = text.match(/^(?:let'?s\s+)?(?:unpack|compare|look at|do|pick)\s+(VARC|DILR|QA)\s+or\s+(VARC|DILR|QA)(?:\s+first)?[?.!]*$/i);
+  if (!match) return false;
+  var first = match[1].toUpperCase();
+  var second = match[2].toUpperCase();
+  addMentorLeadMessage('Which one should we open first?');
+  showConversationalOptions([first, second], 'mock_section_priority');
+  return true;
+}
+
+function maybeHandleCatDurationQuestion(message) {
+  var text = String(message || '');
+  if (!/\bCAT\b/i.test(text) || !/\b(?:mock|exam|paper|test)?\s*(?:duration|hours?|minutes?|long)\b/i.test(text)) return false;
+  var asksPwd = /\b(?:PwD|PWD|person with disabilit|disability)\b/i.test(text);
+  var reply = asksPwd
+    ? 'For CAT 2025, PwD candidates had 160 minutes in total: 53 minutes 20 seconds per section. For CAT 2026, use the current official notification once it is released because accommodation rules must not be guessed.'
+    : 'A standard CAT-pattern full mock is 2 hours: 40 minutes each for VARC, DILR and QA. It is not a 3-hour paper.';
+  addMentorLeadMessage(reply);
   return true;
 }
 
@@ -8928,6 +9051,11 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
+  if (!hasImages && maybeHandleCatDurationQuestion(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
+
   if (!hasImages && maybeHandleAmbiguousShortInput(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
@@ -8948,6 +9076,11 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
+  if (!hasImages && maybeHandleSectionChoicePrompt(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
+
   if (!hasImages && maybeReplayActiveExercise(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
@@ -8956,7 +9089,7 @@ async function sendMessage(fromQueue, submissionOptions) {
   var predictionValidationReply = isPredictionValidationReply(text);
   if (!pendingExternalQuestionTurnMode && (isAnswerReviewRequest(text) || predictionValidationReply)) markActiveExerciseAttempt(text, predictionValidationReply);
 
-  if (!hasImages && (maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!hasImages && (maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -9003,7 +9136,7 @@ async function sendMessage(fromQueue, submissionOptions) {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary + getDiagnosticMemoryContext() + (pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + (mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getActivePlanMemoryContext()) + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
+    activitySummary + getDiagnosticMemoryContext() + (pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + (mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(text, mentorAnalysis.diagnosis)) + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
@@ -11189,7 +11322,7 @@ function collectGeneratedPracticeCompletenessIssues(data, section) {
     var solution = String(question.solution || question.explanation || '').trim();
     var sufficiency = String(question.sufficiency_check || '').trim();
     var optionCheck = String(question.option_check || '').trim();
-    if (stem.length < 28 || /(?:\.{3}|\[\s*(?:data|value|number|condition)\s*\]|\bTBD\b|information (?:is|was) not (?:given|provided)|cannot be determined|insufficient data)/i.test(stem)) issues.push(path + ' has an incomplete question statement');
+    if (stem.length < 28 || !questionHasExplicitTask(stem) || /(?:\.{3}|\[\s*(?:data|value|number|condition)\s*\]|\bTBD\b|information (?:is|was) not (?:given|provided)|cannot be determined|insufficient data)/i.test(stem)) issues.push(path + ' has an incomplete question statement');
     if (solution.length < 24 || /\b(?:assuming|if we assume|suppose without loss|not enough information|insufficient data|cannot be determined from|depends on an unstated)\b/i.test(solution)) issues.push(path + ' uses an unstated assumption or has an incomplete solution');
     if (sufficiency.length < 18 || /\b(?:assum|missing|insufficient|cannot determine|not given)\b/i.test(sufficiency)) issues.push(path + ' has no credible data-sufficiency check');
     if (optionCheck.length < 24 || !/(?:exactly one|only|eliminat|substitut|option|choice|A\b|B\b|C\b|D\b)/i.test(optionCheck)) issues.push(path + ' has no credible unique-option check');
@@ -11206,7 +11339,7 @@ function validateQASetShape(data, expectedTopic, expectedCount) {
   if (expectedCount ? data.questions.length !== expectedCount : (data.questions.length < 3 || data.questions.length > 5)) return false;
   if (expectedTopic && (!Array.isArray(data.topics_combined) || data.topics_combined.length !== 1 || normalizePracticeTopicName(data.topics_combined[0]) !== normalizePracticeTopicName(expectedTopic))) return false;
   return data.questions.every(function(q) {
-    if (!q || typeof q.q !== 'string' || !q.q.trim()) return false;
+    if (!q || typeof q.q !== 'string' || !q.q.trim() || !questionHasExplicitTask(q.q)) return false;
     if (!Array.isArray(q.options) || q.options.length !== 4) return false;
     var normalized = q.options.map(function(opt) { return String(opt).replace(/^[A-D]\.\s*/, '').trim().toLowerCase(); });
     if (normalized.some(function(opt) { return !opt; }) || new Set(normalized).size !== 4) return false;
@@ -11563,8 +11696,14 @@ function normalizeGeneratedGrammar(value) {
   return value;
 }
 
+function questionHasExplicitTask(stem) {
+  var text = String(stem || '').trim();
+  return /\?\s*$/.test(text) || /^(?:what|which|who|where|when|why|how|find|determine|calculate|compute|identify|select|choose|state|evaluate|solve)\b/i.test(text) ||
+    /\b(?:what|which|who|where|when|why|how many|how much|find|determine|calculate|compute|identify|can be concluded|must be true|cannot be true)\b/i.test(text);
+}
+
 function isValidTimedTestQuestion(q) {
-  if (!q || typeof q.q !== 'string' || !q.q.trim() || !Array.isArray(q.options) || q.options.length !== 4) return false;
+  if (!q || typeof q.q !== 'string' || !q.q.trim() || !questionHasExplicitTask(q.q) || !Array.isArray(q.options) || q.options.length !== 4) return false;
   var normalized = q.options.map(function(opt) { return String(opt).replace(/^[A-D]\.\s*/, '').trim().toLowerCase(); });
   return normalized.every(function(opt) { return !!opt; }) && new Set(normalized).size === 4 && Number.isInteger(q.correct) && q.correct >= 0 && q.correct < 4;
 }
