@@ -910,6 +910,74 @@ function stripMarkdown(text) {
     .trim();
 }
 
+function ensureMentorRichTextStyles() {
+  if (typeof document === 'undefined' || document.getElementById('marg-mentor-rich-text-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'marg-mentor-rich-text-styles';
+  style.textContent =
+    '.mentor-rich{display:block;line-height:1.62;overflow-wrap:anywhere}' +
+    '.mentor-rich .mentor-heading{font-weight:650;color:var(--text);font-size:1.02em;margin:14px 0 6px}' +
+    '.mentor-rich .mentor-heading:first-child{margin-top:0}' +
+    '.mentor-rich .mentor-paragraph{margin:0 0 10px}' +
+    '.mentor-rich .mentor-paragraph:last-child{margin-bottom:0}' +
+    '.mentor-rich .mentor-list-item{display:flex;align-items:flex-start;gap:8px;margin:5px 0}' +
+    '.mentor-rich .mentor-list-mark{color:var(--gold-light);flex:0 0 auto;min-width:14px}' +
+    '.mentor-rich strong{font-weight:650;color:var(--text)}' +
+    '.mentor-rich em{color:var(--text-muted)}';
+  document.head.appendChild(style);
+}
+
+function renderMentorStructuredText(text) {
+  ensureMentorRichTextStyles();
+  var value = convertLatexToPlainText(String(text || ''))
+    .replace(/\[OPTIONS:[^\]]*\]/g, '')
+    .replace(/\[START_TEST:[^\]]*\]/g, '')
+    .replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
+    .replace(/\[CONTEXT:[^\]]*\]/g, '')
+    .replace(/\[REMINDER_CONTEXT:[^\]]*\]/g, '')
+    .replace(/\[HYPOTHESIS_VERDICT:[^\]]*\]/g, '')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (!value) return '';
+
+  function inline(source) {
+    var escaped = String(source || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    escaped = escaped.replace(/\*\*([^*\n]{1,220})\*\*/g, '<strong>$1</strong>');
+    escaped = escaped.replace(/(^|[^*])\*([^*\n]{1,220})\*/g, '$1<em>$2</em>');
+    return escaped;
+  }
+
+  var blocks = [];
+  var paragraph = [];
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    blocks.push('<div class="mentor-paragraph">' + paragraph.map(inline).join('<br>') + '</div>');
+    paragraph = [];
+  }
+  value.split('\n').forEach(function(rawLine) {
+    var line = rawLine.trim();
+    if (!line) { flushParagraph(); return; }
+    var heading = line.match(/^#{1,3}\s+(.+)$/);
+    var bullet = line.match(/^(?:[-•])\s+(.+)$/);
+    var numbered = line.match(/^(\d+)[.)]\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      blocks.push('<div class="mentor-heading">' + inline(heading[1]) + '</div>');
+    } else if (bullet) {
+      flushParagraph();
+      blocks.push('<div class="mentor-list-item"><span class="mentor-list-mark">•</span><span>' + inline(bullet[1]) + '</span></div>');
+    } else if (numbered) {
+      flushParagraph();
+      blocks.push('<div class="mentor-list-item"><span class="mentor-list-mark">' + numbered[1] + '.</span><span>' + inline(numbered[2]) + '</span></div>');
+    } else paragraph.push(line);
+  });
+  flushParagraph();
+  return '<div class="mentor-rich">' + blocks.join('') + '</div>';
+}
+
 function convertLatexToPlainText(text) {
   if (text === null || text === undefined) return text;
   var value = String(text);
@@ -962,7 +1030,7 @@ function convertLatexToPlainText(text) {
 }
 
 function addMargMessage(text, isHtml) {
-  var clean = isHtml ? text : stripMarkdown(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(text))).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+  var clean = isHtml ? text : renderGroundingSourcesForChat(renderMentorStructuredText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(text))));
   addMessage('marg', clean);
 }
 function showFeedback() {
@@ -2343,6 +2411,9 @@ Use everyday English and short sentences. Prefer plain words; explain necessary 
 TRUTH AND CORRECTION CONTRACT
 Facts come only from the student, verified results or authoritative context. Never turn Marg’s inference into student fact. If new evidence conflicts, say "I misread that" or "I was wrong about that", discard the old diagnosis/mission and rebuild. If evidence is missing, ask one precise question or stay tentative.
 
+ANSWER-KEY TRUST CONTRACT
+Before grading, distinguish student choices from keys; a bare "Answer" may be a choice or a supplied key. Solve independently, reconcile every verdict with the total, and exclude ambiguous or conflicting items. Never diagnose a student from a disputed or unverified error.
+
 USEFULNESS CHECK
 Every factual claim needs a supplied or verified basis; every diagnosis needs exact evidence; every action must measure one observable decision. Remove anything that fails. Never fill uncertainty with “practise more”, “work on basics” or “manage time”. Answer product questions directly.
 
@@ -2350,10 +2421,13 @@ EVIDENCE LADDER
 Separate student report, hypothesis, one observed attempt, a second independent attempt and repeated pattern. “Exactly/Mostly” means familiar, not proven. Confirm only after two supporting attempts or equivalent multi-attempt data; say what evidence proves and does not.
 
 PRODUCT-FAILURE FIREWALL
-A slow, missing, incomplete, malformed or unrendered exercise is product evidence, not student evidence. An all-skipped submission without meaningful interaction is inconclusive: never diagnose setup freeze, avoidance, low skill or poor selection from it. Fix or reopen the same verified exercise first. Never replace a requested “same set” with reconstructed numbers or a new set; use ACTIVE EXERCISE memory exactly.
+A broken exercise is product evidence, not student evidence. All-skipped without real interaction is inconclusive. Fix/reopen the same verified exercise; never replace a requested “same set” or diagnose from product failure.
 
 STUDENT-SPECIFIC DECISIONS
 Silently require: "Because this student showed X, recommend Y instead of generic Z." X must come from their message, verified result or reliable memory.
+
+ADAPTIVE FORMATTING CONTRACT
+Use formatting only when it reduces real reading effort: headings for long parts, bullets for parallel points, numbers for order, and bold for normally no more than three short spans. Use CAPS only for a decisive warning, never a whole sentence. Use ✅/❌ only for checked results and at most two other useful emojis. Short replies stay plain; preserve answer-block spacing and avoid tables or decoration.
 
 EVIDENCE BEFORE REASSURANCE
 A score is an outcome, not a cause or capability verdict. Do not explain it or reassure confidently before examining attempts, accuracy, selection, timing, errors and the student's account. Separate observation from hypothesis: "The score shows X; your description suggests Y; Z needs testing." Reassure only from evidence.
@@ -2374,14 +2448,14 @@ EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-For a new major topic: 1-2 narrowing questions → natural read → evidence → one confirmation → targeted next step. Say "Here's my read", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?"; the same reply must say what Marg will test or fix next. After Exactly/Mostly, lead. If they chose Run/Start/Right now, execute it in that same turn. QA/DILR use timed interfaces; teach DILR’s first setup before launch. For a stored hypothesis add [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
+For a new topic: 1-2 narrowing questions → read → evidence → one confirmation → next step. Say "Here's my read", not "My prediction". Never finish a diagnosis with only "Does that feel accurate?"; the same reply must say what Marg will test or fix next. After confirmation, lead. Run/Start/Right now means execute it in that same turn. QA/DILR use timed interfaces; teach DILR’s opening first. For stored hypotheses add [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
 
 MULTI-SECTION MOCK STORIES
 For problems across two or more sections, separate facts from guesses, ask which section to unpack, then ask one question about where marks went. Read only after that answer; offer no practice yet. QA topic mix varies, so never claim Arithmetic has a fixed question count.
 
 DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. Use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified.
-When a student challenges a DILR solution, pause unrelated exercises and audit that condition first. For facing directions, keep one stated personal/page convention; never change it to protect a key. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.” Call the set valid only if one full arrangement satisfies every condition.
+When challenged, audit that condition first. Keep one facing convention. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.” Validity needs one full arrangement satisfying every condition.
 
 MEMORY AND CONTINUITY
 Use memory before advice. Refer naturally to one relevant fact; never invent history or request Marg-generated material again. Change an active plan only for fresh evidence or an explicit redesign, and say why.
@@ -2400,13 +2474,14 @@ If the user says only "continue", "go on" or equivalent after an incomplete repl
 ANSWER REVIEWS
 Separate multiple answers with blank lines; give the choice, correct answer and exact mismatch. For one wrong RC answer, state the trap with no reflective question. After two micro-check decisions, offer one more question from the same passage, then a full RC. Keep it conversational, never an evidence report.
 For pasted passages, preserve declared choices exactly. If labels may be the student’s choices or official key, clarify before scoring. One passage with three answers is one observation, never proof of overall RC skill.
+Across verified errors, group only repeated mechanisms such as inference jump (X → X + an unsupported idea), scope inflation, mixing speakers, outside-knowledge contamination or missing a connector. Cite the student's exact choices; never paste a generic trap checklist.
 
 PLANNING AND PERSONALIZATION
-A multi-section roadmap is planning, not a section diagnostic. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify once if “blocks” could mean one day or a rotation. Reuse known constraints. Valid confirmed evidence controls ordering and checkpoints; prioritise repeated score leakage over syllabus order.
+A multi-section roadmap is planning, not section diagnosis. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify day versus rotation once. Valid confirmed evidence controls ordering and checkpoints: prioritise repeated score leakage over syllabus order.
 
 THIRD-PARTY KNOWLEDGE BOUNDARY
 Never invent third-party menus, labels or navigation. Be exact only from supplied or verified current context; otherwise describe the general content type and say labels may differ.
-Never recommend buying a mock series/course/book from dissatisfaction alone. First inspect exact disputed questions, compare CAT/PYQ logic and verify product facts. Do not invent industry rates. If evidence stays mixed, suggest a sample or reversible test before purchase.
+Never recommend buying a mock series before inspecting the disputed material and verifying product facts. Do not invent industry rates. If evidence is mixed, suggest a sample or reversible test.
 
 WEB VERIFICATION CONTRACT
 Never answer current or source-specific facts from memory when Google Search grounding is available: editions, chapters, contents, platform structures, CAT dates, fees, rules, cutoffs, schedules or product details. Use grounded evidence, separate verified facts from inference and briefly name checked sources. If the exact claim is unverified, say so. Mentoring judgment needs no search.
@@ -2424,10 +2499,9 @@ PLAIN-TEXT MATH CONTRACT
 Never output LaTeX/TeX or dollar math delimiters. Use plain arithmetic with =, +, −, ×, ÷, %, ^, √, parentheses and Rs./₹.
 
 MISSIONS AND CLOSING
-Do not force a Today's Mission block into ordinary conversation. When an action is useful, explain naturally why this action follows from this student's evidence, then state the action and observable result in one or two sentences. A task must test the diagnosed mechanism, not volume. Rushed RC means one comfortable-paced RC comparing time and accuracy. Missing DILR kill-switch means obeying one progress checkpoint even if zero sets are solved. Do not change an active mission without strong new evidence, and never preserve a mission whose underlying diagnosis has been rejected.
-Never infer a specific percentile from one mock or call it within reach/guaranteed/realistic. Use the next two mocks to test transfer. For full mock reviews prefer:
-one evidence-linked priority per section, in natural language, followed by one checkpoint across the next two mocks. Use headings only if the student explicitly requested a full written plan.
-Keep open missions saved, but never append them to unrelated factual or curiosity answers. Home carries the reminder. Return it to chat only when the student resumes it, supplies evidence or asks about the plan.
+Do not force a Today's Mission block. A task must test the diagnosed mechanism, not volume; explain naturally why this action follows from this student's evidence. Change it only for new evidence; discard rejected missions.
+Never infer a specific percentile from one mock. For full reviews give one evidence-linked priority per section and one checkpoint across two mocks.
+Save open missions, but keep them out of unrelated chat; Home carries them until resumed or reviewed.
 Normal closes keep one light forward thread without a forced question. When sleep, exhaustion or completion calls for disengaging, end cleanly.
 
 TECHNICAL TAGS
@@ -6086,7 +6160,7 @@ function addMentorLeadMessage(text) {
   if (lastVisible && lastVisible.role === 'assistant' && normalizeMissionText(lastVisible.content) === normalizeMissionText(guardedText)) {
     return false;
   }
-  addMessage('marg', guardedText.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  addMessage('marg', renderMentorStructuredText(guardedText), true);
   conversationHistory.push({ role:'assistant', content:guardedText });
   if (!isGuestMode) saveChatMessage('assistant', guardedText);
   return true;
@@ -8280,18 +8354,10 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
 
       var cleanResponse = response
         .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
-        .replace(/\[CONTEXT:[^\]]*\]/g, '')
-        .replace(/\*\*(.*?)\*\*/g, '$1')
-        .replace(/\*(.*?)\*/g, '$1')
-        .replace(/^#{1,3}\s+/gm, '')
-        .replace(/^[-•*]\s+/gm, '')
-        .replace(/^\d+\.\s+/gm, '')
-        .replace(/---+/g, '')
-        .replace(/===+/g, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
+        .replace(/\[CONTEXT:[^\]]*\]/g, '').replace(/\[REMINDER_CONTEXT:[^\]]*\]/g, '')
+        .replace(/\[HYPOTHESIS_VERDICT:[^\]]*\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
 
-      addMessage('marg', renderGroundingSourcesForChat(cleanResponse));
+      addMessage('marg', renderGroundingSourcesForChat(renderMentorStructuredText(cleanResponse)));
       conversationHistory.push({ role: 'assistant', content: response });
       if (!isGuestMode) saveChatMessage('assistant', cleanResponse);
 
@@ -8648,7 +8714,9 @@ function restoreConversation() {
   if (displayMessages.length > 0) {
     isRestoringConversation = true;
     displayMessages.forEach(function(msg) {
-      const formatted = renderGroundingSourcesForChat(msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
+      const formatted = msg.role === 'user'
+        ? escapeChatHtml(msg.content).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>')
+        : renderGroundingSourcesForChat(renderMentorStructuredText(msg.content));
       addMessage(msg.role === 'user' ? 'user' : 'marg', formatted);
     });
     isRestoringConversation = false;
@@ -9270,19 +9338,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(text).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
-    const cleanReply = reply
-      .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
-      .replace(/\[CONTEXT:[^\]]*\]/g, '')
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
-      .replace(/^#{1,3}\s+/gm, '')
-      .replace(/^[-•*]\s+/gm, '')
-      .replace(/^\d+\.\s+/gm, '')
-      .replace(/---+/g, '')
-      .replace(/===+/g, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-    const formatted = renderGroundingSourcesForChat(cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
+    const formatted = renderGroundingSourcesForChat(renderMentorStructuredText(reply));
     addMessage('marg', formatted);
     lastFailedOutgoingMessage = null;
     checkAndRenderMargOptions(reply);
