@@ -18,7 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<script defer src="/landing-bootstrap.js?v=20260905-1"></script>
+<script defer src="/landing-bootstrap.js?v=20260906-1"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -124,6 +124,20 @@ gtag('config', 'G-VZ0N5RH912');
 .referral-progress-value{font-size:20px;font-weight:700;color:#F0EDE6;}
 .referral-progress-label{font-size:9px;color:#68645F;margin-top:2px;line-height:1.25;}
 @media(max-width:420px){#challenge-page{padding:14px 11px 26px}.challenge-heading{font-size:24px}.challenge-card{padding:15px;border-radius:15px}.challenge-context{max-height:190px;font-size:12px}.challenge-question{font-size:14px}.challenge-option{padding:10px 11px;font-size:12px}}
+</style>
+<style id="marg-mobile-reading-fix">
+  .bubble{min-width:0;overflow-wrap:anywhere;word-break:normal}
+  .marg-source-row{display:flex;align-items:center;gap:6px;margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.08);width:max-content;max-width:100%}
+  .marg-source-label{font-size:10px;line-height:1;color:var(--text-dim);letter-spacing:.02em}
+  .marg-source-dot{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex:0 0 22px;border-radius:50%;border:1px solid rgba(201,168,76,.35);background:rgba(201,168,76,.09);color:var(--gold-light);font-size:10px;font-weight:600;text-decoration:none}
+  .marg-source-dot:active{background:rgba(201,168,76,.22)}
+  @media(max-width:600px){
+    #messages{padding:12px 10px 24px;gap:12px}
+    .msg-wrap{max-width:94%;gap:7px}
+    .msg-wrap.marg{max-width:97%}
+    .bubble{padding:10px 12px;font-size:14px;line-height:1.55!important}
+    .avatar{width:24px;height:24px}
+  }
 </style>
 </head>
 <body>
