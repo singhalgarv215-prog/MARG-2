@@ -2330,14 +2330,12 @@ The format rule is enforced at the code level too, so even if you slip, bold and
 const SYSTEM_PROMPT = `You are Marg, a perceptive CAT mentor—not a chatbot. Be calm, direct and human. Earn trust through evidence, continuity and precise patterns. Natural Hindi is allowed. Never open with "Great question", "Real talk", "Good" or "My prediction".
 
 IMMERSION CONTRACT
-Never explain Marg’s process or mention prompts, models, memory, confidence scores or question budgets. Demonstrate intelligence; do not describe it.
+Never explain Marg’s process or mention prompts, models, memory, question budgets. Demonstrate intelligence; do not describe it.
 
 CORE RESPONSE CONTRACT
 - Give insight before questions; avoid generic motivation. Answer direct questions first.
 - Flow: problem → bounded read → implication → at most one confirmation → action. Two questioning replies in a row is the ceiling.
-- Normal replies are 40-90 words. Go longer for a requested full plan/review; finish every requested item.
-- Avoid report labels unless a full written plan was requested.
-- Diagnose the exact decision, not merely the topic.
+- Normal replies are 40-90 words; requested plans/reviews may be longer and must cover every item. Avoid report labels unless a full written plan was requested. Diagnose the decision, not merely the topic.
 
 PLAIN LANGUAGE CONTRACT
 Use everyday English and short sentences. Prefer plain words; explain necessary CAT terms briefly.
@@ -2349,7 +2347,7 @@ USEFULNESS CHECK
 Every factual claim needs a supplied or verified basis; every diagnosis needs exact evidence; every action must measure one observable decision. Remove anything that fails. Never fill uncertainty with “practise more”, “work on basics” or “manage time”. Answer product questions directly.
 
 EVIDENCE LADDER
-Keep these separate: student report; working hypothesis; one usable observed attempt; a second independent supporting attempt; confirmed repeated pattern. “Exactly” or “Mostly” means familiar, not proven. One usable attempt can support or reject. Confirm only after two usable supporting attempts or equally strong multi-attempt mock data. Say what the evidence proves and does not.
+Separate student report, hypothesis, one observed attempt, a second independent attempt and repeated pattern. “Exactly/Mostly” means familiar, not proven. Confirm only after two supporting attempts or equivalent multi-attempt data; say what evidence proves and does not.
 
 PRODUCT-FAILURE FIREWALL
 A slow, missing, incomplete, malformed or unrendered exercise is product evidence, not student evidence. An all-skipped submission without meaningful interaction is inconclusive: never diagnose setup freeze, avoidance, low skill or poor selection from it. Fix or reopen the same verified exercise first. Never replace a requested “same set” with reconstructed numbers or a new set; use ACTIVE EXERCISE memory exactly.
@@ -2379,10 +2377,10 @@ DIAGNOSIS AND EXERCISE CONSENT
 For a new major topic: 1-2 narrowing questions → natural read → evidence → one confirmation → targeted next step. Say "Here's my read", never "My prediction:". Never finish a diagnosis with only "Does that feel accurate?"; the same reply must say what Marg will test or fix next. After Exactly/Mostly, lead. If they chose Run/Start/Right now, execute it in that same turn. QA/DILR use timed interfaces; teach DILR’s first setup before launch. For a stored hypothesis add [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
 
 MULTI-SECTION MOCK STORIES
-When a student describes problems in two or more of VARC, DILR and QA, do not diagnose all sections and launch practice in one reply. Separate the known facts from guesses, ask which section they want to unpack first, then ask one question about the exact moment marks were lost there. Give a read only after that answer. Do not offer practice until the problem is understood. For QA, never claim Arithmetic has a fixed number of questions; the topic mix changes by paper.
+For problems across two or more sections, separate facts from guesses, ask which section to unpack, then ask one question about where marks went. Read only after that answer; offer no practice yet. QA topic mix varies, so never claim Arithmetic has a fixed question count.
 
 DILR GENERATION SAFETY BOUNDARY
-Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. New sets must use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach, or review a supplied/ACTIVE EXERCISE set. Never call model output brute-force verified. For fresh-set requests, briefly launch the interface.
+Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. Use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified.
 When a student challenges a DILR solution, pause unrelated exercises and audit that condition first. For facing directions, keep one stated personal/page convention; never change it to protect a key. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.” Call the set valid only if one full arrangement satisfies every condition.
 
 MEMORY AND CONTINUITY
@@ -2401,12 +2399,14 @@ If the user says only "continue", "go on" or equivalent after an incomplete repl
 
 ANSWER REVIEWS
 Separate multiple answers with blank lines; give the choice, correct answer and exact mismatch. For one wrong RC answer, state the trap with no reflective question. After two micro-check decisions, offer one more question from the same passage, then a full RC. Keep it conversational, never an evidence report.
+For pasted passages, preserve declared choices exactly. If labels may be the student’s choices or official key, clarify before scoring. One passage with three answers is one observation, never proof of overall RC skill.
 
 PLANNING AND PERSONALIZATION
 A multi-section roadmap is planning, not a section diagnostic. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify once if “blocks” could mean one day or a rotation. Reuse known constraints. Valid confirmed evidence controls ordering and checkpoints; prioritise repeated score leakage over syllabus order.
 
 THIRD-PARTY KNOWLEDGE BOUNDARY
 Never invent third-party menus, labels or navigation. Be exact only from supplied or verified current context; otherwise describe the general content type and say labels may differ.
+Never recommend buying a mock series/course/book from dissatisfaction alone. First inspect exact disputed questions, compare CAT/PYQ logic and verify product facts. Do not invent industry rates. If evidence stays mixed, suggest a sample or reversible test before purchase.
 
 WEB VERIFICATION CONTRACT
 Never answer current or source-specific facts from memory when Google Search grounding is available: editions, chapters, contents, platform structures, CAT dates, fees, rules, cutoffs, schedules or product details. Use grounded evidence, separate verified facts from inference and briefly name checked sources. If the exact claim is unverified, say so. Mentoring judgment needs no search.
@@ -2415,7 +2415,7 @@ PRACTICE LEADERSHIP
 Lead when Marg can create evidence and respect topic switches. Fresh pasted CAT question with no attempt status: never reveal the key. Ask if attempted; yes → ask their choice, no → solve. After practice, say what the result proves and does not prove; preserve one next step rather than defaulting to volume.
 
 IMAGES
-Inspect every image; multiple images are ordered pages. Never guess unreadable text. Preserve scorecard labels because marks, correct, attempted, accuracy, percentile and time differ. If units are ambiguous, state legible values and ask one clarification.
+Inspect every image in page order. Never guess unreadable text or merge scorecard labels: marks, correct, attempted, accuracy, percentile and time differ. Clarify ambiguous units once.
 
 FACT AND CAT SAFETY
 Use supplied IST context; never guess dates or greetings. Verify arithmetic and retain corrections. Never collapse marks, correct and attempted. For non-PwD CAT use 120 minutes: VARC, DILR and QA in fixed 40-minute sections; provider/PwD rules may differ. Never call a standard CAT mock three hours.
@@ -2649,8 +2649,8 @@ function getGeminiMessageParts(message) {
       : [message && message.content];
   var parts = [];
   source.forEach(function(part) {
-    if (typeof part === 'string' && part.trim()) parts.push({ text:part });
-    else if (part && typeof part.text === 'string' && part.text.trim()) parts.push({ text:part.text });
+    if (typeof part === 'string' && stripGroundingSourceMarker(part).trim()) parts.push({ text:stripGroundingSourceMarker(part) });
+    else if (part && typeof part.text === 'string' && stripGroundingSourceMarker(part.text).trim()) parts.push({ text:stripGroundingSourceMarker(part.text) });
     else {
       var imagePart = normalizeGeminiInlineImagePart(part);
       if (imagePart) parts.push(imagePart);
@@ -2722,8 +2722,8 @@ function shouldUseWebGrounding(message, diagnosis) {
   if (!text || diagnosis && diagnosis.hasImage && text.length < 12) return false;
   if (/\b(?:search|browse|look up|lookup|google|verify online|check online|check the web|search the web|from the web)\b/.test(text)) return true;
   if (/https?:\/\//i.test(text)) return true;
-  var externalSource = /\b(?:arun sharma|quantitative aptitude for cat|mba wallah|cracku|ims|simcat|aimcat|career launcher|unacademy|2iim|rodha|takshzila|youtube|amazon|flipkart)\b/.test(text) || /\btime(?:'s)?\s+(?:aimcat|material|portal|course|booklet|mock series)\b/.test(text);
-  var sourceSpecificFact = /\b(?:book|edition|chapter|index|contents|table of contents|topic|module|playlist|course|section|exercise|questions?|where|available|syllabus|sequence|order)\b/.test(text);
+  var externalSource = /\b(?:arun sharma|quantitative aptitude for cat|mba wallah|cracku|ims|simcats?|aimcats?|career launcher|unacademy|2iim|rodha|takshzila|youtube|amazon|flipkart|aeon|the hindu|indian express)\b/.test(text) || /\btime(?:'s)?\s+(?:aimcats?|material|portal|course|booklet|mock series)\b/.test(text);
+  var sourceSpecificFact = /\b(?:book|edition|chapter|index|contents|table of contents|topic|module|playlist|course|section|exercise|questions?|where|available|syllabus|sequence|order|buy|purchase|subscribe|worth|better|compare|quality|difficulty|answer key|read|newspaper|magazine|editorial|daily)\b/.test(text);
   if (externalSource && sourceSpecificFact) return true;
   var currentExternalFact = /\b(?:latest|current|currently|today|this year|202[4-9])\b/.test(text) && /\b(?:book|edition|chapter|index|contents|registration|exam date|admit card|fee|fees|eligibility|cutoff|cut-off|schedule|notification|result date|rules?|policy|model|price)\b/.test(text);
   return currentExternalFact || /\b(?:cat|iim)\b[\s\S]{0,60}\b(?:registration|exam date|admit card|fee|fees|eligibility|pattern|duration|cutoff|cut-off|criteria|policy|schedule|notification|result date)\b/.test(text);
@@ -2748,12 +2748,33 @@ function getGeminiGroundingSources(payload) {
   }).filter(Boolean).slice(0, 4);
 }
 
+var MARG_GROUNDING_SOURCE_PATTERN = /\[MARG_SOURCES:([^\]]+)\]/g;
+
+function stripGroundingSourceMarker(text) {
+  return String(text || '').replace(MARG_GROUNDING_SOURCE_PATTERN, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function appendGroundingSources(response, payload) {
   var sources = getGeminiGroundingSources(payload);
   if (!sources.length) return response;
-  return String(response || '').replace(/\s+$/, '') + '\n\nSources checked:\n' + sources.map(function(source) {
-    return '- ' + source.title + ': ' + source.uri;
-  }).join('\n');
+  return String(response || '').replace(/\s+$/, '') + '\n\n[MARG_SOURCES:' + encodeURIComponent(JSON.stringify(sources)) + ']';
+}
+
+function renderGroundingSourcesForChat(text) {
+  var value = String(text || '');
+  var rendered = value.replace(MARG_GROUNDING_SOURCE_PATTERN, function(_marker, encoded) {
+    var sources = [];
+    try { sources = JSON.parse(decodeURIComponent(encoded)); } catch(e) { return ''; }
+    if (!Array.isArray(sources) || !sources.length) return '';
+    var links = sources.filter(function(source) {
+      return source && /^https:\/\//i.test(String(source.uri || ''));
+    }).slice(0, 4).map(function(source, index) {
+      var title = String(source.title || 'Web source').replace(/[\r\n]+/g, ' ').trim();
+      return '<a class="marg-source-dot" href="' + escapeChatHtml(source.uri) + '" target="_blank" rel="noopener noreferrer" title="' + escapeChatHtml(title) + '" aria-label="Open source ' + (index + 1) + ': ' + escapeChatHtml(title) + '">' + (index + 1) + '</a>';
+    }).join('');
+    return links ? '<span class="marg-source-row" aria-label="Sources checked"><span class="marg-source-label">Sources</span>' + links + '</span>' : '';
+  });
+  return rendered.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function getGeminiText(payload) {
@@ -2820,7 +2841,7 @@ function cleanHistory(history) {
     return true;
   }).map(function(m) {
     if (m.role !== 'assistant' || !m.content || typeof m.content !== 'string') return m;
-    var cleaned = m.content
+    var cleaned = stripGroundingSourceMarker(m.content)
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
       .replace(/^#{1,3}\s+/gm, '')
@@ -4635,6 +4656,11 @@ function getActiveExerciseQuestions() {
 function parseSubmittedAnswerChoices(message) {
   var found = {};
   var text = String(message || '');
+  // Pasted RCs often place "Answer - D" at the end of each Q1/Q2 block.
+  // Preserve that association instead of guessing choices from nearby options.
+  text.replace(/(?:^|\n)\s*Q(?:uestion)?\s*(\d{1,2})\s*[-:.)]?[\s\S]*?\b(?:my\s+)?answer\s*[-:]\s*([A-D])\b(?=[\s\S]*?(?:\n\s*Q(?:uestion)?\s*\d{1,2}\s*[-:.)]?|$))/gi, function(_, number, letter) {
+    found[Number(number)] = letter.toUpperCase(); return _;
+  });
   // Require an answer-like boundary. The old optional separator interpreted
   // ordinary prose such as "2 draws" as question 2 = D.
   text.replace(/(?:^|[\s,;|])(\d{1,2})\s*[-:.)]\s*([abcd])(?=$|[\s,;|])/gi, function(_, number, letter) {
@@ -4647,6 +4673,43 @@ function parseSubmittedAnswerChoices(message) {
     found[Number(number)] = letter.toUpperCase(); return _;
   });
   return found;
+}
+
+function getPastedAnswerEvidence(message) {
+  var source = String(message || '');
+  var sourceIndex = -1;
+  if (!isFreshPastedPracticeMaterial(source) && /^(?:continue|go on|carry on|finish it|complete it)[.!\s]*$/i.test(source)) {
+    for (var i = conversationHistory.length - 2; i >= Math.max(0, conversationHistory.length - 8); i--) {
+      if (conversationHistory[i] && conversationHistory[i].role === 'user' && isFreshPastedPracticeMaterial(conversationHistory[i].content)) {
+        source = String(conversationHistory[i].content || '');
+        sourceIndex = i;
+        break;
+      }
+    }
+  }
+  if (!isFreshPastedPracticeMaterial(source)) return null;
+  var choices = parseSubmittedAnswerChoices(source);
+  if (Object.keys(choices).length < 2) return null;
+  var nearby = source;
+  if (sourceIndex >= 0) nearby = conversationHistory.slice(Math.max(0, sourceIndex - 3), sourceIndex + 1).map(function(item) { return item && item.content || ''; }).join('\n') + '\n' + source;
+  var saysMine = /\b(?:my answers?|my choices?|i (?:chose|picked|marked|selected))\b/i.test(nearby);
+  var saysOfficial = /\b(?:official|answer key|solution key|AIMCAT (?:solution|answer)|TIME(?:'s)? (?:solution|answer))s?\b/i.test(nearby);
+  return { choices:choices, source:source, role:saysMine && !saysOfficial ? 'student' : saysOfficial && !saysMine ? 'official' : saysMine && saysOfficial ? 'mixed' : 'unclear' };
+}
+
+function guardPastedAnswerChoiceIntegrity(response, diagnosis) {
+  var value = String(response || '');
+  var evidence = diagnosis && diagnosis.pastedAnswerEvidence;
+  if (!evidence || !evidence.choices) return value;
+  var mismatch = false;
+  Object.keys(evidence.choices).forEach(function(number) {
+    var claim = new RegExp('Q(?:uestion)?\\s*' + number + '[\\s\\S]{0,90}?(?:your (?:choice|answer)|you (?:chose|picked|marked|selected))\\s*[:\\-]?\\s*([A-D])\\b', 'i').exec(value);
+    if (claim && claim[1].toUpperCase() !== evidence.choices[number]) mismatch = true;
+  });
+  if (!mismatch) return value;
+  var labels = Object.keys(evidence.choices).sort(function(a, b) { return Number(a) - Number(b); }).map(function(number) { return 'Q' + number + ' ' + evidence.choices[number]; }).join(', ');
+  var owner = evidence.role === 'official' ? 'The official answers shown in the passage are ' : evidence.role === 'student' ? 'The choices you supplied are ' : 'The answers labelled in the pasted material are ';
+  return owner + labels + '. I’m not going to replace them with choices you never gave. I can check each one against the passage, but I need the official key or explanation separately before comparing your answers with AIMCAT.';
 }
 
 function findRecentSubmittedAnswerText(message) {
@@ -5715,10 +5778,14 @@ function showLanding() {
 
 var chatScrollFrameId = 0;
 var chatScrollTimerId = 0;
+var isRestoringConversation = false;
 
-function scrollChatToLatest() {
+function scrollChatToLatest(options) {
   var container = document.getElementById('messages');
   if (!container) return;
+  var instant = !!(options && options.instant);
+  var priorScrollBehavior = container.style && container.style.scrollBehavior || '';
+  if (instant && container.style) container.style.scrollBehavior = 'auto';
   var commit = function() { container.scrollTop = container.scrollHeight; };
   commit();
   if (chatScrollFrameId && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(chatScrollFrameId);
@@ -5736,8 +5803,9 @@ function scrollChatToLatest() {
   // Re-anchor after layout settles so the final lines stay above the composer.
   chatScrollTimerId = setTimeout(function() {
     commit();
+    if (instant && container.style) container.style.scrollBehavior = priorScrollBehavior;
     chatScrollTimerId = 0;
-  }, 220);
+  }, instant ? 80 : 220);
 }
 
 function addMessage(role, html, showAvatar) {
@@ -5780,7 +5848,7 @@ function addMessage(role, html, showAvatar) {
     wrap.style.marginLeft = '38px';
   }
   container.appendChild(wrap);
-  scrollChatToLatest();
+  if (!isRestoringConversation) scrollChatToLatest();
   return wrap;
 }
 
@@ -6808,17 +6876,37 @@ function detectMockSeries(text, awaitingField) {
   return found;
 }
 
-function detectPrepResources(text) {
+function detectPrepResources(text, awaitingField) {
   var value = String(text || '');
   var resources = [];
+  var explicitUse = awaitingField === 'prepResources' || /\b(?:i (?:use|am using|study from|follow|bought|purchased|have)|my (?:book|material|course|coaching)|currently using|preparing from)\b/i.test(value);
   [
     [/\bRodha\b/i, 'Rodha'], [/\bCracku\b/i, 'Cracku'], [/\bArun\s+Sharma\b/i, 'Arun Sharma'],
     [/\b2IIM\b/i, '2IIM'], [/\bTakshzila\b/i, 'Takshzila'], [/\bAnastasis\b/i, 'Anastasis Academy'],
     [/\bTIME(?:'s)?\s+(?:material|books?|classes|course|videos?)\b/i, 'TIME material'],
     [/\bIMS(?:'s)?\s+(?:material|books?|classes|course|videos?)\b/i, 'IMS material'],
     [/\bCareer Launcher(?:'s)?\s+(?:material|books?|classes|course|videos?)\b/i, 'Career Launcher material']
-  ].forEach(function(pair) { if (pair[0].test(value)) resources.push(pair[1]); });
+  ].forEach(function(pair) {
+    if (!pair[0].test(value)) return;
+    var escaped = pair[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ material$/, '');
+    var negated = new RegExp("(?:do not|don't|dont|never|did not|didn't|not)\\s+(?:have|use|buy|bought|purchase|purchased|follow)?[^.!?]{0,28}" + escaped + '|' + escaped + '[^.!?]{0,28}(?:only mentioned|just mentioned|not using|not bought)', 'i').test(value);
+    if (!negated && explicitUse) resources.push(pair[1]);
+  });
   return resources;
+}
+
+function removeCorrectedProfileClaims(memory, text) {
+  var value = String(text || '');
+  var resourceNames = ['Rodha','Cracku','Arun Sharma','2IIM','Takshzila','Anastasis Academy','TIME material','IMS material','Career Launcher material'];
+  resourceNames.forEach(function(name) {
+    var base = name.replace(/ material$/, '');
+    var escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var correction = new RegExp("(?:do not|don't|dont|never|did not|didn't|not)\\s+(?:have|use|buy|bought|purchase|purchased|follow)?[^.!?]{0,28}" + escaped + '|' + escaped + '[^.!?]{0,28}(?:only mentioned|just mentioned|not using|not bought)', 'i');
+    if (correction.test(value)) memory.prepResources = normalizeProfileList(memory.prepResources).filter(function(item) { return item.toLowerCase() !== name.toLowerCase(); });
+  });
+  if (/\b(?:do not|don'?t|dont|never|did not|didn'?t|not)\s+(?:have|use|buy|bought|purchase|purchased|take|taken)?[^.!?]{0,28}(?:SIMCAT|IMS)\b|\b(?:SIMCAT|IMS)\b[^.!?]{0,28}(?:only mentioned|just mentioned|not using|not bought)/i.test(value)) memory.mockSeries = normalizeProfileList(memory.mockSeries).filter(function(item) { return item !== 'IMS SIMCAT'; });
+  if (/\b(?:do not|don'?t|dont|never|did not|didn'?t|not)\s+(?:have|use|buy|bought|purchase|purchased|take|taken)?[^.!?]{0,28}(?:AIMCAT|TIME)\b|\b(?:AIMCAT|TIME)\b[^.!?]{0,28}(?:only mentioned|just mentioned|not using|not bought)/i.test(value)) memory.mockSeries = normalizeProfileList(memory.mockSeries).filter(function(item) { return item !== 'TIME AIMCAT'; });
+  return memory;
 }
 
 function detectCatTopicForProfile(text) {
@@ -6895,6 +6983,7 @@ function captureProgressiveProfileDetails(message) {
   if (!text) return null;
   var memory = loadProgressiveProfileMemory();
   var before = JSON.stringify(memory);
+  removeCorrectedProfileClaims(memory, text);
   var awaiting = memory.awaitingField || '';
   if (awaiting && !latestAssistantActuallyAskedProfileField(awaiting)) {
     // A stale optional follow-up must never swallow a later request as profile
@@ -6925,7 +7014,7 @@ function captureProgressiveProfileDetails(message) {
   var mockSeries = detectMockSeries(text, awaiting);
   if (mockSeries.length) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat(mockSeries));
 
-  var resources = detectPrepResources(text);
+  var resources = detectPrepResources(text, awaiting);
   if (resources.length) memory.prepResources = normalizeProfileList(memory.prepResources.concat(resources));
 
   var goal = loadPersonalGoalMemory();
@@ -7273,6 +7362,7 @@ function analyzeMentorInput(message) {
   var rcWrongAnswerEvidence = intent === 'answer_review' ? getRCWrongAnswerEvidence(message) : { matches:false, mechanism:'' };
   var rcProgressionReady = isRCProgressionReady(message, rcWrongAnswerEvidence);
   var rcMicroFollowupActive = rcProgressionReady && hasPendingRCMicroFollowup();
+  var pastedAnswerEvidence = getPastedAnswerEvidence(message);
   return {
     intent: intent,
     emotionalState: emotion,
@@ -7289,6 +7379,7 @@ function analyzeMentorInput(message) {
     rcWrongAnswerMechanism:rcWrongAnswerEvidence.mechanism,
     rcProgressionReady:rcProgressionReady,
     rcMicroFollowupActive:rcMicroFollowupActive,
+    pastedAnswerEvidence:pastedAnswerEvidence,
     dilrValidityCheck:isDILRValidityChallenge(message)
   };
 }
@@ -7313,6 +7404,10 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'dilr_validity_review') directive += '\nDILR VALIDITY REVIEW: Stop every older mission, Decision Lab and progression prompt for this reply. Re-read only the exact set and objection supplied by the student. First state whether the wording is unambiguous under the stated convention. Then either exhibit one complete assignment that satisfies EVERY clue, checking the disputed clue explicitly, or identify the exact pair of conditions that cannot coexist. Never call a set valid merely because one partial arrangement looks plausible. Never invent a missing convention, score, clue, question or arrangement. If the material in the visible transcript is incomplete, say exactly what is missing instead of reconstructing it from memory. Do not append a practice invitation or resume an older task.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. Use the actual choice pattern as evidence and abandon the stored prediction when evidence contradicts it. For multiple answers, separate each question with a blank line and write naturally: “Q2 — You chose C; A is correct.” Explain the exact mismatch and correction without Diagnosis, Fix or Pattern Check labels. End with a plain score-and-pattern sentence. Ask no diagnostic intake question.';
+  if (diagnosis.pastedAnswerEvidence) {
+    var pastedLabels = Object.keys(diagnosis.pastedAnswerEvidence.choices).sort(function(a, b) { return Number(a) - Number(b); }).map(function(number) { return 'Q' + number + '=' + diagnosis.pastedAnswerEvidence.choices[number]; }).join(', ');
+    directive += '\nPASTED-ANSWER GROUNDING: The exact labelled answers visible in the student’s pasted material are ' + pastedLabels + '. Their role is ' + diagnosis.pastedAnswerEvidence.role + '. Never claim the student chose any other letters. If “student” is the role, treat these as the student’s choices; if “official”, treat them only as the published key; if “mixed” or “unclear”, clarify ownership before scoring. Do not say they match or conflict with AIMCAT unless a separate official key or written explanation is actually present. One passage with three answers is one observation, never proof that the student’s overall RC process is accurate or flawed.';
+  }
   if (diagnosis.rcProgressionReady && diagnosis.rcMicroFollowupActive) directive += '\nRC FOLLOW-UP COMPLETION: Check the current choice plainly and connect it to the option habit in everyday language. Do not write an evidence report. This was the promised extra question, so now lead naturally to the full RC and offer Start the full RC / Later today / Tomorrow with [CONTEXT: rc_full_progression_timing].';
   else if (diagnosis.rcProgressionReady) directive += '\nRC MICRO-CHECK CONTINUATION: Finish checking the current choice, say naturally that the passage was understood but the option check needs one more look, and offer one more question from this same passage before a full RC. Sound like a mentor continuing the session, not a diagnostic report. Use exactly Yes, one more / Move to a full RC / Later with [CONTEXT: rc_progression_timing]. Never ask whether it helped.';
   else if (diagnosis.rcWrongAnswerReview) directive += '\nRC WRONG-ANSWER RESPONSE: The wrong option is already evidence. Explain the option mismatch, then state the likely mechanism directly and specifically. Do not ask whether the student used tone, general impression, wording, the specific verb, or another strategy. Do not ask for confirmation or reflection. The final visible sentence must be a confident mechanism statement tied to this choice, with no question mark, [OPTIONS], new exercise, source check, or engagement hook.' + (diagnosis.rcWrongAnswerMechanism ? '\nStored mistake signal: ' + diagnosis.rcWrongAnswerMechanism : '');
@@ -7595,6 +7690,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardUnusableExerciseEvidence(text, diagnosis);
   text = guardVagueMentorAdvice(text, diagnosis);
   text = guardMalformedChatExercise(text);
+  text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
@@ -8195,7 +8291,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 
-      addMessage('marg', cleanResponse);
+      addMessage('marg', renderGroundingSourcesForChat(cleanResponse));
       conversationHistory.push({ role: 'assistant', content: response });
       if (!isGuestMode) saveChatMessage('assistant', cleanResponse);
 
@@ -8550,13 +8646,15 @@ function restoreConversation() {
     return !(previous && previous.role === message.role && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
   });
   if (displayMessages.length > 0) {
+    isRestoringConversation = true;
     displayMessages.forEach(function(msg) {
-      const formatted = msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+      const formatted = renderGroundingSourcesForChat(msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
       addMessage(msg.role === 'user' ? 'user' : 'marg', formatted);
     });
+    isRestoringConversation = false;
   }
   if (displayMessages.length === 0) addSuggestionChips();
-  scrollChatToLatest();
+  scrollChatToLatest({ instant:true });
   restoreCurrentChatDraft();
   if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
   focusComposer();
@@ -9173,7 +9271,7 @@ async function sendMessage(fromQueue, submissionOptions) {
       .replace(/===+/g, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-    const formatted = cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+    const formatted = renderGroundingSourcesForChat(cleanReply.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
     addMessage('marg', formatted);
     lastFailedOutgoingMessage = null;
     checkAndRenderMargOptions(reply);
@@ -11024,6 +11122,12 @@ function switchTab(tab) {
       if (el) el.style.display = '';
     });
     restoreCurrentChatDraft();
+    // Chat can be restored while Home is visible. Re-anchor only after the
+    // transcript is visible, otherwise mobile browsers leave it at the top.
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function() {
+      requestAnimationFrame(function() { scrollChatToLatest({ instant:true }); });
+    });
+    setTimeout(function() { scrollChatToLatest({ instant:true }); }, 140);
     if (hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(120);
     if (window._practiceCompleteSummary) {
       setTimeout(function() {
