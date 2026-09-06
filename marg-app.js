@@ -8826,11 +8826,22 @@ var pendingSectionalRecommendation = null;
 
 function isPracticeProductQuestion(text) {
   var value = String(text || '').trim();
+  if (!value) return false;
+  // A pasted worksheet/passsage can contain incidental words such as
+  // "practice", "same" and several question marks. Those words describe the
+  // material; they are not a question about Marg's Practice product. Keep
+  // answer-bearing assessment submissions on the normal review path.
+  var answerLabels = (value.match(/\b(?:my\s+answer|answer)\s*:/gi) || []).length;
+  var numberedQuestions = (value.match(/(?:^|\n)\s*(?:q(?:uestion)?\s*)?\d+[.)]?\s+/gi) || []).length;
+  if (value.length > 600 && (answerLabels >= 1 || numberedQuestions >= 3)) return false;
   // Product-bank questions must explicitly ask about availability, freshness or
   // repetition. A previous broad keyword rule intercepted ordinary mentoring
   // sentences such as “these are three different problems” merely because the
   // word “problems” looked like “questions”.
-  var explicitMaterial = /\b(?:practice|practise|question bank|set bank|practice questions?|practice sets?|rc passages?|dilr sets?|qa questions?|sectional tests?)\b/i.test(value);
+  // Do not treat the bare word "practice" as product intent: normal RC prose
+  // frequently uses it as a noun or verb (for example, "the practice of
+  // borrowing"). Require a recognisable Marg surface or exercise type.
+  var explicitMaterial = /\b(?:practice|practise)\s+(?:tab|section|questions?|sets?|exercises?|material|content)\b|\b(?:question|set)\s+bank\b|\b(?:rc|varc)\s+(?:passages?|questions?|sets?)\b|\b(?:dilr|lrdi)\s+(?:practice|sets?|questions?)\b|\b(?:qa|quant|quants)\s+(?:practice|questions?|sets?)\b|\bsectional\s+tests?\b/i.test(value);
   if (!explicitMaterial) return false;
   var availabilityQuestion = /\b(?:how many|limited|limit|available|availability|question bank|set bank|do you have|will i get)\b/i.test(value);
   var repeatQuestion = /\b(?:same|repeat(?:ed|ing|s)?|unique|fresh|new each time|different each time)\b/i.test(value) &&
