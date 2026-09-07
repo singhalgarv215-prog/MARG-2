@@ -353,8 +353,49 @@ document.getElementById('rc-number').textContent = 'RC #' + dayNum;
 
 // Track answered questions
 var answered = {};
+var isGenerating = false;
+
+var VERIFIED_RC_FALLBACK = {
+  passage: 'Public indicators are often treated as passive descriptions of social reality. A ranking of universities, a measure of hospital efficiency, or a national index of innovation appears merely to condense facts that already exist. Yet once an indicator becomes consequential, the institutions being measured reorganise themselves around it. Universities redirect effort toward countable publications; hospitals may prefer cases that protect reported outcomes; governments fund activities that move an index even when those activities are only weakly connected to its stated purpose. The familiar complaint that such behaviour is dishonest misses the deeper problem. Even conscientious actors must decide how to allocate scarce attention, and a public measure quietly tells them which achievements will be recognised and which will remain administratively invisible.\n\nThis does not make measurement useless. Decisions made without common measures can be opaque, inconsistent and vulnerable to private judgment. Nor does it follow that every behavioural response corrupts a measure: a hospital that improves hygiene because infection rates are published may be responding exactly as policymakers hoped. The difficulty is that the same pressure can produce substantive improvement, selective compliance, or merely cosmetic adaptation, and the numerical result alone cannot reliably distinguish among them. Better statistical design can reduce distortions by combining measures or adjusting for obvious incentives, but cannot eliminate them, because every indicator selects a limited representation of a more complex goal. Adding variables can even disguise rather than solve the problem by making the measure appear comprehensive while leaving its governing assumptions unexamined.\n\nThe usual defence of indicators appeals to comparison. Without a common scale, how could citizens judge hospitals, students choose universities, or governments identify ineffective programmes? But comparison is not a neutral operation performed after institutions have acted. It establishes a field in which unlike activities must be rendered commensurable, often by suppressing differences in purpose, population or circumstance. Once the comparison acquires authority, institutions that depart from its categories may look inefficient even when their divergence reflects a legitimate alternative mission. Conversely, organisations can become skilled at the measured activity while the public objective that justified the measure deteriorates. The apparent precision of a ranking therefore may coexist with uncertainty about whether the ranked objects ought to be pursuing the same ends.\n\nThe appropriate response is neither blind trust nor abandonment. Indicators should be treated as institutional interventions whose effects require scrutiny. A useful measure is not merely accurate at the moment of construction; it must remain informative after people begin adapting to it. That requires revising measures, comparing them with qualitative evidence, and asking who bears the cost when organisations optimise what can be counted. It also requires accepting that revision will disrupt historical comparability, the very quality that gives indicators much of their authority. The choice is thus not between a stable objective measure and unstable judgment. It is between acknowledging that judgment already inhabits measurement and allowing yesterday’s judgments to harden into today’s facts.',
+  difficulty: 'Hard',
+  topic: 'Measurement and institutions',
+  questions: [
+    { q:'Which option best captures the primary purpose of the passage?', options:['A. To show that statistical indicators should be abandoned because institutional adaptation always corrupts them','B. To argue that consequential indicators reshape institutional behaviour and must therefore be evaluated as interventions, not passive descriptions','C. To demonstrate that qualitative evidence offers a neutral alternative to numerical comparison','D. To establish that adding more variables necessarily makes rankings less accurate'], correct:1, explanation:'The author accepts measurement but argues that its behavioural and institutional effects must be continually examined.', trap_type:'Extreme conclusion' },
+    { q:'The author’s attitude toward comparison through common indicators is best described as:', options:['A. Cautiously accepting of its practical value while sceptical of the neutrality it claims','B. Dismissive because unlike institutions can never be compared meaningfully','C. Enthusiastic provided statistical designers include enough variables','D. Indifferent to comparison but hostile to institutional rankings'], correct:0, explanation:'Comparison is treated as useful but as an operation that embeds judgments and reshapes missions.', trap_type:'Tone overstatement' },
+    { q:'Which inference is most strongly supported by the passage?', options:['A. An institution can improve its measured performance while moving further from the public objective behind the measure','B. Behavioural adaptation proves that the original indicator was statistically inaccurate','C. Historical comparability should always take priority over revising a distorted indicator','D. Organisations with alternative missions should be exempt from every form of public measurement'], correct:0, explanation:'The passage separates skill at the measured activity from progress on the objective that justified it.', trap_type:'Scope shift' }
+  ]
+};
+
+function countWords(value) {
+  return String(value || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
+function isValidRC(data) {
+  if (!data || countWords(data.passage) < 450 || countWords(data.passage) > 550) return false;
+  if (String(data.passage).split(/\n\s*\n/).filter(Boolean).length < 3) return false;
+  return Array.isArray(data.questions) && data.questions.length === 3 && data.questions.every(function(q) {
+    var options = Array.isArray(q && q.options) ? q.options.map(function(option) { return String(option).trim().toLowerCase(); }) : [];
+    return q && String(q.q || '').trim().length >= 20 && options.length === 4 && new Set(options).size === 4 &&
+      Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3 && String(q.explanation || '').trim().length >= 20;
+  });
+}
+
+function cloneVerifiedRC() {
+  var copy = JSON.parse(JSON.stringify(VERIFIED_RC_FALLBACK));
+  copy.recoveryNote = 'Today’s generated draft did not pass Marg’s checks, so this independently verified RC opened instead.';
+  return copy;
+}
+
+async function fetchWithDeadline(url, options, timeoutMs) {
+  var controller = new AbortController();
+  var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
+  try { return await fetch(url, Object.assign({}, options, { signal:controller.signal })); }
+  finally { clearTimeout(timer); }
+}
 
 async function generateRC() {
+  if (isGenerating) return;
+  isGenerating = true;
   const container = document.getElementById('practice-container');
   
   // Check localStorage for today's RC
@@ -364,24 +405,24 @@ async function generateRC() {
   if (cached) {
     try {
       const data = JSON.parse(cached);
-      renderRC(data);
-      return;
-    } catch(e) {}
+      if (isValidRC(data)) { renderRC(data); isGenerating = false; return; }
+      localStorage.removeItem(cacheKey);
+    } catch(e) { localStorage.removeItem(cacheKey); }
   }
   
-  const prompt = 'Generate a high-quality CAT-level Reading Comprehension passage and 3 questions for daily practice. Requirements: Passage 380-420 words on a topic from Philosophy, Economics, Science and Technology, Social Issues, Environment, or Psychology. Dense argument-driven writing exactly like CAT RC — not narrative or descriptive. Author must take a clear position or make a nuanced argument. 3 questions testing: Primary Purpose, Author Attitude or Tone, and Inference. Each question has 4 options where 2 feel correct but only 1 is right. Wrong options must be: too extreme, out of scope, reversals of argument, or memory traps. Return ONLY valid JSON no markdown no backticks: {"passage":"full passage text","difficulty":"Medium or Hard","topic":"topic name","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"why this is correct and specifically why each wrong option is a trap","trap_type":"what cognitive error causes wrong answer"}]}';
+  const prompt = 'Generate one original CAT-level Reading Comprehension passage with exactly 3 questions. The passage alone must be 480-550 words in 4 distinct paragraphs, argument-driven and dense rather than narrative or explanatory. It must contain a central thesis, a qualification or counter-consideration, and a subtle change in the author’s position. Questions must test primary purpose, attitude/tone, and inference. Each must have 4 distinct options, exactly one defensible answer, and at least 2 plausible traps based on scope, force, ownership, or inference. Independently verify each key using only the passage. Return ONLY valid JSON no markdown: {"passage":"480-550 words with \\n\\n between paragraphs","difficulty":"Hard","topic":"topic name","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based explanation","trap_type":"short trap label"}]}';
   
   try {
-    const res = await fetch(WORKER_URL, {
+    const res = await fetchWithDeadline(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        max_tokens: 8192,
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.',
         messages: [{ role: 'user', content: prompt }]
       })
-    });
+    }, 32000);
+    if (!res.ok) throw new Error('Practice service returned ' + res.status);
     
     const data = await res.json();
     const text = data.content && data.content[0] ? data.content[0].text : null;
@@ -389,12 +430,18 @@ async function generateRC() {
     
     const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const rcData = JSON.parse(clean);
+    if (!isValidRC(rcData)) throw new Error('Generated RC failed completeness checks');
     
     localStorage.setItem(cacheKey, JSON.stringify(rcData));
     renderRC(rcData);
     
   } catch(e) {
-    container.innerHTML = '<div class="loading"><div style="color:var(--text-dim)">Having trouble loading today\'s RC. Please refresh the page.</div></div>';
+    console.error('Daily RC generation failed; using verified fallback:', e);
+    var fallback = cloneVerifiedRC();
+    localStorage.setItem(cacheKey, JSON.stringify(fallback));
+    renderRC(fallback);
+  } finally {
+    isGenerating = false;
   }
 }
 
@@ -411,7 +458,9 @@ function renderRC(data) {
     return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="question-text">' + q.q + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Answer & Analysis</div><div class="explanation-text">' + q.explanation + (q.trap_type ? '<br><br><strong>Trap type:</strong> ' + q.trap_type : '') + '</div></div></div>' + divider;
   }).join('');
   
-  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">📖 Reading Comprehension · RC #' + dayNum + '</div><div class="card-meta">' + (data.difficulty || 'Medium') + ' · ' + (data.topic || 'General') + '</div></div><div class="card-body"><div class="passage-text">' + data.passage + '</div>' + questionsHtml + '</div></div>';
+  var recovery = data.recoveryNote ? '<div style="padding:11px 14px;color:var(--text-dim);font-size:12px;border-bottom:1px solid var(--border);">' + data.recoveryNote + '</div>' : '';
+  var passage = String(data.passage || '').split(/\n\s*\n/).map(function(p) { return '<p style="margin:0 0 16px;">' + p + '</p>'; }).join('');
+  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">📖 Reading Comprehension · RC #' + dayNum + '</div><div class="card-meta">' + (data.difficulty || 'Medium') + ' · ' + (data.topic || 'General') + '</div></div>' + recovery + '<div class="card-body"><div class="passage-text">' + passage + '</div>' + questionsHtml + '</div></div>';
 }
 
 function selectOption(qIndex, optIndex, correct, btn) {
