@@ -11186,6 +11186,10 @@ function switchTab(tab) {
   if (['home','chat','practice','mock','sectionals','progress'].indexOf(tab) === -1) tab = 'home';
   if (currentTab === 'chat') saveCurrentChatDraft();
   clearInsightToast();
+  // Leaving Practice means the student no longer needs the pending draft.
+  // Abort it so an old response cannot consume more time or replace the next
+  // screen after the student has moved elsewhere.
+  if (currentTab === 'practice' && tab !== 'practice') cancelActivePracticeLoad();
   currentTab = tab;
   document.querySelectorAll('.tab-section').forEach(function(s) { s.classList.remove('active'); });
   document.querySelectorAll('.bnav-btn').forEach(function(b) { b.classList.remove('active'); });
@@ -12933,6 +12937,17 @@ async function loadDailyPractice() {
       if (!practiceLoadInFlight || mySeq !== practiceLoadSeq) return;
       var label = content.querySelector && content.querySelector('.practice-loading-text');
       if (label) label.textContent = 'Marg is writing the ' + typeName + ' material and checking that every fact needed to solve it is present...';
+      var safeAlternative = getUnseenVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, null);
+      if (safeAlternative && !content.querySelector('.practice-safe-alternative')) {
+        var recoveryLabel = currentPracticeType === 'qa' ? 'Open verified Mixed QA now' : currentPracticeType === 'dilr' ? 'Open a verified DILR set now' : 'Open the verified RC now';
+        var recoveryButton = document.createElement('button');
+        recoveryButton.type = 'button';
+        recoveryButton.className = 'pcard-nav-btn secondary practice-safe-alternative';
+        recoveryButton.style.cssText = 'margin-top:12px;max-width:240px;';
+        recoveryButton.textContent = recoveryLabel;
+        recoveryButton.onclick = useVerifiedPracticeRecovery;
+        content.querySelector('.practice-loading').appendChild(recoveryButton);
+      }
     }, 10000),
     setTimeout(function() {
       if (!practiceLoadInFlight || mySeq !== practiceLoadSeq) return;
@@ -13008,7 +13023,7 @@ async function loadDailyPractice() {
       practiceJson,
       selectedPracticeTopic,
       knownPracticeIssues,
-      { timeoutMs:auditBudgetMs, maxTokens:currentPracticeType === 'dilr' ? 18432 : currentPracticeType === 'rc' ? 12288 : 12288, signal:requestController.signal }
+      { timeoutMs:auditBudgetMs, maxTokens:currentPracticeType === 'dilr' ? 18432 : currentPracticeType === 'rc' ? 12288 : 12288, signal:requestController.signal, technicalRetry:false }
     );
     if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
     if (!practiceAudit.valid) {
@@ -13087,6 +13102,10 @@ async function loadDailyPractice() {
 }
 
 function useVerifiedPracticeRecovery() {
+  // This action can also be offered while a personalised draft is still
+  // loading. Invalidate that request first so it cannot overwrite the safe
+  // exercise after the student has already started it.
+  cancelActivePracticeLoad();
   var recovery = getUnseenVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, null);
   var valid = recovery && (currentPracticeType === 'qa'
     ? validateQASetShape(recovery, null, 3)
