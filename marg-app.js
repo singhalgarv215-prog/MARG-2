@@ -2765,7 +2765,7 @@ function normalizeGeminiConversationContents(contents) {
 
 const GEMINI_PLAIN_TEXT_MATH_INSTRUCTION = '\n\nOUTPUT FORMAT — PLAIN-TEXT MATH ONLY: Never use LaTeX/TeX, dollar-sign math delimiters, \\(...\\), \\[...\\], \\frac, \\mathbf, \\text, \\times, or related commands. Use readable plain arithmetic with =, +, −, ×, ÷, %, ^, √, parentheses, and Rs. or ₹. This rule also applies inside JSON string fields.';
 
-function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType) {
+function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType, responseJsonSchema) {
   var requestedOutputTokens = Number(maxOutputTokens) || 500;
   // JSON does not inherently need a 16k floor. That old floor made a
   // three-question QA set as expensive and slow as a full sectional. Each
@@ -2795,8 +2795,93 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
     }
   };
   if (responseMimeType) request.generationConfig.responseMimeType = responseMimeType;
+  // JSON mode alone only asks Gemini to emit syntactically valid JSON. A
+  // response schema also fixes the array counts, required fields and answer
+  // index types before the draft reaches Marg's semantic checker.
+  if (responseJsonSchema && responseMimeType === 'application/json') {
+    request.generationConfig.responseJsonSchema = responseJsonSchema;
+  }
   request.systemInstruction = { parts:[{ text:String(systemInstruction || '') + GEMINI_PLAIN_TEXT_MATH_INSTRUCTION }] };
   return request;
+}
+
+function getPracticeGenerationJsonSchema(section, questionCount) {
+  var exactQuestions = Number(questionCount) || (section === 'dilr' ? 4 : 3);
+  var optionSchema = { type:'array', minItems:4, maxItems:4, items:{ type:'string', minLength:1 } };
+  var answerIndexSchema = { type:'integer', minimum:0, maximum:3 };
+  if (section === 'qa') {
+    return {
+      type:'object',
+      required:['difficulty','topics_combined','questions'],
+      properties:{
+        difficulty:{ type:'string' },
+        topics_combined:{ type:'array', minItems:1, items:{ type:'string' } },
+        questions:{
+          type:'array', minItems:exactQuestions, maxItems:exactQuestions,
+          items:{
+            type:'object',
+            required:['topic','q','options','correct','solution','sufficiency_check','option_check','common_mistake','concept_check','marg_insight'],
+            properties:{
+              topic:{ type:'string' }, q:{ type:'string' }, options:optionSchema, correct:answerIndexSchema,
+              solution:{ type:'string' }, sufficiency_check:{ type:'string' }, option_check:{ type:'string' },
+              common_mistake:{ type:'string' }, concept_check:{ type:'string' }, marg_insight:{ type:'string' }
+            }
+          }
+        }
+      }
+    };
+  }
+  if (section === 'rc') {
+    return {
+      type:'object', required:['sets'],
+      properties:{ sets:{ type:'array', minItems:1, maxItems:1, items:{
+        type:'object', required:['passage','difficulty','topic','questions'],
+        properties:{
+          passage:{ type:'string' }, difficulty:{ type:'string' }, topic:{ type:'string' },
+          questions:{ type:'array', minItems:3, maxItems:3, items:{
+            type:'object', required:['q','options','correct','explanation','sufficiency_check','option_check','trap_type','marg_insight'],
+            properties:{ q:{ type:'string' }, options:optionSchema, correct:answerIndexSchema, explanation:{ type:'string' }, sufficiency_check:{ type:'string' }, option_check:{ type:'string' }, trap_type:{ type:'string' }, marg_insight:{ type:'string' } }
+          } }
+        }
+      } } }
+    };
+  }
+  var setCount = Math.max(1, Math.round(exactQuestions / 4));
+  return {
+    type:'object', required:['sets'],
+    properties:{ sets:{ type:'array', minItems:setCount, maxItems:setCount, items:{
+      type:'object',
+      required:['set_title','difficulty','estimated_solve_minutes','constraint_types','derived_constraints','setup','questions'],
+      properties:{
+        set_title:{ type:'string' }, difficulty:{ type:'string' }, estimated_solve_minutes:{ type:'integer' },
+        constraint_types:{ type:'array', minItems:2, items:{ type:'string' } },
+        derived_constraints:{ type:'array', minItems:3, items:{ type:'string' } }, setup:{ type:'string' },
+        questions:{ type:'array', minItems:4, maxItems:4, items:{
+          type:'object', required:['q','reasoning_type','options','correct','explanation','sufficiency_check','option_check','common_mistake','marg_insight'],
+          properties:{ q:{ type:'string' }, reasoning_type:{ type:'string' }, options:optionSchema, correct:answerIndexSchema, explanation:{ type:'string' }, sufficiency_check:{ type:'string' }, option_check:{ type:'string' }, common_mistake:{ type:'string' }, marg_insight:{ type:'string' } }
+        } }
+      }
+    } } }
+  };
+}
+
+function getPracticeAuditJsonSchema(section) {
+  var verificationProperties = {
+    answer_indices:{ type:'array', minItems:1, items:{ type:'integer', minimum:0, maximum:3 } },
+    feasible_base_case_counts:{ type:'array', items:{ type:'integer', minimum:0 } }
+  };
+  if (section === 'dilr') {
+    verificationProperties.base_case_witnesses = { type:'array', minItems:1, items:{ type:'string' } };
+    verificationProperties.checked_constraint_counts = { type:'array', minItems:1, items:{ type:'integer', minimum:1 } };
+  }
+  return {
+    type:'object', required:['valid','issues'],
+    properties:{
+      valid:{ type:'boolean' },
+      issues:{ type:'array', items:{ type:'string' } },
+      verification:{ type:'object', properties:verificationProperties }
+    }
+  };
 }
 
 function shouldUseWebGrounding(message, diagnosis) {
@@ -4419,6 +4504,10 @@ function recordProductIncident(kind, error, details) {
     surface:String(safeDetails.surface || '').slice(0, 60),
     section:String(safeDetails.section || '').slice(0, 30),
     topic:String(safeDetails.topic || '').slice(0, 100),
+    stage:String(safeDetails.stage || '').slice(0, 80),
+    technicalMessage:String(error && error.message || '').slice(0, 320),
+    failureType:String(error && error.practiceAudit && error.practiceAudit.failureType || safeDetails.failure_type || '').slice(0, 60),
+    issues:(error && error.practiceAudit && Array.isArray(error.practiceAudit.issues) ? error.practiceAudit.issues : []).slice(0, 3).map(function(issue) { return String(issue).slice(0, 180); }),
     visibleMessage:String(safeDetails.visible_message || '').slice(0, 240)
   };
   // Store only technical metadata. Never copy the student's message, image,
@@ -11579,6 +11668,56 @@ function getVerifiedPercentagesFallback() {
   ] };
 }
 
+// These packs were generated in production, passed Marg's independent
+// answer/sufficiency audit, and were then rechecked from their complete
+// student-visible data before being embedded. They cover the DILR families
+// responsible for almost all recent Practice failures, so opening Practice no
+// longer depends on two successful Gemini calls in a row.
+function getVerifiedDistributionFallback() {
+  return { sets:[{
+    set_title:'Executive Division Assignment', difficulty:'Hard', estimated_solve_minutes:16,
+    constraint_types:['Distribution & Grouping','Numerical Assignment'],
+    derived_constraints:['Division R must contain A and F with scores 1 and 4.','Division Q must contain B and C with scores 5 and 6 in either order.','Division P must contain G, D and E with scores 7, 3 and 2.'],
+    setup:'Seven executives — A, B, C, D, E, F and G — have distinct performance scores from 1 to 7. They are assigned to three divisions P, Q and R. Division P has three executives, while Q and R have two each. The sums of the scores in P, Q and R are 12, 11 and 5 respectively. G has score 7. A has score 1 and is assigned to R. F has score 4. B and C are assigned to the same division. E is assigned to P, and D has a strictly higher score than E. The executive whose score is 6 is assigned to Q. Every executive belongs to exactly one division, every listed score is used exactly once, and the stated division sizes and score totals must all hold simultaneously.',
+    questions:[
+      { q:'Which statement must be true?', reasoning_type:'must-cannot', options:['A. D is in P and has score 3','B. C is in Q and has score 6','C. F is in P and has score 4','D. E is in R and has score 2'], correct:0, explanation:'R must be A1 and F4; Q is B and C with scores 5 and 6; therefore P is G7, D3 and E2.', sufficiency_check:'The group sizes, sums and fixed scores leave only the B-C score swap unresolved.', option_check:'Only A survives both possible B-C score assignments.', common_mistake:'Treating the interchangeable scores of B and C as fixed.', marg_insight:'Use the smallest group total first; it forces R immediately.' },
+      { q:'How many distinct complete score assignments are possible?', reasoning_type:'case-count', options:['A. 1','B. 2','C. 4','D. 6'], correct:1, explanation:'All placements and scores are fixed except that B and C can interchange scores 5 and 6, giving two assignments.', sufficiency_check:'Every other executive has a uniquely forced score and division.', option_check:'The two B-C orders are both valid and there is no other degree of freedom, so only B is correct.', common_mistake:'Allowing D and E to swap despite D having the higher score.', marg_insight:'After fixing the groups, count only the remaining symmetry.' },
+      { q:'What is the maximum possible difference between the score sum of P and the score of B?', reasoning_type:'optimization', options:['A. 7','B. 6','C. 5','D. 8'], correct:0, explanation:'P totals 12 and B can be 5 or 6. The maximum difference is 12 − 5 = 7.', sufficiency_check:'P is fixed at 12 and the only possible scores of B are 5 and 6.', option_check:'The two possible differences are 7 and 6, so only A is the maximum.', common_mistake:'Using B’s larger score while trying to maximize the difference.', marg_insight:'To maximize a fixed total minus a variable, minimize the variable.' },
+      { q:'If C is transferred to R and F is transferred to Q, making the new score sum of Q equal to 10, what must be B’s score?', reasoning_type:'local-hypothetical', options:['A. 6','B. 5','C. 3','D. 4'], correct:0, explanation:'After the transfers Q contains B and F. Since F has score 4, B must have score 10 − 4 = 6.', sufficiency_check:'The new membership of Q, its total and F’s fixed score determine B uniquely.', option_check:'Only option A makes the new Q total equal to 10.', common_mistake:'Keeping C in Q after the stated transfer.', marg_insight:'Apply a local change to membership before recalculating its total.' }
+    ]
+  }] };
+}
+
+function getVerifiedGamesFallback() {
+  return { sets:[{
+    set_title:'Five-Team Round-Robin Tournament', difficulty:'Hard', estimated_solve_minutes:16,
+    constraint_types:['Games & Tournaments','Outcome Matrix Deduction'],
+    derived_constraints:['Exactly four of the ten matches were draws.','Alpha drew with Gamma in its only match not already specified against Beta, Delta or Epsilon.','Beta drew with Delta and defeated Epsilon, while Gamma defeated Delta.'],
+    setup:'Five teams — Alpha, Beta, Gamma, Delta and Epsilon — played a single round-robin football tournament, so every pair met exactly once and ten matches were played. A win gave 3 points, a draw 1 point to each team, and a loss 0 points. Their final totals were Alpha 8, Beta 7, Gamma 5, Delta 4 and Epsilon 2. Alpha did not lose any match, while Epsilon did not win any match. Beta defeated Gamma but lost to Alpha. Delta defeated Epsilon but lost to Alpha. Epsilon drew against both Alpha and Gamma. No match was abandoned, no bonus points were awarded, and the listed totals include all four matches played by each team. Use the totals together with the stated outcomes to determine every remaining result.',
+    questions:[
+      { q:'What must have happened in the match between Gamma and Delta?', reasoning_type:'must-cannot', options:['A. Gamma defeated Delta','B. Delta defeated Gamma','C. The match was drawn','D. The result cannot be determined'], correct:0, explanation:'Gamma already has draws against Alpha and Epsilon and a loss to Beta; reaching 5 points therefore requires a win over Delta.', sufficiency_check:'Gamma’s total and its other three results fix the fourth result.', option_check:'Only a win gives Gamma the three additional points needed, so only A survives.', common_mistake:'Assuming two low-ranked teams must have drawn.', marg_insight:'Decompose one team’s total after accounting for its known matches.' },
+      { q:'How many matches in the tournament ended in a draw?', reasoning_type:'case-count', options:['A. 3','B. 4','C. 5','D. 6'], correct:1, explanation:'Ten decisive matches would distribute 30 points. The actual total is 26, and each draw reduces the distributed total by one, so there were four draws.', sufficiency_check:'The number of matches, scoring rule and all final totals are given.', option_check:'30 − 26 = 4, which matches only option B.', common_mistake:'Counting team draw entries rather than drawn matches.', marg_insight:'Compare the actual points with the all-decisive maximum.' },
+      { q:'How many points did Beta earn against the three teams that finished below Beta?', reasoning_type:'exact-value', options:['A. 4','B. 6','C. 7','D. 9'], correct:2, explanation:'Beta beat Gamma and Epsilon and drew with Delta, earning 3 + 3 + 1 = 7 points.', sufficiency_check:'Beta’s known total and all other outcomes force its Delta and Epsilon results.', option_check:'The forced results total seven points, so only C is correct.', common_mistake:'Assuming Beta defeated every lower-ranked team.', marg_insight:'Final rank alone does not tell a match result; reconstruct the row.' },
+      { q:'If Delta had drawn with Alpha instead of losing, with every other result unchanged, what would Delta’s total be?', reasoning_type:'local-hypothetical', options:['A. 4','B. 5','C. 6','D. 7'], correct:1, explanation:'Changing that loss from 0 points to a draw worth 1 point raises Delta’s total from 4 to 5.', sufficiency_check:'The hypothetical changes exactly one known outcome and leaves all others fixed.', option_check:'Adding one point gives 5, matching only B.', common_mistake:'Adding three points as though the draw were a win.', marg_insight:'For a local change, adjust only the points affected by that result.' }
+    ]
+  }] };
+}
+
+function getVerifiedTablesFallback() {
+  return { sets:[{
+    set_title:'Departmental Budget Allocation', difficulty:'Hard', estimated_solve_minutes:16,
+    constraint_types:['Tables, Charts & DI Caselets','Matrix Allocation'],
+    derived_constraints:['B’s Marketing allocation is 4 Cr, making its Operations allocation 9 Cr.','C’s Operations allocation is 12 Cr and F receives 6 Cr each for Operations and Marketing.','The complete Operations, R&D and Marketing rows reconcile to 54, 40 and 35 Cr.'],
+    setup:'A technology group allocates annual budgets to six departments A, B, C, D, E and F under Operations, Research and Development (R&D), and Marketing. Every allocation is a positive integer number of crores. Across all departments, the totals under these three heads are 54 Cr, 40 Cr and 35 Cr respectively. A receives 25 Cr in the ratio 3:1:1. B receives 21 Cr; its R&D allocation is twice its Marketing allocation, and its Operations allocation equals E’s Operations allocation. C also receives 21 Cr, and C’s Marketing allocation equals D’s R&D allocation. D receives 18 Cr in the ratio 1:2:3. E receives 22 Cr, including 8 Cr for R&D. F receives 10 Cr for R&D and equal amounts for Operations and Marketing. All three head totals and every departmental total must reconcile exactly.',
+    questions:[
+      { q:'What is the Operations budget of Department C?', reasoning_type:'must-cannot', options:['A. 10 Cr','B. 12 Cr','C. 9 Cr','D. 15 Cr'], correct:1, explanation:'Let B’s Marketing budget be y. Combining the three head totals with the given ratios gives y = 4 and hence C’s Operations budget is 12 Cr.', sufficiency_check:'The departmental totals, head totals and linking conditions form one consistent integer solution.', option_check:'Only 12 Cr lets every departmental and head total reconcile, so B is unique.', common_mistake:'Ignoring F’s equal Operations and Marketing allocations.', marg_insight:'Choose B’s Marketing budget as the single variable linking the table.' },
+      { q:'For how many departments is Marketing greater than or equal to Operations?', reasoning_type:'case-count', options:['A. 1','B. 2','C. 3','D. 4'], correct:1, explanation:'The Marketing and Operations pairs are A 5/15, B 4/9, C 6/12, D 9/3, E 5/9 and F 6/6. Only D and F qualify.', sufficiency_check:'The complete table is uniquely determined from the setup.', option_check:'Exactly two departments satisfy the non-strict comparison, so only B is correct.', common_mistake:'Missing F because its two allocations are equal.', marg_insight:'Underline “greater than or equal to”; equality changes the count.' },
+      { q:'Which department has the greatest ratio of (R&D + Marketing) to Operations?', reasoning_type:'optimization', options:['A. Department B','B. Department E','C. Department D','D. Department F'], correct:2, explanation:'The ratios for B, E, D and F are 12/9, 13/9, 15/3 and 16/6. Department D’s ratio is the largest at 5:1.', sufficiency_check:'All allocations required for the four ratios are uniquely known.', option_check:'5 exceeds 8/3, 13/9 and 4/3, so only C survives.', common_mistake:'Comparing only the numerators and ignoring Operations.', marg_insight:'A small denominator can dominate a combined-budget ratio.' },
+      { q:'If E moves 2 Cr from Operations to Marketing and C moves 3 Cr from Operations to R&D, which listed department then has the highest combined Operations and R&D budget?', reasoning_type:'local-hypothetical', options:['A. Department A','B. Department B','C. Department C','D. Department F'], correct:0, explanation:'The updated Operations-plus-R&D totals are A 20, B 17, C 15 and F 16. A remains highest.', sufficiency_check:'The original table is fixed and each reallocation states its source and destination.', option_check:'Twenty is strictly greater than the other listed totals, so only A is correct.', common_mistake:'Treating C’s internal move from Operations to R&D as an increase in their sum.', marg_insight:'A transfer within the two combined heads does not change their combined total.' }
+    ]
+  }] };
+}
+
 function getVerifiedFallbackPractice(section, questionCount, topic) {
   if (section === 'rc') return getVerifiedRCFallback();
   if (section === 'qa' && normalizePracticeTopicName(topic) === 'percentages' && (questionCount || 3) <= 3) return getVerifiedPercentagesFallback();
@@ -11590,6 +11729,9 @@ function getVerifiedFallbackPractice(section, questionCount, topic) {
       { topic:'Algebra', q:'For a positive real number x, x + 1/x = 3. What is x^5 + 1/x^5?', options:['A. 99','B. 111','C. 123','D. 135'], correct:2, solution:'With Sₙ=xⁿ+x⁻ⁿ, Sₙ=3Sₙ₋₁−Sₙ₋₂. From S₀=2,S₁=3, obtain S₅=123.', common_mistake:'Expanding the fifth power directly', concept_check:'Algebraic recurrence', marg_insight:'Recognition of a recurrence is the speed-saving insight.' }
     ] };
   }
+  if (section === 'dilr' && (questionCount || 4) <= 4 && /distribution|grouping/i.test(topic || '')) return getVerifiedDistributionFallback();
+  if (section === 'dilr' && (questionCount || 4) <= 4 && /games|tournaments/i.test(topic || '')) return getVerifiedGamesFallback();
+  if (section === 'dilr' && (questionCount || 4) <= 4 && /tables|charts|caselets/i.test(topic || '')) return getVerifiedTablesFallback();
   if (section === 'dilr' && (questionCount || 4) <= 4 && (!topic || /arrangement|ranking|scheduling|allocation|mixed|diagnostic/i.test(topic))) {
     // This set and all four keys are enumerated in the regression suite. It is
     // the safe instant fallback for the two matching topic families only; a
@@ -11921,7 +12063,8 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
           'You are a strict independent CAT question-set auditor. A plausible-looking but flawed item must fail. Never infer missing data and never repair the submitted material. Solve independently and return only valid JSON.',
           [{ role:'user', content:auditPrompt }],
           auditMaxTokens,
-          'application/json'
+          'application/json',
+          getPracticeAuditJsonSchema(section)
         ))
       }, remainingMs);
       if (!auditResponse.ok) throw new Error('Audit service failed');
@@ -12562,7 +12705,8 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
         'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
         [{ role: 'user', content: prompt }],
         maxTokens,
-        'application/json'
+        'application/json',
+        getPracticeGenerationJsonSchema(section, questionCount || (section === 'qa' ? 10 : 12))
       ))
     }, timedGenerationTimeoutMs);
 
@@ -12905,9 +13049,11 @@ async function loadDailyPractice() {
   var mySeq = ++practiceLoadSeq;
 
   // Never make a student wait for Gemini when an independently verified,
-  // topic-matched pack already exists locally. This currently covers RC,
-  // Percentages, Mixed QA and the enumerated DILR families.
-  var instantCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic, false);
+  // topic-matched pack already exists. Fresh checked cache entries rotate
+  // first; if all are already seen, transparently repeat the checked pack
+  // rather than sending the student through a failing two-call generation
+  // path. Topic accuracy and solvability are more important than fake novelty.
+  var instantCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic, true);
   var instantVerifiedPractice = instantCandidate && instantCandidate.data;
   var instantVerifiedValid = instantVerifiedPractice && (currentPracticeType === 'qa'
     ? validateQASetShape(instantVerifiedPractice, selectedPracticeTopic, 3)
@@ -12919,6 +13065,9 @@ async function loadDailyPractice() {
     practiceLoadInFlight = false;
     if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
     practiceLoadMetrics.source = instantCandidate.source;
+    if (instantCandidate.repeated) {
+      instantVerifiedPractice._margRecoveryNote = 'You have seen this checked set before. Marg is using it again because no different topic-matched set has passed every answer check yet.';
+    }
     practiceData[currentPracticeType] = instantVerifiedPractice;
     storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-bank', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Topic-matched CAT practice with verified statements and answer keys', generationStartedAt:practiceGenerationStartedAt, generationDurationMs:0, validationVerdict:{ status:'verified_local' }, content:instantVerifiedPractice });
     currentSetIndex = 0;
@@ -12965,6 +13114,7 @@ async function loadDailyPractice() {
   else prompt = buildQAPrompt(selectedPracticeTopic);
 
   var maxTokens = currentPracticeType === 'dilr' ? 12288 : currentPracticeType === 'rc' ? 8192 : 6144;
+  var practiceFailureStage = 'generation_request';
 
   try {
     var res = await fetchWithTimeout(WORKER_URL, {
@@ -12975,7 +13125,8 @@ async function loadDailyPractice() {
         'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().',
         [{ role: 'user', content: prompt }],
         maxTokens,
-        'application/json'
+        'application/json',
+        getPracticeGenerationJsonSchema(currentPracticeType, currentPracticeType === 'dilr' ? 4 : 3)
       ))
     }, currentPracticeType === 'dilr' ? 50000 : currentPracticeType === 'rc' ? 42000 : 35000);
 
@@ -12984,12 +13135,14 @@ async function loadDailyPractice() {
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
+    practiceFailureStage = 'generation_response';
     var data = await res.json();
     if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
     if (isGeminiStructuredResponseTruncated(data)) throw new SyntaxError('Practice JSON was truncated');
     var text = getGeminiText(data);
     if (!text) throw new Error('No response');
 
+    practiceFailureStage = 'generation_parse';
     var clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
     var practiceJson;
     try {
@@ -12998,6 +13151,7 @@ async function loadDailyPractice() {
       console.error('Practice JSON parse failed. Raw model output:', text);
       throw parseErr;
     }
+    practiceFailureStage = 'local_structure_and_completeness';
     var practiceHasContent = currentPracticeType === 'qa' ? (practiceJson.questions && practiceJson.questions.length > 0) : (practiceJson.sets && practiceJson.sets.length > 0);
     if (!practiceHasContent) {
       console.error('Practice parsed OK but yielded no questions/sets. Parsed shape:', practiceJson, 'Raw model output:', text);
@@ -13018,6 +13172,7 @@ async function loadDailyPractice() {
       currentPracticeType === 'dilr' ? 45000 : 35000,
       practiceDeadlineMs - Date.now()
     ));
+    practiceFailureStage = 'independent_answer_audit';
     var practiceAudit = await auditGeneratedCATContent(
       currentPracticeType,
       practiceJson,
@@ -13030,8 +13185,15 @@ async function loadDailyPractice() {
       console.error('Practice failed semantic audit:', practiceAudit.issues);
       var auditFailure = new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
       auditFailure.practiceAudit = practiceAudit;
+      if (practiceAudit.error) {
+        auditFailure.name = practiceAudit.error.name || auditFailure.name;
+        auditFailure.status = practiceAudit.error.status || 0;
+        auditFailure.code = practiceAudit.error.code || auditFailure.code;
+        auditFailure.requestId = practiceAudit.error.requestId || '';
+      }
       throw auditFailure;
     }
+    practiceFailureStage = 'final_validation';
     var finalPracticeValid = currentPracticeType === 'qa'
       ? validateQASetShape(practiceJson, selectedPracticeTopic, 3)
       : currentPracticeType === 'dilr'
@@ -13041,6 +13203,7 @@ async function loadDailyPractice() {
       throw new Error('Generated practice remained incomplete or had no unique verified answer after audit');
     }
     if (mySeq !== practiceLoadSeq) return;
+    practiceFailureStage = 'verified_cache_and_render';
     saveVerifiedPracticeToCache(currentPracticeType, selectedPracticeTopic, practiceJson, practiceAudit.verification);
     practiceLoadInFlight = false;
     if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
@@ -13059,7 +13222,7 @@ async function loadDailyPractice() {
     practiceLoadInFlight = false;
     if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
     console.error('Practice error:', e);
-    recordProductIncident('practice_generation_failed', e, { surface:'practice', section:currentPracticeType, topic:selectedPracticeTopic || '' });
+    recordProductIncident('practice_generation_failed', e, { surface:'practice', section:currentPracticeType, topic:selectedPracticeTopic || '', stage:practiceFailureStage });
     var fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic, true);
     var fallbackPractice = fallbackCandidate && fallbackCandidate.data;
     var fallbackValid = fallbackPractice && (currentPracticeType === 'qa'
@@ -13082,6 +13245,8 @@ async function loadDailyPractice() {
     var failedAudit = e && e.practiceAudit;
     var errorMessage = e && e.name === 'AbortError'
       ? 'This practice set did not finish its answer check in time, so Marg discarded it instead of showing incomplete questions.'
+      : Number(e && e.status) === 400 && String(e && e.code || '').toUpperCase() === 'FAILED_PRECONDITION'
+        ? 'The checked practice generator is temporarily misconfigured. Retrying the same request will not help until it is corrected.'
       : failedAudit && failedAudit.failureType === 'technical'
         ? 'The questions were generated, but the independent answer check could not finish. Marg discarded them rather than risk showing a flawed set.'
       : isGeminiServiceError(e)
