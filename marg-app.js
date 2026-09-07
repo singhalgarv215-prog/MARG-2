@@ -2630,6 +2630,12 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     throw cooldownError;
   }
   var controller = new AbortController();
+  var externalSignal = options && options.signal;
+  var relayExternalAbort = function() { controller.abort(); };
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener('abort', relayExternalAbort, { once:true });
+  }
   // The caller owns the timeout budget. Ordinary mentor chat now allows 60
   // seconds; larger generation flows pass their own longer budgets.
   var requestedTimeout = Number(timeoutMs);
@@ -2638,6 +2644,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   try {
     var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
     clearTimeout(timeoutId);
+    if (externalSignal) externalSignal.removeEventListener('abort', relayExternalAbort);
     if (!res.ok) {
       var errorPayload = null;
       try { errorPayload = await res.clone().json(); } catch(parseError) {}
@@ -2667,6 +2674,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     return res;
   } catch (e) {
     clearTimeout(timeoutId);
+    if (externalSignal) externalSignal.removeEventListener('abort', relayExternalAbort);
     if (e && e.name === 'AbortError') console.error('Gemini request timed out:', { timeoutMs:effectiveTimeout, url:url });
     throw e;
   }
@@ -2892,6 +2900,11 @@ function getGeminiText(payload) {
     throw noTextError;
   }
   return text;
+}
+
+function isGeminiStructuredResponseTruncated(payload) {
+  var finishReason = payload && payload.candidates && payload.candidates[0] && payload.candidates[0].finishReason;
+  return finishReason === 'MAX_TOKENS' || !!(payload && payload.margRequest && payload.margRequest.truncated);
 }
 
 var HOME_DIAGNOSIS_OPENING = 'Pick the area where your marks feel least predictable.';
@@ -10712,6 +10725,7 @@ var selectedPracticeTopic = null;
 var practiceLoadSeq = 0;
 var practiceLoadInFlight = false;
 var practiceLoadTarget = null;
+var practiceLoadAbortController = null;
 var practiceLoadMetrics = { startedAt:0, shellVisibleAt:0, contentVisibleAt:0, source:'none' };
 window.getMargPracticeLoadMetrics = function() {
   return Object.assign({}, practiceLoadMetrics, {
@@ -11231,8 +11245,19 @@ function showBottomNav() {
   var desktopNav = document.getElementById('desktop-nav');
   if (desktopNav) desktopNav.classList.add('visible');
 }
+function cancelActivePracticeLoad() {
+  if (practiceLoadAbortController) practiceLoadAbortController.abort();
+  practiceLoadAbortController = null;
+  practiceLoadInFlight = false;
+  practiceLoadTarget = null;
+  practiceLoadSeq++;
+}
 function switchPracticeTab(type) {
   clearInsightToast();
+  // Topic pickers return before loadDailyPractice creates a new request. Abort
+  // and invalidate the old section here so it cannot finish behind the picker
+  // and render into the newly selected tab.
+  cancelActivePracticeLoad();
   currentPracticeType = type;
   currentSetIndex = 0;
   currentQuestionIndex = 0;
@@ -11662,6 +11687,81 @@ function getUnseenVerifiedFallbackPractice(section, questionCount, topic) {
   return practice && !wasPracticeRecentlySeen(section, practice) ? practice : null;
 }
 
+var VERIFIED_PRACTICE_CACHE_LIMIT = 12;
+
+function getVerifiedPracticeCacheEntries() {
+  try {
+    var stored = JSON.parse(localStorage.getItem(getUserScopedKey('marg_verified_practice_cache_v1')) || '[]');
+    return Array.isArray(stored) ? stored : [];
+  } catch(e) { return []; }
+}
+
+function isPracticePackValidForRequest(section, data, topic, questionCount) {
+  if (!data || collectSolutionPresentationIssues(data, section).length) return false;
+  var shapeValid = section === 'qa'
+    ? validateQASetShape(data, topic, questionCount || 3)
+    : section === 'dilr'
+      ? validateDILRPracticeSet(data)
+      : validateRCPracticeSet(data);
+  if (!shapeValid) return false;
+  // Generated cache entries retain their private sufficiency evidence. The
+  // embedded hand-checked packs predate those fields and are validated by
+  // their dedicated shape/enumeration regression tests instead.
+  return validateGeneratedPracticeCompleteness(data, section);
+}
+
+function saveVerifiedPracticeToCache(section, topic, data, verification) {
+  if (!verification || !isPracticePackValidForRequest(section, data, topic, section === 'qa' ? 3 : 4)) return false;
+  var signature = practiceContentSignature(section, data);
+  var entries = getVerifiedPracticeCacheEntries().filter(function(entry) {
+    return entry && entry.signature !== signature && entry.data;
+  });
+  entries.push({
+    section:section,
+    topic:normalizePracticeTopicName(topic || 'mixed'),
+    signature:signature,
+    savedAt:new Date().toISOString(),
+    verification:verification,
+    data:data
+  });
+  entries = entries.slice(-VERIFIED_PRACTICE_CACHE_LIMIT);
+  try {
+    localStorage.setItem(getUserScopedKey('marg_verified_practice_cache_v1'), JSON.stringify(entries));
+    return true;
+  } catch(e) {
+    // A full browser quota must never break Practice after the content has
+    // already passed its checks.
+    return false;
+  }
+}
+
+function getCachedVerifiedPractice(section, questionCount, topic, allowSeen) {
+  var topicKey = normalizePracticeTopicName(topic || 'mixed');
+  var entries = getVerifiedPracticeCacheEntries().slice().reverse();
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i];
+    if (!entry || entry.section !== section || entry.topic !== topicKey || !entry.verification) continue;
+    var candidate;
+    try { candidate = JSON.parse(JSON.stringify(entry.data)); } catch(e) { continue; }
+    if (!isPracticePackValidForRequest(section, candidate, topic, questionCount)) continue;
+    if (!allowSeen && wasPracticeRecentlySeen(section, candidate)) continue;
+    return candidate;
+  }
+  return null;
+}
+
+function getReliablePracticeCandidate(section, questionCount, topic, allowSeen) {
+  var embedded = getUnseenVerifiedFallbackPractice(section, questionCount, topic);
+  if (embedded) return { data:embedded, source:'verified-local', repeated:false };
+  var cached = getCachedVerifiedPractice(section, questionCount, topic, false);
+  if (cached) return { data:cached, source:'verified-cache', repeated:false };
+  if (!allowSeen) return null;
+  cached = getCachedVerifiedPractice(section, questionCount, topic, true);
+  if (cached) return { data:cached, source:'verified-cache-repeat', repeated:true };
+  embedded = getVerifiedFallbackPractice(section, questionCount, topic);
+  return embedded ? { data:embedded, source:'verified-local-repeat', repeated:true } : null;
+}
+
 function getSectionalTestMaxTokens(section, questionCount) {
   if (section === 'qa') return Math.min(24576, Math.max(16384, (questionCount || 10) * 1500));
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
@@ -11794,7 +11894,7 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
     // A known local failure is sufficient to reject the draft. Asking another
     // model to repair its own bad draft added delay and then rendered an
     // un-audited repair. Fail closed and move to a verified fallback/retry.
-    return { valid:false, issues:knownPresentationIssues.slice(), correctedData:null };
+    return { valid:false, issues:knownPresentationIssues.slice(), correctedData:null, failureType:'local' };
   }
   var validShape = section === 'dilr'
     ? '{"valid":true,"issues":[],"verification":{"answer_indices":[0,1,2,3],"feasible_base_case_counts":[12],"base_case_witnesses":["one complete assignment satisfying every stated condition"],"checked_constraint_counts":[8]}}'
@@ -11805,30 +11905,45 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
   auditOptions = auditOptions || {};
   var auditMaxTokens = Number(auditOptions.maxTokens) || (section === 'dilr' ? Math.min(32768, 16384 + setCount * 5000) : section === 'rc' ? 16384 : 20480);
   var auditTimeout = Number(auditOptions.timeoutMs) || 120000;
-  try {
-    var auditResponse = await fetchWithTimeout(WORKER_URL, {
-      method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify(buildGeminiRequest(
-        'You are a strict independent CAT question-set auditor. A plausible-looking but flawed item must fail. Never infer missing data and never repair the submitted material. Solve independently and return only valid JSON.',
-        [{ role:'user', content:auditPrompt }],
-        auditMaxTokens,
-        'application/json'
-      ))
-    }, auditTimeout);
-    if (!auditResponse.ok) return { valid:false, issues:['Audit service failed'] };
-    var auditPayload = await auditResponse.json();
-    var auditText = getGeminiText(auditPayload);
-    var audit = parseGeneratedJson(auditText || '');
-    if (!audit || audit.valid !== true) {
-      return { valid:false, issues:(audit && audit.issues) || ['Semantic audit failed'], correctedData:null };
+  var auditDeadline = Date.now() + auditTimeout;
+  var maxTechnicalAttempts = auditOptions.technicalRetry === false ? 1 : 2;
+  for (var attempt = 0; attempt < maxTechnicalAttempts; attempt++) {
+    var remainingMs = auditDeadline - Date.now();
+    if (remainingMs < 4000) break;
+    try {
+      var auditResponse = await fetchWithTimeout(WORKER_URL, {
+        method:'POST', headers:{ 'Content-Type':'application/json' }, signal:auditOptions.signal,
+        body:JSON.stringify(buildGeminiRequest(
+          'You are a strict independent CAT question-set auditor. A plausible-looking but flawed item must fail. Never infer missing data and never repair the submitted material. Solve independently and return only valid JSON.',
+          [{ role:'user', content:auditPrompt }],
+          auditMaxTokens,
+          'application/json'
+        ))
+      }, remainingMs);
+      if (!auditResponse.ok) throw new Error('Audit service failed');
+      var auditPayload = await auditResponse.json();
+      if (isGeminiStructuredResponseTruncated(auditPayload)) throw new SyntaxError('Audit JSON was truncated');
+      var auditText = getGeminiText(auditPayload);
+      var audit = parseGeneratedJson(auditText || '');
+      if (!audit || audit.valid !== true) {
+        return { valid:false, issues:(audit && audit.issues) || ['Semantic audit failed'], correctedData:null, failureType:'semantic' };
+      }
+      var agreement = validateIndependentPracticeVerification(audit, generatedData, section);
+      return agreement.valid
+        ? { valid:true, issues:[], correctedData:null, verification:audit.verification }
+        : { valid:false, issues:agreement.issues, correctedData:null, failureType:'verification' };
+    } catch(e) {
+      if (auditOptions.signal && auditOptions.signal.aborted) throw e;
+      var technical = isGeminiServiceError(e) || e instanceof SyntaxError || /JSON|parse|response|network|fetch/i.test(String(e && e.message || ''));
+      if (!technical || attempt + 1 >= maxTechnicalAttempts) {
+        return { valid:false, issues:['Independent answer check could not finish'], correctedData:null, failureType:'technical', error:e };
+      }
+      // Retry only the independent check, never the question generation, and
+      // never more than once. This recovers a truncated/malformed audit reply
+      // without creating an unbounded chain of paid requests.
     }
-    var agreement = validateIndependentPracticeVerification(audit, generatedData, section);
-    return agreement.valid
-      ? { valid:true, issues:[], correctedData:null, verification:audit.verification }
-      : { valid:false, issues:agreement.issues, correctedData:null };
-  } catch(e) {
-    return { valid:false, issues:['Semantic audit could not verify this set'] };
   }
+  return { valid:false, issues:['Independent answer check ran out of time'], correctedData:null, failureType:'technical' };
 }
 
 function normalizeCorrectIndex(q) {
@@ -12778,6 +12893,9 @@ async function loadDailyPractice() {
 
   var loadTarget = currentPracticeType + '::' + (selectedPracticeTopic || '');
   if (practiceLoadInFlight && practiceLoadTarget === loadTarget) return;
+  if (practiceLoadAbortController) practiceLoadAbortController.abort();
+  var requestController = new AbortController();
+  practiceLoadAbortController = requestController;
   practiceLoadInFlight = true;
   practiceLoadTarget = loadTarget;
   var mySeq = ++practiceLoadSeq;
@@ -12785,15 +12903,18 @@ async function loadDailyPractice() {
   // Never make a student wait for Gemini when an independently verified,
   // topic-matched pack already exists locally. This currently covers RC,
   // Percentages, Mixed QA and the enumerated DILR families.
-  var instantVerifiedPractice = getUnseenVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic);
+  var instantCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic, false);
+  var instantVerifiedPractice = instantCandidate && instantCandidate.data;
   var instantVerifiedValid = instantVerifiedPractice && (currentPracticeType === 'qa'
     ? validateQASetShape(instantVerifiedPractice, selectedPracticeTopic, 3)
     : currentPracticeType === 'dilr'
       ? validateDILRPracticeSet(instantVerifiedPractice)
       : validateRCPracticeSet(instantVerifiedPractice));
   if (instantVerifiedValid) {
+    if (mySeq !== practiceLoadSeq) return;
     practiceLoadInFlight = false;
-    practiceLoadMetrics.source = 'verified-local';
+    if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
+    practiceLoadMetrics.source = instantCandidate.source;
     practiceData[currentPracticeType] = instantVerifiedPractice;
     storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-bank', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Topic-matched CAT practice with verified statements and answer keys', generationStartedAt:practiceGenerationStartedAt, generationDurationMs:0, validationVerdict:{ status:'verified_local' }, content:instantVerifiedPractice });
     currentSetIndex = 0;
@@ -12834,6 +12955,7 @@ async function loadDailyPractice() {
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: requestController.signal,
       body: JSON.stringify(buildGeminiRequest(
         'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().',
         [{ role: 'user', content: prompt }],
@@ -12843,10 +12965,13 @@ async function loadDailyPractice() {
     }, currentPracticeType === 'dilr' ? 50000 : currentPracticeType === 'rc' ? 42000 : 35000);
 
     clearGenerationStatus();
+    if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
     var data = await res.json();
+    if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
+    if (isGeminiStructuredResponseTruncated(data)) throw new SyntaxError('Practice JSON was truncated');
     var text = getGeminiText(data);
     if (!text) throw new Error('No response');
 
@@ -12883,11 +13008,14 @@ async function loadDailyPractice() {
       practiceJson,
       selectedPracticeTopic,
       knownPracticeIssues,
-      { timeoutMs:auditBudgetMs, maxTokens:currentPracticeType === 'dilr' ? 18432 : currentPracticeType === 'rc' ? 12288 : 12288 }
+      { timeoutMs:auditBudgetMs, maxTokens:currentPracticeType === 'dilr' ? 18432 : currentPracticeType === 'rc' ? 12288 : 12288, signal:requestController.signal }
     );
+    if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
     if (!practiceAudit.valid) {
       console.error('Practice failed semantic audit:', practiceAudit.issues);
-      throw new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
+      var auditFailure = new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
+      auditFailure.practiceAudit = practiceAudit;
+      throw auditFailure;
     }
     var finalPracticeValid = currentPracticeType === 'qa'
       ? validateQASetShape(practiceJson, selectedPracticeTopic, 3)
@@ -12897,9 +13025,11 @@ async function loadDailyPractice() {
     if (!finalPracticeValid || !validateGeneratedPracticeCompleteness(practiceJson, currentPracticeType)) {
       throw new Error('Generated practice remained incomplete or had no unique verified answer after audit');
     }
-    practiceLoadInFlight = false;
-    practiceLoadMetrics.source = 'generated-audited';
     if (mySeq !== practiceLoadSeq) return;
+    saveVerifiedPracticeToCache(currentPracticeType, selectedPracticeTopic, practiceJson, practiceAudit.verification);
+    practiceLoadInFlight = false;
+    if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
+    practiceLoadMetrics.source = 'generated-audited';
     practiceData[currentPracticeType] = practiceJson;
     storeActiveGeneratedExercise({ type:currentPracticeType, source:'practice-tab', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' practice', purpose:'Targeted CAT practice based on the student’s current mistake patterns', generationStartedAt:practiceGenerationStartedAt, validationVerdict:{ status:'independently_verified', verification:practiceAudit.verification || null }, content:practiceJson });
     currentSetIndex = 0;
@@ -12910,18 +13040,21 @@ async function loadDailyPractice() {
 
   } catch(e) {
     clearGenerationStatus();
-    practiceLoadInFlight = false;
     if (mySeq !== practiceLoadSeq) return;
+    practiceLoadInFlight = false;
+    if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
     console.error('Practice error:', e);
     recordProductIncident('practice_generation_failed', e, { surface:'practice', section:currentPracticeType, topic:selectedPracticeTopic || '' });
-    var fallbackPractice = getUnseenVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic);
+    var fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic, true);
+    var fallbackPractice = fallbackCandidate && fallbackCandidate.data;
     var fallbackValid = fallbackPractice && (currentPracticeType === 'qa'
       ? validateQASetShape(fallbackPractice, selectedPracticeTopic, 3)
       : currentPracticeType === 'dilr'
         ? validateDILRPracticeSet(fallbackPractice)
         : validateRCPracticeSet(fallbackPractice));
     if (fallbackValid) {
-      practiceLoadMetrics.source = 'verified-fallback';
+      if (fallbackCandidate.repeated) fallbackPractice._margRecoveryNote = 'A fresh draft did not pass Marg’s answer check, so this is a previously verified topic-matched set. It may look familiar, but it is complete and safe to solve.';
+      practiceLoadMetrics.source = fallbackCandidate.source;
       practiceData[currentPracticeType] = fallbackPractice;
       storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-fallback', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Reliable CAT practice used after a generated draft failed validation', generationStartedAt:practiceGenerationStartedAt, validationVerdict:{ status:'verified_local' }, content:fallbackPractice });
       currentSetIndex = 0;
@@ -12931,8 +13064,11 @@ async function loadDailyPractice() {
       renderPractice(fallbackPractice);
       return;
     }
+    var failedAudit = e && e.practiceAudit;
     var errorMessage = e && e.name === 'AbortError'
       ? 'This practice set did not finish its answer check in time, so Marg discarded it instead of showing incomplete questions.'
+      : failedAudit && failedAudit.failureType === 'technical'
+        ? 'The questions were generated, but the independent answer check could not finish. Marg discarded them rather than risk showing a flawed set.'
       : isGeminiServiceError(e)
         ? 'The practice service is busy right now. No unverified questions were shown.'
         : 'This practice draft failed its completeness or answer check, so Marg discarded it.';
@@ -12991,6 +13127,9 @@ function usesSets(type) { return type === 'rc' || type === 'dilr'; }
 function renderPractice(data) {
   var content = document.getElementById('practice-content');
   var morningPrompt = getMorningPromptHtml();
+  var recoveryNote = data && data._margRecoveryNote
+    ? '<div class="practice-recovery-note" style="margin-bottom:12px;padding:11px 13px;border:1px solid rgba(201,168,76,.24);border-radius:10px;background:rgba(201,168,76,.07);color:var(--text-muted);font-size:12px;line-height:1.55;">' + String(data._margRecoveryNote).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>'
+    : '';
   var q, qNum, total, headerLabel, diffLabel, bodyHtml, hasPrev, isLastOverall;
 
   if (currentPracticeType === 'rc') {
@@ -13032,7 +13171,7 @@ function renderPractice(data) {
   var prevBtn = hasPrev ? '<button class="pcard-nav-btn secondary" onclick="prevQuestion()">Previous</button>' : '';
   var nextLabel = isLastOverall ? 'Finish session' : (usesSets(currentPracticeType) && currentQuestionIndex === total - 1 ? 'Next set' : 'Next question');
 
-  content.innerHTML = morningPrompt + '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">' + headerLabel + '</div><div class="pcard-difficulty">' + diffLabel + '</div></div><div class="pcard-body">' + bodyHtml + '<div class="pcard-explanation" id="explanation-box"><div class="explanation-title">Answer &amp; Analysis</div><div class="explanation-body" id="explanation-body"></div><div class="marg-insight" id="marg-insight"></div></div></div><div class="pcard-nav">' + prevBtn + '<button class="pcard-nav-btn primary" id="next-btn" onclick="nextQuestion()" disabled>' + nextLabel + '</button></div></div>';
+  content.innerHTML = morningPrompt + recoveryNote + '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">' + headerLabel + '</div><div class="pcard-difficulty">' + diffLabel + '</div></div><div class="pcard-body">' + bodyHtml + '<div class="pcard-explanation" id="explanation-box"><div class="explanation-title">Answer &amp; Analysis</div><div class="explanation-body" id="explanation-body"></div><div class="marg-insight" id="marg-insight"></div></div></div><div class="pcard-nav">' + prevBtn + '<button class="pcard-nav-btn primary" id="next-btn" onclick="nextQuestion()" disabled>' + nextLabel + '</button></div></div>';
   markActiveExerciseDelivered('practice-tab');
   if (practiceLoadMetrics && !practiceLoadMetrics.contentVisibleAt) practiceLoadMetrics.contentVisibleAt = Date.now();
 }
