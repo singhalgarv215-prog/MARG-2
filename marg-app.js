@@ -2838,7 +2838,7 @@ function getPracticeGenerationJsonSchema(section, questionCount) {
         type:'object', required:['passage','difficulty','topic','questions'],
         properties:{
           passage:{ type:'string' }, difficulty:{ type:'string' }, topic:{ type:'string' },
-          questions:{ type:'array', minItems:3, maxItems:3, items:{
+          questions:{ type:'array', minItems:exactQuestions, maxItems:exactQuestions, items:{
             type:'object', required:['q','options','correct','explanation','sufficiency_check','option_check','trap_type','marg_insight'],
             properties:{ q:{ type:'string' }, options:optionSchema, correct:answerIndexSchema, explanation:{ type:'string' }, sufficiency_check:{ type:'string' }, option_check:{ type:'string' }, trap_type:{ type:'string' }, marg_insight:{ type:'string' } }
           } }
@@ -2865,14 +2865,17 @@ function getPracticeGenerationJsonSchema(section, questionCount) {
   };
 }
 
-function getPracticeAuditJsonSchema(section) {
+function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCount) {
+  var answerCount = Math.max(1, Number(expectedAnswerCount) || 1);
+  var setCount = Math.max(1, Number(expectedSetCount) || 1);
   var verificationProperties = {
-    answer_indices:{ type:'array', minItems:1, items:{ type:'integer', minimum:0, maximum:3 } },
+    answer_indices:{ type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'integer', minimum:0, maximum:3 } },
     feasible_base_case_counts:{ type:'array', items:{ type:'integer', minimum:0 } }
   };
   if (section === 'dilr') {
-    verificationProperties.base_case_witnesses = { type:'array', minItems:1, items:{ type:'string' } };
-    verificationProperties.checked_constraint_counts = { type:'array', minItems:1, items:{ type:'integer', minimum:1 } };
+    verificationProperties.feasible_base_case_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
+    verificationProperties.base_case_witnesses = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'string' } };
+    verificationProperties.checked_constraint_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
   }
   return {
     type:'object', required:['valid','issues'],
@@ -9737,58 +9740,121 @@ async function refreshArticle() {
 
 function readArticle() { if (currentArticle) window.open(currentArticle.url, '_blank'); }
 
-function parseChatGeneratedExercise(rawText) {
-  var raw = String(rawText || '');
-  var match = raw.match(/\[\[MARG_MEMORY\]\]\s*([\s\S]*?)\s*\[\[\/MARG_MEMORY\]\]/);
-  var memory = {};
-  if (match) {
-    try { memory = JSON.parse(match[1]); } catch(e) { memory = {}; }
-  }
-  return { visibleText:raw.replace(/\s*\[\[MARG_MEMORY\]\][\s\S]*?\[\[\/MARG_MEMORY\]\]\s*/g, '').trim(), memory:memory };
-}
-
-function validateChatGeneratedRCExercise(parsedExercise) {
-  var visible = String(parsedExercise && parsedExercise.visibleText || '');
-  var memoryAnswers = parsedExercise && parsedExercise.memory && Array.isArray(parsedExercise.memory.answers)
-    ? parsedExercise.memory.answers : [];
-  var passageMatch = visible.match(/PASSAGE\s*([\s\S]*?)\s*QUESTIONS/i);
-  var passageWords = passageMatch ? String(passageMatch[1]).trim().split(/\s+/).filter(Boolean).length : 0;
-  var questionCount = (visible.match(/^\s*[1-4][.)]\s+/gm) || []).length;
-  var optionCount = (visible.match(/(?:^|\n)\s*[A-D][.)]\s+/g) || []).length;
-  var answerKeyValid = memoryAnswers.length === 4 && memoryAnswers.every(function(answer, index) {
-    return Number(answer.question) === index + 1 && /^[A-D]$/i.test(String(answer.correct || '').trim());
-  });
-  return passageWords >= 450 && passageWords <= 520 && questionCount === 4 && optionCount >= 16 && answerKeyValid;
-}
-
 async function createRCPassage() {
   if (!currentArticle) return;
   closeVarcCard();
   const articleText = currentArticle.content || currentArticle.preview;
-  const prompt = `Here is a real news article, for theme and source material only:\n\nTitle: "${currentArticle.title}" (${currentArticle.source})\n\nContent: ${articleText}\n\nYour task: write a brand-new, ORIGINAL CAT-style RC passage inspired by this article's topic and theme — entirely in your own words, not a reproduction, summary, or quotation of the real article. This is intentional, existing practice-passage functionality: the student understands the passage is original practice material written around today's news theme, not the real article. Do not refuse this task, do not question whether the article is real or say it "doesn't exist," and do not lecture about authenticity — just write the original passage.\n\nCreate a HARD CAT exam style RC exercise from this original passage. IMPORTANT: Show ONLY passage and questions, NO answers yet.\n\nPASSAGE: 450-500 words, dense and abstract, matching real CAT passage length. Structure it as 3-4 distinct paragraphs (separate with a blank line between each), not one continuous block. Use complex sentence structures, nuanced arguments, at least one subtle shift in author's position. Must require careful reading — not skimmable.\n\nQUESTIONS — 4 total, one each of: Primary purpose, Specific detail, Inference, Author's attitude.\n\nTRAP OPTIONS are mandatory for every question:\n- Wrong options must use exact words from passage but in wrong context\n- Two options per question should feel very close to correct\n- Options that are partially true but go beyond what passage actually states\n- Never make wrong options obviously wrong\n\nCRITICAL: Randomize correct answers across A B C D — do NOT default to B or C repeatedly. Mix it up naturally like real CAT papers.\n\nDifficulty: Hard enough that a student who skims will get it wrong.\n\nANSWER KEY DISTRIBUTION — STRICTLY FOLLOW THIS:\nBefore writing questions, randomly pick 4 different letters from A B C D for the correct answers — no two consecutive questions should have the same letter. Actively avoid B,C,B,C pattern. Use patterns like A,D,B,C or D,A,C,B or C,B,D,A.\n\nFormat:\nPASSAGE\n[text]\n\nQUESTIONS\n1. [question]\nA. B. C. D.\n[repeat for 4 questions]\n\nEnd with exactly: "---\nReady? Type your answers (e.g. 1-A, 2-C, 3-B, 4-D) and I'll explain each one in detail."`;
+  const prompt = `Use the following article only as thematic source material. Write a completely original CAT-style RC; do not quote, reproduce or merely summarise the article.
 
-  const memoryDirective = `\n\nINTERNAL MEMORY OUTPUT — after the visible Ready line, append exactly this machine-readable block. The app will hide it from the student:\n[[MARG_MEMORY]]\n{"purpose":"specific cognitive skill tested","answers":[{"question":1,"correct":"actual letter","explanation":"short evidence-based reason","trap":"short trap label"},{"question":2,"correct":"actual letter","explanation":"short evidence-based reason","trap":"short trap label"},{"question":3,"correct":"actual letter","explanation":"short evidence-based reason","trap":"short trap label"},{"question":4,"correct":"actual letter","explanation":"short evidence-based reason","trap":"short trap label"}]}\n[[/MARG_MEMORY]]\nUse the independently verified correct letters. Return nothing after the closing marker.`;
+Article title: "${currentArticle.title}" (${currentArticle.source})
+Available article text: ${articleText}
+
+Generate exactly one HARD CAT-level RC passage of 450-520 words in 3-4 distinct paragraphs and exactly four questions: primary purpose, specific detail, inference, and author attitude. Build a central thesis, one qualification or counter-consideration, and a subtle change in the author's position. The passage must reward structural reading rather than factual recall.
+
+Each question must have exactly four distinct plausible options and one defensible answer. At least two options should be close; wrong options should use controlled scope, force, ownership, context or inference traps rather than obvious nonsense. Use only information stated or necessarily implied by the passage. Independently solve every question. Include private sufficiency_check and option_check fields; they will not be shown to the student. Keep explanations to one or two clean sentences. Return only valid JSON in this exact shape: {"sets":[{"passage":"450-520 words with blank lines between paragraphs","difficulty":"Hard","topic":"specific theme","questions":[{"q":"complete question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based reason","sufficiency_check":"why the passage is sufficient","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one useful decision rule"}]}]}`;
 
   addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
   showTyping();
   profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
+  var articleRCStage = 'generation_request';
   try {
-    const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildGeminiRequest(SYSTEM_PROMPT + profileContext, [{ role: 'user', content: prompt + memoryDirective }], 12288)) }, 75000);
+    const response = await fetchWithTimeout(WORKER_URL, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify(buildGeminiRequest(
+        'You are an expert CAT RC writer. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
+        [{ role:'user', content:prompt }],
+        8192,
+        'application/json',
+        getPracticeGenerationJsonSchema('rc', 4)
+      ))
+    }, 42000);
     if (!response.ok) throw new Error('Worker status ' + response.status);
+    articleRCStage = 'generation_response';
     const data = await response.json();
     const reply = getGeminiText(data);
-    if (!reply) throw new Error('No RC response');
-    const parsedExercise = parseChatGeneratedExercise(reply);
-    if (!validateChatGeneratedRCExercise(parsedExercise)) throw new Error('RC response was incomplete');
-    const visibleReply = parsedExercise.visibleText;
+    articleRCStage = 'generation_parse';
+    const rcData = normalizePracticeAnswers(parseGeneratedJson(reply), 'rc');
+    const localIssues = collectSolutionPresentationIssues(rcData, 'rc').concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'));
+    if (!validateRCPracticeSet(rcData, 4) || localIssues.length) {
+      var localFailure = new Error(localIssues[0] || 'Article RC failed structural validation');
+      localFailure.practiceAudit = { failureType:'local', issues:localIssues.length ? localIssues : ['Article RC failed structural validation'] };
+      throw localFailure;
+    }
+    articleRCStage = 'independent_answer_audit';
+    const articleAudit = await auditGeneratedCATContent('rc', rcData, null, [], { timeoutMs:30000, maxTokens:8192, technicalRetry:false });
+    if (!articleAudit.valid) {
+      var auditFailure = new Error('Article RC failed independent answer validation: ' + articleAudit.issues.join('; '));
+      auditFailure.practiceAudit = articleAudit;
+      if (articleAudit.error) {
+        auditFailure.name = articleAudit.error.name || auditFailure.name;
+        auditFailure.status = articleAudit.error.status || 0;
+        auditFailure.code = articleAudit.error.code || auditFailure.code;
+        auditFailure.requestId = articleAudit.error.requestId || '';
+      }
+      throw auditFailure;
+    }
+    articleRCStage = 'render_and_store';
+    const visibleReply = formatStructuredArticleRC(rcData);
     hideTyping();
-    const formatted = visibleReply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+    const formatted = escapeGuidedExerciseText(visibleReply).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
     addMessage('marg', formatted, true);
     conversationHistory.push({ role:'assistant', content:visibleReply });
     saveChatMessage('assistant', visibleReply);
-    storeActiveGeneratedExercise({ type:'rc', source:'chat', title:currentArticle.title, purpose:parsedExercise.memory.purpose || 'CAT RC comprehension and option-elimination diagnosis', content:{ exerciseText:visibleReply, answerKey:parsedExercise.memory.answers || [] } });
+    storeActiveGeneratedExercise({ type:'rc', source:'chat-article-verified', title:currentArticle.title, purpose:'CAT RC comprehension and option-elimination diagnosis', validationVerdict:{ status:'independently_verified', verification:articleAudit.verification || null }, content:{ exerciseText:visibleReply, answerKey:buildArticleRCAnswerMemory(rcData) } });
     localStorage.setItem('marg_rc_article', JSON.stringify({ title: currentArticle.title, source: currentArticle.source, content: articleText }));
-  } catch(e) { hideTyping(); addMessage('marg', isGeminiServiceError(e) ? getGeminiErrorMessage(e) : 'The RC did not pass its completeness check, so I discarded it. Try generating it once more.'); }
+  } catch(e) {
+    hideTyping();
+    console.error('Article-based RC generation failed:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
+    recordProductIncident('article_rc_generation_failed', e, { surface:'today_varc', section:'rc', topic:currentArticle && currentArticle.title || '', stage:articleRCStage });
+    var fallbackRC = getVerifiedArticleRCFallback();
+    var fallbackVisible = formatStructuredArticleRC(fallbackRC);
+    addMessage('marg', 'The article-based draft did not pass its answer check, so I replaced it with a verified hard RC instead.', true);
+    addMessage('marg', escapeGuidedExerciseText(fallbackVisible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+    conversationHistory.push({ role:'assistant', content:fallbackVisible });
+    saveChatMessage('assistant', fallbackVisible);
+    storeActiveGeneratedExercise({ type:'rc', source:'chat-article-verified-fallback', title:'Verified CAT RC', purpose:'CAT RC comprehension and option-elimination diagnosis', validationVerdict:{ status:'verified_local' }, content:{ exerciseText:fallbackVisible, answerKey:buildArticleRCAnswerMemory(fallbackRC) } });
+  }
+}
+
+function buildArticleRCAnswerMemory(rcData) {
+  var setObj = rcData && Array.isArray(rcData.sets) ? rcData.sets[0] : null;
+  return (setObj && Array.isArray(setObj.questions) ? setObj.questions : []).map(function(question, index) {
+    return {
+      question:index + 1,
+      correct:String.fromCharCode(65 + Number(question.correct || 0)),
+      explanation:question.explanation || '',
+      trap:question.trap_type || ''
+    };
+  });
+}
+
+function formatStructuredArticleRC(rcData) {
+  var setObj = rcData && Array.isArray(rcData.sets) ? rcData.sets[0] : null;
+  if (!setObj) return '';
+  var parts = ['PASSAGE', String(setObj.passage || '').trim(), 'QUESTIONS'];
+  (setObj.questions || []).forEach(function(question, index) {
+    parts.push((index + 1) + '. ' + question.q + '\n' + (question.options || []).map(function(option, optionIndex) {
+      return String.fromCharCode(65 + optionIndex) + '. ' + String(option).replace(/^[A-D][.)]\s*/, '');
+    }).join('\n'));
+  });
+  parts.push('---\nReady? Type your answers (for example: 1-A, 2-C, 3-B, 4-D). I already have the checked answer key.');
+  return parts.join('\n\n');
+}
+
+function getVerifiedArticleRCFallback() {
+  var fallback = JSON.parse(JSON.stringify(getVerifiedRCFallback()));
+  fallback.sets[0].questions.push({
+    q:'Why does the passage suggest that adding more variables may fail to correct a distorted indicator?',
+    options:['A. It necessarily destroys every form of historical comparison','B. It can make the measure appear comprehensive while leaving its assumptions unexamined','C. It prevents institutions from adapting their behaviour to the indicator','D. It replaces public objectives with private judgment in every case'],
+    correct:1,
+    explanation:'The author says additional variables can disguise the problem by creating an appearance of completeness without examining the assumptions governing the measure.',
+    sufficiency_check:'The second paragraph states this reason directly and no outside information is required.',
+    option_check:'Only B preserves both the apparent comprehensiveness and the unexamined assumptions described in the passage.',
+    trap_type:'Causal overstatement',
+    marg_insight:'A passage detail must retain the author’s qualification, not merely reuse its vocabulary.'
+  });
+  return fallback;
 }
 
 async function checkVarcShownToday() {
@@ -11569,13 +11635,14 @@ function validateDILRPracticeSet(data, expectedSetCount) {
   });
 }
 
-function validateRCPracticeSet(data) {
+function validateRCPracticeSet(data, expectedQuestionCount) {
   if (!data || !Array.isArray(data.sets) || data.sets.length !== 1) return false;
   var setObj = data.sets[0];
+  var requiredQuestions = Number(expectedQuestionCount) || 3;
   var passageWords = countPracticeWords(setObj && setObj.passage);
   var paragraphs = setObj && typeof setObj.passage === 'string' ? setObj.passage.split(/\n\s*\n/).filter(function(p) { return p.trim(); }) : [];
   return setObj && passageWords >= 450 && passageWords <= 550 && paragraphs.length >= 3 &&
-    Array.isArray(setObj.questions) && setObj.questions.length === 3 &&
+    Array.isArray(setObj.questions) && setObj.questions.length === requiredQuestions &&
     setObj.questions.every(isValidTimedTestQuestion);
 }
 
@@ -11655,7 +11722,7 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
 function getVerifiedRCFallback() {
   return { sets:[{ difficulty:'Hard', topic:'Measurement and institutions', passage:'Public indicators are often treated as passive descriptions of social reality. A ranking of universities, a measure of hospital efficiency, or a national index of innovation appears merely to condense facts that already exist. Yet once an indicator becomes consequential, the institutions being measured reorganise themselves around it. Universities redirect effort toward countable publications; hospitals may prefer cases that protect reported outcomes; governments fund activities that move an index even when those activities are only weakly connected to its stated purpose. The familiar complaint that such behaviour is dishonest misses the deeper problem. Even conscientious actors must decide how to allocate scarce attention, and a public measure quietly tells them which achievements will be recognised and which will remain administratively invisible.\n\nThis does not make measurement useless. Decisions made without common measures can be opaque, inconsistent and vulnerable to private judgment. Nor does it follow that every behavioural response corrupts a measure: a hospital that improves hygiene because infection rates are published may be responding exactly as policymakers hoped. The difficulty is that the same pressure can produce substantive improvement, selective compliance, or merely cosmetic adaptation, and the numerical result alone cannot reliably distinguish among them. Better statistical design can reduce distortions by combining measures or adjusting for obvious incentives, but cannot eliminate them, because every indicator selects a limited representation of a more complex goal. Adding variables can even disguise rather than solve the problem by making the measure appear comprehensive while leaving its governing assumptions unexamined.\n\nThe usual defence of indicators appeals to comparison. Without a common scale, how could citizens judge hospitals, students choose universities, or governments identify ineffective programmes? But comparison is not a neutral operation performed after institutions have acted. It establishes a field in which unlike activities must be rendered commensurable, often by suppressing differences in purpose, population or circumstance. Once the comparison acquires authority, institutions that depart from its categories may look inefficient even when their divergence reflects a legitimate alternative mission. Conversely, organisations can become skilled at the measured activity while the public objective that justified the measure deteriorates. The apparent precision of a ranking therefore may coexist with uncertainty about whether the ranked objects ought to be pursuing the same ends.\n\nThe appropriate response is neither blind trust nor abandonment. Indicators should be treated as institutional interventions whose effects require scrutiny. A useful measure is not merely accurate at the moment of construction; it must remain informative after people begin adapting to it. That requires revising measures, comparing them with qualitative evidence, and asking who bears the cost when organisations optimise what can be counted. It also requires accepting that revision will disrupt historical comparability, the very quality that gives indicators much of their authority. The choice is thus not between a stable objective measure and unstable judgment. It is between acknowledging that judgment already inhabits measurement and allowing yesterday’s judgments to harden into today’s facts.', questions:[
     { q:'Which option best captures the primary purpose of the passage?', options:['A. To show that statistical indicators should be abandoned because institutional adaptation always corrupts them','B. To argue that consequential indicators reshape institutional behaviour and must therefore be evaluated as interventions, not passive descriptions','C. To demonstrate that qualitative evidence offers a neutral alternative to numerical comparison','D. To establish that adding more variables necessarily makes rankings less accurate'], correct:1, explanation:'The author accepts measurement but argues that its behavioural and institutional effects must be continually examined.', trap_type:'Extreme conclusion', marg_insight:'The passage qualifies measurement rather than rejecting it.' },
-    { q:'The author’s attitude toward comparison through common indicators is best described as:', options:['A. cautiously accepting of its practical value while sceptical of the neutrality it claims','B. dismissive because unlike institutions can never be compared meaningfully','C. enthusiastic provided statistical designers include enough variables','D. indifferent to comparison but hostile to institutional rankings'], correct:0, explanation:'Comparison is treated as useful but as an operation that embeds judgments and reshapes missions.', trap_type:'Tone overstatement', marg_insight:'Hold the practical value and the conceptual warning together.' },
+    { q:'How is the author’s attitude toward comparison through common indicators best described?', options:['A. cautiously accepting of its practical value while sceptical of the neutrality it claims','B. dismissive because unlike institutions can never be compared meaningfully','C. enthusiastic provided statistical designers include enough variables','D. indifferent to comparison but hostile to institutional rankings'], correct:0, explanation:'Comparison is treated as useful but as an operation that embeds judgments and reshapes missions.', trap_type:'Tone overstatement', marg_insight:'Hold the practical value and the conceptual warning together.' },
     { q:'Which inference is most strongly supported by the passage?', options:['A. An institution can improve its measured performance while moving further from the public objective behind the measure','B. Behavioural adaptation proves that the original indicator was statistically inaccurate','C. Historical comparability should always take priority over revising a distorted indicator','D. Organisations with alternative missions should be exempt from every form of public measurement'], correct:0, explanation:'The passage explicitly separates skill at the measured activity from progress on the objective that justified it.', trap_type:'Scope shift', marg_insight:'Distinguish improving the score from improving the underlying activity.' }
   ] }] };
 }
@@ -12042,14 +12109,26 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
     // un-audited repair. Fail closed and move to a verified fallback/retry.
     return { valid:false, issues:knownPresentationIssues.slice(), correctedData:null, failureType:'local' };
   }
-  var validShape = section === 'dilr'
-    ? '{"valid":true,"issues":[],"verification":{"answer_indices":[0,1,2,3],"feasible_base_case_counts":[12],"base_case_witnesses":["one complete assignment satisfying every stated condition"],"checked_constraint_counts":[8]}}'
-    : '{"valid":true,"issues":[],"verification":{"answer_indices":[0,1,2],"feasible_base_case_counts":[]}}';
+  var answerCount = collectPracticeAnswerIndices(generatedData, section).length;
+  var setCount = generatedData && Array.isArray(generatedData.sets) ? generatedData.sets.length : 0;
+  var exampleAnswerIndices = Array.from({ length:answerCount }, function(_unused, index) { return index % 4; });
+  var validShape = JSON.stringify({
+    valid:true,
+    issues:[],
+    verification:section === 'dilr'
+      ? {
+          answer_indices:exampleAnswerIndices,
+          feasible_base_case_counts:Array.from({ length:setCount }, function() { return 1; }),
+          base_case_witnesses:Array.from({ length:setCount }, function() { return 'one complete assignment satisfying every stated condition'; }),
+          checked_constraint_counts:Array.from({ length:setCount }, function() { return 7; })
+        }
+      : { answer_indices:exampleAnswerIndices, feasible_base_case_counts:[] }
+  });
   var studentVisibleMaterial = buildStudentVisiblePracticeForAudit(generatedData, section);
   var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. Return the independently solved zero-based answer indices for every question in display order; the application will compare them with the hidden generator key. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not repair the material. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
-  var setCount = generatedData && Array.isArray(generatedData.sets) ? generatedData.sets.length : 1;
+  var auditSetCount = setCount || 1;
   auditOptions = auditOptions || {};
-  var auditMaxTokens = Number(auditOptions.maxTokens) || (section === 'dilr' ? Math.min(32768, 16384 + setCount * 5000) : section === 'rc' ? 16384 : 20480);
+  var auditMaxTokens = Number(auditOptions.maxTokens) || (section === 'dilr' ? Math.min(32768, 16384 + auditSetCount * 5000) : section === 'rc' ? 16384 : 20480);
   var auditTimeout = Number(auditOptions.timeoutMs) || 120000;
   var auditDeadline = Date.now() + auditTimeout;
   var maxTechnicalAttempts = auditOptions.technicalRetry === false ? 1 : 2;
@@ -12064,7 +12143,7 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
           [{ role:'user', content:auditPrompt }],
           auditMaxTokens,
           'application/json',
-          getPracticeAuditJsonSchema(section)
+          getPracticeAuditJsonSchema(section, answerCount, setCount)
         ))
       }, remainingMs);
       if (!auditResponse.ok) throw new Error('Audit service failed');
@@ -12132,7 +12211,12 @@ function normalizeGeneratedGrammar(value) {
 function questionHasExplicitTask(stem) {
   var text = String(stem || '').trim();
   return /\?\s*$/.test(text) || /^(?:what|which|who|where|when|why|how|find|determine|calculate|compute|identify|select|choose|state|evaluate|solve)\b/i.test(text) ||
-    /\b(?:what|which|who|where|when|why|how many|how much|find|determine|calculate|compute|identify|can be concluded|must be true|cannot be true)\b/i.test(text);
+    /\b(?:what|which|who|where|when|why|how many|how much|find|determine|calculate|compute|identify|can be concluded|must be true|cannot be true)\b/i.test(text) ||
+    // CAT stems often present a complete forced-choice task as a sentence
+    // ending in a colon rather than a question mark. These are real tasks,
+    // not truncated statements. The previous gate rejected them and also
+    // rejected the verified RC fallback that was supposed to recover safely.
+    /:\s*$/.test(text) && /\b(?:is|are|can be|could be|would be)\s+(?:best|most|least)?\s*(?:accurately\s+|appropriately\s+)?(?:described|characterised|characterized|summarised|summarized|inferred|concluded|supported)\s+as\b/i.test(text);
 }
 
 function isValidTimedTestQuestion(q) {
