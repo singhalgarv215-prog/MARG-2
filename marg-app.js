@@ -2497,7 +2497,7 @@ PLAIN LANGUAGE CONTRACT
 Use everyday English and short sentences. Prefer plain words; explain necessary CAT terms briefly.
 
 TRUTH AND CORRECTION CONTRACT
-Facts come only from the student, verified results or authoritative context. Never turn inference into student fact. If evidence conflicts, say "I misread that", discard the old diagnosis/mission and rebuild. Missing evidence means one precise question or a tentative read.
+Use only student, result or verified facts; never turn inference into fact. For a false Marg claim or direct correction, say "I misread that" and rebuild. Sharper evidence is not an error: contrast the old and new clues without apologizing. Missing evidence means one precise question or a tentative read.
 
 ANSWER-KEY TRUST CONTRACT
 Before grading, distinguish student choices from keys; a bare "Answer" may be a choice or a supplied key. Solve independently, reconcile every verdict with the total, and exclude ambiguous or conflicting items. Never diagnose a student from a disputed or unverified error.
@@ -5084,6 +5084,34 @@ function isRCProgressionReady(message, rcWrongAnswerEvidence) {
   return true;
 }
 
+function isRCFunctionMappingReply(message) {
+  var value = String(message || '').trim();
+  if (!value || value.length > 180 || /\[OPTIONS:|\[START_TEST:/i.test(value)) return false;
+  var recent = Array.isArray(conversationHistory) ? conversationHistory.slice(-10) : [];
+  var recentAssistantText = recent.filter(function(item) {
+    return item && item.role === 'assistant' && !isInternalMemoryMessage(item);
+  }).map(function(item) { return String(item.content || ''); }).join('\n');
+  var askedForFunction = /(?:\b\d+[- ]word function\b|\bparagraph(?:'s)? function\b|\bwhat (?:this|the) paragraph (?:does|is doing)\b|\bwhat the paragraph does\b|\bmap (?:the )?function\b)/i.test(recentAssistantText);
+  var looksLikeExerciseReply = !/\?$/.test(value) && value.split(/\s+/).length <= 22;
+  return askedForFunction && looksLikeExerciseReply;
+}
+
+function hasPendingRCFunctionFollowup() {
+  if (!pendingDiagnosticExercise && typeof loadPendingDiagnosticExercise === 'function') loadPendingDiagnosticExercise();
+  return !!(pendingDiagnosticExercise && pendingDiagnosticExercise.entry && pendingDiagnosticExercise.timing === 'rc_function_followup');
+}
+
+function isRCClaimLocationRefinement(message) {
+  var value = String(message || '').toLowerCase();
+  var recent = Array.isArray(conversationHistory) ? conversationHistory.slice(-8).map(function(item) {
+    return item && item.content ? String(item.content) : '';
+  }).join(' ').toLowerCase() : '';
+  var readingFeelsFine = /\b(?:reading|the passage|passages?)\b[\s\S]{0,45}\b(?:easy|fine|clear|understand|understood)\b|\b(?:easy|fine|clear)\b[\s\S]{0,30}\b(?:reading|passage)\b/.test(value);
+  var cannotLocate = /\b(?:can(?:no|')?t|cannot|unable|not able|don'?t|dont)\b[\s\S]{0,45}\b(?:find|locate|track|retain|remember|identify)\b[\s\S]{0,35}\b(?:claims?|references?|argument|point|line)\b/.test(value);
+  var rcContext = /\b(?:rc|passage|author|option|claim|reference|paragraph)\b/.test(value + ' ' + recent);
+  return !!(readingFeelsFine && cannotLocate && rcContext);
+}
+
 function buildDirectRCWrongAnswerDiagnosis(mechanism) {
   var value = String(mechanism || '').toLowerCase();
   if (/tone|attitude|confidence/.test(value)) return "You matched the passage's overall tone to the option instead of checking the option's exact claim—you did that here.";
@@ -5105,6 +5133,30 @@ function buildRCProgressionClose(isFollowupComplete) {
     return "That gives us enough to move beyond this short passage. Now let’s test the same option habit inside one full CAT-length RC.\n[OPTIONS: Start the full RC|Later today|Tomorrow][CONTEXT: rc_full_progression_timing]";
   }
   return "You’ve understood the passage. I want to check the option decision once more before we call it your regular pattern.\n\nWant to try one more question like this while the passage is still fresh? After that, we’ll practise it on a full RC.\n[OPTIONS: Yes, one more|Move to a full RC|Later][CONTEXT: rc_progression_timing]";
+}
+
+function buildRCFunctionProgressionClose(isFollowupComplete) {
+  if (isFollowupComplete) {
+    return "We’ve practised the move twice. Now let’s see whether you can hold that paragraph map across one full CAT-length RC.\n[OPTIONS: Start the full RC|Later today|Pause here][CONTEXT: rc_function_full_progression]";
+  }
+  return "You can make the move when we isolate it. Now I want to see whether it still holds when the paragraph is less obvious.\n\nWant to try one slightly harder paragraph while this is fresh? After that, we’ll use the same habit inside a full RC.\n[OPTIONS: Yes, one more|Move to a full RC|Pause here][CONTEXT: rc_function_progression]";
+}
+
+function removeRCFunctionHomeworkClose(text) {
+  var paragraphs = String(text || '').trim().split(/\n\s*\n/);
+  while (paragraphs.length > 1 && /\b(?:try|use|apply)\b[\s\S]{0,240}\b(?:next|today|practice|practise)\b[\s\S]{0,180}\b(?:let me know|tell me|come back)\b/i.test(paragraphs[paragraphs.length - 1])) paragraphs.pop();
+  return paragraphs.join('\n\n').trim();
+}
+
+function ensureRCFunctionMappingProgressionClose(text, diagnosis) {
+  var value = String(text || '').trim();
+  if (!diagnosis || !diagnosis.rcFunctionMapProgressionReady) return value;
+  if (/\[CONTEXT:\s*rc_function_(?:full_)?progression\]/i.test(value)) return value;
+  value = value.replace(/\s*\[OPTIONS:[^\]]*\]\s*\[CONTEXT:[^\]]*\]\s*$/i, '').trim();
+  var trailingQuestion = /(?:^|\n\s*\n|[.!]\s+)[^.!?\n]*\?\s*$/;
+  while (trailingQuestion.test(value)) value = value.replace(trailingQuestion, '').trim();
+  value = removeRCFunctionHomeworkClose(value);
+  return (value + '\n\n' + buildRCFunctionProgressionClose(!!diagnosis.rcFunctionMapFollowupActive)).replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function ensureRCProgressionClose(text, diagnosis) {
@@ -5967,7 +6019,7 @@ async function loadUserData() {
 
     const { data: chats } = await sbFetch('chats?select=*&user_id=eq.' + currentUser.id + '&order=created_at.asc', 'GET');
     if (chats && chats.length > 0) {
-      conversationHistory = chats.map(function(c) { return { role: c.role, content: c.content }; });
+      conversationHistory = chats.map(function(c) { return { id:c.id || null, role:c.role, content:c.content, createdAt:c.created_at || null }; });
     }
     loadDiagnosticMemory();
     hydrateDiagnosticMemoryFromHistory();
@@ -6081,6 +6133,9 @@ function ensureMessageExperienceStyles() {
   style.id = 'marg-message-experience-styles';
   style.textContent = `:root{--marg-reader-scale:1}.message-stack{display:flex;flex-direction:column;min-width:0;max-width:100%}.msg-wrap.user .message-stack{align-items:flex-end}.msg-wrap.marg .message-stack{align-items:flex-start}.msg-wrap.marg .bubble{background:#151515;color:#dedad2;border-color:rgba(255,255,255,.085)}.mentor-rich{max-width:72ch;font-size:15px;line-height:1.7!important;letter-spacing:.002em}.mentor-rich .mentor-paragraph{margin-bottom:12px!important}.message-actions{display:flex;align-items:center;gap:3px;min-height:30px;max-width:100%;margin-top:4px;opacity:.2;overflow-x:auto;scrollbar-width:none;transition:opacity .16s ease}.message-actions::-webkit-scrollbar{display:none}.msg-wrap:hover .message-actions,.msg-wrap:focus-within .message-actions,.message-actions.visible{opacity:1}.message-action{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:#77736c;cursor:pointer;padding:0;transform:none!important}.message-action:hover,.message-action:focus-visible{opacity:1!important;color:#dedad2;background:rgba(255,255,255,.065);outline:none}.message-action.active{color:var(--gold-light);background:rgba(201,168,76,.1)}.message-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.message-action-status{font-size:10px;color:#8d8981;margin-left:5px;white-space:nowrap}.passage-message{width:min(100%,800px);max-width:min(100%,800px)!important}.passage-message .message-stack{width:100%}.passage-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#141414;border-color:rgba(255,255,255,.095)}.passage-reader-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 17px;border-bottom:1px solid rgba(255,255,255,.075);font-family:'DM Sans',sans-serif}.passage-reader-label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#aba69d}.passage-reader-tools{display:flex;gap:6px}.passage-reader-tool{border:1px solid rgba(255,255,255,.1);background:#1b1b1b;color:#aaa69e;border-radius:8px;padding:6px 9px;font:600 11px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.passage-reader-tool:hover{color:#eeeae2;border-color:rgba(201,168,76,.45)}.passage-reading-content{padding:22px 21px 24px;max-width:70ch;color:#d8d4cc;font-family:Georgia,'Times New Roman',serif;font-size:calc(17px * var(--marg-reader-scale));line-height:1.86;letter-spacing:.006em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.passage-reading-content p{margin:0 0 1.22em}.passage-reading-content p:last-child{margin-bottom:0}.passage-questions{padding:19px 21px 22px;border-top:1px solid rgba(255,255,255,.08);background:#171717;color:#e2ded6;font:14.5px/1.7 'DM Sans',sans-serif}.passage-questions-label{margin-bottom:12px;color:var(--gold-light);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.reading-focus-overlay{position:fixed;inset:0;z-index:5000;background:#111;display:flex;flex-direction:column;color:#d8d4cc}.reading-focus-overlay.paper{background:#f2eee5;color:#272521}.reading-focus-bar{min-height:58px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:env(safe-area-inset-top,0px) 16px 0;border-bottom:1px solid rgba(128,128,128,.2);font:13px 'DM Sans',sans-serif}.reading-focus-actions{display:flex;gap:7px}.reading-focus-actions button,.reading-focus-close{border:1px solid rgba(128,128,128,.25);background:transparent;color:inherit;border-radius:9px;padding:7px 10px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.reading-focus-scroll{overflow-y:auto;flex:1;padding:34px 20px 70px}.reading-focus-scroll .passage-reading-content{margin:0 auto;padding:0;max-width:68ch;color:inherit;font-size:calc(19px * var(--marg-reader-scale));line-height:1.9}.marg-visual-card{margin:15px 0 13px;padding:15px;border:1px solid rgba(201,168,76,.22);border-radius:14px;background:linear-gradient(145deg,#181713,#111);font-family:'DM Sans',sans-serif;color:#dedad2;overflow:hidden}.marg-visual-kicker{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gold);margin-bottom:5px}.marg-visual-title{font-size:14px;font-weight:650;color:#f0ede6;line-height:1.35;margin-bottom:13px}.marg-visual-flow{display:flex;align-items:stretch;gap:7px;overflow-x:auto;padding-bottom:2px}.marg-visual-node{min-width:110px;flex:1;padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#0f0f0f;font-size:11px;line-height:1.45;color:#c8c4bc}.marg-visual-arrow{align-self:center;color:var(--gold);font-size:15px}.marg-visual-grid-wrap{overflow-x:auto}.marg-visual-grid{border-collapse:collapse;width:100%;font-size:11px}.marg-visual-grid th,.marg-visual-grid td{border:1px solid rgba(255,255,255,.1);padding:8px 9px;text-align:left;white-space:nowrap}.marg-visual-grid th{background:rgba(201,168,76,.08);color:var(--gold-light)}.marg-visual-bars{display:flex;flex-direction:column;gap:9px}.marg-visual-bar-row{display:grid;grid-template-columns:minmax(72px,120px) 1fr auto;gap:9px;align-items:center;font-size:10px;color:#aaa69e}.marg-visual-bar-track{height:9px;background:#0b0b0b;border-radius:999px;overflow:hidden}.marg-visual-bar-fill{display:block;height:100%;background:linear-gradient(90deg,#4caf7d,#c9a84c);border-radius:inherit}.marg-visual-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.marg-visual-column{border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#101010;padding:11px}.marg-visual-column-title{color:var(--gold-light);font-size:11px;font-weight:650;margin-bottom:8px}.marg-visual-column-item{font-size:10.5px;color:#b4b0a8;line-height:1.45;margin:5px 0}.marg-visual-svg{display:block;width:100%;height:auto;max-height:330px}.marg-visual-note{font-size:10px;line-height:1.45;color:#8e8a83;margin-top:10px}.pcard-passage{max-width:70ch;margin-left:auto!important;margin-right:auto!important;padding:19px 18px!important;border:1px solid rgba(255,255,255,.075);border-radius:12px;background:#141414;color:#d8d4cc!important;font-family:Georgia,'Times New Roman',serif!important;font-size:17px!important;line-height:1.86!important;letter-spacing:.005em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.pcard-passage p{margin-bottom:1.18em!important}@media(max-width:600px){.msg-wrap.marg .bubble{color:#dedad2}.mentor-rich{font-size:15.5px;line-height:1.72!important;max-width:none}.message-actions{opacity:.78;margin-top:3px}.message-action{width:32px;height:32px}.passage-message{max-width:100%!important;width:100%}.passage-message>.avatar{display:none}.passage-reading-content{padding:20px 18px 23px;font-size:calc(17px * var(--marg-reader-scale));line-height:1.9}.passage-questions{padding:17px 18px 20px;font-size:14.5px;line-height:1.72}.marg-visual-card{margin:14px 0;padding:13px}.marg-visual-flow{flex-direction:column;overflow:visible}.marg-visual-arrow{transform:rotate(90deg)}.marg-visual-compare{grid-template-columns:1fr}.pcard-passage{font-size:16.5px!important;line-height:1.9!important;padding:18px 16px!important;color:#d8d4cc!important}}`;
   document.head.appendChild(style);
+  var versionStyle = document.createElement('style');
+  versionStyle.textContent = '.message-version-nav{display:inline-flex;align-items:center;gap:2px;margin:0 3px;color:#8d8981;font-size:10px;white-space:nowrap}.message-version-nav button{width:25px;height:25px;border:0;border-radius:7px;background:transparent;color:#8d8981;font-size:18px;line-height:1;cursor:pointer;transform:none!important}.message-version-nav button:hover:not(:disabled){background:rgba(255,255,255,.065);color:#eeeae2}.message-version-nav button:disabled{opacity:.25;cursor:default}.message-version-count{min-width:28px;text-align:center}.regenerating-response .bubble{opacity:.62;transition:opacity .18s}.message-action:disabled{opacity:.28;cursor:default}';
+  document.head.appendChild(versionStyle);
 }
 
 function messageActionIcon(name) {
@@ -6135,6 +6190,154 @@ async function recordInlineMessageFeedback(kind, text) {
     });
     return !!(result && result.ok);
   } catch(e) { return false; }
+}
+
+var responseRegenerationInFlight = false;
+
+function latestVisibleAssistantHistoryIndex() {
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    if (conversationHistory[i] && conversationHistory[i].role === 'assistant' && !isInternalMemoryMessage(conversationHistory[i])) return i;
+  }
+  return -1;
+}
+
+function isLatestAssistantBubble(wrap) {
+  var assistantWraps = Array.prototype.slice.call(document.querySelectorAll('#messages .msg-wrap.marg')).filter(function(item) {
+    return item.querySelector('.bubble') && !item.querySelector('.typing-bubble');
+  });
+  return assistantWraps.length > 0 && assistantWraps[assistantWraps.length - 1] === wrap;
+}
+
+async function persistRegeneratedAssistantMessage(historyItem, previousContent, nextContent) {
+  if (!currentUser || !SUPABASE_TOKEN || !historyItem) return false;
+  var rowId = historyItem.id || null;
+  try {
+    if (!rowId) {
+      var result = await sbFetch('chats?select=id,content&user_id=eq.' + currentUser.id + '&role=eq.assistant&order=created_at.desc&limit=20', 'GET');
+      var rows = result && result.data || [];
+      var match = rows.find(function(row) { return String(row.content || '') === String(previousContent || ''); });
+      rowId = match && match.id || null;
+    }
+    if (!rowId) return false;
+    var updated = await sbFetch('chats?id=eq.' + encodeURIComponent(rowId), 'PATCH', { content:nextContent });
+    if (updated && updated.ok) historyItem.id = rowId;
+    return !!(updated && updated.ok);
+  } catch(e) {
+    console.error('Regenerated response save failed:', e);
+    return false;
+  }
+}
+
+function renderAssistantVersion(wrap, versionIndex) {
+  if (!wrap || !Array.isArray(wrap._margResponseVersions) || !wrap._margResponseVersions.length) return;
+  var index = Math.max(0, Math.min(Number(versionIndex) || 0, wrap._margResponseVersions.length - 1));
+  wrap._margResponseVersionIndex = index;
+  var content = wrap._margResponseVersions[index];
+  var bubble = wrap.querySelector('.bubble');
+  if (!bubble) return;
+  wrap.classList.remove('passage-message');
+  bubble.removeAttribute('style');
+  bubble.innerHTML = renderGroundingSourcesForChat(renderMentorStructuredText(content));
+  decoratePassageMessage(wrap);
+  var historyIndex = latestVisibleAssistantHistoryIndex();
+  if (historyIndex >= 0) conversationHistory[historyIndex].content = content;
+  var nav = wrap.querySelector('.message-version-nav');
+  if (nav) {
+    var label = nav.querySelector('.message-version-count');
+    if (label) label.textContent = (index + 1) + ' / ' + wrap._margResponseVersions.length;
+    var previous = nav.querySelector('[data-version-step="-1"]');
+    var next = nav.querySelector('[data-version-step="1"]');
+    if (previous) previous.disabled = index === 0;
+    if (next) next.disabled = index === wrap._margResponseVersions.length - 1;
+  }
+}
+
+function ensureResponseVersionNavigator(wrap) {
+  var actions = wrap && wrap.querySelector('.message-actions');
+  if (!actions || wrap.querySelector('.message-version-nav')) return;
+  var nav = document.createElement('span');
+  nav.className = 'message-version-nav';
+  nav.innerHTML = '<button type="button" data-version-step="-1" aria-label="Previous response version">‹</button><span class="message-version-count"></span><button type="button" data-version-step="1" aria-label="Next response version">›</button>';
+  nav.addEventListener('click', function(event) {
+    var button = event.target.closest('[data-version-step]');
+    if (!button) return;
+    var oldContent = conversationHistory[latestVisibleAssistantHistoryIndex()] && conversationHistory[latestVisibleAssistantHistoryIndex()].content;
+    renderAssistantVersion(wrap, (wrap._margResponseVersionIndex || 0) + Number(button.getAttribute('data-version-step')));
+    var item = conversationHistory[latestVisibleAssistantHistoryIndex()];
+    if (item) persistRegeneratedAssistantMessage(item, oldContent, item.content);
+  });
+  actions.insertBefore(nav, actions.querySelector('.message-action-status'));
+  renderAssistantVersion(wrap, wrap._margResponseVersions.length - 1);
+}
+
+async function regenerateAssistantMessage(wrap) {
+  if (responseRegenerationInFlight || isLoading) {
+    setMessageActionStatus(wrap, 'Marg is still responding');
+    return;
+  }
+  if (!isLatestAssistantBubble(wrap)) {
+    setMessageActionStatus(wrap, 'Regenerate the latest reply');
+    return;
+  }
+  var historyIndex = latestVisibleAssistantHistoryIndex();
+  var historyItem = historyIndex >= 0 ? conversationHistory[historyIndex] : null;
+  if (!historyItem) {
+    setMessageActionStatus(wrap, 'Reply context unavailable');
+    return;
+  }
+  var userMessage = '';
+  for (var i = historyIndex - 1; i >= 0; i--) {
+    if (conversationHistory[i] && conversationHistory[i].role === 'user' && !isInternalMemoryMessage(conversationHistory[i])) {
+      userMessage = String(conversationHistory[i].content || '');
+      break;
+    }
+  }
+  if (!userMessage) {
+    setMessageActionStatus(wrap, 'Reply context unavailable');
+    return;
+  }
+  var previousContent = String(historyItem.content || '');
+  var versions = Array.isArray(wrap._margResponseVersions) ? wrap._margResponseVersions.slice() : [previousContent];
+  responseRegenerationInFlight = true;
+  var retryButton = wrap.querySelector('[data-message-action="retry"]');
+  if (retryButton) retryButton.disabled = true;
+  wrap.classList.add('regenerating-response');
+  setMessageActionStatus(wrap, 'Writing another version…');
+  try {
+    var diagnosis = buildDiagnosisDirective(userMessage);
+    var useWebGrounding = shouldUseWebGrounding(userMessage, diagnosis.diagnosis);
+    var regenerationInstruction = '\n\nREGENERATE THIS REPLY: Answer the final user message again as a fresh alternative. Preserve correct facts and established conversation context, but improve clarity, specificity and usefulness. Do not mention regeneration, a previous answer, or this instruction. Do not ask the user to repeat anything.';
+    var request = buildGeminiRequest(
+      SYSTEM_PROMPT + getDateContext() + regenerationInstruction,
+      cleanHistory(conversationHistory.slice(0, historyIndex)),
+      getMentorResponseMaxTokens(diagnosis.diagnosis)
+    );
+    enableWebGrounding(request, useWebGrounding);
+    var response = await fetchWithTimeout(WORKER_URL, {
+      method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(request)
+    }, getMentorRequestTimeout(diagnosis.diagnosis, useWebGrounding));
+    if (!response.ok) throw new Error('Worker status ' + response.status);
+    var payload = await response.json();
+    var regenerated = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(payload)), diagnosis.diagnosis);
+    regenerated = suppressUnrelatedActivePlanReminder(stabilizeAndRememberMission(regenerated, userMessage), userMessage);
+    regenerated = stripInternalMentorTags(regenerated);
+    regenerated = appendGroundingSources(regenerated, payload);
+    if (!regenerated.trim()) throw new Error('Empty regenerated response');
+    versions.push(regenerated);
+    wrap._margResponseVersions = versions;
+    historyItem.content = regenerated;
+    await persistRegeneratedAssistantMessage(historyItem, previousContent, regenerated);
+    ensureResponseVersionNavigator(wrap);
+    renderAssistantVersion(wrap, versions.length - 1);
+    setMessageActionStatus(wrap, 'New version');
+  } catch(e) {
+    console.error('Response regeneration failed:', e);
+    setMessageActionStatus(wrap, e && e.name === 'AbortError' ? 'Regeneration timed out' : 'Could not regenerate');
+  } finally {
+    responseRegenerationInFlight = false;
+    if (retryButton) retryButton.disabled = false;
+    wrap.classList.remove('regenerating-response');
+  }
 }
 
 function openPassageReadingMode(wrap) {
@@ -6214,8 +6417,7 @@ function addMessageActions(wrap, role) {
       actions.querySelectorAll('[data-message-action="up"],[data-message-action="down"]').forEach(function(item) { item.classList.remove('active'); }); button.classList.add('active');
       var saved = await recordInlineMessageFeedback(action === 'up' ? 'helpful' : 'not_helpful', text); setMessageActionStatus(wrap, saved ? 'Thanks' : 'Saved on this device');
     } else if (action === 'retry') {
-      if (isLoading) { showComposerStatus('Marg is still responding. Try again when this reply finishes.', 'info', true); return; }
-      sendQuick('Answer my previous message again. Keep what was correct, but make it clearer and more useful.');
+      regenerateAssistantMessage(wrap);
     } else if (action === 'sources') {
       var firstSource = bubble.querySelector('.marg-source-dot'); if (firstSource) firstSource.click();
     } else if (action === 'report') {
@@ -7107,6 +7309,48 @@ function buildRCProgressionEntry() {
   };
 }
 
+function buildRCFunctionProgressionEntry() {
+  var directRead = 'Reading fluency is not the main problem. The paragraph’s job is not staying available as a map when a question asks you to locate a claim or reference.';
+  return {
+    selectedSection:'VARC', topic:'varc', subcategory:'Reading Comprehension', subcategoryId:'rc',
+    patternId:'rc_claim_location_map', selectedPattern:'The passage reads easily, but claims and references are hard to relocate.',
+    confirmedDiagnosis:directRead,
+    originalPrediction:directRead,
+    confirmation:'Inconclusive', confidence:0.58,
+    status:'hypothesis',
+    evidenceHistory:[{ type:'practice_attempt', supports:true, strength:0.35, claim:'The student completed one isolated paragraph-function check.' }],
+    action:'Check whether paragraph-function mapping still works across one full CAT-length RC.',
+    source:'rc-function-micro-check', updatedAt:new Date().toISOString()
+  };
+}
+
+async function handleRCFunctionProgression(answer, fullProgression) {
+  var entry = buildRCFunctionProgressionEntry();
+  diagnosticMemory.varc = entry;
+  activeDiagnosticTopic = 'varc';
+  saveDiagnosticMemory();
+  var normalized = String(answer || '').toLowerCase();
+  if (!fullProgression && /one more|yes/.test(normalized)) {
+    savePendingDiagnosticExercise(entry, 'rc_function_followup');
+    await sendConversationalMessage(answer, 'rc_function_followup_existing');
+    return;
+  }
+  conversationHistory.push({ role:'user', content:answer });
+  if (!isGuestMode) saveChatMessage('user', answer);
+  if (/full rc|start/.test(normalized)) {
+    savePendingDiagnosticExercise(entry, 'awaiting_choice');
+    await handlePredictionExerciseTiming('Right now');
+    return;
+  }
+  if (/later/.test(normalized)) {
+    savePendingDiagnosticExercise(entry, 'later_today');
+    addMentorLeadMessage('Later today works. I’ve kept the full RC check ready, so we can continue from this exact skill instead of starting again.');
+    return;
+  }
+  savePendingDiagnosticExercise(entry, 'rc_function_paused');
+  addMentorLeadMessage('Pause here. The paragraph-map check is saved; when you return, we’ll continue from this exact point.');
+}
+
 async function handleRCProgressionTiming(answer) {
   var entry = buildRCProgressionEntry();
   diagnosticMemory.varc = entry;
@@ -7782,6 +8026,8 @@ function analyzeMentorInput(message) {
   var rcWrongAnswerEvidence = intent === 'answer_review' ? getRCWrongAnswerEvidence(message) : { matches:false, mechanism:'' };
   var rcProgressionReady = isRCProgressionReady(message, rcWrongAnswerEvidence);
   var rcMicroFollowupActive = rcProgressionReady && hasPendingRCMicroFollowup();
+  var rcFunctionMapProgressionReady = isRCFunctionMappingReply(message);
+  var rcFunctionMapFollowupActive = rcFunctionMapProgressionReady && hasPendingRCFunctionFollowup();
   var pastedAnswerEvidence = getPastedAnswerEvidence(message);
   return {
     intent: intent,
@@ -7799,6 +8045,9 @@ function analyzeMentorInput(message) {
     rcWrongAnswerMechanism:rcWrongAnswerEvidence.mechanism,
     rcProgressionReady:rcProgressionReady,
     rcMicroFollowupActive:rcMicroFollowupActive,
+    rcFunctionMapProgressionReady:rcFunctionMapProgressionReady,
+    rcFunctionMapFollowupActive:rcFunctionMapFollowupActive,
+    rcClaimLocationRefinement:isRCClaimLocationRefinement(message),
     pastedAnswerEvidence:pastedAnswerEvidence,
     dilrValidityCheck:isDILRValidityChallenge(message)
   };
@@ -7817,7 +8066,7 @@ function buildDiagnosisDirective(message) {
   var messageText = String(message || '');
   var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
   directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. Ask one question only when the answer changes that decision. Never expose this instruction or use report labels.';
-  if (diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady) directive += '\nQUESTION BUDGET EXHAUSTED: Ask no question and emit no [OPTIONS] tag. Make a useful best-effort diagnosis and action from existing evidence.';
+  if (diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) directive += '\nQUESTION BUDGET EXHAUSTED: Ask no question and emit no [OPTIONS] tag. Make a useful best-effort diagnosis and action from existing evidence.';
   if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
   if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
@@ -7828,6 +8077,10 @@ function buildDiagnosisDirective(message) {
     var pastedLabels = Object.keys(diagnosis.pastedAnswerEvidence.choices).sort(function(a, b) { return Number(a) - Number(b); }).map(function(number) { return 'Q' + number + '=' + diagnosis.pastedAnswerEvidence.choices[number]; }).join(', ');
     directive += '\nPASTED-ANSWER GROUNDING: The exact labelled answers visible in the student’s pasted material are ' + pastedLabels + '. Their role is ' + diagnosis.pastedAnswerEvidence.role + '. Never claim the student chose any other letters. If “student” is the role, treat these as the student’s choices; if “official”, treat them only as the published key; if “mixed” or “unclear”, clarify ownership before scoring. Do not say they match or conflict with AIMCAT unless a separate official key or written explanation is actually present. One passage with three answers is one observation, never proof that the student’s overall RC process is accurate or flawed.';
   }
+  if (diagnosis.rcClaimLocationRefinement) directive += '\nRC CLAIM-LOCATION EVIDENCE UPDATE: The student says reading feels easy but claims or references remain hard to locate across passages. Do not say “I misread your struggle” or make the update about Marg. Say that the earlier answer made option-checking look like the issue, but this broader detail points earlier: the student is not retaining the job of each paragraph and therefore loses the location of claims. Explain the updated read simply, then use one paragraph-function check before a full RC.';
+  if (diagnosis.rcFunctionMapProgressionReady) directive += diagnosis.rcFunctionMapFollowupActive
+    ? '\nRC FUNCTION-DRILL COMPLETION: Respond to this exact function answer, explain briefly what it shows, then lead naturally into a full CAT-length RC. Use Start the full RC / Later today / Pause here with [CONTEXT: rc_function_full_progression]. Do not assign offline homework or end with “let me know”.'
+    : '\nRC FUNCTION-DRILL CONTINUATION: Respond to this exact function answer, explain briefly what it shows, then offer one slightly harder paragraph while the skill is active. Say that after it, you will use the same habit inside a full RC. Use Yes, one more / Move to a full RC / Pause here with [CONTEXT: rc_function_progression]. Do not assign offline homework or end with “let me know”.';
   if (diagnosis.rcProgressionReady && diagnosis.rcMicroFollowupActive) directive += '\nRC FOLLOW-UP COMPLETION: Check the current choice plainly and connect it to the option habit in everyday language. Do not write an evidence report. This was the promised extra question, so now lead naturally to the full RC and offer Start the full RC / Later today / Tomorrow with [CONTEXT: rc_full_progression_timing].';
   else if (diagnosis.rcProgressionReady) directive += '\nRC MICRO-CHECK CONTINUATION: Finish checking the current choice, say naturally that the passage was understood but the option check needs one more look, and offer one more question from this same passage before a full RC. Sound like a mentor continuing the session, not a diagnostic report. Use exactly Yes, one more / Move to a full RC / Later with [CONTEXT: rc_progression_timing]. Never ask whether it helped.';
   else if (diagnosis.rcWrongAnswerReview) directive += '\nRC WRONG-ANSWER RESPONSE: The wrong option is already evidence. Explain the option mismatch, then state the likely mechanism directly and specifically. Do not ask whether the student used tone, general impression, wording, the specific verb, or another strategy. Do not ask for confirmation or reflection. The final visible sentence must be a confident mechanism statement tied to this choice, with no question mark, [OPTIONS], new exercise, source check, or engagement hook.' + (diagnosis.rcWrongAnswerMechanism ? '\nStored mistake signal: ' + diagnosis.rcWrongAnswerMechanism : '');
@@ -7990,6 +8243,13 @@ function guardNaturalProfileClose(text, diagnosis) {
     .replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function guardEvidenceRefinementLanguage(text, diagnosis) {
+  var value = String(text || '').trim();
+  if (!diagnosis || !diagnosis.rcClaimLocationRefinement) return value;
+  return value.replace(/^\s*I (?:misread|misunderstood)(?: your)?[^.!?]*[.!?]\s*/i,
+    'Your earlier answer made option-checking look like the problem, but this new detail points earlier: the argument map is not staying with you while you read. ');
+}
+
 function enforceDirectRCWrongAnswerClose(text, diagnosis) {
   var value = String(text || '').trim();
   if (!diagnosis || !diagnosis.rcWrongAnswerReview) return value;
@@ -8111,7 +8371,8 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardVagueMentorAdvice(text, diagnosis);
   text = guardMalformedChatExercise(text);
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
-  if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady) {
+  text = guardEvidenceRefinementLanguage(text, diagnosis);
+  if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
   } else {
@@ -8126,6 +8387,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = formatMultiAnswerReview(text, diagnosis);
   text = enforceDirectRCWrongAnswerClose(text, diagnosis);
   text = ensureRCProgressionClose(text, diagnosis);
+  text = ensureRCFunctionMappingProgressionClose(text, diagnosis);
   text = ensureDiagnosisForwardLead(text, diagnosis);
   text = removeClinicalReportFormatting(text, diagnosis);
   text = removeTrailingActionQuestion(text, diagnosis);
@@ -8392,6 +8654,12 @@ async function handleConversationalResponse(answer, context) {
     if (!isGuestMode) saveChatMessage('user', answer);
     await handleRCFullProgressionTiming(answer);
 
+  } else if (context === 'rc_function_progression') {
+    await handleRCFunctionProgression(answer, false);
+
+  } else if (context === 'rc_function_full_progression') {
+    await handleRCFunctionProgression(answer, true);
+
   } else if (context === 'resume_scheduled_diagnostic') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
@@ -8628,7 +8896,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   systemAddition += getProgressiveProfileMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += mentorAnalysis.directive;
   if (useWebGrounding) systemAddition += '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.';
-  if (!useWebGrounding && !mentorAnalysis.diagnosis.comprehensivePlanning && context !== 'rc_micro_followup_existing' && ['answer_review','planning','returning_memory'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
+  if (!useWebGrounding && !mentorAnalysis.diagnosis.comprehensivePlanning && context !== 'rc_micro_followup_existing' && context !== 'rc_function_followup_existing' && ['answer_review','planning','returning_memory'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
     systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction in natural mentor language, briefly explain the clue, and ask one confirmation. Do not say "My prediction:". Never end on only "Does that feel accurate?"; in the same reply preview the exact check or coaching action that will follow if the read fits. After Exactly or Mostly, do not repeat the diagnosis or ask another intake question. Immediately lead with "Then let\'s verify it instead of guessing," name what the targeted check will observe, and offer Right now / Later today / Tomorrow. Wait only for that timing consent before launching the exercise. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
   } else if (mentorAnalysis.diagnosis.comprehensivePlanning) {
     systemAddition += '\n\nThe student has already supplied a broad preparation story and explicitly asked for a complete roadmap. Do not narrow them into a section diagnostic or ask preliminary intake questions. Give the complete cross-section roadmap now.';
@@ -8645,6 +8913,9 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   }
   if (context === 'rc_micro_followup_existing') {
     systemAddition += '\n\nRC SAME-PASSAGE FOLLOW-UP: The student accepted one more question. Use the exact RC passage already present in recent conversation history. Give exactly ONE new CAT-style four-option question that tests precise option checking, not passage recall. Do not repeat the passage, reveal the answer, explain the earlier diagnosis, generate a full RC, ask another intake question, or add any text after “Which option do you choose?”.';
+  }
+  if (context === 'rc_function_followup_existing') {
+    systemAddition += '\n\nRC FUNCTION-MAPPING FOLLOW-UP: The student accepted one slightly harder paragraph. Give exactly ONE fresh paragraph of 90-130 words whose role is less obvious than the previous example. Then ask for its function in one short phrase. Do not explain the answer, generate a full RC, ask an intake question, or add anything after the question.';
   }
   if (context === 'profile_attempt') {
     systemAddition += '\n\nPROFILE ANSWER CONTINUATION: The student answered the light attempt-number question. Acknowledge it in at most one clause and apply it only as context—not proof of any diagnosis. Continue the exact CAT thread from before the question. Do not ask another profile question in this reply and do not repeat generic theory.';
@@ -9875,6 +10146,7 @@ function hideCheckin() { document.getElementById('checkin-overlay').style.displa
 let currentArticle = null;
 let currentTopic = 'economy';
 let varcShownToday = false;
+let articleRCGenerating = false;
 
 const RSS_FEEDS = {
   economy: 'https://api.rss2json.com/v1/api.json?rss_url=https://www.thehindu.com/business/feeder/default.rss&count=10',
@@ -9982,7 +10254,8 @@ async function refreshArticle() {
 function readArticle() { if (currentArticle) window.open(currentArticle.url, '_blank'); }
 
 async function createRCPassage() {
-  if (!currentArticle) return;
+  if (!currentArticle || articleRCGenerating) return;
+  articleRCGenerating = true;
   closeVarcCard();
   const articleText = currentArticle.content || currentArticle.preview;
   const prompt = `Use the following article only as thematic source material. Write a completely original CAT-style RC; do not quote, reproduce or merely summarise the article.
@@ -10048,14 +10321,43 @@ Each question must have exactly four distinct plausible options and one defensib
     hideTyping();
     console.error('Article-based RC generation failed:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
     recordProductIncident('article_rc_generation_failed', e, { surface:'today_varc', section:'rc', topic:currentArticle && currentArticle.title || '', stage:articleRCStage });
-    var fallbackRC = getVerifiedArticleRCFallback();
-    var fallbackVisible = formatStructuredArticleRC(fallbackRC);
-    addMessage('marg', 'The article-based draft did not pass its answer check, so I replaced it with a verified hard RC instead.', true);
-    addMessage('marg', escapeGuidedExerciseText(fallbackVisible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
-    conversationHistory.push({ role:'assistant', content:fallbackVisible });
-    saveChatMessage('assistant', fallbackVisible);
-    storeActiveGeneratedExercise({ type:'rc', source:'chat-article-verified-fallback', title:'Verified CAT RC', purpose:'CAT RC comprehension and option-elimination diagnosis', validationVerdict:{ status:'verified_local' }, content:{ exerciseText:fallbackVisible, answerKey:buildArticleRCAnswerMemory(fallbackRC) } });
+    var failedTitle = currentArticle && currentArticle.title || 'this article';
+    var failureText = 'I could not verify a clean RC from “' + failedTitle + '”, so I did not replace it with an unrelated Practice passage. You can retry this article or switch to another Hindu/Aeon article.';
+    addMessage('marg', escapeChatHtml(failureText), true);
+    conversationHistory.push({ role:'assistant', content:failureText });
+    if (!isGuestMode) saveChatMessage('assistant', failureText);
+    showArticleRCRecoveryChoices();
+  } finally {
+    articleRCGenerating = false;
   }
+}
+
+function showArticleRCRecoveryChoices() {
+  var container = document.getElementById('messages');
+  if (!container || document.getElementById('article-rc-recovery-actions')) return;
+  var card = document.createElement('div');
+  card.id = 'article-rc-recovery-actions';
+  card.className = 'fade-in';
+  card.style.marginLeft = '38px';
+  card.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0"><button type="button" onclick="retryArticleRCGeneration()" style="border:1px solid rgba(201,168,76,.35);border-radius:10px;background:rgba(201,168,76,.08);color:#E8C96A;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Retry this article</button><button type="button" onclick="tryAnotherArticleRC()" style="border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#171717;color:#C8C4BC;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Choose another article</button></div>';
+  container.appendChild(card);
+  scrollChatToLatest();
+}
+
+function clearArticleRCRecoveryChoices() {
+  var card = document.getElementById('article-rc-recovery-actions');
+  if (card) card.remove();
+}
+
+function retryArticleRCGeneration() {
+  clearArticleRCRecoveryChoices();
+  createRCPassage();
+}
+
+async function tryAnotherArticleRC() {
+  clearArticleRCRecoveryChoices();
+  await refreshArticle();
+  createRCPassage();
 }
 
 function buildArticleRCAnswerMemory(rcData) {
@@ -10083,9 +10385,9 @@ function formatStructuredArticleRC(rcData) {
   return parts.join('\n\n');
 }
 
-function getVerifiedArticleRCFallback() {
-  var fallback = JSON.parse(JSON.stringify(getVerifiedRCFallback()));
-  fallback.sets[0].questions.push({
+function getVerifiedArticleRCFallbackBank() {
+  var measurement = JSON.parse(JSON.stringify(getVerifiedRCFallback()));
+  measurement.sets[0].questions.push({
     q:'Why does the passage suggest that adding more variables may fail to correct a distorted indicator?',
     options:['A. It necessarily destroys every form of historical comparison','B. It can make the measure appear comprehensive while leaving its assumptions unexamined','C. It prevents institutions from adapting their behaviour to the indicator','D. It replaces public objectives with private judgment in every case'],
     correct:1,
@@ -10095,7 +10397,62 @@ function getVerifiedArticleRCFallback() {
     trap_type:'Causal overstatement',
     marg_insight:'A passage detail must retain the author’s qualification, not merely reuse its vocabulary.'
   });
-  return fallback;
+  var archives = { sets:[{ difficulty:'Hard', topic:'Archives, memory and historical evidence', passage:`Archives are often imagined as warehouses of the past: imperfect, certainly, but passive collections whose gaps can be repaired whenever a diligent historian discovers another box of documents. This picture mistakes preservation for accumulation. An archive is produced through a chain of decisions about what deserves recording, whose account counts as official, what can be stored, and which material later receives description. Silence in an archive is therefore not simply the absence of evidence. It may be the residue of institutions that required some people to report constantly while allowing others to act without leaving an equivalent documentary trail.
+
+Recognising this does not license historians to fill every silence with whatever story seems morally attractive. A missing record cannot, by itself, establish that a suppressed event occurred, still less reveal its exact character. Yet demanding direct documentation for every historical claim can reproduce the archive's original bias. Enslaved workers, domestic labourers, migrants and colonised subjects often appear in records through categories designed by employers, police or administrators. Reading those records only for explicit statements treats the vocabulary of authority as a transparent description of social life. A payroll may reveal more through irregular entries and unexplained deductions than through the employer's formal account of fair practice.
+
+The expansion of digital storage appears to weaken this argument because contemporary institutions can preserve vastly more material at low cost. But abundance does not abolish selection; it relocates it. Search rankings, file formats, access permissions and metadata determine which records can actually be found and connected. A document that technically survives but cannot be retrieved is only weakly present for inquiry. Moreover, digital systems collect some activities with extraordinary precision while leaving others almost untouched. The resulting archive may be larger than its paper predecessor yet no less shaped by institutional purpose.
+
+The historian's task is therefore neither to distrust every record nor to worship documentary survival. It is to treat the archive itself as evidence: to ask why one action generated paperwork while another did not, why certain descriptions became searchable, and whose interests organised the categories. This approach cannot convert absence into certainty. What it can do is prevent the surviving record from setting the limits of historical possibility without examination. Archival criticism is valuable not because it frees interpretation from evidence, but because it enlarges what counts as evidence to include the conditions under which the record was made and preserved.`, questions:[
+    { q:'Which option best captures the primary purpose of the passage?', options:['A. To argue that archival gaps permit historians to reconstruct suppressed events without direct evidence','B. To show that archives are shaped by institutional choices and must themselves be examined as historical evidence','C. To establish that digital archives are less reliable than paper archives because they contain too much material','D. To claim that official records are useful only when they describe marginalised groups explicitly'], correct:1, explanation:'The passage argues that selection, description and retrieval shape archives, so historians must examine those conditions rather than treat records as passive deposits.', sufficiency_check:'The central claim is developed in every paragraph and requires no outside knowledge.', option_check:'Only B preserves both the constructed nature of archives and the author’s evidence-based response.', trap_type:'Extreme methodological conclusion', marg_insight:'A qualified criticism of a source is not a licence to abandon evidence.' },
+    { q:'Why does the author discuss payroll irregularities and unexplained deductions?', options:['A. To show that administrative records are usually fabricated by employers','B. To demonstrate that records can reveal social relations through patterns beyond their explicit official descriptions','C. To prove that payrolls provide more complete evidence than testimony from workers','D. To argue that financial documents should receive priority over every other historical source'], correct:1, explanation:'The example shows how the structure and irregularities of a record can disclose more than its official vocabulary states.', sufficiency_check:'The second paragraph explicitly contrasts formal description with what irregular entries may reveal.', option_check:'B alone states the function without turning a limited example into a universal rule.', trap_type:'Example-to-rule inflation', marg_insight:'Ask what an example proves here, not what it might prove in every case.' },
+    { q:'Which inference is most strongly supported by the discussion of digital archives?', options:['A. Preserving more documents necessarily reduces institutional control over historical memory','B. A record may survive technically yet remain practically marginal if retrieval systems make it difficult to find','C. Search rankings are deliberately designed to hide politically inconvenient records','D. Digital metadata provides a neutral replacement for older archival descriptions'], correct:1, explanation:'The passage states that access, metadata and search determine practical discoverability, making technical survival insufficient.', sufficiency_check:'The third paragraph directly supplies the distinction between survival and retrievability.', option_check:'Only B follows necessarily; the other options add certainty, intention or neutrality the author never supplies.', trap_type:'Unstated intention', marg_insight:'Do not turn a structural effect into a claim about deliberate motive.' },
+    { q:'The author’s attitude toward archival criticism is best described as:', options:['A. Supportive, provided it expands evidence without treating absence as proof','B. Sceptical, because it allows moral preference to replace documentary evidence','C. Enthusiastic, because it can recover the exact content of events excluded from records','D. Indifferent, since both traditional and critical historians depend on surviving documents'], correct:0, explanation:'The author endorses archival criticism while repeatedly limiting what silence alone can establish.', sufficiency_check:'The final paragraph and earlier qualification jointly establish this balanced attitude.', option_check:'A alone combines endorsement with the author’s explicit evidentiary limit.', trap_type:'Qualification removal', marg_insight:'Tone questions often turn on the limit attached to the author’s approval.' }
+  ]}]};
+  var models = { sets:[{ difficulty:'Hard', topic:'Scientific models and robust explanation', passage:`A scientific model is frequently judged by how faithfully it resembles the world. On this view, every simplifying assumption is a defect tolerated only because reality is too complicated to reproduce in full. Yet a model without selection would be indistinguishable from the world it seeks to explain and therefore nearly as difficult to understand. Frictionless surfaces, perfectly rational agents and isolated populations are not descriptions scientists mistakenly believe. They are devices for asking what follows when one influence is temporarily held still.
+
+This defence of simplification creates a further problem. Different models of the same phenomenon may isolate different influences and still generate successful predictions. It is tempting to treat their coexistence as evidence that the science is immature and that a single, more complete model must eventually replace them. Sometimes integration is possible. But models may answer different questions: one may explain the spread of a disease across a city, while another examines transmission inside households. Combining every mechanism can obscure the very relationship each model was built to expose.
+
+Scientists often respond by seeking robust results—conclusions that survive across models with different assumptions. Robustness matters because a result that appears only under one fragile representation may reflect the machinery of that model rather than the phenomenon. Nevertheless, agreement across models is not automatically independent confirmation. Several models can inherit the same hidden assumption, use data produced by the same measurement system, or exclude the same inconvenient variable. Convergence is informative only when the routes to it differ in ways relevant to the claim being tested.
+
+Model pluralism should therefore be disciplined rather than celebratory. The existence of several useful models does not imply that all perspectives are equally adequate, nor does it excuse contradictions. It requires scientists to specify the question each model addresses, the distortions its simplifications may introduce, and the conditions under which its conclusions fail. The strongest explanation may not be the model with the most detail. It may instead be the conclusion that remains visible after several deliberately different simplifications have each been tested—and after their shared blind spots have been examined rather than mistaken for consensus.`, questions:[
+    { q:'Which option best states the central argument of the passage?', options:['A. Scientific models become reliable only when they incorporate every known influence','B. Simplification and multiple models can strengthen explanation, provided their assumptions and shared blind spots are critically tested','C. Competing models mainly show that a scientific field has not yet reached maturity','D. Robust conclusions are those produced by the most detailed available model'], correct:1, explanation:'The author defends selective simplification and disciplined model pluralism while warning that apparent convergence can share hidden assumptions.', sufficiency_check:'The thesis is stated across the opening defence, the robustness qualification and the concluding standard.', option_check:'Only B includes both the defence and the author’s limiting condition.', trap_type:'One-sided summary', marg_insight:'The best summary must carry the passage’s main qualification, not only its opening claim.' },
+    { q:'What role does the contrast between city-wide disease spread and household transmission play in the argument?', options:['A. It shows that one model must eventually absorb all models operating at smaller scales','B. It illustrates that different models may remain useful because they answer distinct questions','C. It proves that predictions at the household level are more accurate than city-wide predictions','D. It demonstrates that disease models are uniquely resistant to integration'], correct:1, explanation:'The contrast supports the claim that models can isolate different relationships rather than compete as complete pictures of the same question.', sufficiency_check:'The example immediately follows and illustrates the claim that models may answer different questions.', option_check:'B states that function without adding hierarchy, accuracy or uniqueness.', trap_type:'Illustration overreach', marg_insight:'An example of difference in purpose does not establish superiority.' },
+    { q:'Which finding would most weaken the author’s confidence in a result described as robust?', options:['A. The result appears in models that use different levels of mathematical detail','B. The models reach the result while relying on the same untested measurement assumption','C. One model studies households while another studies an entire city','D. The simplest model makes its limiting assumptions explicit'], correct:1, explanation:'The author warns that convergence is weak when models inherit the same hidden assumption or data limitation.', sufficiency_check:'The third paragraph directly identifies shared assumptions as a threat to independent confirmation.', option_check:'Only B attacks the independence that makes cross-model agreement evidentially valuable.', trap_type:'Shared-assumption blindness', marg_insight:'Several answers are not independent evidence when they inherit the same weakness.' },
+    { q:'The author would most likely agree with which statement?', options:['A. Adding detail always improves a model because it reduces distortion','B. Contradictory models should be accepted as equally valid forms of perspective','C. A useful model should be judged partly by the question it isolates and the conditions under which it fails','D. Simplifying assumptions are acceptable only until computing power can reproduce reality fully'], correct:2, explanation:'The conclusion explicitly asks scientists to state each model’s question, distortions and failure conditions.', sufficiency_check:'The final paragraph states this evaluative standard directly.', option_check:'C retains the author’s disciplined pluralism; the others contradict explicit claims in the passage.', trap_type:'Absolute detail preference', marg_insight:'The author values transparent limits more than maximum detail.' }
+  ]}]};
+  archives.sets[0].passage = archives.sets[0].passage.replace(
+    '\n\nRecognising this',
+    '\n\nThe imbalance begins before preservation. The power to compel statements from others is unevenly distributed, so documentary abundance can mark surveillance rather than historical importance. Automated collection creates its own silences too: what software cannot classify may be discarded, and what institutions have no reason to measure may never become data.\n\nRecognising this'
+  );
+  models.sets[0].passage = models.sets[0].passage
+    .replace(
+      '\n\nThis defence of simplification',
+      '\n\nTheir artificiality is therefore not automatically a weakness. The relevant question is whether simplification makes a relationship visible without removing the very condition on which that relationship depends. Predictive accuracy alone cannot settle that choice: two models may forecast the same total while assigning causal importance to different processes and producing sharply different advice when conditions change.\n\nThis defence of simplification'
+    )
+    .replace(
+      '\n\nModel pluralism should therefore',
+      '\n\nMerely changing equations while preserving the same data and categories can create the appearance of plurality without supplying a genuinely different test. Disagreement becomes useful when it reveals which conclusion depends on which assumption, rather than being treated as an embarrassment to hide through premature synthesis.\n\nModel pluralism should therefore'
+    );
+  return [measurement, archives, models];
+}
+
+function articleFallbackRotationKey() {
+  return getUserScopedKey('marg_article_rc_fallback_rotation_v2');
+}
+
+function getVerifiedArticleRCFallback(selectionKey) {
+  var bank = getVerifiedArticleRCFallbackBank();
+  var seed = String(selectionKey || '') + '|' + (typeof getTodayDate === 'function' ? getTodayDate() : new Date().toISOString().slice(0, 10));
+  var hash = 0;
+  for (var i = 0; i < seed.length; i++) hash = ((hash * 31) + seed.charCodeAt(i)) >>> 0;
+  var index = hash % bank.length;
+  try {
+    var last = Number(localStorage.getItem(articleFallbackRotationKey()));
+    if (Number.isInteger(last) && last === index) index = (index + 1) % bank.length;
+    localStorage.setItem(articleFallbackRotationKey(), String(index));
+  } catch(e) {}
+  return JSON.parse(JSON.stringify(bank[index]));
 }
 
 async function checkVarcShownToday() {
