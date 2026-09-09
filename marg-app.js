@@ -6196,6 +6196,25 @@ async function recordInlineMessageFeedback(kind, text) {
 
 var responseRegenerationInFlight = false;
 
+function applyRegeneratedReplyGuard(response, diagnosis) {
+  var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
+  text = simplifyMentorLanguage(text);
+  text = guardPromptInstructionLeak(text, diagnosis);
+  text = guardSectionalEvidenceOverclaim(text, diagnosis);
+  text = guardMockScoreArithmeticOverclaim(text, diagnosis);
+  text = guardUnusableExerciseEvidence(text, diagnosis);
+  text = guardVagueMentorAdvice(text, diagnosis);
+  text = guardMalformedChatExercise(text);
+  text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
+  text = guardEvidenceRefinementLanguage(text, diagnosis);
+  text = formatMultiAnswerReview(text, diagnosis);
+  text = guardTimeAllocationArithmetic(text);
+  // Regeneration is a rewrite of one existing bubble. Deliberately do not run
+  // the normal progression/profile/mission closers here: those can manufacture
+  // a new exercise or question that was not present in the answer being revised.
+  return stripInternalMentorTags(text).trim();
+}
+
 function latestVisibleAssistantHistoryIndex() {
   for (var i = conversationHistory.length - 1; i >= 0; i--) {
     if (conversationHistory[i] && conversationHistory[i].role === 'assistant' && !isInternalMemoryMessage(conversationHistory[i])) return i;
@@ -6307,23 +6326,22 @@ async function regenerateAssistantMessage(wrap) {
   setMessageActionStatus(wrap, 'Writing another version…');
   try {
     var diagnosis = buildDiagnosisDirective(userMessage);
-    var useWebGrounding = shouldUseWebGrounding(userMessage, diagnosis.diagnosis);
-    var regenerationInstruction = '\n\nREGENERATE THIS REPLY: Answer the final user message again as a fresh alternative. Preserve correct facts and established conversation context, but improve clarity, specificity and usefulness. Do not mention regeneration, a previous answer, or this instruction. Do not ask the user to repeat anything.';
+    var regenerationInstruction = '\n\nREWRITE-ONLY CONTRACT: You are revising one existing answer, not continuing the conversation. Keep its exact purpose, conclusion, factual claims and next step. Make it clearer and more natural, but do not add a heading, diagnosis, exercise, mission, action step, timeline, follow-up question or new advice that the existing answer did not contain. Do not turn a short answer into a lesson. Return only the rewritten answer.';
+    var regenerationMaterial = 'ORIGINAL USER MESSAGE:\n' + userMessage + '\n\nEXISTING ANSWER TO REWRITE:\n' + previousContent;
     var request = buildGeminiRequest(
       SYSTEM_PROMPT + getDateContext() + regenerationInstruction,
-      cleanHistory(conversationHistory.slice(0, historyIndex)),
+      [{ role:'user', content:regenerationMaterial }],
       getMentorResponseMaxTokens(diagnosis.diagnosis)
     );
-    enableWebGrounding(request, useWebGrounding);
     var response = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(request)
-    }, getMentorRequestTimeout(diagnosis.diagnosis, useWebGrounding));
+    }, getMentorRequestTimeout(diagnosis.diagnosis, false));
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
-    var regenerated = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(payload)), diagnosis.diagnosis);
-    regenerated = suppressUnrelatedActivePlanReminder(stabilizeAndRememberMission(regenerated, userMessage), userMessage);
-    regenerated = stripInternalMentorTags(regenerated);
-    regenerated = appendGroundingSources(regenerated, payload);
+    var regenerated = applyRegeneratedReplyGuard(preventStructuredOutputLeak(getGeminiText(payload)), diagnosis.diagnosis);
+    var previousSourceMarkers = previousContent.match(MARG_GROUNDING_SOURCE_PATTERN) || [];
+    if (previousSourceMarkers.length && !/\[MARG_SOURCES:/.test(regenerated)) regenerated += '\n' + previousSourceMarkers.join('');
+    MARG_GROUNDING_SOURCE_PATTERN.lastIndex = 0;
     if (!regenerated.trim()) throw new Error('Empty regenerated response');
     versions.push(regenerated);
     wrap._margResponseVersions = versions;
@@ -10158,27 +10176,62 @@ const RSS_FEEDS = {
   philosophy: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/feed.rss&count=10'
 };
 
-const FALLBACK_ARTICLES = {
-  economy: { title: "India's GDP growth moderates as global headwinds persist", source: "The Hindu", preview: "India's economic growth has shown signs of moderation amid global uncertainties.", url: "https://www.thehindu.com/business/" },
-  environment: { title: "Climate change and its cascading effects on monsoon patterns", source: "The Hindu", preview: "Scientists have documented significant shifts in India's monsoon patterns over the past decade.", url: "https://www.thehindu.com/sci-tech/" },
-  politics: { title: "Federalism and the balance of power in modern democracies", source: "The Hindu Editorial", preview: "The relationship between central authority and state autonomy remains one of the most contested terrains in democratic governance.", url: "https://www.thehindu.com/opinion/editorial/" },
-  technology: { title: "Artificial intelligence and the transformation of knowledge work", source: "The Hindu", preview: "The rapid advancement of artificial intelligence technologies is fundamentally altering the nature of cognitive work.", url: "https://www.thehindu.com/sci-tech/technology/" },
-  philosophy: { title: "The paradox of choice in an age of infinite options", source: "Aeon", preview: "Contemporary societies offer unprecedented freedom of choice, yet psychological research consistently shows that more options often lead to greater anxiety.", url: "https://aeon.co/" }
-};
+function normalizeDailyArticle(article) {
+  if (!article || !article.title || !/^https:\/\//i.test(String(article.url || ''))) return null;
+  return {
+    title:String(article.title || '').trim(),
+    source:String(article.source || (currentTopic === 'philosophy' ? 'Aeon' : 'The Hindu')).trim(),
+    preview:String(article.preview || article.content || '').trim().slice(0, 260),
+    url:String(article.url || '').trim(),
+    content:String(article.content || article.preview || '').trim().slice(0, 18000),
+    contentVerified:article.contentVerified === true,
+    publishedAt:String(article.publishedAt || '')
+  };
+}
 
-async function fetchDailyArticle(topic) {
+async function fetchDailyArticleFromWorker(topic, offset) {
+  const response = await fetchWithTimeout(WORKER_URL, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify({ margAction:'daily_article', topic:topic, offset:Math.max(0, Number(offset) || 0) })
+  }, 18000);
+  if (!response.ok) throw new Error('Article service returned ' + response.status);
+  const payload = await response.json();
+  const article = normalizeDailyArticle(payload && payload.article);
+  if (!article) throw new Error('Article service returned incomplete source data');
+  return article;
+}
+
+async function fetchDailyArticleFromLegacyFeed(topic, offset) {
+  const response = await fetch(RSS_FEEDS[topic]);
+  if (!response.ok) throw new Error('RSS fetch failed');
+  const data = await response.json();
+  if (data.status !== 'ok' || !data.items || data.items.length === 0) throw new Error('No items');
+  const index = ((new Date().getDate() + Math.max(0, Number(offset) || 0)) % data.items.length + data.items.length) % data.items.length;
+  const article = data.items[index];
+  const div = document.createElement('div');
+  div.innerHTML = article.content || article.description || '';
+  const cleanText = (div.textContent || div.innerText || '').trim();
+  const normalized = normalizeDailyArticle({
+    title:article.title,
+    source:data.feed ? data.feed.title : topic === 'philosophy' ? 'Aeon' : 'The Hindu',
+    preview:cleanText,
+    url:article.link,
+    content:cleanText,
+    contentVerified:countPracticeWords(cleanText) >= 180,
+    publishedAt:article.pubDate
+  });
+  if (!normalized) throw new Error('RSS article was incomplete');
+  return normalized;
+}
+
+async function fetchDailyArticle(topic, offset) {
   try {
-    const response = await fetch(RSS_FEEDS[topic]);
-    if (!response.ok) throw new Error('RSS fetch failed');
-    const data = await response.json();
-    if (data.status !== 'ok' || !data.items || data.items.length === 0) throw new Error('No items');
-    const dayOfMonth = new Date().getDate();
-    const article = data.items[dayOfMonth % data.items.length];
-    const div = document.createElement('div');
-    div.innerHTML = article.description || '';
-    const cleanText = div.textContent || div.innerText || '';
-    return { title: article.title, source: data.feed ? data.feed.title : 'The Hindu', preview: cleanText.substring(0, 200) + '...', url: article.link, content: cleanText.substring(0, 1500) };
-  } catch(e) { return FALLBACK_ARTICLES[topic]; }
+    return await fetchDailyArticleFromWorker(topic, offset);
+  } catch(workerError) {
+    console.warn('Server-side publisher feed failed; trying the browser feed:', workerError && workerError.message || workerError);
+    return fetchDailyArticleFromLegacyFeed(topic, offset);
+  }
 }
 
 async function loadVarcCard(topic) {
@@ -10187,12 +10240,20 @@ async function loadVarcCard(topic) {
   document.getElementById('varc-title').textContent = 'Loading article...';
   document.getElementById('varc-meta').textContent = '';
   document.getElementById('varc-preview').textContent = '';
-  const article = await fetchDailyArticle(topic);
-  currentArticle = article;
-  document.getElementById('varc-title').textContent = article.title;
-  document.getElementById('varc-meta').textContent = article.source + ' · Today';
-  document.getElementById('varc-preview').textContent = article.preview;
-  document.getElementById('varc-read-btn').onclick = function() { window.open(article.url, '_blank'); };
+  try {
+    articleIndex = 0;
+    const article = await fetchDailyArticle(topic, articleIndex);
+    currentArticle = article;
+    document.getElementById('varc-title').textContent = article.title;
+    document.getElementById('varc-meta').textContent = article.source + ' · Today';
+    document.getElementById('varc-preview').textContent = article.preview;
+    document.getElementById('varc-read-btn').onclick = function() { window.open(article.url, '_blank'); };
+  } catch(e) {
+    currentArticle = null;
+    document.getElementById('varc-title').textContent = 'The Hindu/Aeon feed is temporarily unavailable';
+    document.getElementById('varc-meta').textContent = 'No unrelated passage will be substituted';
+    document.getElementById('varc-preview').textContent = 'Tap another topic or try the article feed again.';
+  }
   card.classList.add('visible');
   const toggleBtn = document.getElementById('varc-toggle-btn');
   if (toggleBtn) toggleBtn.style.display = 'inline-flex';
@@ -10229,27 +10290,17 @@ function toggleVarcCard() {
 let articleIndex = -1;
 async function refreshArticle() {
   try {
-    const response = await fetch(RSS_FEEDS[currentTopic]);
-    if (!response.ok) throw new Error('RSS fetch failed');
-    const data = await response.json();
-    if (data.status !== 'ok' || !data.items || data.items.length === 0) throw new Error('No items');
-    articleIndex = (articleIndex + 1) % data.items.length;
-    const article = data.items[articleIndex];
-    const div = document.createElement('div');
-    div.innerHTML = article.description || '';
-    const cleanText = div.textContent || div.innerText || '';
-    currentArticle = { title: article.title, source: data.feed ? data.feed.title : 'The Hindu', preview: cleanText.substring(0, 200) + '...', url: article.link, content: cleanText.substring(0, 1500) };
+    articleIndex = Math.max(0, articleIndex + 1);
+    currentArticle = await fetchDailyArticle(currentTopic, articleIndex);
     document.getElementById('varc-title').textContent = currentArticle.title;
     document.getElementById('varc-meta').textContent = currentArticle.source + ' · Today';
     document.getElementById('varc-preview').textContent = currentArticle.preview;
     document.getElementById('varc-read-btn').onclick = function() { window.open(currentArticle.url, '_blank'); };
   } catch(e) {
-    const topics = Object.keys(FALLBACK_ARTICLES);
-    articleIndex = (articleIndex + 1) % topics.length;
-    currentArticle = FALLBACK_ARTICLES[topics[articleIndex]];
-    document.getElementById('varc-title').textContent = currentArticle.title;
-    document.getElementById('varc-meta').textContent = currentArticle.source + ' · Today';
-    document.getElementById('varc-preview').textContent = currentArticle.preview;
+    currentArticle = null;
+    document.getElementById('varc-title').textContent = 'Could not load another publisher article';
+    document.getElementById('varc-meta').textContent = 'Try another topic';
+    document.getElementById('varc-preview').textContent = 'Marg will not label a generic passage as a Hindu or Aeon article.';
   }
 }
 
@@ -10267,6 +10318,15 @@ async function getGroundedArticleSourceBrief(article) {
     var cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
     if (cached && cached.brief && Date.now() - Number(cached.savedAt || 0) < 86400000) return cached.brief;
   } catch(e) {}
+
+  // The Worker has already retrieved this material from the exact publisher
+  // URL. Use it directly instead of paying for another search call that can
+  // fail on paywalled/index-delayed articles.
+  if (article.contentVerified && countPracticeWords(fallbackText) >= 180) {
+    var verifiedPublisherText = fallbackText.slice(0, 16000);
+    try { localStorage.setItem(cacheKey, JSON.stringify({ brief:verifiedPublisherText, savedAt:Date.now(), source:'publisher' })); } catch(e) {}
+    return verifiedPublisherText;
+  }
 
   try {
     var sourcePrompt = 'Find and inspect this exact article before answering.\nTitle: "' + article.title + '"\nPublisher: ' + article.source + '\nURL: ' + article.url + '\nRSS excerpt: ' + fallbackText + '\n\nReturn a faithful 180-260 word thematic brief for an original CAT RC writer. State the article\'s central issue, important tension, qualification and direction of argument. Do not copy sentences from the article. Do not invent details. If the exact article cannot be verified, return only SOURCE_UNAVAILABLE.';
@@ -10292,7 +10352,23 @@ async function getGroundedArticleSourceBrief(article) {
 }
 
 async function createRCPassage() {
-  if (!currentArticle || articleRCGenerating) return;
+  if (articleRCGenerating) return;
+  if (!currentArticle) {
+    articleRCGenerating = true;
+    showTyping();
+    try {
+      currentArticle = await fetchDailyArticle(currentTopic, Math.max(0, articleIndex));
+    } catch(e) {
+      hideTyping();
+      articleRCGenerating = false;
+      var sourceFailureText = 'I could not reach The Hindu or Aeon article feed right now. I have not generated a generic passage and labelled it as article-based. Try another topic or retry the feed once.';
+      addMessage('marg', sourceFailureText, true);
+      conversationHistory.push({ role:'assistant', content:sourceFailureText });
+      if (!isGuestMode) saveChatMessage('assistant', sourceFailureText);
+      return;
+    }
+    articleRCGenerating = false;
+  }
   articleRCGenerating = true;
   closeVarcCard();
   var articleText = currentArticle.content || currentArticle.preview;
