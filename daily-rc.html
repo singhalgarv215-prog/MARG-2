@@ -386,6 +386,13 @@ function cloneVerifiedRC() {
   return copy;
 }
 
+function getGeminiText(payload) {
+  var parts = payload && payload.candidates && payload.candidates[0] && payload.candidates[0].content && payload.candidates[0].content.parts;
+  return Array.isArray(parts) ? parts.filter(function(part) {
+    return part && !part.thought && typeof part.text === 'string';
+  }).map(function(part) { return part.text; }).join('').trim() : '';
+}
+
 async function fetchWithDeadline(url, options, timeoutMs) {
   var controller = new AbortController();
   var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
@@ -399,7 +406,7 @@ async function generateRC() {
   const container = document.getElementById('practice-container');
   
   // Check localStorage for today's RC
-  const cacheKey = 'marg_daily_rc_' + today.toISOString().split('T')[0];
+  const cacheKey = 'marg_daily_rc_v2_' + today.toISOString().split('T')[0];
   const cached = localStorage.getItem(cacheKey);
   
   if (cached) {
@@ -417,15 +424,19 @@ async function generateRC() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        max_tokens: 8192,
-        system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.',
-        messages: [{ role: 'user', content: prompt }]
+        contents: [{ role:'user', parts:[{ text:prompt }] }],
+        systemInstruction: { parts:[{ text:'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.' }] },
+        generationConfig: {
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingLevel:'minimal' }
+        }
       })
     }, 32000);
     if (!res.ok) throw new Error('Practice service returned ' + res.status);
     
     const data = await res.json();
-    const text = data.content && data.content[0] ? data.content[0].text : null;
+    const text = getGeminiText(data);
     if (!text) throw new Error('No response');
     
     const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -468,7 +479,7 @@ function selectOption(qIndex, optIndex, correct, btn) {
   answered[qIndex] = true;
   
   var isCorrect = optIndex === correct;
-  var cached = localStorage.getItem('marg_daily_rc_' + today.toISOString().split('T')[0]);
+  var cached = localStorage.getItem('marg_daily_rc_v2_' + today.toISOString().split('T')[0]);
   var rcData = cached ? JSON.parse(cached) : null;
   var q = rcData ? rcData.questions[qIndex] : null;
   
