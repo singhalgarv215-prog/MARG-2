@@ -927,9 +927,95 @@ function ensureMentorRichTextStyles() {
   document.head.appendChild(style);
 }
 
+function escapeVisualText(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function cleanVisualLabel(value, maxLength) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength || 90);
+}
+
+function renderTrustedMentorVisual(spec) {
+  if (!spec || typeof spec !== 'object') return '';
+  var type = String(spec.type || '').toLowerCase();
+  var allowed = ['flow', 'comparison', 'grid', 'bars', 'number_line', 'cube', 'geometry'];
+  if (allowed.indexOf(type) === -1) return '';
+  var title = escapeVisualText(cleanVisualLabel(spec.title || 'Visual explanation', 100));
+  var note = cleanVisualLabel(spec.note || '', 180);
+  var body = '';
+
+  if (type === 'flow') {
+    var flowItems = Array.isArray(spec.items) ? spec.items.slice(0, 6).map(function(item) { return cleanVisualLabel(item, 90); }).filter(Boolean) : [];
+    if (flowItems.length < 2) return '';
+    body = '<div class="marg-visual-flow">' + flowItems.map(function(item, index) {
+      return (index ? '<span class="marg-visual-arrow" aria-hidden="true">→</span>' : '') + '<div class="marg-visual-node">' + escapeVisualText(item) + '</div>';
+    }).join('') + '</div>';
+  } else if (type === 'comparison') {
+    var columns = Array.isArray(spec.columns) ? spec.columns.slice(0, 3) : [];
+    if (columns.length < 2) return '';
+    body = '<div class="marg-visual-compare">' + columns.map(function(column) {
+      var items = Array.isArray(column && column.items) ? column.items.slice(0, 6) : [];
+      return '<div class="marg-visual-column"><div class="marg-visual-column-title">' + escapeVisualText(cleanVisualLabel(column && column.title, 55)) + '</div>' + items.map(function(item) {
+        return '<div class="marg-visual-column-item">' + escapeVisualText(cleanVisualLabel(item, 95)) + '</div>';
+      }).join('') + '</div>';
+    }).join('') + '</div>';
+  } else if (type === 'grid') {
+    var headers = Array.isArray(spec.headers) ? spec.headers.slice(0, 7).map(function(item) { return cleanVisualLabel(item, 35); }) : [];
+    var rows = Array.isArray(spec.rows) ? spec.rows.slice(0, 8) : [];
+    if (!headers.length || !rows.length) return '';
+    body = '<div class="marg-visual-grid-wrap"><table class="marg-visual-grid"><thead><tr>' + headers.map(function(item) { return '<th>' + escapeVisualText(item) + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.map(function(row) {
+      var values = Array.isArray(row) ? row.slice(0, headers.length) : [];
+      return '<tr>' + headers.map(function(_, index) { return '<td>' + escapeVisualText(cleanVisualLabel(values[index], 45)) + '</td>'; }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+  } else if (type === 'bars') {
+    var bars = Array.isArray(spec.items) ? spec.items.slice(0, 7) : [];
+    if (!bars.length) return '';
+    var numericValues = bars.map(function(item) { return Math.max(0, Number(item && item.value) || 0); });
+    var maxValue = Math.max.apply(Math, numericValues.concat([1]));
+    body = '<div class="marg-visual-bars">' + bars.map(function(item, index) {
+      var width = Math.max(2, Math.min(100, numericValues[index] / maxValue * 100));
+      return '<div class="marg-visual-bar-row"><span>' + escapeVisualText(cleanVisualLabel(item && item.label, 45)) + '</span><span class="marg-visual-bar-track"><span class="marg-visual-bar-fill" style="width:' + width.toFixed(1) + '%"></span></span><span>' + escapeVisualText(cleanVisualLabel(item && (item.display || item.value), 20)) + '</span></div>';
+    }).join('') + '</div>';
+  } else if (type === 'number_line') {
+    var points = Array.isArray(spec.points) ? spec.points.slice(0, 8) : [];
+    if (!points.length) return '';
+    var min = Number.isFinite(Number(spec.min)) ? Number(spec.min) : 0;
+    var max = Number.isFinite(Number(spec.max)) ? Number(spec.max) : 10;
+    if (max <= min) max = min + 1;
+    body = '<svg class="marg-visual-svg" viewBox="0 0 620 130" role="img" aria-label="' + title + '"><line x1="45" y1="65" x2="575" y2="65" stroke="#8E8A83" stroke-width="2"/><path d="M575 65l-12-7v14z" fill="#8E8A83"/>' + points.map(function(point) {
+      var value = Math.max(min, Math.min(max, Number(point && point.value) || min));
+      var x = 45 + (value - min) / (max - min) * 520;
+      return '<line x1="' + x + '" y1="55" x2="' + x + '" y2="75" stroke="#C9A84C" stroke-width="2"/><circle cx="' + x + '" cy="65" r="5" fill="#C9A84C"/><text x="' + x + '" y="94" text-anchor="middle" fill="#D8D4CC" font-size="13">' + escapeVisualText(cleanVisualLabel(point && (point.label || point.value), 25)) + '</text>';
+    }).join('') + '</svg>';
+  } else if (type === 'cube') {
+    var n = Math.max(1, Math.min(8, Math.round(Number(spec.size) || 4)));
+    var cut = Math.max(0, Math.min(n - 1, Math.round(Number(spec.cutout) || 0)));
+    body = '<svg class="marg-visual-svg" viewBox="0 0 620 270" role="img" aria-label="' + title + '"><path d="M215 75l135-45 110 65-135 47z" fill="#2B2922" stroke="#C9A84C"/><path d="M215 75v115l110 55V142z" fill="#171713" stroke="#C9A84C"/><path d="M325 142v103l135-52V95z" fill="#222018" stroke="#C9A84C"/><text x="337" y="130" text-anchor="middle" fill="#F0EDE6" font-size="20">' + n + ' × ' + n + ' × ' + n + '</text>' + (cut ? '<rect x="291" y="157" width="69" height="48" rx="5" fill="#0D0D0D" stroke="#8E8A83" stroke-dasharray="5 4"/><text x="326" y="185" text-anchor="middle" fill="#AAA69E" font-size="12">cutout ' + cut + '</text>' : '') + '</svg>';
+  } else if (type === 'geometry') {
+    var shape = String(spec.shape || 'triangle').toLowerCase();
+    if (shape === 'circle') body = '<svg class="marg-visual-svg" viewBox="0 0 620 260" role="img" aria-label="' + title + '"><circle cx="310" cy="125" r="85" fill="rgba(201,168,76,.07)" stroke="#C9A84C" stroke-width="3"/><line x1="310" y1="125" x2="395" y2="125" stroke="#4CAF7D" stroke-width="3"/><text x="350" y="115" fill="#D8D4CC" font-size="15">' + escapeVisualText(cleanVisualLabel(spec.radiusLabel || 'r', 15)) + '</text></svg>';
+    else if (shape === 'rectangle') body = '<svg class="marg-visual-svg" viewBox="0 0 620 260" role="img" aria-label="' + title + '"><rect x="150" y="45" width="320" height="165" rx="2" fill="rgba(201,168,76,.07)" stroke="#C9A84C" stroke-width="3"/><text x="310" y="235" text-anchor="middle" fill="#D8D4CC" font-size="15">' + escapeVisualText(cleanVisualLabel(spec.widthLabel || 'width', 25)) + '</text><text x="125" y="132" text-anchor="middle" fill="#D8D4CC" font-size="15">' + escapeVisualText(cleanVisualLabel(spec.heightLabel || 'height', 25)) + '</text></svg>';
+    else body = '<svg class="marg-visual-svg" viewBox="0 0 620 270" role="img" aria-label="' + title + '"><path d="M310 35L105 225H515Z" fill="rgba(201,168,76,.07)" stroke="#C9A84C" stroke-width="3"/><text x="310" y="253" text-anchor="middle" fill="#D8D4CC" font-size="15">' + escapeVisualText(cleanVisualLabel(spec.baseLabel || 'base', 25)) + '</text><text x="325" y="135" fill="#D8D4CC" font-size="15">' + escapeVisualText(cleanVisualLabel(spec.heightLabel || 'height', 25)) + '</text><line x1="310" y1="35" x2="310" y2="225" stroke="#4CAF7D" stroke-dasharray="6 5"/></svg>';
+  }
+  if (!body) return '';
+  return '<div class="marg-visual-card" role="figure" aria-label="' + title + '"><div class="marg-visual-kicker">Visual check</div><div class="marg-visual-title">' + title + '</div>' + body + (note ? '<div class="marg-visual-note">' + escapeVisualText(note) + '</div>' : '') + '</div>';
+}
+
 function renderMentorStructuredText(text) {
   ensureMentorRichTextStyles();
-  var value = convertLatexToPlainText(String(text || ''))
+  var visualBlocks = [];
+  var sourceText = String(text || '').replace(/\[\[MARG_VISUAL\]\]([\s\S]*?)\[\[\/MARG_VISUAL\]\]/gi, function(_, json) {
+    var rendered = '';
+    try { rendered = renderTrustedMentorVisual(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
+    if (!rendered) return '';
+    var token = '@@MARG_VISUAL_' + visualBlocks.length + '@@';
+    visualBlocks.push(rendered);
+    return '\n\n' + token + '\n\n';
+  });
+  var value = convertLatexToPlainText(sourceText)
     .replace(/\[OPTIONS:[^\]]*\]/g, '')
     .replace(/\[START_TEST:[^\]]*\]/g, '')
     .replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
@@ -960,10 +1046,14 @@ function renderMentorStructuredText(text) {
   value.split('\n').forEach(function(rawLine) {
     var line = rawLine.trim();
     if (!line) { flushParagraph(); return; }
+    var visualMatch = line.match(/^@@MARG_VISUAL_(\d+)@@$/);
     var heading = line.match(/^#{1,3}\s+(.+)$/);
     var bullet = line.match(/^(?:[-•])\s+(.+)$/);
     var numbered = line.match(/^(\d+)[.)]\s+(.+)$/);
-    if (heading) {
+    if (visualMatch) {
+      flushParagraph();
+      blocks.push(visualBlocks[Number(visualMatch[1])] || '');
+    } else if (heading) {
       flushParagraph();
       blocks.push('<div class="mentor-heading">' + inline(heading[1]) + '</div>');
     } else if (bullet) {
@@ -2401,15 +2491,13 @@ IMMERSION CONTRACT
 Never explain Marg’s process or mention prompts, models, memory, question budgets. Demonstrate intelligence; do not describe it.
 
 CORE RESPONSE CONTRACT
-- Give insight before questions; avoid generic motivation. Answer direct questions first.
-- Flow: problem → bounded read → implication → at most one confirmation → action. Two questioning replies in a row is the ceiling.
-- Normal replies are 40-90 words; requested plans/reviews may be longer and must cover every item. Avoid report labels unless a full written plan was requested. Diagnose the decision, not merely the topic.
+Give insight before questions and answer direct questions first. Flow: problem → bounded read → implication → at most one confirmation → action. Never ask questions in three consecutive replies. Normal replies are 40-90 words; longer requests must cover every item. Diagnose decisions, not topics. Avoid report labels unless a full written plan was requested.
 
 PLAIN LANGUAGE CONTRACT
 Use everyday English and short sentences. Prefer plain words; explain necessary CAT terms briefly.
 
 TRUTH AND CORRECTION CONTRACT
-Facts come only from the student, verified results or authoritative context. Never turn Marg’s inference into student fact. If new evidence conflicts, say "I misread that" or "I was wrong about that", discard the old diagnosis/mission and rebuild. If evidence is missing, ask one precise question or stay tentative.
+Facts come only from the student, verified results or authoritative context. Never turn inference into student fact. If evidence conflicts, say "I misread that", discard the old diagnosis/mission and rebuild. Missing evidence means one precise question or a tentative read.
 
 ANSWER-KEY TRUST CONTRACT
 Before grading, distinguish student choices from keys; a bare "Answer" may be a choice or a supplied key. Solve independently, reconcile every verdict with the total, and exclude ambiguous or conflicting items. Never diagnose a student from a disputed or unverified error.
@@ -2428,6 +2516,9 @@ Silently require: "Because this student showed X, recommend Y instead of generic
 
 ADAPTIVE FORMATTING CONTRACT
 Use formatting only when it reduces real reading effort: headings for long parts, bullets for parallel points, numbers for order, and bold for normally no more than three short spans. Use CAPS only for a decisive warning, never a whole sentence. Use ✅/❌ only for checked results and at most two other useful emojis. Short replies stay plain; preserve answer-block spacing and avoid tables or decoration.
+
+TRUSTED VISUAL EXPLANATIONS
+Use one visual only when structure is clearer than text: DILR, geometry, cube, number line, sequence, comparison or chart. Never add decorative visuals to mentoring, emotion, RC or short replies; text must stand alone. Emit valid JSON, never HTML: [[MARG_VISUAL]]{"type":"flow|comparison|grid|bars|number_line|cube|geometry","title":"...",...}[[/MARG_VISUAL]]. Keys: flow items; comparison columns(title/items); grid headers/rows; bars items(label/value/display); number_line min/max/points; cube size/cutout; geometry shape/labels. Omit inaccurate visuals; they are not to scale.
 
 EVIDENCE BEFORE REASSURANCE
 A score is an outcome, not a cause or capability verdict. Do not explain it or reassure confidently before examining attempts, accuracy, selection, timing, errors and the student's account. Separate observation from hypothesis: "The score shows X; your description suggests Y; Z needs testing." Reassure only from evidence.
@@ -2455,7 +2546,7 @@ For problems across two or more sections, separate facts from guesses, ask which
 
 DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. Use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified.
-When challenged, audit that condition first. Keep one facing convention. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.” Validity needs one full arrangement satisfying every condition.
+When challenged, audit first and keep one facing convention. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.”
 
 MEMORY AND CONTINUITY
 Use memory before advice. Refer naturally to one relevant fact; never invent history or request Marg-generated material again. Change an active plan only for fresh evidence or an explicit redesign, and say why.
@@ -2472,9 +2563,7 @@ Never call Marg session-only. Account data can persist in Supabase; drafts/plans
 If the user says only "continue", "go on" or equivalent after an incomplete reply, resume from the exact endpoint. Do not restart, summarize, repeat, re-derive, apologize or add an introduction.
 
 ANSWER REVIEWS
-Separate multiple answers with blank lines; give the choice, correct answer and exact mismatch. For one wrong RC answer, state the trap with no reflective question. After two micro-check decisions, offer one more question from the same passage, then a full RC. Keep it conversational, never an evidence report.
-For pasted passages, preserve declared choices exactly. If labels may be the student’s choices or official key, clarify before scoring. One passage with three answers is one observation, never proof of overall RC skill.
-Across verified errors, group only repeated mechanisms such as inference jump (X → X + an unsupported idea), scope inflation, mixing speakers, outside-knowledge contamination or missing a connector. Cite the student's exact choices; never paste a generic trap checklist.
+Separate answers with blank lines; show choice, key and exact mismatch. For one wrong RC answer, state the trap without a reflective question. After two micro-checks, offer one same-passage question, then a full RC—conversationally. Preserve pasted choices; clarify whether ambiguous labels are choices or keys. One passage is one observation, not proof. Across verified errors, group only repeated mechanisms: inference jump, scope inflation, mixed speakers, outside knowledge or missed connectors. Cite exact choices; never paste a generic checklist.
 
 PLANNING AND PERSONALIZATION
 A multi-section roadmap is planning, not section diagnosis. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify day versus rotation once. Valid confirmed evidence controls ordering and checkpoints: prioritise repeated score leakage over syllabus order.
@@ -2501,8 +2590,7 @@ Never output LaTeX/TeX or dollar math delimiters. Use plain arithmetic with =, +
 MISSIONS AND CLOSING
 Do not force a Today's Mission block. A task must test the diagnosed mechanism, not volume; explain naturally why this action follows from this student's evidence. Change it only for new evidence; discard rejected missions.
 Never infer a specific percentile from one mock. For full reviews give one evidence-linked priority per section and one checkpoint across two mocks.
-Save open missions, but keep them out of unrelated chat; Home carries them until resumed or reviewed.
-Normal closes keep one light forward thread without a forced question. When sleep, exhaustion or completion calls for disengaging, end cleanly.
+Keep saved missions out of unrelated chat; Home carries them. Normal closes leave a light thread, without a forced question. Sleep, exhaustion or completion should end cleanly.
 
 TECHNICAL TAGS
 When a short option list helps, output one [OPTIONS: opt1|opt2|opt3][CONTEXT: type]. When the student reports completed QA/DILR practice, silently add [PRACTICE_LOG: section|Stable Topic Name|new count]. When genuinely recommending a timed QA/DILR sectional, add one [START_TEST: section|Topic|count]. Never explain these tags.
@@ -5987,7 +6075,158 @@ function scrollChatToLatest(options) {
   }, instant ? 80 : 220);
 }
 
+function ensureMessageExperienceStyles() {
+  if (document.getElementById('marg-message-experience-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'marg-message-experience-styles';
+  style.textContent = `:root{--marg-reader-scale:1}.message-stack{display:flex;flex-direction:column;min-width:0;max-width:100%}.msg-wrap.user .message-stack{align-items:flex-end}.msg-wrap.marg .message-stack{align-items:flex-start}.msg-wrap.marg .bubble{background:#151515;color:#dedad2;border-color:rgba(255,255,255,.085)}.mentor-rich{max-width:72ch;font-size:15px;line-height:1.7!important;letter-spacing:.002em}.mentor-rich .mentor-paragraph{margin-bottom:12px!important}.message-actions{display:flex;align-items:center;gap:3px;min-height:30px;max-width:100%;margin-top:4px;opacity:.2;overflow-x:auto;scrollbar-width:none;transition:opacity .16s ease}.message-actions::-webkit-scrollbar{display:none}.msg-wrap:hover .message-actions,.msg-wrap:focus-within .message-actions,.message-actions.visible{opacity:1}.message-action{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:#77736c;cursor:pointer;padding:0;transform:none!important}.message-action:hover,.message-action:focus-visible{opacity:1!important;color:#dedad2;background:rgba(255,255,255,.065);outline:none}.message-action.active{color:var(--gold-light);background:rgba(201,168,76,.1)}.message-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.message-action-status{font-size:10px;color:#8d8981;margin-left:5px;white-space:nowrap}.passage-message{width:min(100%,800px);max-width:min(100%,800px)!important}.passage-message .message-stack{width:100%}.passage-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#141414;border-color:rgba(255,255,255,.095)}.passage-reader-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 17px;border-bottom:1px solid rgba(255,255,255,.075);font-family:'DM Sans',sans-serif}.passage-reader-label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#aba69d}.passage-reader-tools{display:flex;gap:6px}.passage-reader-tool{border:1px solid rgba(255,255,255,.1);background:#1b1b1b;color:#aaa69e;border-radius:8px;padding:6px 9px;font:600 11px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.passage-reader-tool:hover{color:#eeeae2;border-color:rgba(201,168,76,.45)}.passage-reading-content{padding:22px 21px 24px;max-width:70ch;color:#d8d4cc;font-family:Georgia,'Times New Roman',serif;font-size:calc(17px * var(--marg-reader-scale));line-height:1.86;letter-spacing:.006em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.passage-reading-content p{margin:0 0 1.22em}.passage-reading-content p:last-child{margin-bottom:0}.passage-questions{padding:19px 21px 22px;border-top:1px solid rgba(255,255,255,.08);background:#171717;color:#e2ded6;font:14.5px/1.7 'DM Sans',sans-serif}.passage-questions-label{margin-bottom:12px;color:var(--gold-light);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.reading-focus-overlay{position:fixed;inset:0;z-index:5000;background:#111;display:flex;flex-direction:column;color:#d8d4cc}.reading-focus-overlay.paper{background:#f2eee5;color:#272521}.reading-focus-bar{min-height:58px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:env(safe-area-inset-top,0px) 16px 0;border-bottom:1px solid rgba(128,128,128,.2);font:13px 'DM Sans',sans-serif}.reading-focus-actions{display:flex;gap:7px}.reading-focus-actions button,.reading-focus-close{border:1px solid rgba(128,128,128,.25);background:transparent;color:inherit;border-radius:9px;padding:7px 10px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.reading-focus-scroll{overflow-y:auto;flex:1;padding:34px 20px 70px}.reading-focus-scroll .passage-reading-content{margin:0 auto;padding:0;max-width:68ch;color:inherit;font-size:calc(19px * var(--marg-reader-scale));line-height:1.9}.marg-visual-card{margin:15px 0 13px;padding:15px;border:1px solid rgba(201,168,76,.22);border-radius:14px;background:linear-gradient(145deg,#181713,#111);font-family:'DM Sans',sans-serif;color:#dedad2;overflow:hidden}.marg-visual-kicker{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gold);margin-bottom:5px}.marg-visual-title{font-size:14px;font-weight:650;color:#f0ede6;line-height:1.35;margin-bottom:13px}.marg-visual-flow{display:flex;align-items:stretch;gap:7px;overflow-x:auto;padding-bottom:2px}.marg-visual-node{min-width:110px;flex:1;padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#0f0f0f;font-size:11px;line-height:1.45;color:#c8c4bc}.marg-visual-arrow{align-self:center;color:var(--gold);font-size:15px}.marg-visual-grid-wrap{overflow-x:auto}.marg-visual-grid{border-collapse:collapse;width:100%;font-size:11px}.marg-visual-grid th,.marg-visual-grid td{border:1px solid rgba(255,255,255,.1);padding:8px 9px;text-align:left;white-space:nowrap}.marg-visual-grid th{background:rgba(201,168,76,.08);color:var(--gold-light)}.marg-visual-bars{display:flex;flex-direction:column;gap:9px}.marg-visual-bar-row{display:grid;grid-template-columns:minmax(72px,120px) 1fr auto;gap:9px;align-items:center;font-size:10px;color:#aaa69e}.marg-visual-bar-track{height:9px;background:#0b0b0b;border-radius:999px;overflow:hidden}.marg-visual-bar-fill{display:block;height:100%;background:linear-gradient(90deg,#4caf7d,#c9a84c);border-radius:inherit}.marg-visual-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.marg-visual-column{border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#101010;padding:11px}.marg-visual-column-title{color:var(--gold-light);font-size:11px;font-weight:650;margin-bottom:8px}.marg-visual-column-item{font-size:10.5px;color:#b4b0a8;line-height:1.45;margin:5px 0}.marg-visual-svg{display:block;width:100%;height:auto;max-height:330px}.marg-visual-note{font-size:10px;line-height:1.45;color:#8e8a83;margin-top:10px}.pcard-passage{max-width:70ch;margin-left:auto!important;margin-right:auto!important;padding:19px 18px!important;border:1px solid rgba(255,255,255,.075);border-radius:12px;background:#141414;color:#d8d4cc!important;font-family:Georgia,'Times New Roman',serif!important;font-size:17px!important;line-height:1.86!important;letter-spacing:.005em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.pcard-passage p{margin-bottom:1.18em!important}@media(max-width:600px){.msg-wrap.marg .bubble{color:#dedad2}.mentor-rich{font-size:15.5px;line-height:1.72!important;max-width:none}.message-actions{opacity:.78;margin-top:3px}.message-action{width:32px;height:32px}.passage-message{max-width:100%!important;width:100%}.passage-message>.avatar{display:none}.passage-reading-content{padding:20px 18px 23px;font-size:calc(17px * var(--marg-reader-scale));line-height:1.9}.passage-questions{padding:17px 18px 20px;font-size:14.5px;line-height:1.72}.marg-visual-card{margin:14px 0;padding:13px}.marg-visual-flow{flex-direction:column;overflow:visible}.marg-visual-arrow{transform:rotate(90deg)}.marg-visual-compare{grid-template-columns:1fr}.pcard-passage{font-size:16.5px!important;line-height:1.9!important;padding:18px 16px!important;color:#d8d4cc!important}}`;
+  document.head.appendChild(style);
+}
+
+function messageActionIcon(name) {
+  var icons = {
+    copy:'<svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>',
+    edit:'<svg viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"></path></svg>',
+    share:'<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4"></path></svg>',
+    listen:'<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4Z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12"></path></svg>',
+    up:'<svg viewBox="0 0 24 24"><path d="M7 10v10H4V10Zm0 8h10.4a2 2 0 0 0 1.9-1.4l1.5-5A2 2 0 0 0 18.9 9H14l.8-3.1A2.3 2.3 0 0 0 10.4 5L7 10Z"></path></svg>',
+    down:'<svg viewBox="0 0 24 24"><path d="M7 14V4H4v10Zm0-8h10.4a2 2 0 0 1 1.9 1.4l1.5 5a2 2 0 0 1-1.9 2.6H14l.8 3.1a2.3 2.3 0 0 1-4.4.9L7 14Z"></path></svg>',
+    retry:'<svg viewBox="0 0 24 24"><path d="M20 7v5h-5"></path><path d="M19 12a7 7 0 1 0-2 5"></path></svg>',
+    sources:'<svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11a3 3 0 0 1 3 3v15a3 3 0 0 0-3-3H6.5A2.5 2.5 0 0 0 4 20.5Z"></path><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H14v18a3 3 0 0 1 3-3h.5a2.5 2.5 0 0 1 2.5 2.5Z"></path></svg>',
+    report:'<svg viewBox="0 0 24 24"><path d="M4 21V5"></path><path d="M4 5h12l-2 4 2 4H4"></path></svg>'
+  };
+  return icons[name] || '';
+}
+
+function messageActionButton(action, label, icon) {
+  return '<button class="message-action" type="button" data-message-action="' + action + '" aria-label="' + label + '" title="' + label + '">' + messageActionIcon(icon || action) + '</button>';
+}
+
+function messageTextFromWrap(wrap) {
+  if (!wrap) return '';
+  var bubble = wrap.querySelector('.bubble');
+  return bubble ? String(bubble.innerText || bubble.textContent || '').replace(/\n{3,}/g, '\n\n').trim() : '';
+}
+
+function setMessageActionStatus(wrap, value) {
+  var status = wrap && wrap.querySelector('.message-action-status');
+  if (!status) return;
+  status.textContent = value || '';
+  clearTimeout(status._clearTimer);
+  status._clearTimer = setTimeout(function() { status.textContent = ''; }, 1800);
+}
+
+async function copyTextSafely(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+  var area = document.createElement('textarea');
+  area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
+  document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove();
+}
+
+async function recordInlineMessageFeedback(kind, text) {
+  if (!currentUser || !SUPABASE_TOKEN) return false;
+  try {
+    var result = await sbFetch('feedback', 'POST', {
+      user_id:currentUser.id,
+      selected:'message_' + kind,
+      text:'Response reference: ' + simpleStableHash(String(text || '')),
+      page:'marg_chat_message',
+      sessions:studentProfile ? studentProfile.sessionsCount || 0 : 0
+    });
+    return !!(result && result.ok);
+  } catch(e) { return false; }
+}
+
+function openPassageReadingMode(wrap) {
+  var passage = wrap && wrap.querySelector('.passage-reading-content');
+  if (!passage) return;
+  var overlay = document.createElement('div');
+  overlay.className = 'reading-focus-overlay';
+  overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', 'Passage reading mode');
+  overlay.innerHTML = '<div class="reading-focus-bar"><span>Reading mode</span><div class="reading-focus-actions"><button type="button" data-reader-action="smaller" aria-label="Decrease text size">A−</button><button type="button" data-reader-action="larger" aria-label="Increase text size">A+</button><button type="button" data-reader-action="theme">Paper</button><button class="reading-focus-close" type="button" data-reader-action="close">Close</button></div></div><div class="reading-focus-scroll"><div class="passage-reading-content">' + passage.innerHTML + '</div></div>';
+  var oldOverflow = document.body.style.overflow;
+  function close() { document.body.style.overflow = oldOverflow; overlay.remove(); }
+  overlay.addEventListener('click', function(event) {
+    var button = event.target.closest('[data-reader-action]');
+    if (!button) return;
+    var action = button.getAttribute('data-reader-action');
+    if (action === 'close') { close(); return; }
+    if (action === 'theme') { overlay.classList.toggle('paper'); button.textContent = overlay.classList.contains('paper') ? 'Dark' : 'Paper'; return; }
+    var current = parseFloat(localStorage.getItem('marg_reader_scale') || '1');
+    current += action === 'larger' ? 0.1 : -0.1;
+    current = Math.max(.9, Math.min(1.35, current));
+    localStorage.setItem('marg_reader_scale', current.toFixed(2));
+    document.documentElement.style.setProperty('--marg-reader-scale', current.toFixed(2));
+  });
+  overlay.addEventListener('keydown', function(event) { if (event.key === 'Escape') close(); });
+  document.body.style.overflow = 'hidden'; document.body.appendChild(overlay);
+  var closeButton = overlay.querySelector('.reading-focus-close'); if (closeButton) closeButton.focus();
+}
+
+function decoratePassageMessage(wrap) {
+  var bubble = wrap && wrap.querySelector('.bubble');
+  if (!bubble || bubble.querySelector('.passage-reading-content')) return false;
+  var savedReaderScale = parseFloat(localStorage.getItem('marg_reader_scale') || '1');
+  if (Number.isFinite(savedReaderScale)) document.documentElement.style.setProperty('--marg-reader-scale', Math.max(.9, Math.min(1.35, savedReaderScale)).toFixed(2));
+  var text = String(bubble.innerText || bubble.textContent || '').replace(/\r/g, '').trim();
+  if (text.length < 650 || !/^(?:CAT[- ]LEVEL\s+)?(?:RC\s+)?PASSAGE\b/i.test(text)) return false;
+  var questionMatch = text.match(/\n\s*(?:QUESTIONS?\b|Q(?:UESTION)?\s*1\b)/i);
+  var splitAt = questionMatch ? questionMatch.index : -1;
+  var passageText = (splitAt >= 0 ? text.slice(0, splitAt) : text).replace(/^(?:CAT[- ]LEVEL\s+)?(?:RC\s+)?PASSAGE\s*:?[ \t]*/i, '').trim();
+  var questionsText = splitAt >= 0 ? text.slice(splitAt).replace(/^\s*QUESTIONS?\s*:?[ \t]*/i, '').trim() : '';
+  if (passageText.length < 450) return false;
+  var paragraphs = passageText.split(/\n\s*\n|(?<=\.)\s+(?=(?:However|Yet|But|This|These|Such|Instead|Although|Nevertheless|Consequently|In contrast)\b)/).map(function(item) { return item.trim(); }).filter(Boolean);
+  bubble.innerHTML = '<div class="passage-reader-head"><span class="passage-reader-label">CAT reading passage</span><div class="passage-reader-tools"><button class="passage-reader-tool" type="button" data-open-reader>Focus · Aa</button></div></div><div class="passage-reading-content">' + paragraphs.map(function(item) { return '<p>' + escapeVisualText(item) + '</p>'; }).join('') + '</div>' + (questionsText ? '<div class="passage-questions"><div class="passage-questions-label">Questions</div>' + renderMentorStructuredText(questionsText) + '</div>' : '');
+  wrap.classList.add('passage-message');
+  var openButton = bubble.querySelector('[data-open-reader]'); if (openButton) openButton.addEventListener('click', function() { openPassageReadingMode(wrap); });
+  return true;
+}
+
+function addMessageActions(wrap, role) {
+  if (!wrap || wrap.querySelector('.message-actions')) return;
+  var bubble = wrap.querySelector('.bubble');
+  if (!bubble || bubble.classList.contains('typing-bubble')) return;
+  var stack = bubble.parentElement && bubble.parentElement.classList.contains('message-stack') ? bubble.parentElement : null;
+  if (!stack) {
+    stack = document.createElement('div'); stack.className = 'message-stack';
+    bubble.parentNode.insertBefore(stack, bubble); stack.appendChild(bubble);
+  }
+  var hasSources = !!bubble.querySelector('.marg-source-dot');
+  var actions = document.createElement('div'); actions.className = 'message-actions';
+  actions.innerHTML = role === 'user'
+    ? messageActionButton('copy', 'Copy message') + messageActionButton('edit', 'Edit and resend') + messageActionButton('share', 'Share message') + '<span class="message-action-status" aria-live="polite"></span>'
+    : messageActionButton('copy', 'Copy response') + messageActionButton('listen', 'Read aloud') + messageActionButton('up', 'Helpful') + messageActionButton('down', 'Not helpful') + messageActionButton('share', 'Share response') + messageActionButton('retry', 'Ask Marg to answer again') + (hasSources ? messageActionButton('sources', 'View sources') : '') + messageActionButton('report', 'Report response') + '<span class="message-action-status" aria-live="polite"></span>';
+  actions.addEventListener('click', async function(event) {
+    var button = event.target.closest('[data-message-action]'); if (!button) return;
+    var action = button.getAttribute('data-message-action'); var text = messageTextFromWrap(wrap);
+    if (action === 'copy') { await copyTextSafely(text); setMessageActionStatus(wrap, 'Copied'); }
+    else if (action === 'edit') {
+      var input = document.getElementById('user-input'); if (!input) return;
+      input.value = text; input.dispatchEvent(new Event('input', { bubbles:true })); focusComposer({ userInitiated:true }); setMessageActionStatus(wrap, 'Ready to edit');
+    } else if (action === 'share') {
+      try { if (navigator.share) await navigator.share({ title:'Marg CAT mentor', text:text }); else { await copyTextSafely(text); setMessageActionStatus(wrap, 'Copied to share'); } } catch(e) { if (e && e.name !== 'AbortError') setMessageActionStatus(wrap, 'Could not share'); }
+    } else if (action === 'listen') {
+      if (!window.speechSynthesis) { setMessageActionStatus(wrap, 'Listen unavailable'); return; }
+      if (button.classList.contains('active')) { window.speechSynthesis.cancel(); button.classList.remove('active'); setMessageActionStatus(wrap, 'Stopped'); return; }
+      window.speechSynthesis.cancel(); var utterance = new SpeechSynthesisUtterance(text); utterance.lang = 'en-IN'; utterance.rate = .94;
+      utterance.onend = function() { button.classList.remove('active'); }; window.speechSynthesis.speak(utterance); button.classList.add('active'); setMessageActionStatus(wrap, 'Reading');
+    } else if (action === 'up' || action === 'down') {
+      actions.querySelectorAll('[data-message-action="up"],[data-message-action="down"]').forEach(function(item) { item.classList.remove('active'); }); button.classList.add('active');
+      var saved = await recordInlineMessageFeedback(action === 'up' ? 'helpful' : 'not_helpful', text); setMessageActionStatus(wrap, saved ? 'Thanks' : 'Saved on this device');
+    } else if (action === 'retry') {
+      if (isLoading) { showComposerStatus('Marg is still responding. Try again when this reply finishes.', 'info', true); return; }
+      sendQuick('Answer my previous message again. Keep what was correct, but make it clearer and more useful.');
+    } else if (action === 'sources') {
+      var firstSource = bubble.querySelector('.marg-source-dot'); if (firstSource) firstSource.click();
+    } else if (action === 'report') {
+      feedbackSelected = 'Report a response'; var feedbackText = document.getElementById('feedback-text'); if (feedbackText) feedbackText.value = 'Response reference: ' + simpleStableHash(text) + '\n'; showFeedback();
+    }
+  });
+  stack.appendChild(actions);
+}
+
 function addMessage(role, html, showAvatar) {
+  ensureMessageExperienceStyles();
   if (showAvatar === undefined) showAvatar = true;
   if (role === 'marg' && typeof html === 'string') html = convertLatexToPlainText(html);
   // Strip markdown from ALL Marg responses at the source
@@ -6027,6 +6266,8 @@ function addMessage(role, html, showAvatar) {
     wrap.style.marginLeft = '38px';
   }
   container.appendChild(wrap);
+  if (role === 'marg') decoratePassageMessage(wrap);
+  if (role === 'marg' || role === 'user') addMessageActions(wrap, role);
   if (!isRestoringConversation) scrollChatToLatest();
   return wrap;
 }
