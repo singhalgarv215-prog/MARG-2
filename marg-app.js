@@ -2964,13 +2964,15 @@ function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCou
     verificationProperties.feasible_base_case_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
     verificationProperties.base_case_witnesses = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'string' } };
     verificationProperties.checked_constraint_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
+  } else if (section === 'rc') {
+    verificationProperties.answer_explanations = { type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'string', minLength:20 } };
   }
   return {
     type:'object', required:['valid','issues'],
     properties:{
       valid:{ type:'boolean' },
       issues:{ type:'array', items:{ type:'string' } },
-      verification:{ type:'object', properties:verificationProperties }
+      verification:{ type:'object', required:section === 'rc' ? ['answer_indices','answer_explanations'] : ['answer_indices'], properties:verificationProperties }
     }
   };
 }
@@ -10253,43 +10255,99 @@ async function refreshArticle() {
 
 function readArticle() { if (currentArticle) window.open(currentArticle.url, '_blank'); }
 
+function articleSourceBriefCacheKey(article) {
+  return getUserScopedKey('marg_article_source_brief_v1_' + simpleStableHash(String(article && article.url || '') + '|' + String(article && article.title || '')));
+}
+
+async function getGroundedArticleSourceBrief(article) {
+  var fallbackText = String(article && (article.content || article.preview) || '').trim();
+  if (!article) return fallbackText;
+  var cacheKey = articleSourceBriefCacheKey(article);
+  try {
+    var cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+    if (cached && cached.brief && Date.now() - Number(cached.savedAt || 0) < 86400000) return cached.brief;
+  } catch(e) {}
+
+  try {
+    var sourcePrompt = 'Find and inspect this exact article before answering.\nTitle: "' + article.title + '"\nPublisher: ' + article.source + '\nURL: ' + article.url + '\nRSS excerpt: ' + fallbackText + '\n\nReturn a faithful 180-260 word thematic brief for an original CAT RC writer. State the article\'s central issue, important tension, qualification and direction of argument. Do not copy sentences from the article. Do not invent details. If the exact article cannot be verified, return only SOURCE_UNAVAILABLE.';
+    var sourceRequest = buildGeminiRequest(
+      'You retrieve source material for CAT reading practice. Use Google Search to verify the exact supplied article. Paraphrase its argument faithfully; never fabricate access or facts.',
+      [{ role:'user', content:sourcePrompt }],
+      3072
+    );
+    enableWebGrounding(sourceRequest, true);
+    var response = await fetchWithTimeout(WORKER_URL, {
+      method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(sourceRequest)
+    }, 30000);
+    if (!response.ok) throw new Error('Article source lookup returned ' + response.status);
+    var payload = await response.json();
+    var brief = stripGroundingSourceMarker(getGeminiText(payload)).trim();
+    if (brief === 'SOURCE_UNAVAILABLE' || brief.length < 450) throw new Error('Exact article source was unavailable');
+    try { localStorage.setItem(cacheKey, JSON.stringify({ brief:brief, savedAt:Date.now() })); } catch(e) {}
+    return brief;
+  } catch(e) {
+    console.warn('Grounded article lookup unavailable; using the publisher RSS material:', e && e.message || e);
+    return fallbackText;
+  }
+}
+
 async function createRCPassage() {
   if (!currentArticle || articleRCGenerating) return;
   articleRCGenerating = true;
   closeVarcCard();
-  const articleText = currentArticle.content || currentArticle.preview;
-  const prompt = `Use the following article only as thematic source material. Write a completely original CAT-style RC; do not quote, reproduce or merely summarise the article.
+  var articleText = currentArticle.content || currentArticle.preview;
+  var prompt = '';
+
+  function buildArticleRCPrompt(sourceMaterial) { return `Use the following verified article brief only as thematic source material. Write a completely original CAT-style RC; do not quote, reproduce or merely summarise the article.
 
 Article title: "${currentArticle.title}" (${currentArticle.source})
-Available article text: ${articleText}
+Article URL: ${currentArticle.url}
+Verified thematic brief or publisher RSS material: ${sourceMaterial}
 
 Generate exactly one HARD CAT-level RC passage of 450-520 words in 3-4 distinct paragraphs and exactly four questions: primary purpose, specific detail, inference, and author attitude. Build a central thesis, one qualification or counter-consideration, and a subtle change in the author's position. The passage must reward structural reading rather than factual recall.
 
-Each question must have exactly four distinct plausible options and one defensible answer. At least two options should be close; wrong options should use controlled scope, force, ownership, context or inference traps rather than obvious nonsense. Use only information stated or necessarily implied by the passage. Independently solve every question. Include private sufficiency_check and option_check fields; they will not be shown to the student. Keep explanations to one or two clean sentences. Return only valid JSON in this exact shape: {"sets":[{"passage":"450-520 words with blank lines between paragraphs","difficulty":"Hard","topic":"specific theme","questions":[{"q":"complete question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based reason","sufficiency_check":"why the passage is sufficient","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one useful decision rule"}]}]}`;
+Each question must have exactly four distinct plausible options and one defensible answer. At least two options should be close; wrong options should use controlled scope, force, ownership, context or inference traps rather than obvious nonsense. Use only information stated or necessarily implied by the passage. Independently solve every question. Include private sufficiency_check and option_check fields; they will not be shown to the student. Keep explanations to one or two clean sentences. Return only valid JSON in this exact shape: {"sets":[{"passage":"450-520 words with blank lines between paragraphs","difficulty":"Hard","topic":"specific theme","questions":[{"q":"complete question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based reason","sufficiency_check":"why the passage is sufficient","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one useful decision rule"}]}]}`; }
 
   addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
   showTyping();
   profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   var articleRCStage = 'generation_request';
   try {
-    const response = await fetchWithTimeout(WORKER_URL, {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify(buildGeminiRequest(
-        'You are an expert CAT RC writer. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
-        [{ role:'user', content:prompt }],
-        8192,
-        'application/json',
-        getPracticeGenerationJsonSchema('rc', 4)
-      ))
-    }, 42000);
-    if (!response.ok) throw new Error('Worker status ' + response.status);
-    articleRCStage = 'generation_response';
-    const data = await response.json();
-    const reply = getGeminiText(data);
-    articleRCStage = 'generation_parse';
-    const rcData = normalizePracticeAnswers(parseGeneratedJson(reply), 'rc');
-    const localIssues = collectSolutionPresentationIssues(rcData, 'rc').concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'));
+    articleRCStage = 'source_grounding';
+    articleText = await getGroundedArticleSourceBrief(currentArticle);
+    prompt = buildArticleRCPrompt(articleText);
+    var rcData = null;
+    var localIssues = [];
+    // A structurally incomplete first draft used to be surfaced as a manual
+    // failure. Rebuild it once with the exact failed checks, then fail closed.
+    // This is bounded: at most two generation calls for one student action.
+    for (var draftAttempt = 0; draftAttempt < 2; draftAttempt++) {
+      articleRCStage = draftAttempt === 0 ? 'generation_request' : 'generation_repair';
+      var attemptPrompt = prompt;
+      if (draftAttempt > 0) {
+        attemptPrompt += '\n\nThe previous draft was discarded before display because: ' + localIssues.join('; ') + '. Rebuild the complete RC from scratch. Count only the passage words and keep them between 450 and 520. Return exactly four complete questions with four options each.';
+      }
+      const response = await fetchWithTimeout(WORKER_URL, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body:JSON.stringify(buildGeminiRequest(
+          'You are an expert CAT RC writer. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
+          [{ role:'user', content:attemptPrompt }],
+          8192,
+          'application/json',
+          getPracticeGenerationJsonSchema('rc', 4)
+        ))
+      }, 42000);
+      if (!response.ok) throw new Error('Worker status ' + response.status);
+      articleRCStage = 'generation_response';
+      const data = await response.json();
+      const reply = getGeminiText(data);
+      articleRCStage = 'generation_parse';
+      rcData = normalizePracticeAnswers(parseGeneratedJson(reply), 'rc');
+      localIssues = collectSolutionPresentationIssues(rcData, 'rc').concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'));
+      if (validateRCPracticeSet(rcData, 4) && !localIssues.length) break;
+      if (!localIssues.length) localIssues = ['Article RC failed its 450-550 word, paragraph, question or option structure check'];
+    }
     if (!validateRCPracticeSet(rcData, 4) || localIssues.length) {
       var localFailure = new Error(localIssues[0] || 'Article RC failed structural validation');
       localFailure.practiceAudit = { failureType:'local', issues:localIssues.length ? localIssues : ['Article RC failed structural validation'] };
@@ -10308,6 +10366,8 @@ Each question must have exactly four distinct plausible options and one defensib
       }
       throw auditFailure;
     }
+    rcData = articleAudit.correctedData || rcData;
+    if (!validateRCPracticeSet(rcData, 4)) throw new Error('Independently checked article RC failed final validation');
     articleRCStage = 'render_and_store';
     const visibleReply = formatStructuredArticleRC(rcData);
     hideTyping();
@@ -12675,6 +12735,25 @@ function validateIndependentPracticeVerification(audit, generatedData, section) 
   return { valid:issues.length === 0, issues:issues };
 }
 
+function applyAuditedRCVerification(generatedData, audit) {
+  var corrected = JSON.parse(JSON.stringify(generatedData || {}));
+  var questions = corrected && corrected.sets && corrected.sets[0] && corrected.sets[0].questions;
+  var verification = audit && audit.verification;
+  var indices = verification && Array.isArray(verification.answer_indices)
+    ? verification.answer_indices.map(normalizeAuditedAnswerIndex)
+    : [];
+  var explanations = verification && Array.isArray(verification.answer_explanations)
+    ? verification.answer_explanations.map(function(value) { return String(value || '').trim(); })
+    : [];
+  if (!Array.isArray(questions) || indices.length !== questions.length || explanations.length !== questions.length) return null;
+  if (indices.some(function(index) { return !Number.isInteger(index) || index < 0 || index > 3; }) || explanations.some(function(value) { return value.length < 20; })) return null;
+  questions.forEach(function(question, index) {
+    question.correct = indices[index];
+    question.explanation = explanations[index];
+  });
+  return corrected;
+}
+
 function buildStudentVisiblePracticeForAudit(data, section) {
   var visible = JSON.parse(JSON.stringify(data || {}));
   var questions = [];
@@ -12720,10 +12799,12 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
           base_case_witnesses:Array.from({ length:setCount }, function() { return 'one complete assignment satisfying every stated condition'; }),
           checked_constraint_counts:Array.from({ length:setCount }, function() { return 7; })
         }
-      : { answer_indices:exampleAnswerIndices, feasible_base_case_counts:[] }
+      : section === 'rc'
+        ? { answer_indices:exampleAnswerIndices, answer_explanations:Array.from({ length:answerCount }, function() { return 'The passage directly supports this option while the alternatives change its scope or force.'; }), feasible_base_case_counts:[] }
+        : { answer_indices:exampleAnswerIndices, feasible_base_case_counts:[] }
   });
   var studentVisibleMaterial = buildStudentVisiblePracticeForAudit(generatedData, section);
-  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. Return the independently solved zero-based answer indices for every question in display order; the application will compare them with the hidden generator key. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not repair the material. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
+  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. For RC, return one short passage-grounded answer explanation for every independently solved answer; these explanations replace the generator\'s untrusted key and explanation. Return the independently solved zero-based answer indices for every question in display order. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not alter the student-visible questions or options. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
   var auditSetCount = setCount || 1;
   auditOptions = auditOptions || {};
   var auditMaxTokens = Number(auditOptions.maxTokens) || (section === 'dilr' ? Math.min(32768, 16384 + auditSetCount * 5000) : section === 'rc' ? 16384 : 20480);
@@ -12751,6 +12832,12 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
       var audit = parseGeneratedJson(auditText || '');
       if (!audit || audit.valid !== true) {
         return { valid:false, issues:(audit && audit.issues) || ['Semantic audit failed'], correctedData:null, failureType:'semantic' };
+      }
+      if (section === 'rc') {
+        var auditedRC = applyAuditedRCVerification(generatedData, audit);
+        return auditedRC
+          ? { valid:true, issues:[], correctedData:auditedRC, verification:audit.verification }
+          : { valid:false, issues:['The independent RC answer check was incomplete'], correctedData:null, failureType:'verification' };
       }
       var agreement = validateIndependentPracticeVerification(audit, generatedData, section);
       return agreement.valid
@@ -13875,6 +13962,7 @@ async function loadDailyPractice() {
       }
       throw auditFailure;
     }
+    if (currentPracticeType === 'rc' && practiceAudit.correctedData) practiceJson = practiceAudit.correctedData;
     practiceFailureStage = 'final_validation';
     var finalPracticeValid = currentPracticeType === 'qa'
       ? validateQASetShape(practiceJson, selectedPracticeTopic, 3)
