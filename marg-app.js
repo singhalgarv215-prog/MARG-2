@@ -2913,12 +2913,12 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
       thinkingConfig:{ thinkingLevel:responseMimeType === 'application/json' && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
     }
   };
-  if (responseMimeType) request.generationConfig.responseMimeType = responseMimeType;
+  if (responseMimeType) request.generationConfig.responseFormat = { text:{ mimeType:responseMimeType } };
   // JSON mode alone only asks Gemini to emit syntactically valid JSON. A
   // response schema also fixes the array counts, required fields and answer
   // index types before the draft reaches Marg's semantic checker.
   if (responseJsonSchema && responseMimeType === 'application/json') {
-    request.generationConfig.responseJsonSchema = responseJsonSchema;
+    request.generationConfig.responseFormat.text.schema = responseJsonSchema;
   }
   request.systemInstruction = { parts:[{ text:String(systemInstruction || '') + GEMINI_PLAIN_TEXT_MATH_INSTRUCTION }] };
   return request;
@@ -10486,7 +10486,7 @@ async function refreshArticle() {
 function readArticle() { if (currentArticle) window.open(currentArticle.url, '_blank'); }
 
 function articleSourceBriefCacheKey(article) {
-  return getUserScopedKey('marg_article_source_brief_v1_' + simpleStableHash(String(article && article.url || '') + '|' + String(article && article.title || '')));
+  return getUserScopedKey('marg_article_source_brief_v2_' + simpleStableHash(String(article && article.url || '') + '|' + String(article && article.title || '')));
 }
 
 async function getGroundedArticleSourceBrief(article) {
@@ -12589,10 +12589,21 @@ function collectGeneratedPracticeCompletenessIssues(data, section) {
     var optionCheck = String(question.option_check || '').trim();
     if (stem.length < 28 || !questionHasExplicitTask(stem) || /(?:\.{3}|\[\s*(?:data|value|number|condition)\s*\]|\bTBD\b|information (?:is|was) not (?:given|provided)|cannot be determined|insufficient data)/i.test(stem)) issues.push(path + ' has an incomplete question statement');
     if (solution.length < 24 || /\b(?:assuming|if we assume|suppose without loss|not enough information|insufficient data|cannot be determined from|depends on an unstated)\b/i.test(solution)) issues.push(path + ' uses an unstated assumption or has an incomplete solution');
-    if (sufficiency.length < 18 || /\b(?:assum|missing|insufficient|cannot determine|not given)\b/i.test(sufficiency)) issues.push(path + ' has no credible data-sufficiency check');
+    if (sufficiency.length < 18 || sufficiencyCheckAdmitsMissingData(sufficiency)) issues.push(path + ' has no credible data-sufficiency check');
     if (optionCheck.length < 24 || !/(?:exactly one|only|eliminat|substitut|option|choice|A\b|B\b|C\b|D\b)/i.test(optionCheck)) issues.push(path + ' has no credible unique-option check');
   });
   return issues;
+}
+
+function sufficiencyCheckAdmitsMissingData(value) {
+  var text = String(value || '').toLowerCase();
+  // “No outside assumptions are needed” is evidence of sufficiency, not an
+  // admission that the question is incomplete. The old broad /assum/ check
+  // rejected this common valid wording and discarded complete RC drafts.
+  text = text
+    .replace(/\b(?:no|without|requires? no|does not require|doesn't require)\b[^.;]{0,55}\b(?:unstated|outside|external|additional)?\s*assumptions?\b/g, '')
+    .replace(/\b(?:all|every)\s+(?:required|necessary)\s+(?:fact|detail|claim|relationship)s?\s+(?:is|are)\s+(?:stated|provided|present)\b/g, '');
+  return /\b(?:assuming|if (?:we|one) assume|must assume|requires? (?:an? |one )?(?:(?:unstated|outside|external|additional) )?assumption|depends? on (?:an? )?(?:unstated|missing)|missing (?:data|information|condition|relationship)|insufficient (?:data|information)|cannot (?:be )?determine|not (?:given|provided|stated))\b/i.test(text);
 }
 
 function validateGeneratedPracticeCompleteness(data, section) {
@@ -13127,8 +13138,43 @@ function normalizePracticeAnswers(data, type) {
       if (setObj && Array.isArray(setObj.questions)) setObj.questions.forEach(normalizeCorrectIndex);
     });
   }
+  if (type === 'rc') normalizeRCPassageParagraphs(data);
   normalizeGeneratedGrammar(data);
   return normalizeSolutionPresentation(data, type);
+}
+
+function normalizeRCPassageParagraphs(data) {
+  var setObj = data && Array.isArray(data.sets) ? data.sets[0] : null;
+  if (!setObj || typeof setObj.passage !== 'string') return data;
+  var passage = setObj.passage.replace(/\r\n?/g, '\n').trim();
+  var paragraphs = passage.split(/\n\s*\n/).map(function(item) { return item.trim(); }).filter(Boolean);
+  if (paragraphs.length >= 3) { setObj.passage = paragraphs.join('\n\n'); return data; }
+
+  var lineParagraphs = passage.split(/\n+/).map(function(item) { return item.trim(); }).filter(Boolean);
+  if (lineParagraphs.length >= 3) { setObj.passage = lineParagraphs.join('\n\n'); return data; }
+  var wordCount = countPracticeWords(passage);
+  if (wordCount < 450 || wordCount > 550) return data;
+
+  // Structured output occasionally preserves the full passage but collapses
+  // blank lines. Restore four reading paragraphs at sentence boundaries; no
+  // wording, claims or question data are changed.
+  var sentences = passage.match(/[^.!?]+[.!?]+(?:[”"']+)?|[^.!?]+$/g) || [];
+  if (sentences.length < 8) return data;
+  var targetWords = Math.ceil(wordCount / 4);
+  var rebuilt = [], current = [], currentWords = 0;
+  sentences.forEach(function(sentence, index) {
+    var cleanSentence = sentence.trim();
+    var remainingSentences = sentences.length - index - 1;
+    var remainingParagraphs = 4 - rebuilt.length - 1;
+    current.push(cleanSentence);
+    currentWords += countPracticeWords(cleanSentence);
+    if (rebuilt.length < 3 && currentWords >= targetWords && remainingSentences >= remainingParagraphs) {
+      rebuilt.push(current.join(' ')); current = []; currentWords = 0;
+    }
+  });
+  if (current.length) rebuilt.push(current.join(' '));
+  if (rebuilt.length >= 3) setObj.passage = rebuilt.join('\n\n');
+  return data;
 }
 
 function normalizeGeneratedGrammar(value) {
