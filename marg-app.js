@@ -1,14 +1,33 @@
 var tourStep = 0;
 var totalTourSteps = 3;
+var tourShowTimer = null;
+function getTourStorageKey() {
+  return 'marg_tour_v4_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+}
+function resetTourSlides() {
+  tourStep = 0;
+  for (var i = 0; i < totalTourSteps; i++) {
+    var slide = document.getElementById('tour-' + i);
+    var dot = document.getElementById('dot-' + i);
+    if (slide) slide.style.display = i === 0 ? 'block' : 'none';
+    if (dot) dot.style.background = i === 0 ? '#C9A84C' : '#333';
+  }
+  var button = document.getElementById('tour-next-btn');
+  if (button) button.textContent = 'Next →';
+}
 function showTour() {
   var m = document.getElementById('tour-modal');
-  if (m) { m.style.display = 'flex'; m.style.alignItems = 'center'; m.style.justifyContent = 'center'; }
+  if (m) {
+    resetTourSlides();
+    m.style.display = 'flex'; m.style.alignItems = 'center'; m.style.justifyContent = 'center';
+  }
 }
 function closeTour() {
   var m = document.getElementById('tour-modal');
   if (m) m.style.display = 'none';
-  localStorage.setItem('marg_tour_v3', '1');
-  tourStep = 0;
+  if (tourShowTimer) { clearTimeout(tourShowTimer); tourShowTimer = null; }
+  try { localStorage.setItem(getTourStorageKey(), '1'); } catch(e) {}
+  resetTourSlides();
 }
 function tourNext() {
   var cur = document.getElementById('tour-' + tourStep);
@@ -24,9 +43,18 @@ function tourNext() {
   var btn = document.getElementById('tour-next-btn');
   if (btn && tourStep === totalTourSteps - 1) btn.textContent = 'Lets go';
 }
-function checkAndShowTour() {
-  // Onboarding now happens entirely inside chat. Keep the old tour code dormant.
-  return;
+function checkAndShowTour(options) {
+  // Do not surprise existing users with an old onboarding modal. The caller
+  // must explicitly establish that this is a genuinely new account session.
+  if (!options || !options.newUser || !currentUser || isGuestMode) return false;
+  try { if (localStorage.getItem(getTourStorageKey()) === '1') return false; } catch(e) {}
+  var modal = document.getElementById('tour-modal');
+  if (!modal || modal.style.display === 'flex' || tourShowTimer) return false;
+  tourShowTimer = setTimeout(function() {
+    tourShowTimer = null;
+    showTour();
+  }, Number(options.delayMs || 650));
+  return true;
 }
 var feedbackSelected = null;
 var feedbackShown = false;
@@ -924,6 +952,9 @@ function ensureMentorRichTextStyles() {
     '.mentor-rich .mentor-list-mark{color:var(--gold-light);flex:0 0 auto;min-width:14px}' +
     '.mentor-rich strong{font-weight:650;color:var(--text)}' +
     '.mentor-rich em{color:var(--text-muted)}';
+  // Reading is the task in RC, so passage text gets more contrast and a larger
+  // mobile baseline than ordinary chat. This override also upgrades Practice.
+  style.textContent += '.passage-reading-content{color:#f2eee7;font-size:calc(18px * var(--marg-reader-scale));line-height:1.82;letter-spacing:0}.reading-focus-overlay{color:#f2eee7}.reading-focus-scroll .passage-reading-content{font-size:calc(20px * var(--marg-reader-scale));line-height:1.84}.pcard-passage{color:#f2eee7!important;font-size:18px!important;line-height:1.82!important;letter-spacing:0!important}@media(max-width:600px){.passage-reading-content{font-size:calc(18px * var(--marg-reader-scale));line-height:1.84}.passage-questions{font-size:15px;line-height:1.75}.pcard-passage{font-size:18px!important;line-height:1.84!important}}';
   document.head.appendChild(style);
 }
 
@@ -5089,6 +5120,10 @@ function isRCProgressionReady(message, rcWrongAnswerEvidence) {
 function isRCFunctionMappingReply(message) {
   var value = String(message || '').trim();
   if (!value || value.length > 180 || /\[OPTIONS:|\[START_TEST:/i.test(value)) return false;
+  // A submitted RC answer key such as "1-C, 2-D, 3-C" is not a paragraph-
+  // function answer. Treating it as one resurrected the previous micro-drill
+  // after a full passage had already been completed.
+  if (Object.keys(parseSubmittedAnswerChoices(value)).length >= 2 || /(?:^|\n)\s*\d{1,2}\s*[-:.)]\s*[A-D]\b/im.test(value)) return false;
   var recent = Array.isArray(conversationHistory) ? conversationHistory.slice(-10) : [];
   var recentAssistantText = recent.filter(function(item) {
     return item && item.role === 'assistant' && !isInternalMemoryMessage(item);
@@ -5096,6 +5131,32 @@ function isRCFunctionMappingReply(message) {
   var askedForFunction = /(?:\b\d+[- ]word function\b|\bparagraph(?:'s)? function\b|\bwhat (?:this|the) paragraph (?:does|is doing)\b|\bwhat the paragraph does\b|\bmap (?:the )?function\b)/i.test(recentAssistantText);
   var looksLikeExerciseReply = !/\?$/.test(value) && value.split(/\s+/).length <= 22;
   return askedForFunction && looksLikeExerciseReply;
+}
+
+function isCompletedFullRCReview(message) {
+  var activeIsRC = !!(activeGeneratedExercise && (activeGeneratedExercise.type === 'rc' || activeGeneratedExercise.type === 'varc'));
+  if (!activeIsRC) return false;
+  var questions = getActiveExerciseQuestions();
+  var submitted = Object.keys(parseSubmittedAnswerChoices(message)).length;
+  return questions.length >= 3 && submitted >= questions.length;
+}
+
+function ensureFullRCReviewContinuation(text, diagnosis) {
+  var value = String(text || '').trim();
+  if (!diagnosis || !diagnosis.rcFullSetReview || /\[CONTEXT:\s*rc_full_review_feeling\]/i.test(value)) return value;
+  value = value.replace(/\s*\[OPTIONS:[^\]]*\]\s*\[CONTEXT:[^\]]*\]\s*$/i, '').trim();
+  var latestUser = '';
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    if (conversationHistory[i] && conversationHistory[i].role === 'user') { latestUser = conversationHistory[i].content || ''; break; }
+  }
+  var submitted = parseSubmittedAnswerChoices(latestUser);
+  var hasWrong = getActiveExerciseQuestions().some(function(question) {
+    return submitted[question.number] && submitted[question.number] !== question.correct;
+  });
+  var close = hasWrong
+    ? 'Before I give you another passage, tell me how the question you missed felt while you were choosing.'
+    : 'This passage went cleanly. Before I make the next one harder, tell me where you still felt least sure.';
+  return (value + '\n\n' + close + '\n[OPTIONS: Two options felt equally right|I was confident in my answer|I was mostly guessing][CONTEXT: rc_full_review_feeling]').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function hasPendingRCFunctionFollowup() {
@@ -6391,12 +6452,20 @@ function decoratePassageMessage(wrap) {
   if (!bubble || bubble.querySelector('.passage-reading-content')) return false;
   var savedReaderScale = parseFloat(localStorage.getItem('marg_reader_scale') || '1');
   if (Number.isFinite(savedReaderScale)) document.documentElement.style.setProperty('--marg-reader-scale', Math.max(.9, Math.min(1.35, savedReaderScale)).toFixed(2));
-  var text = String(bubble.innerText || bubble.textContent || '').replace(/\r/g, '').trim();
-  if (text.length < 650 || !/^(?:CAT[- ]LEVEL\s+)?(?:RC\s+)?PASSAGE\b/i.test(text)) return false;
-  var questionMatch = text.match(/\n\s*(?:QUESTIONS?\b|Q(?:UESTION)?\s*1\b)/i);
+  var text = String(bubble.innerText || bubble.textContent || '').replace(/\r/g, '').replace(/^\s*\*{3}\s*$/gm, '').trim();
+  if (text.length < 650) return false;
+  // Recognise all RC surfaces used by Marg: a raw PASSAGE block after a short
+  // instruction, and the guided "CAT RC · Hard" format. The old start-only
+  // check missed both and left 500-word passages inside the normal chat font.
+  var passageMarker = text.match(/(?:^|\n)\s*\*{0,3}\s*PASSAGE\s*:?[ \t]*(?:\*{0,3}\s*)?(?:\n|$)/i);
+  var titleMarker = !passageMarker ? text.match(/^\s*CAT\s+RC\s*[·|—-][^\n]*\n+/i) : null;
+  if (!passageMarker && !titleMarker && !/^(?:CAT[- ]LEVEL\s+)?(?:RC\s+)?PASSAGE\b/i.test(text)) return false;
+  var bodyStart = passageMarker ? passageMarker.index + passageMarker[0].length : titleMarker ? titleMarker[0].length : 0;
+  var body = text.slice(bodyStart).replace(/^(?:CAT[- ]LEVEL\s+)?(?:RC\s+)?PASSAGE\s*:?[ \t]*/i, '').trim();
+  var questionMatch = body.match(/\n\s*(?=QUESTIONS?\s*:?(?:\n|$)|(?:Q(?:UESTION)?\s*)?1\s*[.):])/i);
   var splitAt = questionMatch ? questionMatch.index : -1;
-  var passageText = (splitAt >= 0 ? text.slice(0, splitAt) : text).replace(/^(?:CAT[- ]LEVEL\s+)?(?:RC\s+)?PASSAGE\s*:?[ \t]*/i, '').trim();
-  var questionsText = splitAt >= 0 ? text.slice(splitAt).replace(/^\s*QUESTIONS?\s*:?[ \t]*/i, '').trim() : '';
+  var passageText = (splitAt >= 0 ? body.slice(0, splitAt) : body).trim();
+  var questionsText = splitAt >= 0 ? body.slice(splitAt).replace(/^\s*QUESTIONS?\s*:?[ \t]*(?:\n|$)/i, '').trim() : '';
   if (passageText.length < 450) return false;
   var paragraphs = passageText.split(/\n\s*\n|(?<=\.)\s+(?=(?:However|Yet|But|This|These|Such|Instead|Although|Nevertheless|Consequently|In contrast)\b)/).map(function(item) { return item.trim(); }).filter(Boolean);
   bubble.innerHTML = '<div class="passage-reader-head"><span class="passage-reader-label">CAT reading passage</span><div class="passage-reader-tools"><button class="passage-reader-tool" type="button" data-open-reader>Focus · Aa</button></div></div><div class="passage-reading-content">' + paragraphs.map(function(item) { return '<p>' + escapeVisualText(item) + '</p>'; }).join('') + '</div>' + (questionsText ? '<div class="passage-questions"><div class="passage-questions-label">Questions</div>' + renderMentorStructuredText(questionsText) + '</div>' : '');
@@ -6908,7 +6977,8 @@ function clearGuidedGenerationState() {
 function guidedGenerationLabel(section) {
   if (section === 'strategy') return 'strategy decision lab';
   if (section === 'dilr_selection') return 'DILR selection lab';
-  if (section === 'rc' || section === 'va' || section === 'varc_mixed') return 'VARC prediction check';
+  if (section === 'rc') return 'RC passage';
+  if (section === 'va' || section === 'varc_mixed') return 'VARC exercise';
   if (section === 'dilr') return 'DILR prediction set';
   if (section === 'qa') return 'QA prediction check';
   return 'prediction check';
@@ -7104,7 +7174,7 @@ function diagnosticExerciseLabel(entry) {
 
 function diagnosticForwardPreview(entry) {
   if (!entry) return 'we will run one short check designed around this exact pattern and use the result to decide what changes next';
-  if (entry.topic === 'varc') return 'one CAT-level VARC check will show whether that choice pattern actually appears';
+  if (entry.topic === 'varc') return 'one CAT-level RC will show whether that reading or option habit actually appears';
   if (entry.topic === 'dilr') return 'one timed DILR set will test the opening, representation and leave decision—not just completion';
   if (entry.topic === 'qa') return 'three timed QA questions will separate concept, recognition and execution';
   if (entry.topic === 'mock') return 'we will use one compact mini mock to observe selection, exits and recovery—not chase a score';
@@ -7342,6 +7412,41 @@ function buildRCFunctionProgressionEntry() {
     action:'Check whether paragraph-function mapping still works across one full CAT-length RC.',
     source:'rc-function-micro-check', updatedAt:new Date().toISOString()
   };
+}
+
+async function handleRCFullReviewFeeling(answer) {
+  conversationHistory.push({ role:'user', content:answer });
+  if (!isGuestMode) saveChatMessage('user', answer);
+  var normalized = String(answer || '').toLowerCase();
+  var insight;
+  if (/equally|two options/.test(normalized)) {
+    insight = "That tells me the passage was not the main problem. You kept two options alive because both felt broadly possible, but the final comparison was not strict enough about the exact claim.";
+  } else if (/confident/.test(normalized)) {
+    insight = "That is useful—the trap did not feel like a trap. The option sounded clean enough that you stopped checking whether every part of it was actually supported.";
+  } else {
+    insight = "Then the answer was not really an option-elimination miss. At that point, the relevant claim from the passage was not stable enough, so the choice became a guess.";
+  }
+  addMentorLeadMessage(insight + "\n\nWant me to give you one more RC aimed at this exact moment? After that, I’ll tell you whether it repeats or was only this passage.");
+  showConversationalOptions(['Yes, one more RC', 'Later today', 'Stop here'], 'rc_full_review_next');
+}
+
+async function handleRCFullReviewNext(answer) {
+  conversationHistory.push({ role:'user', content:answer });
+  if (!isGuestMode) saveChatMessage('user', answer);
+  var normalized = String(answer || '').toLowerCase();
+  var entry = activeGeneratedExercise && activeGeneratedExercise.hypothesis || diagnosticMemory.varc || buildRCProgressionEntry();
+  if (/yes|one more|now/.test(normalized)) {
+    savePendingDiagnosticExercise(entry, 'generating');
+    await generateGuidedDiagnosticExercise('rc', entry);
+    return;
+  }
+  if (/later/.test(normalized)) {
+    savePendingDiagnosticExercise(entry, 'later_today');
+    addMentorLeadMessage("Later today works. I’ve kept the next RC tied to this exact choice problem, so we won’t restart with generic practice.");
+    return;
+  }
+  savePendingDiagnosticExercise(null);
+  addMentorLeadMessage("We’ll stop here. The useful part is saved: the passage made sense, and the next check needs to focus on the exact moment your option choice became loose.");
 }
 
 async function handleRCFunctionProgression(answer, fullProgression) {
@@ -8048,6 +8153,7 @@ function analyzeMentorInput(message) {
   var rcMicroFollowupActive = rcProgressionReady && hasPendingRCMicroFollowup();
   var rcFunctionMapProgressionReady = isRCFunctionMappingReply(message);
   var rcFunctionMapFollowupActive = rcFunctionMapProgressionReady && hasPendingRCFunctionFollowup();
+  var rcFullSetReview = intent === 'answer_review' && isCompletedFullRCReview(message);
   var pastedAnswerEvidence = getPastedAnswerEvidence(message);
   return {
     intent: intent,
@@ -8067,6 +8173,7 @@ function analyzeMentorInput(message) {
     rcMicroFollowupActive:rcMicroFollowupActive,
     rcFunctionMapProgressionReady:rcFunctionMapProgressionReady,
     rcFunctionMapFollowupActive:rcFunctionMapFollowupActive,
+    rcFullSetReview:rcFullSetReview,
     rcClaimLocationRefinement:isRCClaimLocationRefinement(message),
     pastedAnswerEvidence:pastedAnswerEvidence,
     dilrValidityCheck:isDILRValidityChallenge(message)
@@ -8093,6 +8200,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'dilr_validity_review') directive += '\nDILR VALIDITY REVIEW: Stop every older mission, Decision Lab and progression prompt for this reply. Re-read only the exact set and objection supplied by the student. First state whether the wording is unambiguous under the stated convention. Then either exhibit one complete assignment that satisfies EVERY clue, checking the disputed clue explicitly, or identify the exact pair of conditions that cannot coexist. Never call a set valid merely because one partial arrangement looks plausible. Never invent a missing convention, score, clue, question or arrangement. If the material in the visible transcript is incomplete, say exactly what is missing instead of reconstructing it from memory. Do not append a practice invitation or resume an older task.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. Use the actual choice pattern as evidence and abandon the stored prediction when evidence contradicts it. For multiple answers, separate each question with a blank line and write naturally: “Q2 — You chose C; A is correct.” Explain the exact mismatch and correction without Diagnosis, Fix or Pattern Check labels. End with a plain score-and-pattern sentence. Ask no diagnostic intake question.';
+  if (diagnosis.rcFullSetReview) directive += '\nFULL-RC REVIEW CONTINUATION: This is a completed multi-question RC, not the older paragraph-function drill. Finish the answer review first. The interface will then ask one short question about how the difficult choice felt; do not append homework, an unrelated old progression, or another exercise yourself.';
   if (diagnosis.pastedAnswerEvidence) {
     var pastedLabels = Object.keys(diagnosis.pastedAnswerEvidence.choices).sort(function(a, b) { return Number(a) - Number(b); }).map(function(number) { return 'Q' + number + '=' + diagnosis.pastedAnswerEvidence.choices[number]; }).join(', ');
     directive += '\nPASTED-ANSWER GROUNDING: The exact labelled answers visible in the student’s pasted material are ' + pastedLabels + '. Their role is ' + diagnosis.pastedAnswerEvidence.role + '. Never claim the student chose any other letters. If “student” is the role, treat these as the student’s choices; if “official”, treat them only as the published key; if “mixed” or “unclear”, clarify ownership before scoring. Do not say they match or conflict with AIMCAT unless a separate official key or written explanation is actually present. One passage with three answers is one observation, never proof that the student’s overall RC process is accurate or flawed.';
@@ -8175,7 +8283,9 @@ function formatMultiAnswerReview(text, diagnosis) {
   formatted = formatted.replace(/^\s*Fix:\s*/gmi, 'Next time, ');
   formatted = formatted.replace(/^\s*(?:Diagnosis|Thinking Error|Evidence):\s*/gmi, '');
   formatted = formatted.replace(/^\s*Pattern Check:\s*/gmi, '');
-  formatted = formatted.replace(/\n?(Q\s*\d{1,2}\b)\s*[:.)-]?\s*/gi, '\n\n$1 — ');
+  // Normalise one separator after Q1/Q2. Gemini sometimes already supplies an
+  // em dash; the previous formatter added a second one ("Q1 — — You chose").
+  formatted = formatted.replace(/\n?(Q\s*\d{1,2}\b)\s*(?:[:.)-]|—)?\s*(?:—\s*)?/gi, '\n\n$1 — ');
   return formatted.replace(/^\s+/, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -8272,7 +8382,7 @@ function guardEvidenceRefinementLanguage(text, diagnosis) {
 
 function enforceDirectRCWrongAnswerClose(text, diagnosis) {
   var value = String(text || '').trim();
-  if (!diagnosis || !diagnosis.rcWrongAnswerReview) return value;
+  if (!diagnosis || !diagnosis.rcWrongAnswerReview || diagnosis.rcFullSetReview) return value;
 
   // This flow must land as a diagnosis, not turn into another mini-interview or
   // silently launch a new exercise.
@@ -8292,7 +8402,7 @@ function enforceDirectRCWrongAnswerClose(text, diagnosis) {
 
 function diagnosisForwardLeadFromIntent(diagnosis) {
   var intent = diagnosis && diagnosis.intent;
-  if (intent === 'varc_diagnosis') return 'If that fits, we will use one targeted CAT-level VARC check to expose this exact reading or choice decision.';
+  if (intent === 'varc_diagnosis') return 'If that fits, we will use one CAT-level RC to see exactly where the reading or option decision changes.';
   if (intent === 'dilr_diagnosis') return 'If that fits, we will use one CAT-level DILR set to observe your representation, progress and leave decision—not merely whether you solve it.';
   if (intent === 'qa_diagnosis') return 'If that fits, we will use one short timed QA check to separate concept, recognition and execution.';
   if (intent === 'mock_diagnosis') return 'If that fits, we will turn it into one process target and use the next controlled check to see whether the pattern changes.';
@@ -8408,6 +8518,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = enforceDirectRCWrongAnswerClose(text, diagnosis);
   text = ensureRCProgressionClose(text, diagnosis);
   text = ensureRCFunctionMappingProgressionClose(text, diagnosis);
+  text = ensureFullRCReviewContinuation(text, diagnosis);
   text = ensureDiagnosisForwardLead(text, diagnosis);
   text = removeClinicalReportFormatting(text, diagnosis);
   text = removeTrailingActionQuestion(text, diagnosis);
@@ -8679,6 +8790,12 @@ async function handleConversationalResponse(answer, context) {
 
   } else if (context === 'rc_function_full_progression') {
     await handleRCFunctionProgression(answer, true);
+
+  } else if (context === 'rc_full_review_feeling') {
+    await handleRCFullReviewFeeling(answer);
+
+  } else if (context === 'rc_full_review_next') {
+    await handleRCFullReviewNext(answer);
 
   } else if (context === 'resume_scheduled_diagnostic') {
     conversationHistory.push({ role:'user', content:answer });
@@ -9363,7 +9480,6 @@ function restoreConversation() {
   restoreCurrentChatDraft();
   if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
   focusComposer();
-  checkAndShowTour();
   return restorePendingGuidedGeneration();
 }
 
@@ -9438,11 +9554,7 @@ function buildActivitySummary() {
   const today = new Date();
   const todayStr = formatDate(today);
   const checkedDates = new Set(streakData.map(function(c) { return c.date; }));
-  let streak = 0;
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  while (checkedDates.has(formatDate(d))) { streak++; d.setDate(d.getDate() - 1); }
-  if (checkedDates.has(todayStr)) streak++;
+  let streak = calculateCurrentStreak(streakData);
   const weekDays = [];
   for (let i = 6; i >= 0; i--) { const day = new Date(); day.setDate(day.getDate() - i); weekDays.push(formatDate(day)); }
   const studiedThisWeek = weekDays.filter(function(d) { return checkedDates.has(d); }).length;
@@ -9450,13 +9562,21 @@ function buildActivitySummary() {
   const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
   const weekStr = formatDate(weekAgo);
   const weeklyHours = streakData.filter(function(c) { return c.date >= weekStr; }).reduce(function(sum, c) { return sum + (c.hours || 0); }, 0);
-  const lastCheckin = streakData[0];
-  const lastStudied = lastCheckin ? (lastCheckin.studied ? 'studied ' + (lastCheckin.hours || 0) + ' hours' : 'did not study') : 'unknown';
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayRecord = streakData.find(function(item) { return item.date === formatDate(yesterday); });
+  let yesterdayActivity = 'no recorded activity';
+  if (yesterdayRecord) {
+    if (yesterdayRecord.studied === true && yesterdayRecord.hours > 0) yesterdayActivity = 'studied ' + yesterdayRecord.hours + ' hours';
+    else if (yesterdayRecord.sources && yesterdayRecord.sources.indexOf('chat') !== -1) yesterdayActivity = 'used Marg and continued preparation';
+    else if (yesterdayRecord.sources && yesterdayRecord.sources.indexOf('activity') !== -1) yesterdayActivity = 'returned to Marg';
+    else if (yesterdayRecord.studied === false) yesterdayActivity = 'checked in without studying';
+  }
   let summary = '\n\nSTUDENT ACTIVITY SUMMARY:';
   summary += '\n- Current streak: ' + streak + ' days';
   summary += '\n- This week: studied ' + studiedThisWeek + ' days, missed ' + missedThisWeek + ' days';
   summary += '\n- Hours this week: ' + weeklyHours.toFixed(1) + 'h';
-  summary += '\n- Yesterday: ' + lastStudied;
+  summary += '\n- Yesterday: ' + yesterdayActivity;
   if (missedThisWeek >= 3) summary += '\n- IMPORTANT: Tough week with consistency — address with empathy first.';
   if (streak >= 7) summary += '\n- IMPORTANT: ' + streak + ' day streak — acknowledge specifically.';
   return summary;
@@ -9832,6 +9952,10 @@ async function sendMessage(fromQueue, submissionOptions) {
   try {
     isLoading = true;
     updateComposerControls();
+    // Quick replies are choices for the immediately preceding mentor turn.
+    // Once the student types a normal message, stale choices must disappear so
+    // an old “Something else” cannot hijack the new RC conversation.
+    if (!fromQueue) removeConversationalOptions();
     if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
     var storedImageMarker = hasImages ? '\n[' + imageAttachments.length + ' images attached in page order: ' + imageAttachments.map(function(item) { return item.name; }).join(', ') + ']' : '';
     var storedUserText = text + storedImageMarker;
@@ -10062,6 +10186,54 @@ function formatDate(d) {
 }
 function getTodayDate() { return formatDate(new Date()); }
 
+function streakDateFromTimestamp(value) {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return String(value);
+  var parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : formatDate(parsed);
+}
+
+function mergeStreakActivity(checkins, chats, events) {
+  var byDate = {};
+  function ensure(date) {
+    if (!date) return null;
+    if (!byDate[date]) byDate[date] = { date:date, hours:0, studied:null, sources:[] };
+    return byDate[date];
+  }
+  (checkins || []).forEach(function(item) {
+    var row = ensure(streakDateFromTimestamp(item.date));
+    if (!row) return;
+    row.hours = Math.max(row.hours || 0, Number(item.hours || 0));
+    row.studied = item.studied === true;
+    if (row.sources.indexOf('checkin') === -1) row.sources.push('checkin');
+  });
+  (chats || []).forEach(function(item) {
+    var row = ensure(streakDateFromTimestamp(item.created_at));
+    if (row && row.sources.indexOf('chat') === -1) row.sources.push('chat');
+  });
+  (events || []).forEach(function(item) {
+    var date = item.metadata && item.metadata.date || item.created_at;
+    var row = ensure(streakDateFromTimestamp(date));
+    if (row && row.sources.indexOf('activity') === -1) row.sources.push('activity');
+  });
+  return Object.keys(byDate).sort().reverse().map(function(date) { return byDate[date]; });
+}
+
+function calculateCurrentStreak(records, referenceDate) {
+  var dates = new Set((records || []).map(function(item) { return item && item.date; }).filter(Boolean));
+  var cursor = referenceDate ? new Date(referenceDate) : new Date();
+  var today = formatDate(cursor);
+  // Keep yesterday's chain alive until the student has had a chance to return
+  // today; include today immediately once any real Marg activity is recorded.
+  if (!dates.has(today)) cursor.setDate(cursor.getDate() - 1);
+  var streak = 0;
+  while (dates.has(formatDate(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
 async function hasCheckedInToday() {
   if (!currentUser || !SUPABASE_TOKEN) return false;
   try {
@@ -10073,11 +10245,21 @@ async function hasCheckedInToday() {
 
 async function loadStreakData() {
   if (!currentUser || !SUPABASE_TOKEN) return;
+  var checkins = [], chats = [], events = [];
   try {
-    const { data } = await sbFetch('checkins?select=*&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', 'GET');
-    streakData = data || [];
-    renderStreakBar();
-  } catch(e) {}
+    var checkinResult = await sbFetch('checkins?select=date,hours,studied&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', 'GET');
+    checkins = checkinResult.data || [];
+  } catch(e) { console.warn('Streak check-ins unavailable:', e); }
+  try {
+    var chatResult = await sbFetch('chats?select=created_at&user_id=eq.' + currentUser.id + '&role=eq.user&order=created_at.desc&limit=500', 'GET');
+    chats = chatResult.data || [];
+  } catch(e) { console.warn('Streak chat activity unavailable:', e); }
+  try {
+    var eventResult = await sbFetch('engagement_events?select=created_at,metadata&user_id=eq.' + currentUser.id + '&event_type=eq.active_day&order=created_at.desc&limit=90', 'GET');
+    events = eventResult.data || [];
+  } catch(e) { console.warn('Streak activity events unavailable:', e); }
+  streakData = mergeStreakActivity(checkins, chats, events);
+  renderStreakBar();
 }
 
 function renderStreakBar() {
@@ -10101,10 +10283,7 @@ function renderStreakBar() {
     html += '<div class="s-day ' + cls + '">' + dayName + '</div>';
   }
   daysEl.innerHTML = html;
-  let streak = 0;
-  const d = new Date(); d.setDate(d.getDate() - 1);
-  while (checkedDates.has(formatDate(d))) { streak++; d.setDate(d.getDate() - 1); }
-  if (checkedDates.has(todayStr)) streak++;
+  let streak = calculateCurrentStreak(streakData);
   let streakMsg = '';
   if (streak === 0) streakMsg = 'Start your streak today';
   else if (streak === 1) streakMsg = '<span>1 day</span> streak — keep going!';
@@ -10691,6 +10870,10 @@ async function initSession() {
     updateUserUI(user);
     await ensureAuthenticatedProfile();
     await initializeEngagementTracking();
+    // Opening Marg is real preparation activity. Load it immediately so a new
+    // user's first day and a returning user's consecutive days appear without
+    // requiring the retired manual check-in overlay.
+    await loadStreakData();
     await claimPendingReferralSignup();
     if (arrivedFromOAuthCallback) {
       var authIntent = loadHomepageIntent();
@@ -10754,6 +10937,11 @@ async function initSession() {
         } else {
           switchTab(requestedInitialTab || 'home');
         }
+
+        // The feature tour is account-scoped and appears once for a genuine
+        // first session, including users who arrived through a saved homepage
+        // intent. It never replays for returning accounts.
+        checkAndShowTour({ newUser:true, delayMs:700 });
 
       }
     });
@@ -10845,7 +11033,6 @@ function getTrustedSessionMemory() {
 
 async function sendReturningUserGreeting() {
   showBottomNav();
-  if (typeof checkAndShowTour === 'function') checkAndShowTour();
   if (!conversationHistory || conversationHistory.length < 2) return;
   const todayStr = getTodayDate();
   const lastGreetKey = 'marg_last_greet_' + (currentUser ? currentUser.id : 'guest');
@@ -10857,21 +11044,9 @@ async function sendReturningUserGreeting() {
   let lastSession = null;
 
   try {
-    const streakRes = await fetch(SUPABASE_URL + '/rest/v1/checkins?select=date&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', {
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN }
-    });
-    const checkins = await streakRes.json();
+    await loadStreakData();
+    streak = calculateCurrentStreak(streakData);
     lastSession = await getLastSession();
-
-    if (checkins && checkins.length > 0) {
-      const d = new Date();
-      d.setDate(d.getDate() - 1);
-      const dates = new Set(checkins.map(c => c.date));
-      while (dates.has(formatDate(d))) {
-        streak++;
-        d.setDate(d.getDate() - 1);
-      }
-    }
   } catch(e) {}
 
   const name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name
@@ -13298,13 +13473,17 @@ function formatGuidedExerciseForChat(section, data, diagnosticEntry) {
     else if (['cant_start','wrong_representation','dead_set','missed_constraint'].indexOf(diagnosticEntry.patternId) !== -1) processRequest = ' Add the first representation you used and where progress stopped.';
     else if (['last_two','volatile','mock_pressure'].indexOf(diagnosticEntry.patternId) !== -1) processRequest = ' Add any answer you changed after your first choice.';
   }
-  parts.push('Reply in one line: 1-A, 2-C' + (section === 'dilr' ? ', 3-B, 4-D' : ', 3-B') + '.' + processRequest + ' I already have the answer key; I’ll say whether our prediction is supported, rejected, or inconclusive.');
+  var reviewPromise = section === 'rc'
+    ? ' I’ll check each choice against the passage, show you where any miss happened, and decide the next useful step with you.'
+    : ' I already have the answer key; I’ll use your choices to see whether the suspected problem actually appears.';
+  parts.push('Reply in one line: 1-A, 2-C' + (section === 'dilr' ? ', 3-B, 4-D' : ', 3-B') + '.' + processRequest + reviewPromise);
   return parts.join('\n\n');
 }
 
 async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   section = section === 'varc' ? 'rc' : section;
   if (['rc','va','varc_mixed','qa','dilr','dilr_selection','strategy'].indexOf(section) === -1) return false;
+  removeConversationalOptions();
   // DILR must never fall back to the legacy chat renderer, including from a
   // stale retry saved before this safety boundary existed.
   if (section === 'dilr' || section === 'dilr_selection') {
@@ -13315,8 +13494,10 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   var sendButton = document.getElementById('send-btn');
   if (sendButton) sendButton.disabled = true;
   var generationState = beginGuidedGenerationState(section, diagnosticEntry);
-  var lead = section === 'rc' || section === 'va' || section === 'varc_mixed'
-    ? "This VARC check is built around the read that sounded familiar. The distractors will test whether that decision pattern actually appears."
+  var lead = section === 'rc'
+    ? "Let’s use one full RC to see what happens when the options get close. Read it normally—I’ll look at where your choices move away from the passage."
+    : section === 'va' || section === 'varc_mixed'
+      ? "Let’s use one short VARC exercise to see where the choice starts going wrong."
     : section === 'qa'
       ? "These three QA questions test the suspected gap against another possible explanation. The choices matter more than the score."
       : section === 'strategy'
@@ -14516,15 +14697,8 @@ async function loadProgressDashboard() {
   if (mocksEl) mocksEl.textContent = mockHistory.length;
 
   try {
-    var res = await fetch(SUPABASE_URL + '/rest/v1/checkins?select=date&user_id=eq.' + currentUser.id + '&order=date.desc&limit=30', {
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN }
-    });
-    var checkins = await res.json();
-    var streak = 0;
-    var d = new Date();
-    d.setDate(d.getDate() - 1);
-    var dates = new Set((checkins || []).map(function(c) { return c.date; }));
-    while (dates.has(formatDate(d))) { streak++; d.setDate(d.getDate() - 1); }
+    await loadStreakData();
+    var streak = calculateCurrentStreak(streakData);
     var streakEl = document.getElementById('stat-streak');
     if (streakEl) streakEl.textContent = streak + (streak > 0 ? ' 🔥' : '');
   } catch(e) {
