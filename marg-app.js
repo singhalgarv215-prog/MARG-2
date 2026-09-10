@@ -2886,6 +2886,7 @@ const GEMINI_PLAIN_TEXT_MATH_INSTRUCTION = '\n\nOUTPUT FORMAT — PLAIN-TEXT MAT
 
 function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType, responseJsonSchema) {
   var requestedOutputTokens = Number(maxOutputTokens) || 500;
+  var wantsJsonResponse = String(responseMimeType || '').toLowerCase() === 'application/json' || String(responseMimeType || '').toUpperCase() === 'APPLICATION_JSON';
   // JSON does not inherently need a 16k floor. That old floor made a
   // three-question QA set as expensive and slow as a full sectional. Each
   // call site now owns the budget appropriate to the artifact it requests.
@@ -2910,14 +2911,14 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
       maxOutputTokens:effectiveOutputTokens,
       // Ordinary mentor chat is short and does not need paid medium reasoning.
       // Preserve medium reasoning for plans, images, answer reviews and content generation.
-      thinkingConfig:{ thinkingLevel:responseMimeType === 'application/json' && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
+      thinkingConfig:{ thinkingLevel:wantsJsonResponse && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
     }
   };
-  if (responseMimeType) request.generationConfig.responseFormat = { text:{ mimeType:responseMimeType } };
+  if (responseMimeType) request.generationConfig.responseFormat = { text:{ mimeType:wantsJsonResponse ? 'APPLICATION_JSON' : responseMimeType } };
   // JSON mode alone only asks Gemini to emit syntactically valid JSON. A
   // response schema also fixes the array counts, required fields and answer
   // index types before the draft reaches Marg's semantic checker.
-  if (responseJsonSchema && responseMimeType === 'application/json') {
+  if (responseJsonSchema && wantsJsonResponse) {
     request.generationConfig.responseFormat.text.schema = responseJsonSchema;
   }
   request.systemInstruction = { parts:[{ text:String(systemInstruction || '') + GEMINI_PLAIN_TEXT_MATH_INSTRUCTION }] };
@@ -2926,7 +2927,7 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
 
 function getPracticeGenerationJsonSchema(section, questionCount) {
   var exactQuestions = Number(questionCount) || (section === 'dilr' ? 4 : 3);
-  var optionSchema = { type:'array', minItems:4, maxItems:4, items:{ type:'string', minLength:1 } };
+  var optionSchema = { type:'array', minItems:4, maxItems:4, items:{ type:'string' } };
   var answerIndexSchema = { type:'integer', minimum:0, maximum:3 };
   if (section === 'qa') {
     return {
@@ -2996,7 +2997,7 @@ function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCou
     verificationProperties.base_case_witnesses = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'string' } };
     verificationProperties.checked_constraint_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
   } else if (section === 'rc') {
-    verificationProperties.answer_explanations = { type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'string', minLength:20 } };
+    verificationProperties.answer_explanations = { type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'string' } };
   }
   return {
     type:'object', required:['valid','issues'],
@@ -13037,7 +13038,7 @@ function buildStudentVisiblePracticeForAudit(data, section) {
 async function auditGeneratedCATContent(section, generatedData, expectedTopic, knownPresentationIssues, auditOptions) {
   var topicAudit = section === 'qa' && expectedTopic ? ' TOPIC PURITY: every question must centrally test exactly "' + expectedTopic + '" and carry that exact topic field; using an unrelated Geometry, Algebra, Number Systems or other question is an automatic failure.' : '';
   var levelAudit = section === 'rc'
-    ? ' RC LENGTH AND LEVEL: independently count passage words; 450-550 is mandatory. Reject shorter passages, direct retrieval questions, weak distractors, or fewer than three paragraphs.'
+    ? ' RC LEVEL: the application has already counted and confirmed 450-550 passage words, so do not estimate or reject its length again. Reject direct retrieval questions, weak distractors, or fewer than three paragraphs.'
     : section === 'dilr'
       ? ' DILR LEVEL: reject any direct one-clue-one-cell puzzle, set solvable mechanically in under 12 minutes, direct-lookup question, fewer than three genuinely derived constraints, or setup without interacting cases/bounds.'
       : ' QA LEVEL: reject formula-identification drills, visible arithmetic pipelines, redundant data, or questions whose setup is obvious within a few seconds.';
@@ -13198,7 +13199,10 @@ function questionHasExplicitTask(stem) {
     // ending in a colon rather than a question mark. These are real tasks,
     // not truncated statements. The previous gate rejected them and also
     // rejected the verified RC fallback that was supposed to recover safely.
-    /:\s*$/.test(text) && /\b(?:is|are|can be|could be|would be)\s+(?:best|most|least)?\s*(?:accurately\s+|appropriately\s+)?(?:described|characterised|characterized|summarised|summarized|inferred|concluded|supported)\s+as\b/i.test(text);
+    /:\s*$/.test(text) && (
+      /\b(?:is|are|can be|could be|would be)\s+(?:best|most|least)?\s*(?:accurately\s+|appropriately\s+)?(?:described|characterised|characterized|summarised|summarized|inferred|concluded|supported)\s+as\b/i.test(text) ||
+      /\b(?:primary purpose|central (?:claim|argument|idea)|author(?:'s|’s)? (?:attitude|tone|view|position)|function|role|inference|statement|option)\b/i.test(text)
+    );
 }
 
 function isValidTimedTestQuestion(q) {
