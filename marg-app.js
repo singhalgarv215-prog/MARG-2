@@ -2914,12 +2914,12 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
       thinkingConfig:{ thinkingLevel:wantsJsonResponse && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
     }
   };
-  if (responseMimeType) request.generationConfig.responseFormat = { text:{ mimeType:wantsJsonResponse ? 'APPLICATION_JSON' : responseMimeType } };
+  if (responseMimeType) request.generationConfig.responseMimeType = wantsJsonResponse ? 'application/json' : responseMimeType;
   // JSON mode alone only asks Gemini to emit syntactically valid JSON. A
   // response schema also fixes the array counts, required fields and answer
   // index types before the draft reaches Marg's semantic checker.
   if (responseJsonSchema && wantsJsonResponse) {
-    request.generationConfig.responseFormat.text.schema = responseJsonSchema;
+    request.generationConfig.responseJsonSchema = responseJsonSchema;
   }
   request.systemInstruction = { parts:[{ text:String(systemInstruction || '') + GEMINI_PLAIN_TEXT_MATH_INSTRUCTION }] };
   return request;
