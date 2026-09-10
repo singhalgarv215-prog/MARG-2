@@ -428,7 +428,7 @@ async function generateRC() {
         systemInstruction: { parts:[{ text:'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.' }] },
         generationConfig: {
           maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
+          responseFormat: { text:{ mimeType:'application/json' } },
           thinkingConfig: { thinkingLevel:'minimal' }
         }
       })
