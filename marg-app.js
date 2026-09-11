@@ -10652,37 +10652,52 @@ Each question must have exactly four distinct plausible options and one defensib
     prompt = buildArticleRCPrompt(articleText);
     var rcData = null;
     var localIssues = [];
-    // A structurally incomplete first draft used to be surfaced as a manual
-    // failure. Rebuild it once with the exact failed checks, then fail closed.
-    // This is bounded: at most two generation calls for one student action.
-    for (var draftAttempt = 0; draftAttempt < 2; draftAttempt++) {
+    // Keep format/truncation and structural recovery inside this one student
+    // action. Previously a malformed JSON response escaped this loop before
+    // draftAttempt could advance, which is why clicking again often worked.
+    // Three bounded attempts cover the same recovery without making the
+    // student manually retry the article.
+    for (var draftAttempt = 0; draftAttempt < 3; draftAttempt++) {
       articleRCStage = draftAttempt === 0 ? 'generation_request' : 'generation_repair';
       var attemptPrompt = prompt;
       if (draftAttempt > 0) {
         attemptPrompt += '\n\nThe previous draft was discarded before display because: ' + localIssues.join('; ') + '. Rebuild the complete RC from scratch. Count only the passage words and keep them between 450 and 520. Return exactly four complete questions with four options each.';
       }
-      const response = await fetchWithTimeout(WORKER_URL, {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body:JSON.stringify(buildGeminiRequest(
-          'You are an expert CAT RC writer. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
-          [{ role:'user', content:attemptPrompt }],
-          8192,
-          'application/json',
-          getPracticeGenerationJsonSchema('rc', 4)
-        ))
-      }, 42000);
-      if (!response.ok) throw new Error('Worker status ' + response.status);
-      articleRCStage = 'generation_response';
-      const data = await response.json();
-      const reply = getGeminiText(data);
-      articleRCStage = 'generation_parse';
-      rcData = normalizePracticeAnswers(parseGeneratedJson(reply), 'rc');
-      localIssues = collectArticleRCStructureIssues(rcData, 4)
-        .concat(collectSolutionPresentationIssues(rcData, 'rc'))
-        .concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'));
-      if (validateRCPracticeSet(rcData, 4) && !localIssues.length) break;
-      if (!localIssues.length) localIssues = ['Article RC failed its final structure check'];
+      try {
+        const response = await fetchWithTimeout(WORKER_URL, {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json' },
+          body:JSON.stringify(buildGeminiRequest(
+            'You are an expert CAT RC writer. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
+            [{ role:'user', content:attemptPrompt }],
+            8192,
+            'application/json',
+            getPracticeGenerationJsonSchema('rc', 4)
+          ))
+        }, 42000);
+        if (!response.ok) throw new Error('Worker status ' + response.status);
+        articleRCStage = 'generation_response';
+        const data = await response.json();
+        if (isGeminiStructuredResponseTruncated(data)) throw new SyntaxError('Article RC JSON was truncated');
+        const reply = getGeminiText(data);
+        articleRCStage = 'generation_parse';
+        rcData = normalizePracticeAnswers(parseGeneratedJson(reply), 'rc');
+        localIssues = collectArticleRCStructureIssues(rcData, 4)
+          .concat(collectSolutionPresentationIssues(rcData, 'rc'))
+          .concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'));
+        if (validateRCPracticeSet(rcData, 4) && !localIssues.length) break;
+        if (!localIssues.length) localIssues = ['Article RC failed its final structure check'];
+      } catch(draftError) {
+        var draftStatus = Number(draftError && draftError.status) || 0;
+        var draftMessage = String(draftError && draftError.message || '');
+        var recoverableDraftFormat = draftError instanceof SyntaxError ||
+          (draftError && draftError.name === 'GeminiEmptyResponseError') ||
+          /json|parse|truncat|no visible text|no candidates/i.test(draftMessage);
+        var nonRetryableStatus = [400, 401, 403, 404, 429, 503].indexOf(draftStatus) !== -1;
+        if (!recoverableDraftFormat || nonRetryableStatus || draftAttempt === 2) throw draftError;
+        localIssues = ['The model response was incomplete or malformed; return one complete JSON object'];
+        rcData = null;
+      }
     }
     if (!validateRCPracticeSet(rcData, 4) || localIssues.length) {
       var localFailure = new Error(localIssues[0] || 'Article RC failed structural validation');
@@ -10691,38 +10706,48 @@ Each question must have exactly four distinct plausible options and one defensib
     }
     articleRCStage = 'independent_answer_audit';
     var articleAudit = await auditGeneratedCATContent('rc', rcData, null, [], { timeoutMs:45000, maxTokens:8192, technicalRetry:true });
-    // A semantically flawed question should still fail closed, but the student
-    // should not have to click Retry for a repair Marg can perform itself.
-    // Rebuild the complete article-derived RC once using the auditor's exact
-    // objection, then independently solve that new draft again.
-    if (!articleAudit.valid && articleAudit.failureType !== 'technical') {
-      articleRCStage = 'semantic_repair';
+    // A semantically flawed question should still fail closed, but recovery
+    // belongs inside the same click. Try two fresh candidates using the
+    // independent solver's exact objection; malformed repair JSON is also
+    // recovered here instead of leaking out as a manual retry.
+    for (var semanticAttempt = 0; !articleAudit.valid && articleAudit.failureType !== 'technical' && semanticAttempt < 2; semanticAttempt++) {
+      articleRCStage = 'semantic_repair_' + (semanticAttempt + 1);
       var auditRepairPrompt = prompt + '\n\nA separate solver rejected the previous draft because: ' + (articleAudit.issues || []).join('; ') + '. Rebuild the entire RC from scratch around the same article theme. Remove the ambiguity or unsupported inference identified above. Keep 475-510 passage words, four paragraphs, four complete questions and exactly one passage-supported answer per question.';
-      var repairResponse = await fetchWithTimeout(WORKER_URL, {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json' },
-        body:JSON.stringify(buildGeminiRequest(
-          'You are an expert CAT RC writer repairing a rejected exercise. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
-          [{ role:'user', content:auditRepairPrompt }],
-          8192,
-          'application/json',
-          getPracticeGenerationJsonSchema('rc', 4)
-        ))
-      }, 45000);
-      if (!repairResponse.ok) throw new Error('RC repair returned status ' + repairResponse.status);
-      var repairPayload = await repairResponse.json();
-      var repairedRC = normalizePracticeAnswers(parseGeneratedJson(getGeminiText(repairPayload)), 'rc');
-      var repairIssues = collectArticleRCStructureIssues(repairedRC, 4)
-        .concat(collectSolutionPresentationIssues(repairedRC, 'rc'))
-        .concat(collectGeneratedPracticeCompletenessIssues(repairedRC, 'rc'));
-      if (!validateRCPracticeSet(repairedRC, 4) || repairIssues.length) {
-        var repairFailure = new Error(repairIssues[0] || 'The repaired article RC was incomplete');
-        repairFailure.practiceAudit = { failureType:'local', issues:repairIssues.length ? repairIssues : ['The repaired article RC was incomplete'] };
-        throw repairFailure;
+      try {
+        var repairResponse = await fetchWithTimeout(WORKER_URL, {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json' },
+          body:JSON.stringify(buildGeminiRequest(
+            'You are an expert CAT RC writer repairing a rejected exercise. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
+            [{ role:'user', content:auditRepairPrompt }],
+            8192,
+            'application/json',
+            getPracticeGenerationJsonSchema('rc', 4)
+          ))
+        }, 45000);
+        if (!repairResponse.ok) throw new Error('RC repair returned status ' + repairResponse.status);
+        var repairPayload = await repairResponse.json();
+        if (isGeminiStructuredResponseTruncated(repairPayload)) throw new SyntaxError('Repaired article RC JSON was truncated');
+        var repairedRC = normalizePracticeAnswers(parseGeneratedJson(getGeminiText(repairPayload)), 'rc');
+        var repairIssues = collectArticleRCStructureIssues(repairedRC, 4)
+          .concat(collectSolutionPresentationIssues(repairedRC, 'rc'))
+          .concat(collectGeneratedPracticeCompletenessIssues(repairedRC, 'rc'));
+        if (!validateRCPracticeSet(repairedRC, 4) || repairIssues.length) {
+          articleAudit = { valid:false, failureType:'content', issues:repairIssues.length ? repairIssues : ['The repaired article RC was incomplete'] };
+          continue;
+        }
+        rcData = repairedRC;
+        articleRCStage = 'semantic_repair_audit_' + (semanticAttempt + 1);
+        articleAudit = await auditGeneratedCATContent('rc', rcData, null, [], { timeoutMs:45000, maxTokens:8192, technicalRetry:true });
+      } catch(repairError) {
+        var repairStatus = Number(repairError && repairError.status) || 0;
+        var repairMessage = String(repairError && repairError.message || '');
+        var recoverableRepairFormat = repairError instanceof SyntaxError ||
+          (repairError && repairError.name === 'GeminiEmptyResponseError') ||
+          /json|parse|truncat|no visible text|no candidates/i.test(repairMessage);
+        if (!recoverableRepairFormat || [400, 401, 403, 404, 429, 503].indexOf(repairStatus) !== -1 || semanticAttempt === 1) throw repairError;
+        articleAudit = { valid:false, failureType:'content', issues:['The repair response was incomplete; return one complete JSON object'] };
       }
-      rcData = repairedRC;
-      articleRCStage = 'semantic_repair_audit';
-      articleAudit = await auditGeneratedCATContent('rc', rcData, null, [], { timeoutMs:45000, maxTokens:8192, technicalRetry:true });
     }
     // If the questions are structurally complete and the only failure is that
     // the independent audit service itself timed out or returned malformed
