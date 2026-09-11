@@ -10369,6 +10369,47 @@ function normalizeDailyArticle(article) {
   };
 }
 
+function dailyArticleSelectionKey(topic) {
+  return getUserScopedKey('marg_daily_article_selection_v3_' + String(topic || 'economy'));
+}
+
+function dailyArticleRecentKey(topic) {
+  return getUserScopedKey('marg_daily_article_recent_v3_' + String(topic || 'economy'));
+}
+
+function readDailyArticleSelection(topic) {
+  try {
+    var stored = JSON.parse(localStorage.getItem(dailyArticleSelectionKey(topic)) || 'null');
+    if (!stored || stored.date !== getTodayDate()) return null;
+    return normalizeDailyArticle(stored.article);
+  } catch(e) { return null; }
+}
+
+function getRecentDailyArticleUrls(topic) {
+  try {
+    var stored = JSON.parse(localStorage.getItem(dailyArticleRecentKey(topic)) || '[]');
+    return Array.isArray(stored) ? stored.filter(Boolean).slice(-10) : [];
+  } catch(e) { return []; }
+}
+
+function rememberDailyArticle(topic, article) {
+  if (!article) return;
+  try {
+    localStorage.setItem(dailyArticleSelectionKey(topic), JSON.stringify({ date:getTodayDate(), article:article }));
+    var recent = getRecentDailyArticleUrls(topic).filter(function(url) { return url !== article.url; });
+    recent.push(article.url);
+    localStorage.setItem(dailyArticleRecentKey(topic), JSON.stringify(recent.slice(-10)));
+  } catch(e) {}
+}
+
+function formatDailyArticleMeta(article) {
+  var source = String(article && article.source || 'Publisher');
+  var published = article && article.publishedAt ? new Date(article.publishedAt) : null;
+  if (!published || Number.isNaN(published.getTime())) return source;
+  var dateLabel = published.toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', day:'numeric', month:'short' });
+  return source + ' · ' + dateLabel;
+}
+
 async function fetchDailyArticleFromWorker(topic, offset) {
   const response = await fetchWithTimeout(WORKER_URL, {
     method:'POST',
@@ -10387,7 +10428,8 @@ async function fetchDailyArticleFromLegacyFeed(topic, offset) {
   if (!response.ok) throw new Error('RSS fetch failed');
   const data = await response.json();
   if (data.status !== 'ok' || !data.items || data.items.length === 0) throw new Error('No items');
-  const index = ((new Date().getDate() + Math.max(0, Number(offset) || 0)) % data.items.length + data.items.length) % data.items.length;
+  data.items.sort(function(a, b) { return (Date.parse(b.pubDate || '') || 0) - (Date.parse(a.pubDate || '') || 0); });
+  const index = Math.max(0, Number(offset) || 0) % data.items.length;
   const article = data.items[index];
   const div = document.createElement('div');
   div.innerHTML = article.content || article.description || '';
@@ -10414,6 +10456,27 @@ async function fetchDailyArticle(topic, offset) {
   }
 }
 
+async function fetchFreshDailyArticle(topic, startOffset) {
+  var recentUrls = getRecentDailyArticleUrls(topic);
+  var firstCandidate = null;
+  var firstOffset = Math.max(0, Number(startOffset) || 0);
+  // Usually the newest item is unseen and needs one request. If the publisher
+  // feed has not changed, jump past the known recent window instead of making
+  // one sequential network request for every previously read article.
+  var offsets = [firstOffset, Math.max(firstOffset + 1, recentUrls.length), Math.max(firstOffset + 2, recentUrls.length + 1)];
+  offsets = offsets.filter(function(value, index) { return offsets.indexOf(value) === index; });
+  for (var attempt = 0; attempt < offsets.length; attempt++) {
+    var candidate = await fetchDailyArticle(topic, offsets[attempt]);
+    if (!firstCandidate) firstCandidate = candidate;
+    if (recentUrls.indexOf(candidate.url) === -1) {
+      articleIndex = offsets[attempt];
+      return candidate;
+    }
+  }
+  articleIndex = firstOffset;
+  return firstCandidate;
+}
+
 async function loadVarcCard(topic) {
   topic = topic || currentTopic;
   const card = document.getElementById('varc-card');
@@ -10421,11 +10484,13 @@ async function loadVarcCard(topic) {
   document.getElementById('varc-meta').textContent = '';
   document.getElementById('varc-preview').textContent = '';
   try {
+    const cachedToday = readDailyArticleSelection(topic);
     articleIndex = 0;
-    const article = await fetchDailyArticle(topic, articleIndex);
+    const article = cachedToday || await fetchFreshDailyArticle(topic, 0);
+    if (!cachedToday) rememberDailyArticle(topic, article);
     currentArticle = article;
     document.getElementById('varc-title').textContent = article.title;
-    document.getElementById('varc-meta').textContent = article.source + ' · Today';
+    document.getElementById('varc-meta').textContent = formatDailyArticleMeta(article);
     document.getElementById('varc-preview').textContent = article.preview;
     document.getElementById('varc-read-btn').onclick = function() { window.open(article.url, '_blank'); };
   } catch(e) {
@@ -10470,10 +10535,11 @@ function toggleVarcCard() {
 let articleIndex = -1;
 async function refreshArticle() {
   try {
-    articleIndex = Math.max(0, articleIndex + 1);
-    currentArticle = await fetchDailyArticle(currentTopic, articleIndex);
+    var nextOffset = Math.max(0, articleIndex + 1);
+    currentArticle = await fetchFreshDailyArticle(currentTopic, nextOffset);
+    rememberDailyArticle(currentTopic, currentArticle);
     document.getElementById('varc-title').textContent = currentArticle.title;
-    document.getElementById('varc-meta').textContent = currentArticle.source + ' · Today';
+    document.getElementById('varc-meta').textContent = formatDailyArticleMeta(currentArticle);
     document.getElementById('varc-preview').textContent = currentArticle.preview;
     document.getElementById('varc-read-btn').onclick = function() { window.open(currentArticle.url, '_blank'); };
   } catch(e) {
@@ -10560,7 +10626,7 @@ Article title: "${currentArticle.title}" (${currentArticle.source})
 Article URL: ${currentArticle.url}
 Verified thematic brief or publisher RSS material: ${sourceMaterial}
 
-Generate exactly one HARD CAT-level RC passage of 450-520 words in 3-4 distinct paragraphs and exactly four questions: primary purpose, specific detail, inference, and author attitude. Build a central thesis, one qualification or counter-consideration, and a subtle change in the author's position. The passage must reward structural reading rather than factual recall.
+Generate exactly one HARD CAT-level RC passage of 475-510 words in exactly 4 distinct paragraphs and exactly four questions: primary purpose, specific detail, inference, and author attitude. This tighter writing target leaves a safe margin inside Marg's 450-550 word acceptance range. Build a central thesis, one qualification or counter-consideration, and a subtle change in the author's position. The passage must reward structural reading rather than factual recall.
 
 Each question must have exactly four distinct plausible options and one defensible answer. At least two options should be close; wrong options should use controlled scope, force, ownership, context or inference traps rather than obvious nonsense. Use only information stated or necessarily implied by the passage. Independently solve every question. Include private sufficiency_check and option_check fields; they will not be shown to the student. Keep explanations to one or two clean sentences. Return only valid JSON in this exact shape: {"sets":[{"passage":"450-520 words with blank lines between paragraphs","difficulty":"Hard","topic":"specific theme","questions":[{"q":"complete question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based reason","sufficiency_check":"why the passage is sufficient","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one useful decision rule"}]}]}`; }
 
@@ -10600,9 +10666,11 @@ Each question must have exactly four distinct plausible options and one defensib
       const reply = getGeminiText(data);
       articleRCStage = 'generation_parse';
       rcData = normalizePracticeAnswers(parseGeneratedJson(reply), 'rc');
-      localIssues = collectSolutionPresentationIssues(rcData, 'rc').concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'));
+      localIssues = collectArticleRCStructureIssues(rcData, 4)
+        .concat(collectSolutionPresentationIssues(rcData, 'rc'))
+        .concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'));
       if (validateRCPracticeSet(rcData, 4) && !localIssues.length) break;
-      if (!localIssues.length) localIssues = ['Article RC failed its 450-550 word, paragraph, question or option structure check'];
+      if (!localIssues.length) localIssues = ['Article RC failed its final structure check'];
     }
     if (!validateRCPracticeSet(rcData, 4) || localIssues.length) {
       var localFailure = new Error(localIssues[0] || 'Article RC failed structural validation');
@@ -10638,7 +10706,10 @@ Each question must have exactly four distinct plausible options and one defensib
     console.error('Article-based RC generation failed:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
     recordProductIncident('article_rc_generation_failed', e, { surface:'today_varc', section:'rc', topic:currentArticle && currentArticle.title || '', stage:articleRCStage });
     var failedTitle = currentArticle && currentArticle.title || 'this article';
-    var failureText = 'I could not verify a clean RC from “' + failedTitle + '”, so I did not replace it with an unrelated Practice passage. You can retry this article or switch to another Hindu/Aeon article.';
+    var publisherName = currentArticle && currentArticle.source || (currentTopic === 'philosophy' ? 'Aeon' : 'The Hindu');
+    var failureText = isGeminiServiceError(e)
+      ? 'Marg reached “' + failedTitle + '”, but the RC service could not finish its check. Try this same article again; the article itself is safe.'
+      : 'The RC draft from “' + failedTitle + '” did not pass every answer and completeness check, so I discarded it. Try this article again or use the next article from ' + publisherName + '.';
     addMessage('marg', escapeChatHtml(failureText), true);
     conversationHistory.push({ role:'assistant', content:failureText });
     if (!isGuestMode) saveChatMessage('assistant', failureText);
@@ -10655,7 +10726,7 @@ function showArticleRCRecoveryChoices() {
   card.id = 'article-rc-recovery-actions';
   card.className = 'fade-in';
   card.style.marginLeft = '38px';
-  card.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0"><button type="button" onclick="retryArticleRCGeneration()" style="border:1px solid rgba(201,168,76,.35);border-radius:10px;background:rgba(201,168,76,.08);color:#E8C96A;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Retry this article</button><button type="button" onclick="tryAnotherArticleRC()" style="border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#171717;color:#C8C4BC;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Choose another article</button></div>';
+  card.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0"><button type="button" onclick="retryArticleRCGeneration()" style="border:1px solid rgba(201,168,76,.35);border-radius:10px;background:rgba(201,168,76,.08);color:#E8C96A;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Try this article again</button><button type="button" onclick="tryAnotherArticleRC()" style="border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#171717;color:#C8C4BC;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Use next article</button></div>';
   container.appendChild(card);
   scrollChatToLatest();
 }
@@ -12545,6 +12616,32 @@ function validateDILRPracticeSet(data, expectedSetCount) {
   });
 }
 
+function collectArticleRCStructureIssues(data, expectedQuestionCount) {
+  var issues = [];
+  if (!data || !Array.isArray(data.sets) || data.sets.length !== 1) {
+    return ['The response must contain exactly one RC set'];
+  }
+  var setObj = data.sets[0] || {};
+  var passageWords = countPracticeWords(setObj.passage);
+  var paragraphs = typeof setObj.passage === 'string'
+    ? setObj.passage.split(/\n\s*\n/).filter(function(paragraph) { return paragraph.trim(); })
+    : [];
+  var requiredQuestions = Number(expectedQuestionCount) || 4;
+  if (passageWords < 450 || passageWords > 550) issues.push('The passage has ' + passageWords + ' words; it needs 450-550');
+  if (paragraphs.length < 3) issues.push('The passage has ' + paragraphs.length + ' readable paragraphs; it needs at least 3');
+  if (!Array.isArray(setObj.questions) || setObj.questions.length !== requiredQuestions) {
+    issues.push('The RC has ' + (Array.isArray(setObj.questions) ? setObj.questions.length : 0) + ' questions; it needs exactly ' + requiredQuestions);
+    return issues;
+  }
+  setObj.questions.forEach(function(question, index) {
+    var label = 'Question ' + (index + 1);
+    if (!question || String(question.q || '').trim().length < 20 || !questionHasExplicitTask(question.q)) issues.push(label + ' has an incomplete stem');
+    if (!question || !Array.isArray(question.options) || question.options.length !== 4 || question.options.some(function(option) { return String(option || '').trim().length < 3; })) issues.push(label + ' needs four complete options');
+    if (!question || !Number.isInteger(question.correct) || question.correct < 0 || question.correct > 3) issues.push(label + ' has an invalid answer index');
+  });
+  return issues;
+}
+
 function validateRCPracticeSet(data, expectedQuestionCount) {
   if (!data || !Array.isArray(data.sets) || data.sets.length !== 1) return false;
   var setObj = data.sets[0];
@@ -12821,7 +12918,7 @@ function getUnseenVerifiedFallbackPractice(section, questionCount, topic) {
   return practice && !wasPracticeRecentlySeen(section, practice) ? practice : null;
 }
 
-var VERIFIED_PRACTICE_CACHE_LIMIT = 12;
+var VERIFIED_PRACTICE_CACHE_LIMIT = 48;
 
 function getVerifiedPracticeCacheEntries() {
   try {
@@ -12880,6 +12977,23 @@ function getCachedVerifiedPractice(section, questionCount, topic, allowSeen) {
     if (!isPracticePackValidForRequest(section, candidate, topic, questionCount)) continue;
     if (!allowSeen && wasPracticeRecentlySeen(section, candidate)) continue;
     return candidate;
+  }
+  return null;
+}
+
+function getTodaysVerifiedPractice(section, questionCount, topic) {
+  var topicKey = normalizePracticeTopicName(topic || 'mixed');
+  var today = getTodayDate();
+  var entries = getVerifiedPracticeCacheEntries().slice().reverse();
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i];
+    var savedDate = entry && entry.savedAt ? formatDate(new Date(entry.savedAt)) : '';
+    if (!entry || entry.section !== section || entry.topic !== topicKey || !entry.verification || savedDate !== today) continue;
+    var candidate;
+    try { candidate = JSON.parse(JSON.stringify(entry.data)); } catch(e) { continue; }
+    if (isPracticePackValidForRequest(section, candidate, topic, questionCount)) {
+      return { data:candidate, source:'verified-today-cache', repeated:false };
+    }
   }
   return null;
 }
@@ -14124,12 +14238,11 @@ async function loadDailyPractice() {
   practiceLoadTarget = loadTarget;
   var mySeq = ++practiceLoadSeq;
 
-  // Never make a student wait for Gemini when an independently verified,
-  // topic-matched pack already exists. Fresh checked cache entries rotate
-  // first; if all are already seen, transparently repeat the checked pack
-  // rather than sending the student through a failing two-call generation
-  // path. Topic accuracy and solvability are more important than fake novelty.
-  var instantCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic, true);
+  // Refreshes on the same day reuse that day's independently checked pack.
+  // Older cache entries and embedded packs are recovery material only: they
+  // must never prevent a fresh dated generation for RC, a QA topic or a DILR
+  // topic on a new day.
+  var instantCandidate = getTodaysVerifiedPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic);
   var instantVerifiedPractice = instantCandidate && instantCandidate.data;
   var instantVerifiedValid = instantVerifiedPractice && (currentPracticeType === 'qa'
     ? validateQASetShape(instantVerifiedPractice, selectedPracticeTopic, 3)
@@ -14141,11 +14254,8 @@ async function loadDailyPractice() {
     practiceLoadInFlight = false;
     if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
     practiceLoadMetrics.source = instantCandidate.source;
-    if (instantCandidate.repeated) {
-      instantVerifiedPractice._margRecoveryNote = 'You have seen this checked set before. Marg is using it again because no different topic-matched set has passed every answer check yet.';
-    }
     practiceData[currentPracticeType] = instantVerifiedPractice;
-    storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-bank', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Topic-matched CAT practice with verified statements and answer keys', generationStartedAt:practiceGenerationStartedAt, generationDurationMs:0, validationVerdict:{ status:'verified_local' }, content:instantVerifiedPractice });
+    storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-today-cache', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' daily practice', purpose:'Today’s topic-matched CAT practice with verified statements and answer keys', generationStartedAt:practiceGenerationStartedAt, generationDurationMs:0, validationVerdict:{ status:'independently_verified' }, content:instantVerifiedPractice });
     currentSetIndex = 0;
     currentQuestionIndex = 0;
     practiceAnswered = false;
@@ -14188,6 +14298,7 @@ async function loadDailyPractice() {
   if (currentPracticeType === 'rc') prompt = buildRCPrompt();
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
   else prompt = buildQAPrompt(selectedPracticeTopic);
+  prompt += '\n\nDAILY FRESHNESS ID: ' + getTodayDate() + '::' + currentPracticeType + '::' + (selectedPracticeTopic || 'mixed') + '. Create a genuinely new exercise for this daily slot. Do not reuse a previously written stem, passage, entity arrangement, data table or numerical skeleton.';
 
   var maxTokens = currentPracticeType === 'dilr' ? 12288 : currentPracticeType === 'rc' ? 8192 : 6144;
   var practiceFailureStage = 'generation_request';
