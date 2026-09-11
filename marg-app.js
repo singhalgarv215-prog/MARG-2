@@ -9467,8 +9467,20 @@ function restoreConversation() {
     return !(previous && previous.role === message.role && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
   });
   if (displayMessages.length > 0) {
+    var restoredArticleExercise = loadActiveGeneratedExercise();
+    var restoredArticleWidget = false;
     isRestoringConversation = true;
     displayMessages.forEach(function(msg) {
+      var isCurrentArticleRC = !restoredArticleWidget
+        && msg.role !== 'user'
+        && getArticleRCExerciseData(restoredArticleExercise)
+        && String(msg.content || '').trim() === String(restoredArticleExercise.content.exerciseText || '').trim();
+      if (isCurrentArticleRC) {
+        activeGeneratedExercise = restoredArticleExercise;
+        addArticleRCAttemptMessage(restoredArticleExercise);
+        restoredArticleWidget = true;
+        return;
+      }
       const formatted = msg.role === 'user'
         ? escapeChatHtml(msg.content).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>')
         : renderGroundingSourcesForChat(renderMentorStructuredText(msg.content));
@@ -10626,7 +10638,7 @@ Article title: "${currentArticle.title}" (${currentArticle.source})
 Article URL: ${currentArticle.url}
 Verified thematic brief or publisher RSS material: ${sourceMaterial}
 
-Generate exactly one HARD CAT-level RC passage of 475-510 words in exactly 4 distinct paragraphs and exactly four questions: primary purpose, specific detail, inference, and author attitude. This tighter writing target leaves a safe margin inside Marg's 450-550 word acceptance range. Build a central thesis, one qualification or counter-consideration, and a subtle change in the author's position. The passage must reward structural reading rather than factual recall.
+Generate exactly one HARD CAT-level RC passage of 475-510 words in exactly 4 distinct paragraphs and exactly four questions: primary purpose, the role or implication of a specific detail, inference, and author attitude. The detail question must ask why a detail is used or what it establishes in context; it must not be a copy-the-line fact lookup. This tighter writing target leaves a safe margin inside Marg's 450-550 word acceptance range. Build a central thesis, one qualification or counter-consideration, and a subtle change in the author's position. The passage must reward structural reading rather than factual recall.
 
 Each question must have exactly four distinct plausible options and one defensible answer. At least two options should be close; wrong options should use controlled scope, force, ownership, context or inference traps rather than obvious nonsense. Use only information stated or necessarily implied by the passage. Independently solve every question. Include private sufficiency_check and option_check fields; they will not be shown to the student. Keep explanations to one or two clean sentences. Return only valid JSON in this exact shape: {"sets":[{"passage":"450-520 words with blank lines between paragraphs","difficulty":"Hard","topic":"specific theme","questions":[{"q":"complete question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based reason","sufficiency_check":"why the passage is sufficient","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one useful decision rule"}]}]}`; }
 
@@ -10678,7 +10690,52 @@ Each question must have exactly four distinct plausible options and one defensib
       throw localFailure;
     }
     articleRCStage = 'independent_answer_audit';
-    const articleAudit = await auditGeneratedCATContent('rc', rcData, null, [], { timeoutMs:30000, maxTokens:8192, technicalRetry:false });
+    var articleAudit = await auditGeneratedCATContent('rc', rcData, null, [], { timeoutMs:45000, maxTokens:8192, technicalRetry:true });
+    // A semantically flawed question should still fail closed, but the student
+    // should not have to click Retry for a repair Marg can perform itself.
+    // Rebuild the complete article-derived RC once using the auditor's exact
+    // objection, then independently solve that new draft again.
+    if (!articleAudit.valid && articleAudit.failureType !== 'technical') {
+      articleRCStage = 'semantic_repair';
+      var auditRepairPrompt = prompt + '\n\nA separate solver rejected the previous draft because: ' + (articleAudit.issues || []).join('; ') + '. Rebuild the entire RC from scratch around the same article theme. Remove the ambiguity or unsupported inference identified above. Keep 475-510 passage words, four paragraphs, four complete questions and exactly one passage-supported answer per question.';
+      var repairResponse = await fetchWithTimeout(WORKER_URL, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body:JSON.stringify(buildGeminiRequest(
+          'You are an expert CAT RC writer repairing a rejected exercise. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
+          [{ role:'user', content:auditRepairPrompt }],
+          8192,
+          'application/json',
+          getPracticeGenerationJsonSchema('rc', 4)
+        ))
+      }, 45000);
+      if (!repairResponse.ok) throw new Error('RC repair returned status ' + repairResponse.status);
+      var repairPayload = await repairResponse.json();
+      var repairedRC = normalizePracticeAnswers(parseGeneratedJson(getGeminiText(repairPayload)), 'rc');
+      var repairIssues = collectArticleRCStructureIssues(repairedRC, 4)
+        .concat(collectSolutionPresentationIssues(repairedRC, 'rc'))
+        .concat(collectGeneratedPracticeCompletenessIssues(repairedRC, 'rc'));
+      if (!validateRCPracticeSet(repairedRC, 4) || repairIssues.length) {
+        var repairFailure = new Error(repairIssues[0] || 'The repaired article RC was incomplete');
+        repairFailure.practiceAudit = { failureType:'local', issues:repairIssues.length ? repairIssues : ['The repaired article RC was incomplete'] };
+        throw repairFailure;
+      }
+      rcData = repairedRC;
+      articleRCStage = 'semantic_repair_audit';
+      articleAudit = await auditGeneratedCATContent('rc', rcData, null, [], { timeoutMs:45000, maxTokens:8192, technicalRetry:true });
+    }
+    // If the questions are structurally complete and the only failure is that
+    // the independent audit service itself timed out or returned malformed
+    // JSON, preserve the original working behaviour instead of blocking the
+    // student's session. Logical/ambiguity failures never enter this path.
+    if (!articleAudit.valid && articleAudit.failureType === 'technical' && validateRCPracticeSet(rcData, 4)) {
+      articleAudit = {
+        valid:true,
+        correctedData:null,
+        verification:{ mode:'generator-key-after-audit-outage' },
+        auditUnavailable:true
+      };
+    }
     if (!articleAudit.valid) {
       var auditFailure = new Error('Article RC failed independent answer validation: ' + articleAudit.issues.join('; '));
       auditFailure.practiceAudit = articleAudit;
@@ -10695,11 +10752,22 @@ Each question must have exactly four distinct plausible options and one defensib
     articleRCStage = 'render_and_store';
     const visibleReply = formatStructuredArticleRC(rcData);
     hideTyping();
-    const formatted = escapeGuidedExerciseText(visibleReply).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
-    addMessage('marg', formatted, true);
+    storeActiveGeneratedExercise({
+      type:'rc',
+      source:'chat-article-verified',
+      title:currentArticle.title,
+      purpose:'CAT RC comprehension and option-elimination diagnosis',
+      validationVerdict:{ status:articleAudit.auditUnavailable ? 'verified_local' : 'independently_verified', verification:articleAudit.verification || null },
+      content:{
+        exerciseText:visibleReply,
+        answerKey:buildArticleRCAnswerMemory(rcData),
+        structuredData:rcData,
+        article:{ title:currentArticle.title, source:currentArticle.source, url:currentArticle.url || '' }
+      }
+    });
+    addArticleRCAttemptMessage(activeGeneratedExercise);
     conversationHistory.push({ role:'assistant', content:visibleReply });
     saveChatMessage('assistant', visibleReply);
-    storeActiveGeneratedExercise({ type:'rc', source:'chat-article-verified', title:currentArticle.title, purpose:'CAT RC comprehension and option-elimination diagnosis', validationVerdict:{ status:'independently_verified', verification:articleAudit.verification || null }, content:{ exerciseText:visibleReply, answerKey:buildArticleRCAnswerMemory(rcData) } });
     localStorage.setItem('marg_rc_article', JSON.stringify({ title: currentArticle.title, source: currentArticle.source, content: articleText }));
   } catch(e) {
     hideTyping();
@@ -10770,6 +10838,169 @@ function formatStructuredArticleRC(rcData) {
   });
   parts.push('---\nReady? Type your answers (for example: 1-A, 2-C, 3-B, 4-D). I already have the checked answer key.');
   return parts.join('\n\n');
+}
+
+function ensureArticleRCAttemptStyles() {
+  if (document.getElementById('article-rc-attempt-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'article-rc-attempt-styles';
+  style.textContent = '.msg-wrap.article-rc-message{width:min(920px,97%);max-width:min(920px,97%);align-items:flex-start}.article-rc-message .message-stack{min-width:0;width:100%}.article-rc-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#111!important;border:1px solid rgba(255,255,255,.11)!important;border-radius:16px!important}.article-rc-attempt{width:100%;color:#f0ede6}.article-rc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);background:linear-gradient(135deg,rgba(201,168,76,.08),rgba(255,255,255,.015))}.article-rc-kicker{font-size:10px;line-height:1.2;letter-spacing:.11em;text-transform:uppercase;color:#d9b95b;font-weight:700;margin-bottom:6px}.article-rc-title{font:600 15px/1.45 DM Sans,sans-serif;color:#f0ede6;max-width:620px}.article-rc-progress{white-space:nowrap;font-size:11px;color:#9d9991;background:#1b1b1b;border:1px solid rgba(255,255,255,.09);border-radius:999px;padding:6px 10px}.article-rc-step-row{display:flex;gap:7px;padding:12px 18px 0}.article-rc-step{width:29px;height:29px;border-radius:50%;border:1px solid rgba(255,255,255,.12);background:#191919;color:#8f8b84;font:600 11px DM Sans,sans-serif;cursor:pointer}.article-rc-step.active{border-color:#c9a84c;color:#e8c96a;background:rgba(201,168,76,.1)}.article-rc-step.answered:after{content:"";display:block;width:4px;height:4px;border-radius:50%;background:#4caf7d;margin:1px auto 0}.article-rc-tools{display:flex;align-items:center;gap:8px;padding:12px 18px}.article-rc-tool{border:1px solid rgba(255,255,255,.11);background:#191919;color:#bbb6ad;border-radius:9px;padding:8px 11px;font:600 11px DM Sans,sans-serif;cursor:pointer}.article-rc-tool.primary{color:#e8c96a;border-color:rgba(201,168,76,.3);background:rgba(201,168,76,.07)}.article-rc-passage{margin:0 18px 14px;padding:18px 20px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:#181818;color:#e7e3dc;font:calc(16px * var(--marg-reader-scale,1))/1.82 Georgia,serif;letter-spacing:.006em}.article-rc-passage[hidden]{display:none}.article-rc-passage p{margin:0 0 1.05em}.article-rc-passage p:last-child{margin-bottom:0}.article-rc-question-area{padding:5px 18px 18px}.article-rc-question-label{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#8d8981;margin-bottom:8px}.article-rc-question{font:600 15px/1.58 DM Sans,sans-serif;color:#f3f0e9;margin-bottom:14px}.article-rc-options{display:grid;gap:9px}.article-rc-option{display:grid;grid-template-columns:29px 1fr;align-items:flex-start;gap:10px;width:100%;border:1px solid rgba(255,255,255,.11);border-radius:11px;background:#191919;color:#d7d3cb;padding:12px 13px;text-align:left;font:500 13.5px/1.55 DM Sans,sans-serif;cursor:pointer}.article-rc-option:hover{border-color:rgba(201,168,76,.48);background:#1d1c18;transform:none}.article-rc-option.selected{border-color:#c9a84c;background:rgba(201,168,76,.09);color:#f2eee5}.article-rc-option.correct{border-color:#4caf7d;background:rgba(76,175,125,.09)}.article-rc-option.wrong{border-color:#d76a6a;background:rgba(215,106,106,.08)}.article-rc-letter{display:flex;align-items:center;justify-content:center;width:27px;height:27px;border-radius:8px;border:1px solid rgba(255,255,255,.12);color:#aaa69e;font-size:11px;font-weight:700}.article-rc-option.selected .article-rc-letter{border-color:#c9a84c;color:#e8c96a}.article-rc-option.correct .article-rc-letter{border-color:#4caf7d;color:#69c592}.article-rc-nav{display:flex;align-items:center;gap:9px;padding:13px 18px;border-top:1px solid rgba(255,255,255,.08);background:#0f0f0f}.article-rc-nav button{border-radius:9px;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer}.article-rc-prev{border:1px solid rgba(255,255,255,.11);background:#1b1b1b;color:#aaa69e}.article-rc-next{border:0;background:#2f7655;color:#fff}.article-rc-next:disabled{opacity:.4;cursor:not-allowed}.article-rc-count{font-size:11px;color:#77736c;margin-right:auto}.article-rc-submit{border:0;background:linear-gradient(135deg,#4caf7d,#2d7a55);color:#fff}.article-rc-submit:disabled{opacity:.38;cursor:not-allowed}.article-rc-submit-note{padding:0 18px 13px;background:#0f0f0f;color:#7f7b74;font-size:10.5px;line-height:1.45}.article-rc-submit-note.done{color:#69c592}.article-rc-message .message-actions{padding-left:4px}@media(max-width:600px){.msg-wrap.article-rc-message{width:100%;max-width:100%;gap:6px}.article-rc-message>.avatar{display:none}.article-rc-head{padding:14px}.article-rc-title{font-size:14px}.article-rc-progress{font-size:10px;padding:5px 8px}.article-rc-step-row,.article-rc-tools,.article-rc-question-area{padding-left:14px;padding-right:14px}.article-rc-passage{margin-left:10px;margin-right:10px;padding:17px 15px;font-size:calc(16.5px * var(--marg-reader-scale,1));line-height:1.88}.article-rc-question{font-size:14.5px}.article-rc-option{font-size:13px;padding:11px}.article-rc-nav{padding:12px 14px;flex-wrap:wrap}.article-rc-count{width:100%;order:-1}.article-rc-submit-note{padding-left:14px;padding-right:14px}}';
+  document.head.appendChild(style);
+}
+
+function getArticleRCExerciseData(exercise) {
+  var data = exercise && exercise.content && exercise.content.structuredData;
+  return data && Array.isArray(data.sets) && data.sets[0] ? data : null;
+}
+
+function ensureArticleRCState(exercise) {
+  var data = getArticleRCExerciseData(exercise);
+  var questionCount = data && data.sets[0] && Array.isArray(data.sets[0].questions) ? data.sets[0].questions.length : 0;
+  if (!exercise.articleRCState || !Array.isArray(exercise.articleRCState.selections) || exercise.articleRCState.selections.length !== questionCount) {
+    exercise.articleRCState = { currentIndex:0, passageOpen:true, selections:Array(questionCount).fill(null), submitted:false };
+  }
+  exercise.articleRCState.currentIndex = Math.max(0, Math.min(questionCount - 1, Number(exercise.articleRCState.currentIndex) || 0));
+  return exercise.articleRCState;
+}
+
+function persistArticleRCState() {
+  if (!activeGeneratedExercise) return;
+  try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+  try {
+    var archiveKey = getUserScopedKey('marg_exercise_archive');
+    var archive = JSON.parse(localStorage.getItem(archiveKey) || '[]');
+    if (Array.isArray(archive)) {
+      archive = archive.map(function(item) { return item && item.id === activeGeneratedExercise.id ? activeGeneratedExercise : item; });
+      localStorage.setItem(archiveKey, JSON.stringify(archive.slice(-12)));
+    }
+  } catch(e) {}
+}
+
+function cleanArticleRCOption(option) {
+  return convertLatexToPlainText(String(option || '').replace(/^[A-D][.)]\s*/, '').trim());
+}
+
+function buildArticleRCAttemptHtml(exercise) {
+  var data = getArticleRCExerciseData(exercise);
+  if (!data) return '';
+  var setObj = data.sets[0];
+  var questions = setObj.questions || [];
+  var state = ensureArticleRCState(exercise);
+  var index = state.currentIndex;
+  var question = questions[index];
+  if (!question) return '';
+  var answered = state.selections.filter(function(value) { return Number.isInteger(value); }).length;
+  var submitted = state.submitted || exercise.awaitingAnswers === false;
+  var passageHtml = String(setObj.passage || '').split(/\n\s*\n/).filter(Boolean).map(function(paragraph) {
+    return '<p>' + escapeVisualText(convertLatexToPlainText(paragraph.trim())) + '</p>';
+  }).join('');
+  var steps = questions.map(function(_item, stepIndex) {
+    var classes = 'article-rc-step' + (stepIndex === index ? ' active' : '') + (Number.isInteger(state.selections[stepIndex]) ? ' answered' : '');
+    return '<button type="button" class="' + classes + '" onclick="goToArticleRCQuestion(' + stepIndex + ')" aria-label="Question ' + (stepIndex + 1) + '">' + (stepIndex + 1) + '</button>';
+  }).join('');
+  var options = (question.options || []).map(function(option, optionIndex) {
+    var selected = state.selections[index] === optionIndex;
+    var className = 'article-rc-option' + (selected ? ' selected' : '');
+    if (submitted && optionIndex === Number(question.correct)) className += ' correct';
+    else if (submitted && selected && optionIndex !== Number(question.correct)) className += ' wrong';
+    return '<button type="button" class="' + className + '" onclick="chooseArticleRCOption(' + optionIndex + ')" aria-pressed="' + (selected ? 'true' : 'false') + '"' + (submitted ? ' disabled' : '') + '><span class="article-rc-letter">' + String.fromCharCode(65 + optionIndex) + '</span><span>' + escapeVisualText(cleanArticleRCOption(option)) + '</span></button>';
+  }).join('');
+  var nextDisabled = !Number.isInteger(state.selections[index]) || index >= questions.length - 1;
+  var allAnswered = answered === questions.length;
+  var note = submitted ? 'Answers submitted. Marg is using the checked key to review the decisions behind them.' : allAnswered ? 'All four answered. Submit once and Marg will review the complete pattern.' : 'Choose one option for every question. Answers are saved on this device.';
+  return '<div class="article-rc-head"><div><div class="article-rc-kicker">Today\'s article RC</div><div class="article-rc-title">' + escapeVisualText(exercise.title || setObj.topic || 'CAT reading passage') + '</div></div><div class="article-rc-progress">' + (index + 1) + ' / ' + questions.length + '</div></div>' +
+    '<div class="article-rc-step-row">' + steps + '</div>' +
+    '<div class="article-rc-tools"><button type="button" class="article-rc-tool primary" onclick="toggleArticleRCPassage()">' + (state.passageOpen ? 'Hide passage' : 'View passage') + '</button><button type="button" class="article-rc-tool" onclick="openArticleRCPassageFocus(this)">Focus · Aa</button></div>' +
+    '<div class="article-rc-passage passage-reading-content"' + (state.passageOpen ? '' : ' hidden') + '>' + passageHtml + '</div>' +
+    '<div class="article-rc-question-area"><div class="article-rc-question-label">Question ' + (index + 1) + '</div><div class="article-rc-question">' + escapeVisualText(convertLatexToPlainText(question.q || '')) + '</div><div class="article-rc-options">' + options + '</div></div>' +
+    '<div class="article-rc-nav"><span class="article-rc-count">' + answered + ' of ' + questions.length + ' answered</span><button type="button" class="article-rc-prev" onclick="moveArticleRCQuestion(-1)"' + (index === 0 ? ' disabled' : '') + '>Previous</button>' + (index < questions.length - 1 ? '<button type="button" class="article-rc-next" onclick="moveArticleRCQuestion(1)"' + (nextDisabled ? ' disabled' : '') + '>Next</button>' : '') + '<button type="button" class="article-rc-submit" onclick="submitArticleRCAttempt()"' + (!allAnswered || submitted ? ' disabled' : '') + '>' + (submitted ? 'Submitted' : 'Submit answers') + '</button></div>' +
+    '<div class="article-rc-submit-note' + (submitted ? ' done' : '') + '">' + note + '</div>';
+}
+
+function renderActiveArticleRCWidget() {
+  if (!activeGeneratedExercise) return false;
+  var widget = document.querySelector('.article-rc-attempt[data-exercise-id="' + activeGeneratedExercise.id + '"]');
+  if (!widget) return false;
+  widget.innerHTML = buildArticleRCAttemptHtml(activeGeneratedExercise);
+  persistArticleRCState();
+  return true;
+}
+
+function addArticleRCAttemptMessage(exercise) {
+  if (!getArticleRCExerciseData(exercise)) return null;
+  ensureArticleRCAttemptStyles();
+  var html = '<div class="article-rc-attempt" data-exercise-id="' + escapeVisualText(exercise.id) + '">' + buildArticleRCAttemptHtml(exercise) + '</div>';
+  var wrap = addMessage('marg', html, true);
+  if (wrap) wrap.classList.add('article-rc-message');
+  markActiveExerciseDelivered('today-varc-chat');
+  return wrap;
+}
+
+function chooseArticleRCOption(optionIndex) {
+  var data = getArticleRCExerciseData(activeGeneratedExercise);
+  if (!data || activeGeneratedExercise.awaitingAnswers === false) return;
+  var state = ensureArticleRCState(activeGeneratedExercise);
+  var index = state.currentIndex;
+  state.selections[index] = Number(optionIndex);
+  recordActiveExerciseSelection(index + 1, Number(optionIndex), Number(data.sets[0].questions[index].correct));
+  renderActiveArticleRCWidget();
+}
+
+function goToArticleRCQuestion(questionIndex) {
+  var data = getArticleRCExerciseData(activeGeneratedExercise);
+  if (!data) return;
+  var state = ensureArticleRCState(activeGeneratedExercise);
+  state.currentIndex = Math.max(0, Math.min(data.sets[0].questions.length - 1, Number(questionIndex) || 0));
+  if (state.currentIndex > 0) state.passageOpen = false;
+  renderActiveArticleRCWidget();
+}
+
+function moveArticleRCQuestion(direction) {
+  var state = ensureArticleRCState(activeGeneratedExercise);
+  goToArticleRCQuestion(state.currentIndex + Number(direction || 0));
+}
+
+function toggleArticleRCPassage() {
+  if (!activeGeneratedExercise) return;
+  var state = ensureArticleRCState(activeGeneratedExercise);
+  state.passageOpen = !state.passageOpen;
+  renderActiveArticleRCWidget();
+}
+
+function openArticleRCPassageFocus(button) {
+  var wrap = button && button.closest('.msg-wrap');
+  if (wrap) openPassageReadingMode(wrap);
+}
+
+function submitArticleRCAttempt() {
+  var data = getArticleRCExerciseData(activeGeneratedExercise);
+  if (!data || activeGeneratedExercise.awaitingAnswers === false) return;
+  var state = ensureArticleRCState(activeGeneratedExercise);
+  if (state.selections.some(function(value) { return !Number.isInteger(value); })) return;
+  var questions = data.sets[0].questions || [];
+  var correct = 0;
+  var answers = state.selections.map(function(selected, index) {
+    var isCorrect = selected === Number(questions[index].correct);
+    if (isCorrect) correct++;
+    else if (questions[index].marg_insight || questions[index].trap_type) storeWrongAnswer('rc', questions[index], questions[index].marg_insight || questions[index].trap_type);
+    return (index + 1) + '-' + String.fromCharCode(65 + selected);
+  });
+  state.submitted = true;
+  activeGeneratedExercise.awaitingAnswers = false;
+  activeGeneratedExercise.completedAt = new Date().toISOString();
+  activeGeneratedExercise.reviewPending = true;
+  activeGeneratedExercise.result = { correct:correct, wrong:questions.length - correct, skipped:0, total:questions.length, answers:answers };
+  activeGeneratedExercise.lastSubmittedAnswers = answers.join(', ');
+  // Save the completed card before handing the answers to chat. sendMessage()
+  // performs the single durable EXERCISE write; doing it here too produced two
+  // identical internal memory rows for one submission.
+  persistArticleRCState();
+  renderActiveArticleRCWidget();
+  var input = document.getElementById('user-input');
+  if (!input) return;
+  input.value = 'My answers for today\'s article RC: ' + answers.join(', ') + '. Please check them and tell me what these choices actually show.';
+  input.dispatchEvent(new Event('input', { bubbles:true }));
+  sendMessage();
 }
 
 function getVerifiedArticleRCFallbackBank() {
@@ -13152,7 +13383,7 @@ function buildStudentVisiblePracticeForAudit(data, section) {
 async function auditGeneratedCATContent(section, generatedData, expectedTopic, knownPresentationIssues, auditOptions) {
   var topicAudit = section === 'qa' && expectedTopic ? ' TOPIC PURITY: every question must centrally test exactly "' + expectedTopic + '" and carry that exact topic field; using an unrelated Geometry, Algebra, Number Systems or other question is an automatic failure.' : '';
   var levelAudit = section === 'rc'
-    ? ' RC LEVEL: the application has already counted and confirmed 450-550 passage words, so do not estimate or reject its length again. Reject direct retrieval questions, weak distractors, or fewer than three paragraphs.'
+    ? ' RC LEVEL: the application has already counted and confirmed 450-550 passage words, so do not estimate or reject its length again. A question anchored in a specific detail is valid when it asks for that detail’s role, implication or relationship to the argument; reject only mechanical copy-the-line retrieval. Reject fewer than three paragraphs. Judge distractor quality, but do not mark an otherwise coherent and uniquely answerable RC invalid merely because one distractor is easier than ideal.'
     : section === 'dilr'
       ? ' DILR LEVEL: reject any direct one-clue-one-cell puzzle, set solvable mechanically in under 12 minutes, direct-lookup question, fewer than three genuinely derived constraints, or setup without interacting cases/bounds.'
       : ' QA LEVEL: reject formula-identification drills, visible arithmetic pipelines, redundant data, or questions whose setup is obvious within a few seconds.';
@@ -13181,7 +13412,7 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
         : { answer_indices:exampleAnswerIndices, feasible_base_case_counts:[] }
   });
   var studentVisibleMaterial = buildStudentVisiblePracticeForAudit(generatedData, section);
-  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. For RC, return one short passage-grounded answer explanation for every independently solved answer; these explanations replace the generator\'s untrusted key and explanation. Return the independently solved zero-based answer indices for every question in display order. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not alter the student-visible questions or options. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
+  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. For RC, return one short passage-grounded answer explanation for every independently solved answer; these explanations replace the generator\'s untrusted key and explanation. For RC, valid=false is reserved for a fatal student-facing defect: an incomplete passage or question, contradictory information, no passage-supported answer, or more than one defensible answer. A merely easier-than-ideal question or distractor is a quality note, not a reason to discard a complete solvable RC. Return the independently solved zero-based answer indices for every question in display order. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not alter the student-visible questions or options. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
   var auditSetCount = setCount || 1;
   auditOptions = auditOptions || {};
   var auditMaxTokens = Number(auditOptions.maxTokens) || (section === 'dilr' ? Math.min(32768, 16384 + auditSetCount * 5000) : section === 'rc' ? 16384 : 20480);
@@ -13315,7 +13546,8 @@ function questionHasExplicitTask(stem) {
     // rejected the verified RC fallback that was supposed to recover safely.
     /:\s*$/.test(text) && (
       /\b(?:is|are|can be|could be|would be)\s+(?:best|most|least)?\s*(?:accurately\s+|appropriately\s+)?(?:described|characterised|characterized|summarised|summarized|inferred|concluded|supported)\s+as\b/i.test(text) ||
-      /\b(?:primary purpose|central (?:claim|argument|idea)|author(?:'s|’s)? (?:attitude|tone|view|position)|function|role|inference|statement|option)\b/i.test(text)
+      /\b(?:primary purpose|central (?:claim|argument|idea)|author(?:'s|’s)? (?:attitude|tone|view|position)|function|role|inference|statement|option)\b/i.test(text) ||
+      /\b(?:in order to|serves? to|functions? to|is (?:used|mentioned|introduced|intended) to|best (?:captures|explains|supports|weakens|strengthens)|can be (?:inferred|concluded)|would (?:weaken|strengthen)|except)\b/i.test(text)
     );
 }
 
