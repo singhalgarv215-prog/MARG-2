@@ -6735,7 +6735,7 @@ function startConversationalOnboarding() {
     if (btn) btn.style.display = 'inline-flex';
   }, 500);
   checkVarcShownToday().then(function(shown) {
-    if (!shown) setTimeout(function() { loadVarcCard('economy'); }, 1000);
+    if (!shown) setTimeout(function() { loadVarcCard('surprise'); }, 1000);
   });
 
 
@@ -10540,7 +10540,7 @@ function toggleVarcCard() {
   } else {
     card.style.display = ''; card.classList.add('visible');
     if (btn) btn.textContent = '× Close VARC';
-    if (!currentArticle) loadVarcCard('economy');
+    if (!currentArticle) loadVarcCard('surprise');
   }
 }
 
@@ -10563,6 +10563,256 @@ async function refreshArticle() {
 }
 
 function readArticle() { if (currentArticle) window.open(currentArticle.url, '_blank'); }
+
+// RC Lab deliberately uses Marg-owned theme briefs rather than scraping or
+// depending on a publisher at the moment a student wants to practise. This
+// keeps the exercise original, fast to configure, and resilient when an
+// external site changes or blocks access.
+let currentRCMode = 'diagnose';
+let currentRCNeed = 'diagnose';
+let currentRCSkill = 'mixed';
+let currentRCDifficulty = 'cat';
+
+const RC_LAB_THEMES = {
+  ideas:[
+    { title:'When measurement changes what it measures', brief:'Institutions often treat rankings and indicators as neutral descriptions. Once rewards depend on them, however, people reorganise their behaviour around what is counted. The tension is not simply between honest and dishonest actors: even conscientious people must allocate scarce attention. A useful argument should consider why adding more variables may hide rather than solve the problem, and whether measures should be treated as interventions instead of mirrors.' },
+    { title:'Why disagreement can improve knowledge', brief:'Public debate often treats consensus as proof of maturity and disagreement as failure. Yet disagreement can expose hidden assumptions, reveal that people are answering different questions, and prevent a convenient framework from becoming invisible. The counterpoint is that not every dispute is productive. A useful argument should distinguish disciplined disagreement, which clarifies what evidence would matter, from endless opposition that cannot be tested.' },
+    { title:'The cost of making every choice efficient', brief:'Efficiency is usually praised because it removes wasted effort and shortens decisions. But a system optimised for one visible goal may lose redundancy, experimentation and the capacity to respond to surprise. The tension is not a simple defence of waste. A useful argument should ask when spare capacity is genuinely protective, when it is merely expensive, and why resilience may only become visible after an efficient system fails.' }
+  ],
+  science:[
+    { title:'Restoring nature to a moving baseline', brief:'Ecological restoration is often described as returning a damaged landscape to its earlier condition. That assumes there is one stable past to recover. Climate shifts, migration and human land use complicate the choice of baseline, while refusing any baseline can make restoration directionless. A useful argument should examine restoration as a choice about future function, not a mechanical replay of history, while retaining limits against arbitrary intervention.' },
+    { title:'When scientific models agree for the wrong reason', brief:'Agreement across several models is often treated as strong evidence. But models may share the same data, categories or hidden assumption, so apparent convergence need not be independent confirmation. The counterpoint is that simplification is necessary: a model identical to reality would explain little. A useful argument should defend multiple models while requiring scientists to identify their distinct questions, distortions and shared blind spots.' },
+    { title:'The uncertainty hidden inside precise forecasts', brief:'A precise numerical forecast can appear more trustworthy than a range, even when its precision comes from assumptions rather than evidence. Communicating uncertainty may reduce confidence in the short term but improve decisions by showing what could change the result. A useful argument should avoid claiming that precision is useless; instead it should distinguish measurement precision from confidence about the model that turns measurements into predictions.' }
+  ],
+  economics:[
+    { title:'Why efficient supply chains can become fragile', brief:'Firms reduce inventories and suppliers to lower costs, but the same lean structure can amplify disruptions. Redundancy looks wasteful during normal times and valuable during shocks. The tension is how to pay for resilience without protecting inefficiency forever. A useful argument should distinguish local cost reduction from system-wide stability and consider why private incentives may underprovide backup capacity whose benefits appear only during shared crises.' },
+    { title:'What informal work reveals about economic statistics', brief:'Economic statistics rely on categories that make activity countable, yet informal care, casual labour and household production often escape them. This does not make official statistics fraudulent or useless. A useful argument should show how measurement choices shape policy visibility, why simply adding estimates may not remove category bias, and how decision-makers can use imperfect indicators without confusing them with the whole economy.' },
+    { title:'When prices carry too little moral information', brief:'Prices coordinate dispersed choices efficiently, but they record willingness and ability to pay rather than every social value. Critics sometimes treat this as proof that markets are morally empty, while defenders assume external rules can remain separate from exchange. A useful argument should explore how institutions decide which values enter prices, which remain protected outside them, and why neither pricing everything nor pricing nothing offers a complete solution.' }
+  ],
+  history:[
+    { title:'Who becomes visible in an archive', brief:'Archives appear to preserve the past passively, but records are created through decisions about who must report, whose account becomes official and what receives a searchable description. Absence cannot prove a preferred story, yet demanding explicit documentation for every claim can reproduce the archive’s original bias. A useful argument should treat the conditions of record-making as evidence without allowing speculation to replace evidence.' },
+    { title:'How museums turn classification into argument', brief:'Museum labels and categories seem to organise objects neutrally, but classification decides which histories appear connected and which differences become important. Returning an object or changing a label cannot by itself settle every conflict over ownership and interpretation. A useful argument should examine museums as institutions that construct public meaning while explaining why transparency about classification is more useful than pretending objects can be shown without interpretation.' },
+    { title:'How standard time reorganised everyday life', brief:'Uniform clock time is often presented as a technical convenience that made travel and commerce easier. It also changed how work, lateness and coordination were judged, replacing many local rhythms with a common abstract standard. A useful argument should resist simple nostalgia: shared time enabled large-scale cooperation, yet its adoption reveals how a neutral-seeming standard can redistribute control over daily life.' }
+  ]
+};
+
+const RC_NEED_LABELS = {
+  passage:'Passage structure and central claim',
+  two_options:'Option elimination and scope traps',
+  claim:'Finding exact claims and references',
+  tone:'Author tone and purpose',
+  time:'Pacing under a mixed RC',
+  diagnose:'Balanced RC diagnosis'
+};
+
+const RC_SKILL_LABELS = {
+  mixed:'Mixed CAT questions',
+  main_idea:'Main idea and central claim',
+  inference:'Inference',
+  paragraph_role:'Paragraph role',
+  detail:'Detail and reference',
+  tone:'Tone and purpose'
+};
+
+const RC_DIFFICULTY_LABELS = { build_up:'Build-up', cat:'CAT-level', hard:'Hard CAT' };
+const RC_TOPIC_LABELS = { ideas:'Ideas & Philosophy', science:'Science & Society', economics:'Economics & Policy', history:'History & Culture', surprise:'Surprise theme' };
+
+function rcLabPreferenceKey() { return getUserScopedKey('marg_rc_lab_preferences_v1'); }
+
+function saveRCLabPreferences() {
+  try {
+    localStorage.setItem(rcLabPreferenceKey(), JSON.stringify({ mode:currentRCMode, need:currentRCNeed, skill:currentRCSkill, difficulty:currentRCDifficulty, topic:currentTopic }));
+  } catch(e) {}
+}
+
+function restoreRCLabPreferences() {
+  try {
+    var saved = JSON.parse(localStorage.getItem(rcLabPreferenceKey()) || 'null');
+    if (!saved) return;
+    if (['diagnose','specific'].indexOf(saved.mode) !== -1) currentRCMode = saved.mode;
+    if (RC_NEED_LABELS[saved.need]) currentRCNeed = saved.need;
+    if (RC_SKILL_LABELS[saved.skill]) currentRCSkill = saved.skill;
+    if (RC_DIFFICULTY_LABELS[saved.difficulty]) currentRCDifficulty = saved.difficulty;
+    if (RC_TOPIC_LABELS[saved.topic]) currentTopic = saved.topic;
+  } catch(e) {}
+}
+
+function setActiveRCControl(selector, value) {
+  document.querySelectorAll(selector).forEach(function(button) {
+    var attribute = selector.match(/data-([a-z-]+)/);
+    var key = attribute ? attribute[1].replace(/-([a-z])/g, function(_m, letter) { return letter.toUpperCase(); }) : '';
+    button.classList.toggle('active', String(button.dataset[key] || '') === String(value));
+  });
+}
+
+function getRCLabConfiguration() {
+  return {
+    mode:currentRCMode,
+    focus:currentRCMode === 'specific' ? currentRCSkill : currentRCNeed,
+    focusLabel:currentRCMode === 'specific' ? RC_SKILL_LABELS[currentRCSkill] : RC_NEED_LABELS[currentRCNeed],
+    difficulty:currentRCDifficulty,
+    difficultyLabel:RC_DIFFICULTY_LABELS[currentRCDifficulty],
+    topic:currentTopic,
+    topicLabel:RC_TOPIC_LABELS[currentTopic]
+  };
+}
+
+function selectCuratedRCTheme(topic, offset) {
+  var genres = ['ideas','science','economics','history'];
+  var dayHash = parseInt(simpleStableHash(getTodayDate()), 36) || 0;
+  var chosenGenre = topic === 'surprise' || !RC_LAB_THEMES[topic]
+    ? genres[(Math.abs(Number(offset) || 0) + dayHash) % genres.length]
+    : topic;
+  var themes = RC_LAB_THEMES[chosenGenre];
+  var seed = String(getTodayDate()) + '|' + chosenGenre + '|' + String(offset || 0);
+  var index = (parseInt(simpleStableHash(seed), 36) || 0) % themes.length;
+  var theme = themes[Math.abs(index)];
+  return {
+    title:theme.title,
+    source:'Marg Original',
+    preview:theme.brief,
+    content:theme.brief,
+    contentVerified:true,
+    originalTheme:true,
+    genre:chosenGenre,
+    url:'',
+    publishedAt:''
+  };
+}
+
+function ensureRCLabStyles() {
+  if (document.getElementById('rc-lab-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'rc-lab-styles';
+  style.textContent = '#varc-card{max-height:min(82vh,760px);overflow-y:auto;overscroll-behavior:contain}.rc-lab-mode{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;background:#151515;border:1px solid var(--border);border-radius:11px}.rc-lab-mode-btn{border:0;border-radius:8px;background:transparent;color:var(--text-muted);padding:9px 10px;font:600 12px DM Sans,sans-serif;cursor:pointer}.rc-lab-mode-btn.active{background:rgba(201,168,76,.12);color:var(--gold-light);box-shadow:inset 0 0 0 1px rgba(201,168,76,.25)}.rc-lab-panel{display:flex;flex-direction:column;gap:7px}.rc-lab-panel[hidden]{display:none}.rc-lab-label{font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:1px}.rc-lab-options{display:flex;flex-wrap:wrap;gap:6px}.rc-lab-options-wide .varc-topic{flex:1 1 calc(50% - 6px);text-align:left;padding:7px 10px;line-height:1.35}.rc-lab-row{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr);gap:12px;padding-top:2px}.rc-lab-column{min-width:0}.rc-lab-summary{border:1px solid rgba(76,175,125,.2);background:rgba(76,175,125,.07);border-radius:9px;padding:9px 11px;color:#a9cfb9;font-size:12px;line-height:1.45}.rc-lab-theme{font-size:11px;color:var(--text-dim);line-height:1.45;margin-top:-4px}@media(max-width:600px){#varc-card{margin:0 10px;max-height:calc(100dvh - 150px);padding:14px}.rc-lab-row{grid-template-columns:1fr;gap:10px}.rc-lab-options-wide .varc-topic{flex-basis:100%}.rc-lab-mode-btn{font-size:11px;padding:8px 6px}}';
+  document.head.appendChild(style);
+}
+
+function updateRCLabCard() {
+  var config = getRCLabConfiguration();
+  var diagnosePanel = document.getElementById('rc-lab-diagnose-panel');
+  var specificPanel = document.getElementById('rc-lab-specific-panel');
+  if (diagnosePanel) diagnosePanel.hidden = currentRCMode !== 'diagnose';
+  if (specificPanel) specificPanel.hidden = currentRCMode !== 'specific';
+  setActiveRCControl('[data-rc-mode]', currentRCMode);
+  setActiveRCControl('[data-rc-need]', currentRCNeed);
+  setActiveRCControl('[data-rc-skill]', currentRCSkill);
+  setActiveRCControl('[data-rc-difficulty]', currentRCDifficulty);
+  setActiveRCControl('[data-rc-topic]', currentTopic);
+  var summary = document.getElementById('varc-preview');
+  if (summary) summary.textContent = config.focusLabel + ' · ' + config.difficultyLabel + ' · ' + config.topicLabel;
+  var theme = document.getElementById('rc-lab-theme');
+  if (theme && currentArticle) theme.textContent = 'Today’s theme: ' + currentArticle.title + '. Change it if you want a different reading world.';
+}
+
+function selectRCLabMode(mode) {
+  currentRCMode = mode === 'specific' ? 'specific' : 'diagnose';
+  saveRCLabPreferences();
+  updateRCLabCard();
+}
+
+function selectRCNeed(need) {
+  if (!RC_NEED_LABELS[need]) return;
+  currentRCNeed = need;
+  saveRCLabPreferences();
+  updateRCLabCard();
+}
+
+function selectRCSkill(skill) {
+  if (!RC_SKILL_LABELS[skill]) return;
+  currentRCSkill = skill;
+  saveRCLabPreferences();
+  updateRCLabCard();
+}
+
+function selectRCDifficulty(difficulty) {
+  if (!RC_DIFFICULTY_LABELS[difficulty]) return;
+  currentRCDifficulty = difficulty;
+  saveRCLabPreferences();
+  updateRCLabCard();
+}
+
+// Overrides the old publisher-card implementation above. The older fetch
+// helpers remain only for backward compatibility with saved sessions; this is
+// the live Today’s VARC path.
+async function loadVarcCard(topic) {
+  ensureRCLabStyles();
+  restoreRCLabPreferences();
+  if (RC_TOPIC_LABELS[topic]) currentTopic = topic;
+  if (!RC_TOPIC_LABELS[currentTopic]) currentTopic = 'surprise';
+  articleIndex = Math.max(0, Number(articleIndex) || 0);
+  currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  var card = document.getElementById('varc-card');
+  if (card) { card.style.display = ''; card.classList.add('visible'); }
+  updateRCLabCard();
+  var toggleBtn = document.getElementById('varc-toggle-btn');
+  if (toggleBtn) { toggleBtn.style.display = 'inline-flex'; toggleBtn.textContent = '× Close RC Lab'; }
+}
+
+function selectVarcTopic(topic) {
+  if (!RC_TOPIC_LABELS[topic]) return;
+  currentTopic = topic;
+  articleIndex = 0;
+  currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  saveRCLabPreferences();
+  updateRCLabCard();
+}
+
+async function refreshArticle() {
+  articleIndex = Math.max(0, Number(articleIndex) || 0) + 1;
+  currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  updateRCLabCard();
+  return currentArticle;
+}
+
+function readArticle() { return false; }
+
+function getRCQuestionBlueprint(config) {
+  if (config.mode === 'specific') {
+    return {
+      mixed:'primary purpose, inference, paragraph role or contextual detail, and author attitude',
+      main_idea:'two central-claim or primary-purpose questions, one paragraph-role question, and one inference question',
+      inference:'two inference questions, one implication question, and one primary-purpose question',
+      paragraph_role:'two paragraph-role or detail-function questions, one primary-purpose question, and one inference question',
+      detail:'two exact-reference or contextual-detail questions, one inference question, and one primary-purpose question',
+      tone:'two author-attitude or purpose questions, one primary-purpose question, and one inference question'
+    }[config.focus] || 'a balanced mix of four CAT RC questions';
+  }
+  return {
+    passage:'questions that test structure, paragraph role and central claim, plus one inference question',
+    two_options:'two close-option questions built around inference, scope or extreme-language traps, plus primary purpose and author attitude',
+    claim:'two questions requiring the exact claim or reference to be located, plus one inference and one primary-purpose question',
+    tone:'two author-attitude or purpose questions, plus one primary-purpose and one inference question',
+    time:'a standard mixed CAT RC containing primary purpose, inference, contextual detail and author attitude',
+    diagnose:'a balanced diagnostic mix containing primary purpose, inference, paragraph role or contextual detail, and author attitude'
+  }[config.focus] || 'a balanced diagnostic mix of four CAT RC questions';
+}
+
+function getRCDifficultyInstruction(config) {
+  if (config.difficulty === 'build_up') return 'Use CAT structure but keep the argument relatively clear, the vocabulary accessible, and close options distinguishable through one precise textual clue.';
+  if (config.difficulty === 'hard') return 'Make the argument dense but fair, use a subtle qualification or shift, and make at least two options genuinely close without creating ambiguity.';
+  return 'Use authentic CAT-level density, a meaningful qualification, and plausible close options that reward exact reading.';
+}
+
+function rcLabDailyExerciseCacheKey(config, theme) {
+  var signature = [getTodayDate(), config.mode, config.focus, config.difficulty, config.topic, theme && theme.title || ''].join('|');
+  return getUserScopedKey('marg_rc_lab_daily_v1_' + simpleStableHash(signature));
+}
+
+function readCachedRCLabExercise(config, theme) {
+  try {
+    var cached = JSON.parse(localStorage.getItem(rcLabDailyExerciseCacheKey(config, theme)) || 'null');
+    if (!cached || cached.date !== getTodayDate() || !validateRCPracticeSet(cached.data, 4)) return null;
+    return cached.data;
+  } catch(e) { return null; }
+}
+
+function rememberCachedRCLabExercise(config, theme, data) {
+  if (!validateRCPracticeSet(data, 4)) return;
+  try {
+    localStorage.setItem(rcLabDailyExerciseCacheKey(config, theme), JSON.stringify({ date:getTodayDate(), data:data }));
+  } catch(e) {}
+}
 
 function articleSourceBriefCacheKey(article) {
   return getUserScopedKey('marg_article_source_brief_v2_' + simpleStableHash(String(article && article.url || '') + '|' + String(article && article.title || '')));
@@ -10612,43 +10862,51 @@ async function getGroundedArticleSourceBrief(article) {
 async function createRCPassage() {
   if (articleRCGenerating) return;
   if (!currentArticle) {
-    articleRCGenerating = true;
-    showTyping();
-    try {
-      currentArticle = await fetchDailyArticle(currentTopic, Math.max(0, articleIndex));
-    } catch(e) {
-      hideTyping();
-      articleRCGenerating = false;
-      var sourceFailureText = 'I could not reach The Hindu or Aeon article feed right now. I have not generated a generic passage and labelled it as article-based. Try another topic or retry the feed once.';
-      addMessage('marg', sourceFailureText, true);
-      conversationHistory.push({ role:'assistant', content:sourceFailureText });
-      if (!isGuestMode) saveChatMessage('assistant', sourceFailureText);
-      return;
-    }
-    articleRCGenerating = false;
+    currentArticle = selectCuratedRCTheme(currentTopic, Math.max(0, Number(articleIndex) || 0));
   }
   articleRCGenerating = true;
   closeVarcCard();
   var articleText = currentArticle.content || currentArticle.preview;
   var prompt = '';
+  var rcConfig = getRCLabConfiguration();
 
-  function buildArticleRCPrompt(sourceMaterial) { return `Use the following verified article brief only as thematic source material. Write a completely original CAT-style RC; do not quote, reproduce or merely summarise the article.
+  function buildArticleRCPrompt(sourceMaterial) { return `Use this Marg-owned theme brief as conceptual scaffolding. Write a completely original CAT-style RC; do not quote, reproduce or pretend it came from a published article.
 
-Article title: "${currentArticle.title}" (${currentArticle.source})
-Article URL: ${currentArticle.url}
-Verified thematic brief or publisher RSS material: ${sourceMaterial}
+Theme: "${currentArticle.title}"
+Reading world: ${rcConfig.topicLabel}
+Theme brief: ${sourceMaterial}
 
-Generate exactly one HARD CAT-level RC passage of 475-510 words in exactly 4 distinct paragraphs and exactly four questions: primary purpose, the role or implication of a specific detail, inference, and author attitude. The detail question must ask why a detail is used or what it establishes in context; it must not be a copy-the-line fact lookup. This tighter writing target leaves a safe margin inside Marg's 450-550 word acceptance range. Build a central thesis, one qualification or counter-consideration, and a subtle change in the author's position. The passage must reward structural reading rather than factual recall.
+Student selected: ${rcConfig.focusLabel}.
+Question mix: ${getRCQuestionBlueprint(rcConfig)}.
+Difficulty: ${rcConfig.difficultyLabel}. ${getRCDifficultyInstruction(rcConfig)}
+
+Generate exactly one RC passage of 475-510 words in exactly 4 distinct paragraphs and exactly four questions using that question mix. Any detail or reference question must ask why a detail is used, what it establishes, or where a claim is supported in context; it must not be a copy-the-line fact lookup. Build a central thesis, one qualification or counter-consideration, and a meaningful change or development in the author's position. The passage must reward structural reading rather than factual recall.
 
 Each question must have exactly four distinct plausible options and one defensible answer. At least two options should be close; wrong options should use controlled scope, force, ownership, context or inference traps rather than obvious nonsense. Use only information stated or necessarily implied by the passage. Independently solve every question. Include private sufficiency_check and option_check fields; they will not be shown to the student. Keep explanations to one or two clean sentences. Return only valid JSON in this exact shape: {"sets":[{"passage":"450-520 words with blank lines between paragraphs","difficulty":"Hard","topic":"specific theme","questions":[{"q":"complete question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based reason","sufficiency_check":"why the passage is sufficient","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one useful decision rule"}]}]}`; }
 
-  addMessage('marg', "📖 Great choice! Let me create a CAT style RC passage from today's article on <strong>" + currentArticle.title + "</strong>. Give me a moment...", true);
+  addMessage('marg', "I’m setting up a <strong>" + rcConfig.difficultyLabel + " RC</strong> around <strong>" + rcConfig.focusLabel.toLowerCase() + "</strong>. The questions will be checked before you see them.", true);
   showTyping();
   profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   var articleRCStage = 'generation_request';
   try {
-    articleRCStage = 'source_grounding';
-    articleText = await getGroundedArticleSourceBrief(currentArticle);
+    var cachedRCData = readCachedRCLabExercise(rcConfig, currentArticle);
+    if (cachedRCData) {
+      articleRCStage = 'daily_cache';
+      var cachedReply = formatStructuredArticleRC(cachedRCData);
+      hideTyping();
+      storeActiveGeneratedExercise({
+        type:'rc', source:'rc-lab-daily-cache', title:currentArticle.title,
+        purpose:rcConfig.mode === 'diagnose' ? 'Evidence-based CAT RC diagnosis' : 'Targeted CAT RC skill practice',
+        validationVerdict:{ status:'independently_verified', verification:{ mode:'same-day-verified-cache' } },
+        content:{ exerciseText:cachedReply, answerKey:buildArticleRCAnswerMemory(cachedRCData), structuredData:cachedRCData, article:{ title:currentArticle.title, source:'Marg Original', url:'' }, rcLab:rcConfig }
+      });
+      addArticleRCAttemptMessage(activeGeneratedExercise);
+      conversationHistory.push({ role:'assistant', content:cachedReply });
+      if (!isGuestMode) saveChatMessage('assistant', cachedReply);
+      return;
+    }
+    articleRCStage = 'theme_selection';
+    articleText = currentArticle.content || currentArticle.preview;
     prompt = buildArticleRCPrompt(articleText);
     var rcData = null;
     var localIssues = [];
@@ -10712,7 +10970,7 @@ Each question must have exactly four distinct plausible options and one defensib
     // recovered here instead of leaking out as a manual retry.
     for (var semanticAttempt = 0; !articleAudit.valid && articleAudit.failureType !== 'technical' && semanticAttempt < 2; semanticAttempt++) {
       articleRCStage = 'semantic_repair_' + (semanticAttempt + 1);
-      var auditRepairPrompt = prompt + '\n\nA separate solver rejected the previous draft because: ' + (articleAudit.issues || []).join('; ') + '. Rebuild the entire RC from scratch around the same article theme. Remove the ambiguity or unsupported inference identified above. Keep 475-510 passage words, four paragraphs, four complete questions and exactly one passage-supported answer per question.';
+      var auditRepairPrompt = prompt + '\n\nA separate solver rejected the previous draft because: ' + (articleAudit.issues || []).join('; ') + '. Rebuild the entire RC from scratch around the same theme. Remove the ambiguity or unsupported inference identified above. Keep 475-510 passage words, four paragraphs, four complete questions and exactly one passage-supported answer per question.';
       try {
         var repairResponse = await fetchWithTimeout(WORKER_URL, {
           method:'POST',
@@ -10779,34 +11037,60 @@ Each question must have exactly four distinct plausible options and one defensib
     hideTyping();
     storeActiveGeneratedExercise({
       type:'rc',
-      source:'chat-article-verified',
+      source:'rc-lab-verified',
       title:currentArticle.title,
-      purpose:'CAT RC comprehension and option-elimination diagnosis',
+      purpose:rcConfig.mode === 'diagnose' ? 'Evidence-based CAT RC diagnosis' : 'Targeted CAT RC skill practice',
       validationVerdict:{ status:articleAudit.auditUnavailable ? 'verified_local' : 'independently_verified', verification:articleAudit.verification || null },
       content:{
         exerciseText:visibleReply,
         answerKey:buildArticleRCAnswerMemory(rcData),
         structuredData:rcData,
-        article:{ title:currentArticle.title, source:currentArticle.source, url:currentArticle.url || '' }
+        article:{ title:currentArticle.title, source:'Marg Original', url:'' },
+        rcLab:rcConfig
       }
     });
     addArticleRCAttemptMessage(activeGeneratedExercise);
     conversationHistory.push({ role:'assistant', content:visibleReply });
     saveChatMessage('assistant', visibleReply);
-    localStorage.setItem('marg_rc_article', JSON.stringify({ title: currentArticle.title, source: currentArticle.source, content: articleText }));
+    rememberCachedRCLabExercise(rcConfig, currentArticle, rcData);
+    localStorage.setItem('marg_rc_article', JSON.stringify({ title:currentArticle.title, source:'Marg Original', content:articleText, configuration:rcConfig }));
   } catch(e) {
     hideTyping();
-    console.error('Article-based RC generation failed:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
-    recordProductIncident('article_rc_generation_failed', e, { surface:'today_varc', section:'rc', topic:currentArticle && currentArticle.title || '', stage:articleRCStage });
-    var failedTitle = currentArticle && currentArticle.title || 'this article';
-    var publisherName = currentArticle && currentArticle.source || (currentTopic === 'philosophy' ? 'Aeon' : 'The Hindu');
-    var failureText = isGeminiServiceError(e)
-      ? 'Marg reached “' + failedTitle + '”, but the RC service could not finish its check. Try this same article again; the article itself is safe.'
-      : 'The RC draft from “' + failedTitle + '” did not pass every answer and completeness check, so I discarded it. Try this article again or use the next article from ' + publisherName + '.';
-    addMessage('marg', escapeChatHtml(failureText), true);
-    conversationHistory.push({ role:'assistant', content:failureText });
-    if (!isGuestMode) saveChatMessage('assistant', failureText);
-    showArticleRCRecoveryChoices();
+    console.error('RC Lab generation failed:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
+    recordProductIncident('rc_lab_generation_failed', e, { surface:'today_varc', section:'rc', topic:currentArticle && currentArticle.title || '', stage:articleRCStage, configuration:rcConfig });
+    // A student should not need two or three clicks because a fresh draft or
+    // its independent audit failed. Serve a fully checked Marg-owned RC from
+    // the local safety bank in the same action. It is labelled as mixed when
+    // it cannot exactly preserve a narrower requested question distribution.
+    var safeFallback = getVerifiedArticleRCFallback(JSON.stringify(rcConfig) + '|' + String(articleIndex));
+    if (validateRCPracticeSet(safeFallback, 4)) {
+      var fallbackSet = safeFallback.sets[0];
+      var fallbackReply = formatStructuredArticleRC(safeFallback);
+      var deliveredConfig = Object.assign({}, rcConfig, { fallback:true, focusLabel:'Verified mixed RC' });
+      storeActiveGeneratedExercise({
+        type:'rc',
+        source:'rc-lab-verified-fallback',
+        title:fallbackSet.topic || 'Verified CAT RC',
+        purpose:'Reliable CAT RC practice after a fresh draft was discarded',
+        validationVerdict:{ status:'preverified', verification:{ mode:'local-verified-bank' } },
+        content:{
+          exerciseText:fallbackReply,
+          answerKey:buildArticleRCAnswerMemory(safeFallback),
+          structuredData:safeFallback,
+          article:{ title:fallbackSet.topic || 'Verified CAT RC', source:'Marg Original', url:'' },
+          rcLab:deliveredConfig
+        }
+      });
+      addArticleRCAttemptMessage(activeGeneratedExercise);
+      conversationHistory.push({ role:'assistant', content:fallbackReply });
+      if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
+    } else {
+      var failureText = 'I could not produce a complete, checked RC this time. Your choices are saved—try once more without setting them again.';
+      addMessage('marg', failureText, true);
+      conversationHistory.push({ role:'assistant', content:failureText });
+      if (!isGuestMode) saveChatMessage('assistant', failureText);
+      showArticleRCRecoveryChoices();
+    }
   } finally {
     articleRCGenerating = false;
   }
@@ -10819,7 +11103,7 @@ function showArticleRCRecoveryChoices() {
   card.id = 'article-rc-recovery-actions';
   card.className = 'fade-in';
   card.style.marginLeft = '38px';
-  card.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0"><button type="button" onclick="retryArticleRCGeneration()" style="border:1px solid rgba(201,168,76,.35);border-radius:10px;background:rgba(201,168,76,.08);color:#E8C96A;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Try this article again</button><button type="button" onclick="tryAnotherArticleRC()" style="border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#171717;color:#C8C4BC;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Use next article</button></div>';
+  card.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0"><button type="button" onclick="retryArticleRCGeneration()" style="border:1px solid rgba(201,168,76,.35);border-radius:10px;background:rgba(201,168,76,.08);color:#E8C96A;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Try the same RC setup</button><button type="button" onclick="tryAnotherArticleRC()" style="border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#171717;color:#C8C4BC;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer">Use another theme</button></div>';
   container.appendChild(card);
   scrollChatToLatest();
 }
@@ -10869,7 +11153,7 @@ function ensureArticleRCAttemptStyles() {
   if (document.getElementById('article-rc-attempt-styles')) return;
   var style = document.createElement('style');
   style.id = 'article-rc-attempt-styles';
-  style.textContent = '.msg-wrap.article-rc-message{width:min(920px,97%);max-width:min(920px,97%);align-items:flex-start}.article-rc-message .message-stack{min-width:0;width:100%}.article-rc-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#111!important;border:1px solid rgba(255,255,255,.11)!important;border-radius:16px!important}.article-rc-attempt{width:100%;color:#f0ede6}.article-rc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);background:linear-gradient(135deg,rgba(201,168,76,.08),rgba(255,255,255,.015))}.article-rc-kicker{font-size:10px;line-height:1.2;letter-spacing:.11em;text-transform:uppercase;color:#d9b95b;font-weight:700;margin-bottom:6px}.article-rc-title{font:600 15px/1.45 DM Sans,sans-serif;color:#f0ede6;max-width:620px}.article-rc-progress{white-space:nowrap;font-size:11px;color:#9d9991;background:#1b1b1b;border:1px solid rgba(255,255,255,.09);border-radius:999px;padding:6px 10px}.article-rc-step-row{display:flex;gap:7px;padding:12px 18px 0}.article-rc-step{width:29px;height:29px;border-radius:50%;border:1px solid rgba(255,255,255,.12);background:#191919;color:#8f8b84;font:600 11px DM Sans,sans-serif;cursor:pointer}.article-rc-step.active{border-color:#c9a84c;color:#e8c96a;background:rgba(201,168,76,.1)}.article-rc-step.answered:after{content:"";display:block;width:4px;height:4px;border-radius:50%;background:#4caf7d;margin:1px auto 0}.article-rc-tools{display:flex;align-items:center;gap:8px;padding:12px 18px}.article-rc-tool{border:1px solid rgba(255,255,255,.11);background:#191919;color:#bbb6ad;border-radius:9px;padding:8px 11px;font:600 11px DM Sans,sans-serif;cursor:pointer}.article-rc-tool.primary{color:#e8c96a;border-color:rgba(201,168,76,.3);background:rgba(201,168,76,.07)}.article-rc-passage{margin:0 18px 14px;padding:18px 20px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:#181818;color:#e7e3dc;font:calc(16px * var(--marg-reader-scale,1))/1.82 Georgia,serif;letter-spacing:.006em}.article-rc-passage[hidden]{display:none}.article-rc-passage p{margin:0 0 1.05em}.article-rc-passage p:last-child{margin-bottom:0}.article-rc-question-area{padding:5px 18px 18px}.article-rc-question-label{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#8d8981;margin-bottom:8px}.article-rc-question{font:600 15px/1.58 DM Sans,sans-serif;color:#f3f0e9;margin-bottom:14px}.article-rc-options{display:grid;gap:9px}.article-rc-option{display:grid;grid-template-columns:29px 1fr;align-items:flex-start;gap:10px;width:100%;border:1px solid rgba(255,255,255,.11);border-radius:11px;background:#191919;color:#d7d3cb;padding:12px 13px;text-align:left;font:500 13.5px/1.55 DM Sans,sans-serif;cursor:pointer}.article-rc-option:hover{border-color:rgba(201,168,76,.48);background:#1d1c18;transform:none}.article-rc-option.selected{border-color:#c9a84c;background:rgba(201,168,76,.09);color:#f2eee5}.article-rc-option.correct{border-color:#4caf7d;background:rgba(76,175,125,.09)}.article-rc-option.wrong{border-color:#d76a6a;background:rgba(215,106,106,.08)}.article-rc-letter{display:flex;align-items:center;justify-content:center;width:27px;height:27px;border-radius:8px;border:1px solid rgba(255,255,255,.12);color:#aaa69e;font-size:11px;font-weight:700}.article-rc-option.selected .article-rc-letter{border-color:#c9a84c;color:#e8c96a}.article-rc-option.correct .article-rc-letter{border-color:#4caf7d;color:#69c592}.article-rc-nav{display:flex;align-items:center;gap:9px;padding:13px 18px;border-top:1px solid rgba(255,255,255,.08);background:#0f0f0f}.article-rc-nav button{border-radius:9px;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer}.article-rc-prev{border:1px solid rgba(255,255,255,.11);background:#1b1b1b;color:#aaa69e}.article-rc-next{border:0;background:#2f7655;color:#fff}.article-rc-next:disabled{opacity:.4;cursor:not-allowed}.article-rc-count{font-size:11px;color:#77736c;margin-right:auto}.article-rc-submit{border:0;background:linear-gradient(135deg,#4caf7d,#2d7a55);color:#fff}.article-rc-submit:disabled{opacity:.38;cursor:not-allowed}.article-rc-submit-note{padding:0 18px 13px;background:#0f0f0f;color:#7f7b74;font-size:10.5px;line-height:1.45}.article-rc-submit-note.done{color:#69c592}.article-rc-message .message-actions{padding-left:4px}@media(max-width:600px){.msg-wrap.article-rc-message{width:100%;max-width:100%;gap:6px}.article-rc-message>.avatar{display:none}.article-rc-head{padding:14px}.article-rc-title{font-size:14px}.article-rc-progress{font-size:10px;padding:5px 8px}.article-rc-step-row,.article-rc-tools,.article-rc-question-area{padding-left:14px;padding-right:14px}.article-rc-passage{margin-left:10px;margin-right:10px;padding:17px 15px;font-size:calc(16.5px * var(--marg-reader-scale,1));line-height:1.88}.article-rc-question{font-size:14.5px}.article-rc-option{font-size:13px;padding:11px}.article-rc-nav{padding:12px 14px;flex-wrap:wrap}.article-rc-count{width:100%;order:-1}.article-rc-submit-note{padding-left:14px;padding-right:14px}}';
+  style.textContent = '.msg-wrap.article-rc-message{width:min(920px,97%);max-width:min(920px,97%);align-items:flex-start}.article-rc-message .message-stack{min-width:0;width:100%}.article-rc-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#111!important;border:1px solid rgba(255,255,255,.11)!important;border-radius:16px!important}.article-rc-attempt{width:100%;color:#f0ede6}.article-rc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.08);background:linear-gradient(135deg,rgba(201,168,76,.08),rgba(255,255,255,.015))}.article-rc-kicker{font-size:10px;line-height:1.2;letter-spacing:.11em;text-transform:uppercase;color:#d9b95b;font-weight:700;margin-bottom:6px}.article-rc-title{font:600 15px/1.45 DM Sans,sans-serif;color:#f0ede6;max-width:620px}.article-rc-progress{white-space:nowrap;font-size:11px;color:#9d9991;background:#1b1b1b;border:1px solid rgba(255,255,255,.09);border-radius:999px;padding:6px 10px}.article-rc-timer{text-align:center;color:#77736c;font:600 10px/1.2 DM Sans,sans-serif;margin-top:5px;font-variant-numeric:tabular-nums}.article-rc-step-row{display:flex;gap:7px;padding:12px 18px 0}.article-rc-step{width:29px;height:29px;border-radius:50%;border:1px solid rgba(255,255,255,.12);background:#191919;color:#8f8b84;font:600 11px DM Sans,sans-serif;cursor:pointer}.article-rc-step.active{border-color:#c9a84c;color:#e8c96a;background:rgba(201,168,76,.1)}.article-rc-step.answered:after{content:"";display:block;width:4px;height:4px;border-radius:50%;background:#4caf7d;margin:1px auto 0}.article-rc-tools{display:flex;align-items:center;gap:8px;padding:12px 18px}.article-rc-tool{border:1px solid rgba(255,255,255,.11);background:#191919;color:#bbb6ad;border-radius:9px;padding:8px 11px;font:600 11px DM Sans,sans-serif;cursor:pointer}.article-rc-tool.primary{color:#e8c96a;border-color:rgba(201,168,76,.3);background:rgba(201,168,76,.07)}.article-rc-passage{margin:0 18px 14px;padding:18px 20px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:#181818;color:#e7e3dc;font:calc(16px * var(--marg-reader-scale,1))/1.82 Georgia,serif;letter-spacing:.006em}.article-rc-passage[hidden]{display:none}.article-rc-passage p{margin:0 0 1.05em}.article-rc-passage p:last-child{margin-bottom:0}.article-rc-question-area{padding:5px 18px 18px}.article-rc-question-label{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#8d8981;margin-bottom:8px}.article-rc-question{font:600 15px/1.58 DM Sans,sans-serif;color:#f3f0e9;margin-bottom:14px}.article-rc-options{display:grid;gap:9px}.article-rc-option{display:grid;grid-template-columns:29px 1fr;align-items:flex-start;gap:10px;width:100%;border:1px solid rgba(255,255,255,.11);border-radius:11px;background:#191919;color:#d7d3cb;padding:12px 13px;text-align:left;font:500 13.5px/1.55 DM Sans,sans-serif;cursor:pointer}.article-rc-option:hover{border-color:rgba(201,168,76,.48);background:#1d1c18;transform:none}.article-rc-option.selected{border-color:#c9a84c;background:rgba(201,168,76,.09);color:#f2eee5}.article-rc-option.correct{border-color:#4caf7d;background:rgba(76,175,125,.09)}.article-rc-option.wrong{border-color:#d76a6a;background:rgba(215,106,106,.08)}.article-rc-letter{display:flex;align-items:center;justify-content:center;width:27px;height:27px;border-radius:8px;border:1px solid rgba(255,255,255,.12);color:#aaa69e;font-size:11px;font-weight:700}.article-rc-option.selected .article-rc-letter{border-color:#c9a84c;color:#e8c96a}.article-rc-option.correct .article-rc-letter{border-color:#4caf7d;color:#69c592}.article-rc-nav{display:flex;align-items:center;gap:9px;padding:13px 18px;border-top:1px solid rgba(255,255,255,.08);background:#0f0f0f}.article-rc-nav button{border-radius:9px;padding:10px 13px;font:600 12px DM Sans,sans-serif;cursor:pointer}.article-rc-prev{border:1px solid rgba(255,255,255,.11);background:#1b1b1b;color:#aaa69e}.article-rc-next{border:0;background:#2f7655;color:#fff}.article-rc-next:disabled{opacity:.4;cursor:not-allowed}.article-rc-count{font-size:11px;color:#77736c;margin-right:auto}.article-rc-submit{border:0;background:linear-gradient(135deg,#4caf7d,#2d7a55);color:#fff}.article-rc-submit:disabled{opacity:.38;cursor:not-allowed}.article-rc-submit-note{padding:0 18px 13px;background:#0f0f0f;color:#7f7b74;font-size:10.5px;line-height:1.45}.article-rc-submit-note.done{color:#69c592}.article-rc-message .message-actions{padding-left:4px}@media(max-width:600px){.msg-wrap.article-rc-message{width:100%;max-width:100%;gap:6px}.article-rc-message>.avatar{display:none}.article-rc-head{padding:14px}.article-rc-title{font-size:14px}.article-rc-progress{font-size:10px;padding:5px 8px}.article-rc-step-row,.article-rc-tools,.article-rc-question-area{padding-left:14px;padding-right:14px}.article-rc-passage{margin-left:10px;margin-right:10px;padding:17px 15px;font-size:calc(16.5px * var(--marg-reader-scale,1));line-height:1.88}.article-rc-question{font-size:14.5px}.article-rc-option{font-size:13px;padding:11px}.article-rc-nav{padding:12px 14px;flex-wrap:wrap}.article-rc-count{width:100%;order:-1}.article-rc-submit-note{padding-left:14px;padding-right:14px}}';
   document.head.appendChild(style);
 }
 
@@ -10882,8 +11166,9 @@ function ensureArticleRCState(exercise) {
   var data = getArticleRCExerciseData(exercise);
   var questionCount = data && data.sets[0] && Array.isArray(data.sets[0].questions) ? data.sets[0].questions.length : 0;
   if (!exercise.articleRCState || !Array.isArray(exercise.articleRCState.selections) || exercise.articleRCState.selections.length !== questionCount) {
-    exercise.articleRCState = { currentIndex:0, passageOpen:true, selections:Array(questionCount).fill(null), submitted:false };
+    exercise.articleRCState = { currentIndex:0, passageOpen:true, selections:Array(questionCount).fill(null), submitted:false, startedAt:Date.now() };
   }
+  if (!exercise.articleRCState.startedAt) exercise.articleRCState.startedAt = Date.now();
   exercise.articleRCState.currentIndex = Math.max(0, Math.min(questionCount - 1, Number(exercise.articleRCState.currentIndex) || 0));
   return exercise.articleRCState;
 }
@@ -10916,6 +11201,8 @@ function buildArticleRCAttemptHtml(exercise) {
   if (!question) return '';
   var answered = state.selections.filter(function(value) { return Number.isInteger(value); }).length;
   var submitted = state.submitted || exercise.awaitingAnswers === false;
+  var elapsedSeconds = Math.max(0, Math.round(((state.completedAt || Date.now()) - Number(state.startedAt || Date.now())) / 1000));
+  var elapsedLabel = Math.floor(elapsedSeconds / 60) + ':' + String(elapsedSeconds % 60).padStart(2, '0');
   var passageHtml = String(setObj.passage || '').split(/\n\s*\n/).filter(Boolean).map(function(paragraph) {
     return '<p>' + escapeVisualText(convertLatexToPlainText(paragraph.trim())) + '</p>';
   }).join('');
@@ -10933,7 +11220,9 @@ function buildArticleRCAttemptHtml(exercise) {
   var nextDisabled = !Number.isInteger(state.selections[index]) || index >= questions.length - 1;
   var allAnswered = answered === questions.length;
   var note = submitted ? 'Answers submitted. Marg is using the checked key to review the decisions behind them.' : allAnswered ? 'All four answered. Submit once and Marg will review the complete pattern.' : 'Choose one option for every question. Answers are saved on this device.';
-  return '<div class="article-rc-head"><div><div class="article-rc-kicker">Today\'s article RC</div><div class="article-rc-title">' + escapeVisualText(exercise.title || setObj.topic || 'CAT reading passage') + '</div></div><div class="article-rc-progress">' + (index + 1) + ' / ' + questions.length + '</div></div>' +
+  var labConfig = exercise && exercise.content && exercise.content.rcLab || {};
+  var kicker = labConfig.fallback ? 'RC Lab · verified mixed fallback' : 'RC Lab' + (labConfig.focusLabel ? ' · ' + labConfig.focusLabel : '');
+  return '<div class="article-rc-head"><div><div class="article-rc-kicker">' + escapeVisualText(kicker) + '</div><div class="article-rc-title">' + escapeVisualText(exercise.title || setObj.topic || 'CAT reading passage') + '</div></div><div><div class="article-rc-progress">' + (index + 1) + ' / ' + questions.length + '</div><div class="article-rc-timer" data-rc-timer>' + elapsedLabel + '</div></div></div>' +
     '<div class="article-rc-step-row">' + steps + '</div>' +
     '<div class="article-rc-tools"><button type="button" class="article-rc-tool primary" onclick="toggleArticleRCPassage()">' + (state.passageOpen ? 'Hide passage' : 'View passage') + '</button><button type="button" class="article-rc-tool" onclick="openArticleRCPassageFocus(this)">Focus · Aa</button></div>' +
     '<div class="article-rc-passage passage-reading-content"' + (state.passageOpen ? '' : ' hidden') + '>' + passageHtml + '</div>' +
@@ -10948,7 +11237,22 @@ function renderActiveArticleRCWidget() {
   if (!widget) return false;
   widget.innerHTML = buildArticleRCAttemptHtml(activeGeneratedExercise);
   persistArticleRCState();
+  startArticleRCTimer();
   return true;
+}
+
+var articleRCTimerHandle = null;
+function startArticleRCTimer() {
+  if (articleRCTimerHandle) clearInterval(articleRCTimerHandle);
+  if (!activeGeneratedExercise) return;
+  var state = ensureArticleRCState(activeGeneratedExercise);
+  if (state.submitted || activeGeneratedExercise.awaitingAnswers === false) return;
+  articleRCTimerHandle = setInterval(function() {
+    var timer = document.querySelector('.article-rc-attempt[data-exercise-id="' + activeGeneratedExercise.id + '"] [data-rc-timer]');
+    if (!timer) return;
+    var seconds = Math.max(0, Math.round((Date.now() - Number(state.startedAt || Date.now())) / 1000));
+    timer.textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+  }, 1000);
 }
 
 function addArticleRCAttemptMessage(exercise) {
@@ -10958,6 +11262,7 @@ function addArticleRCAttemptMessage(exercise) {
   var wrap = addMessage('marg', html, true);
   if (wrap) wrap.classList.add('article-rc-message');
   markActiveExerciseDelivered('today-varc-chat');
+  startArticleRCTimer();
   return wrap;
 }
 
@@ -11011,10 +11316,12 @@ function submitArticleRCAttempt() {
     return (index + 1) + '-' + String.fromCharCode(65 + selected);
   });
   state.submitted = true;
+  state.completedAt = Date.now();
+  if (articleRCTimerHandle) { clearInterval(articleRCTimerHandle); articleRCTimerHandle = null; }
   activeGeneratedExercise.awaitingAnswers = false;
   activeGeneratedExercise.completedAt = new Date().toISOString();
   activeGeneratedExercise.reviewPending = true;
-  activeGeneratedExercise.result = { correct:correct, wrong:questions.length - correct, skipped:0, total:questions.length, answers:answers };
+  activeGeneratedExercise.result = { correct:correct, wrong:questions.length - correct, skipped:0, total:questions.length, answers:answers, elapsedSeconds:Math.max(0, Math.round((state.completedAt - Number(state.startedAt || state.completedAt)) / 1000)) };
   activeGeneratedExercise.lastSubmittedAnswers = answers.join(', ');
   // Save the completed card before handing the answers to chat. sendMessage()
   // performs the single durable EXERCISE write; doing it here too produced two
@@ -11023,7 +11330,8 @@ function submitArticleRCAttempt() {
   renderActiveArticleRCWidget();
   var input = document.getElementById('user-input');
   if (!input) return;
-  input.value = 'My answers for today\'s article RC: ' + answers.join(', ') + '. Please check them and tell me what these choices actually show.';
+  var submittedConfig = activeGeneratedExercise.content && activeGeneratedExercise.content.rcLab || {};
+  input.value = 'My RC Lab answers are ' + answers.join(', ') + '. I took ' + activeGeneratedExercise.result.elapsedSeconds + ' seconds. I chose this focus: ' + (submittedConfig.focusLabel || 'mixed RC') + '. Check each answer, then tell me what my choices actually show and what the next RC should test.';
   input.dispatchEvent(new Event('input', { bubbles:true }));
   sendMessage();
 }
