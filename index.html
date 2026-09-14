@@ -18,7 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<script defer src="/landing-bootstrap.js?v=20260911-rcfirsttry16"></script>
+<script defer src="/landing-bootstrap.js?v=20260914-rclab17"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -1231,28 +1231,64 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 </div>
 <div id="varc-card">
 <div class="varc-header">
-<div class="varc-badge">📖 Daily VARC</div>
-<button class="varc-close" onclick="closeVarcCard()">Skip today ×</button>
+<div class="varc-badge">📖 RC Lab</div>
+<button class="varc-close" onclick="closeVarcCard()">Close ×</button>
 </div>
-<div class="varc-article-title" id="varc-title">Loading today's article...</div>
-<div class="varc-article-meta" id="varc-meta"></div>
-<div class="varc-preview" id="varc-preview"></div>
-<div>
-<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;">Or choose a topic:</div>
-<div class="varc-topics">
-<button class="varc-topic active" onclick="selectVarcTopic('economy', this)">Economy & Business</button>
-<button class="varc-topic" onclick="selectVarcTopic('environment', this)">Environment & Science</button>
-<button class="varc-topic" onclick="selectVarcTopic('politics', this)">Politics & Society</button>
-<button class="varc-topic" onclick="selectVarcTopic('technology', this)">Technology</button>
-<button class="varc-topic" onclick="selectVarcTopic('philosophy', this)">Philosophy & Ethics</button>
+<div class="varc-article-title" id="varc-title">Train the part of RC that is costing you marks.</div>
+<div class="varc-article-meta" id="varc-meta">One original CAT passage · 4 checked questions · clickable answers</div>
+<div class="rc-lab-mode" role="tablist" aria-label="Choose how to configure your RC">
+<button class="rc-lab-mode-btn active" data-rc-mode="diagnose" onclick="selectRCLabMode('diagnose', this)">Fix what goes wrong</button>
+<button class="rc-lab-mode-btn" data-rc-mode="specific" onclick="selectRCLabMode('specific', this)">Choose question type</button>
+</div>
+<div id="rc-lab-diagnose-panel" class="rc-lab-panel">
+<div class="rc-lab-label">What usually goes wrong when you attempt an RC?</div>
+<div class="rc-lab-options rc-lab-options-wide">
+<button class="varc-topic" data-rc-need="passage" onclick="selectRCNeed('passage', this)">The passage becomes difficult to follow</button>
+<button class="varc-topic" data-rc-need="two_options" onclick="selectRCNeed('two_options', this)">I understand it, but two options look correct</button>
+<button class="varc-topic" data-rc-need="claim" onclick="selectRCNeed('claim', this)">I can’t locate the exact claim again</button>
+<button class="varc-topic" data-rc-need="tone" onclick="selectRCNeed('tone', this)">I misread the author’s tone or purpose</button>
+<button class="varc-topic" data-rc-need="time" onclick="selectRCNeed('time', this)">I run out of time</button>
+<button class="varc-topic active" data-rc-need="diagnose" onclick="selectRCNeed('diagnose', this)">I’m not sure—diagnose me</button>
 </div>
 </div>
+<div id="rc-lab-specific-panel" class="rc-lab-panel" hidden>
+<div class="rc-lab-label">What do you want to practise?</div>
+<div class="rc-lab-options">
+<button class="varc-topic active" data-rc-skill="mixed" onclick="selectRCSkill('mixed', this)">Mixed CAT RC</button>
+<button class="varc-topic" data-rc-skill="main_idea" onclick="selectRCSkill('main_idea', this)">Main idea</button>
+<button class="varc-topic" data-rc-skill="inference" onclick="selectRCSkill('inference', this)">Inference</button>
+<button class="varc-topic" data-rc-skill="paragraph_role" onclick="selectRCSkill('paragraph_role', this)">Paragraph role</button>
+<button class="varc-topic" data-rc-skill="detail" onclick="selectRCSkill('detail', this)">Detail & reference</button>
+<button class="varc-topic" data-rc-skill="tone" onclick="selectRCSkill('tone', this)">Tone & purpose</button>
+</div>
+</div>
+<div class="rc-lab-row">
+<div class="rc-lab-column">
+<div class="rc-lab-label">Difficulty</div>
+<div class="rc-lab-options">
+<button class="varc-topic" data-rc-difficulty="build_up" onclick="selectRCDifficulty('build_up', this)">Build-up</button>
+<button class="varc-topic active" data-rc-difficulty="cat" onclick="selectRCDifficulty('cat', this)">CAT-level</button>
+<button class="varc-topic" data-rc-difficulty="hard" onclick="selectRCDifficulty('hard', this)">Hard CAT</button>
+</div>
+</div>
+<div class="rc-lab-column">
+<div class="rc-lab-label">Reading world</div>
+<div class="rc-lab-options">
+<button class="varc-topic" data-rc-topic="ideas" onclick="selectVarcTopic('ideas', this)">Ideas & Philosophy</button>
+<button class="varc-topic" data-rc-topic="science" onclick="selectVarcTopic('science', this)">Science & Society</button>
+<button class="varc-topic" data-rc-topic="economics" onclick="selectVarcTopic('economics', this)">Economics & Policy</button>
+<button class="varc-topic" data-rc-topic="history" onclick="selectVarcTopic('history', this)">History & Culture</button>
+<button class="varc-topic active" data-rc-topic="surprise" onclick="selectVarcTopic('surprise', this)">Surprise me</button>
+</div>
+</div>
+</div>
+<div class="rc-lab-summary" id="varc-preview">Balanced diagnosis · CAT-level · surprise theme</div>
+<div class="rc-lab-theme" id="rc-lab-theme">Marg will choose a fresh original theme after you start.</div>
 <div class="varc-actions">
-<button class="varc-btn-primary" onclick="createRCPassage()">Create CAT RC from this →</button>
-<button class="varc-btn-secondary" id="varc-read-btn" onclick="readArticle()">Read article</button>
+<button class="varc-btn-primary" onclick="createRCPassage()">Start my RC →</button>
 </div>
 <div style="text-align:center;">
-<button onclick="refreshArticle()" style="font-family:'DM Sans',sans-serif;font-size:11px;color:var(--text-dim);background:none;border:none;cursor:pointer;padding:4px;">↻ Show another article</button>
+<button onclick="refreshArticle()" style="font-family:'DM Sans',sans-serif;font-size:11px;color:var(--text-dim);background:none;border:none;cursor:pointer;padding:4px;">↻ Show another theme</button>
 </div>
 </div>
 <div id="messages"></div>
