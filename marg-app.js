@@ -2804,16 +2804,13 @@ function isGeminiServiceError(error) {
 }
 
 function getGeminiErrorMessage(error) {
-  if (error && error.name === 'AbortError') return 'Marg took too long to respond. Your message is still above—please try it once more.';
+  if (error && error.name === 'AbortError') return 'I could not finish this answer in time. Your message is saved—use Retry response to continue from the same point.';
   var status = Number(error && error.status) || 0;
-  if (status === 429) return 'Marg is handling unusually high demand. Please wait a moment before trying again.';
-  if (status === 503) return 'Marg is temporarily overloaded. Please wait a moment before trying again.';
-  if (status === 401 || status === 403) return 'Marg cannot connect right now because Gemini access was rejected. The API key or its permissions need checking.';
-  if (status === 400) return 'Gemini rejected the conversation format. Your message is safe and the chat has been unlocked.';
-  if (status === 404) return 'The Gemini model configured for Marg is not available to this API key right now.';
-  if (status >= 500) return 'Marg’s connection failed temporarily. Please try once more in a moment.';
-  if (error && error.name === 'GeminiEmptyResponseError') return 'Marg received no usable answer for this request. Please try once more.';
-  return 'Marg could not complete that request. Please try once more.';
+  if (status === 429 || status === 503) return 'Marg is busy for a moment. Your message is saved—use Retry response to continue.';
+  if (status === 400 || status === 401 || status === 403 || status === 404) return 'I could not finish this answer right now. Your message is saved—use Retry response to continue.';
+  if (status >= 500) return 'I could not finish this answer just now. Your message is saved—use Retry response to continue.';
+  if (error && error.name === 'GeminiEmptyResponseError') return 'I did not get a complete answer for this turn. Your message is saved—use Retry response to continue.';
+  return 'I could not complete this answer just now. Your message is saved—use Retry response to continue.';
 }
 
 function showGeminiServiceFailure(error) {
@@ -2825,10 +2822,7 @@ function showGeminiServiceFailure(error) {
   });
   // The full error already exists as a chat turn. Repeating the same sentence
   // under the composer made one timeout look like two separate failures.
-  var composerMessage = 'The chat is ready for one retry.';
-  if (error && error.status) composerMessage += ' Error ' + error.status + (error.code ? ' · ' + error.code : '') + '.';
-  if (error && error.requestId) composerMessage += ' Reference: ' + error.requestId;
-  showComposerStatus(composerMessage, 'error', true);
+  showComposerStatus('Your message is saved. Use Retry response on Marg’s message to continue from the same point.', 'error', true);
   return serviceMessage;
 }
 
@@ -4529,6 +4523,40 @@ async function updateMentorExecutionReview(exercise, responseText) {
   } catch(error) { console.error('Execution review persistence error:', error); return false; }
 }
 
+async function reconcileInterruptedMentorTasks() {
+  if (!canUseMentorExecutionLoop() || !Array.isArray(mentorExecutionLoop.tasks)) return 0;
+  var now = Date.now();
+  var interrupted = mentorExecutionLoop.tasks.filter(function(task) {
+    if (!task || !task.id || ['reviewed','cancelled','evidence_ready'].indexOf(task.status) !== -1) return false;
+    if (task.status === 'failed') return true;
+    if (task.status !== 'generating') return false;
+    var updatedAt = Date.parse(task.updated_at || task.started_at || 0);
+    return !updatedAt || now - updatedAt > 3 * 60 * 1000;
+  });
+  if (!interrupted.length) return 0;
+  var repaired = 0;
+  await Promise.all(interrupted.map(async function(task) {
+    var snapshot = task.action_payload && task.action_payload.artifact_snapshot;
+    var nextStatus = snapshot && snapshot.result ? 'evidence_ready'
+      : snapshot && snapshot.awaitingAnswers !== false ? 'in_progress'
+        : 'ready';
+    var updatedAt = new Date().toISOString();
+    try {
+      var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(task.id) + '&user_id=eq.' + encodeURIComponent(currentUser.id), {
+        method:'PATCH', headers:executionLoopHeaders('return=minimal'),
+        body:JSON.stringify({ status:nextStatus, updated_at:updatedAt })
+      });
+      if (!response.ok) return;
+      task.status = nextStatus;
+      task.updated_at = updatedAt;
+      repaired++;
+    } catch(error) {
+      console.error('Interrupted mentor task recovery failed:', error);
+    }
+  }));
+  return repaired;
+}
+
 async function loadMentorExecutionLoop() {
   if (!canUseMentorExecutionLoop()) return false;
   try {
@@ -4551,6 +4579,7 @@ async function loadMentorExecutionLoop() {
     } catch(evidenceError) {
       console.error('Diagnosis evidence load failed:', evidenceError);
     }
+    await reconcileInterruptedMentorTasks();
     mentorExecutionLoop.loaded = true;
     loadDiagnosticMemory();
     mentorExecutionLoop.diagnoses.slice().reverse().forEach(function(saved) {
@@ -6130,26 +6159,15 @@ function showWelcome(callback) {
     localStorage.removeItem('marg_ask_question');
   }
 
-  // A question written before authentication is the welcome. Do not make the
-  // student wait through an animation before continuing the thought.
-  if (hasPendingHomepageIntent() || hasPendingHomepageDestination()) {
-    document.getElementById('welcome-overlay').style.display = 'none';
-    document.getElementById('chat-app').style.display = 'flex';
-    if (callback) callback();
-    return;
-  }
-
+  // Authentication is already enough waiting. Open the product immediately;
+  // the account-scoped first-use tour still runs from the normal callback.
   const overlay = document.getElementById('welcome-overlay');
-  overlay.style.display = 'flex';
-  setTimeout(function() {
+  if (overlay) {
     overlay.style.opacity = '0';
-    overlay.style.transition = 'opacity 0.4s ease';
-    setTimeout(function() {
-      overlay.style.display = 'none';
-      document.getElementById('chat-app').style.display = 'flex';
-      if (callback) callback();
-    }, 400);
-  }, 2500);
+    overlay.style.display = 'none';
+  }
+  document.getElementById('chat-app').style.display = 'flex';
+  if (callback) callback();
 }
 
 function showLanding() {
@@ -7074,7 +7092,7 @@ function guidedGenerationFailureCopy(error, section) {
   };
   return {
     title:'This check did not load correctly.',
-    message:'I stopped it before showing you a broken exercise. Tap retry to open the same check again.'
+    message:'Your diagnosis and exact check are saved. Tap retry to continue from here.'
   };
 }
 
@@ -7119,7 +7137,7 @@ function restorePendingGuidedGeneration() {
   if (state.status === 'generating') {
     state.status = 'retry';
     state.failureTitle = 'The page refreshed while the ' + guidedGenerationLabel(state.section) + ' was loading.';
-    state.failureMessage = 'A browser refresh ends the in-progress response, so it cannot be resumed safely. Your diagnosis and exact exercise are saved—retry without repeating anything.';
+    state.failureMessage = 'Your diagnosis and exact check are saved. Tap retry and Marg will continue without asking you to repeat anything.';
     state.errorName = 'RefreshInterrupted';
     state.updatedAt = new Date().toISOString();
     saveGuidedGenerationState(state);
@@ -8193,6 +8211,7 @@ function buildDiagnosisDirective(message) {
   var correction = reconcileFreshCorrectiveEvidence(message);
   var messageText = String(message || '');
   var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
+  directive += '\nCURRENT-TURN ANCHOR: The newest student message controls this reply. Answer its exact section, topic and request first. Older diagnoses, missions, exercises and profile memories are context only. Do not revive a saved task, switch sections, ask an unrelated profile question, or launch an exercise unless it directly completes the newest request.';
   directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. Ask one question only when the answer changes that decision. Never expose this instruction or use report labels.';
   if (diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) directive += '\nQUESTION BUDGET EXHAUSTED: Ask no question and emit no [OPTIONS] tag. Make a useful best-effort diagnosis and action from existing evidence.';
   if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
@@ -8558,6 +8577,30 @@ function buildMentorFallbackReply(diagnosis) {
   if (diagnosis.intent === 'dilr_diagnosis') return 'My first read: the failure is probably happening before the calculations—in set selection, the representation you choose, or one missed constraint. On the next set, record the exact minute the setup stopped progressing; that tells us which one.';
   if (diagnosis.intent === 'qa_diagnosis') return 'My first read: this is either concept recall, recognizing the setup, or execution after a correct setup. Label your last five misses with those three buckets; the largest bucket is the real QA problem.';
   return 'My first read: ' + diagnosis.likelyHiddenProblem;
+}
+
+function completeMentorTurnWithLocalRecovery(userMessage, diagnosis, useWebGrounding, error) {
+  recordProductIncident('chat_request_failed', error, { surface:'mentor_chat', stage:'local_continuity_recovery' });
+  var reply = buildPredictionValidationFallback(userMessage);
+  if (!reply && diagnosis && diagnosis.intent === 'answer_review') reply = buildLocalAnswerCheck(userMessage);
+  if (!reply && useWebGrounding) {
+    reply = 'I could not verify that exact source confidently in this turn, so I will not guess. Your question and context are saved here; use Retry response on this message and Marg will run the same verification again.';
+  }
+  if (!reply) reply = buildMentorFallbackReply(diagnosis);
+  reply = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(reply))), userMessage);
+  reply = suppressUnrelatedActivePlanReminder(reply, userMessage);
+  reply = suppressUnrelatedExerciseContinuation(reply, userMessage);
+  finalizeMentorPlanCompletionReview(userMessage, reply);
+  applyPredictionValidationVerdict(reply);
+  reply = stripInternalMentorTags(reply);
+  markExerciseReviewCompleted(reply);
+  addMessage('marg', renderMentorStructuredText(reply));
+  conversationHistory.push({ role:'assistant', content:reply });
+  if (!isGuestMode) saveChatMessage('assistant', reply);
+  lastFailedOutgoingMessage = null;
+  completePendingExternalQuestionTurn();
+  showComposerStatus('Marg kept this turn complete. You can continue normally or retry this response.', 'info');
+  return reply;
 }
 
 function runMentorBehaviorTests() {
@@ -9139,9 +9182,17 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   } catch(e) {
     hideTyping();
     if (isGeminiServiceError(e)) {
-      showGeminiServiceFailure(e);
+      completeMentorTurnWithLocalRecovery(userMessage, mentorAnalysis.diagnosis, useWebGrounding, e);
       await maybeScheduleChatGroundedReminder(userMessage, context);
-      return false;
+      if (conversationHistory.filter(function(item) { return item.role === 'user'; }).length >= 2 && !onboardingComplete) {
+        onboardingComplete = true;
+        localStorage.setItem('marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest'), '1');
+        showBottomNav();
+        studentProfile.monthsLeft = calculateMonthsLeftForCAT();
+        await saveProfile();
+        recordEngagementEvent('onboarding_completed', { flow:'conversational-recovery' }, 'onboarding-v1');
+      }
+      return true;
     }
     var fallbackResponse = buildPredictionValidationFallback(userMessage) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(userMessage) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
     fallbackResponse = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackResponse))), userMessage);
@@ -9433,8 +9484,23 @@ function buildPersonalizedOpening() {
   return opening;
 }
 
+function isLegacyStudentFacingFailureMessage(message) {
+  if (!message || message.role === 'user') return false;
+  var content = String(message.content || '');
+  return /\b(?:draft|exercise|questions?|set|rc)\b.{0,90}\b(?:failed (?:its |the )?(?:completeness|answer|content)|did not (?:pass|finish|load)|discarded|independent answer check|generator is temporarily misconfigured)\b/i.test(content) ||
+    /\b(?:completeness|answer) checks? pass\b/i.test(content) ||
+    /\bMarg took too long to respond\b/i.test(content) ||
+    /\bMarg could not accept this request because its connection is misconfigured\b/i.test(content);
+}
+
 function getConversationMessageForDisplay(message) {
-  if (!message || message.role !== 'user') return message;
+  if (!message) return null;
+  if (message.role !== 'user') {
+    // Older builds saved operational validation failures as if Marg had said
+    // them to the student. They remain useful in incident memory, not in chat.
+    if (isLegacyStudentFacingFailureMessage(message)) return null;
+    return message;
+  }
   var content = String(message.content || '');
   var legacyChoice = content.match(/In Marg(?:'|’)s 20-second check, I chose:\s*"([\s\S]*?)"\s*(?:\n|$)/i);
   if (!legacyChoice || content.indexOf('Treat this as a hypothesis') === -1) return message;
@@ -9447,12 +9513,40 @@ function getConversationMessageForDisplay(message) {
   return { role:'user', content:label + ' — ' + legacyChoice[1].trim() };
 }
 
+function renderInterruptedConversationRecovery(message) {
+  if (!message || message.role !== 'user') return false;
+  var container = document.getElementById('messages');
+  if (!container || document.getElementById('interrupted-turn-recovery')) return false;
+  var text = String(message.content || '').replace(/\n\[\d+ images attached[^\]]*\]$/i, '').trim();
+  if (!text) return false;
+  var card = document.createElement('div');
+  card.id = 'interrupted-turn-recovery';
+  card.className = 'fade-in';
+  card.style.marginLeft = '38px';
+  card.innerHTML = '<div class="onboard-card"><div style="font-size:13px;line-height:1.55;color:var(--text-muted);margin-bottom:10px">This message did not receive Marg’s answer. Continue it from the same point.</div><button type="button" class="pcard-nav-btn primary">Finish this answer</button></div>';
+  card.querySelector('button').addEventListener('click', function() {
+    var input = document.getElementById('user-input');
+    if (!input || isLoading) return;
+    lastFailedOutgoingMessage = { text:text, failedAt:Date.now(), requestId:'' };
+    input.value = text;
+    input.dispatchEvent(new Event('input', { bubbles:true }));
+    card.remove();
+    sendMessage();
+  });
+  container.appendChild(card);
+  return true;
+}
+
 function restoreConversation() {
   onboardingComplete = true;
   recordEngagementEvent('onboarding_completed', { flow:'returning-user-backfill' }, 'onboarding-v1');
   showBottomNav();
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
+  // Remove legacy operational failure bubbles from the in-memory transcript as
+  // well as the display. This lets a saved unanswered user turn be retried
+  // without writing the same user message to Supabase a second time.
+  conversationHistory = conversationHistory.filter(function(message) { return !isLegacyStudentFacingFailureMessage(message); });
   // conversationHistory is loaded directly from Supabase and no longer starts
   // with two synthetic system records. Slicing here hid the user's first real
   // homepage choice and Marg's first diagnosis after every refresh.
@@ -9462,7 +9556,8 @@ function restoreConversation() {
     if (isInternalMemoryMessage(message) || isLegacyAutoMissionReminder(message) || isHomeDiagnosisOpeningMessage(message)) return false;
     return true;
   }).map(getConversationMessageForDisplay).filter(function(message, index, list) {
-    if (!message || index === 0) return true;
+    if (!message) return false;
+    if (index === 0) return true;
     var previous = list[index - 1];
     return !(previous && previous.role === message.role && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
   });
@@ -9484,10 +9579,16 @@ function restoreConversation() {
       const formatted = msg.role === 'user'
         ? escapeChatHtml(msg.content).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>')
         : renderGroundingSourcesForChat(renderMentorStructuredText(msg.content));
-      addMessage(msg.role === 'user' ? 'user' : 'marg', formatted);
+      var restoredWrap = addMessage(msg.role === 'user' ? 'user' : 'marg', formatted);
+      if (restoredWrap) {
+        if (msg.id) restoredWrap.dataset.chatId = String(msg.id);
+        restoredWrap.dataset.messageHash = simpleStableHash(msg.content || '');
+      }
     });
     isRestoringConversation = false;
   }
+  var lastRestoredMessage = displayMessages.length ? displayMessages[displayMessages.length - 1] : null;
+  if (lastRestoredMessage && lastRestoredMessage.role === 'user') renderInterruptedConversationRecovery(lastRestoredMessage);
   if (displayMessages.length === 0) addSuggestionChips();
   scrollChatToLatest({ instant:true });
   restoreCurrentChatDraft();
@@ -9692,9 +9793,9 @@ function maybeHandlePracticeProductQuestion(text) {
   var value = String(text || '');
   var section = /\b(?:dilr|lrdi)\b/i.test(value) ? 'DILR' : /\b(?:rc|varc)\b/i.test(value) ? 'RC' : /\b(?:qa|quant|quants)\b/i.test(value) ? 'QA' : '';
   var repeated = /\b(?:repeat(?:ed|ing|s)?|same)\b/i.test(value);
-  var reply = (section ? section + ' practice' : 'Practice') + ' is not supposed to keep serving the same exercise. Marg has a limited verified fallback bank, and fresh generated material is shown only after its completeness and answer checks pass.';
-  if (repeated) reply += ' If a fresh safe set is not available, Marg should now say so instead of disguising a fallback as a new set.';
-  else reply += ' When no fresh safe exercise is available, Marg should tell you directly rather than show an unchecked one.';
+  var reply = (section ? section + ' practice' : 'Practice') + ' uses checked exercises and tries to rotate what you see.';
+  if (repeated) reply += ' If a topic-matched exercise repeats, Marg will label it clearly and you can switch to another set from the same section.';
+  else reply += ' Choose the section and topic you want; if that exact combination is unavailable, Marg will offer a ready set from the same section instead of stopping your session.';
   addMentorLeadMessage(reply);
   return true;
 }
@@ -10123,15 +10224,8 @@ async function sendMessage(fromQueue, submissionOptions) {
   } catch (e) {
     hideTyping();
     if (isGeminiServiceError(e)) {
-      lastFailedOutgoingMessage = { text:text, failedAt:Date.now(), requestId:String(e && e.requestId || '') };
-      if (!hasImages && input && !input.value) {
-        input.value = typedText;
-        input.style.height = 'auto';
-        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-        saveCurrentChatDraft();
-      }
-      showGeminiServiceFailure(e);
-      if (homepageIntentForSend && typeof failHomepageIntent === 'function') failHomepageIntent(homepageIntentForSend, e);
+      completeMentorTurnWithLocalRecovery(text, mentorAnalysis.diagnosis, useWebGrounding, e);
+      if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
       return;
     }
     let fallbackReply = buildPredictionValidationFallback(text) || (mentorAnalysis.diagnosis.intent === 'answer_review' ? (buildLocalAnswerCheck(text) || buildMentorFallbackReply(mentorAnalysis.diagnosis)) : buildMentorFallbackReply(mentorAnalysis.diagnosis));
@@ -12226,8 +12320,9 @@ async function submitMockScores() {
 
   const mockMsg = `I just completed a mock. My scores are: VARC: ${varc}, DILR: ${dilr}, QA: ${qa}. Help me find the decision that cost me marks, but do not infer the cause from the scores alone.`;
 
-  addMessage('user', `📊 Mock scores — VARC: ${varc} | DILR: ${dilr} | QA: ${qa}`);
-  conversationHistory.push({ role: 'user', content: mockMsg });
+  var mockMessageWrap = addMessage('user', `📊 Mock scores — VARC: ${varc} | DILR: ${dilr} | QA: ${qa}`);
+  if (mockMessageWrap) mockMessageWrap.dataset.messageHash = simpleStableHash(mockMsg);
+  conversationHistory.push({ role: 'user', content: mockMsg, createdAt:new Date().toISOString() });
   if (!isGuestMode) saveChatMessage('user', mockMsg);
   if (typeof saveMockScore === 'function') {
     try { await saveMockScore(varc, dilr, qa); }
@@ -12413,6 +12508,16 @@ function startChat() {
 window.__MARG_AUTH_APP_INIT__ = initSession;
 var currentTab = 'chat';
 var homeRecommendationAction = { destination:'diagnosis' };
+var progressNextDecisionAction = { destination:'diagnosis' };
+var previousMockAnalyses = [];
+
+function ensureWorkspaceHistoryStyles() {
+  if (document.getElementById('marg-workspace-history-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'marg-workspace-history-styles';
+  style.textContent = `.practice-hub-actions{display:flex;gap:7px;margin-top:10px}.practice-hub-action{flex:1;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;background:#171717;color:var(--text-muted);font:600 11px 'DM Sans',sans-serif;cursor:pointer}.practice-hub-action:hover{border-color:rgba(201,168,76,.38);color:var(--gold-light);transform:none}.workspace-section{margin-top:18px;padding-top:18px;border-top:1px solid var(--border)}.workspace-section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:11px}.workspace-section-title{font-size:14px;font-weight:650;color:var(--text)}.workspace-section-note{font-size:10px;color:var(--text-dim)}.mock-history-list{display:flex;flex-direction:column;gap:8px}.mock-history-item{width:100%;display:grid;grid-template-columns:minmax(110px,.7fr) minmax(210px,1.4fr) auto;gap:14px;align-items:center;padding:14px 15px;border:1px solid var(--border2);border-radius:12px;background:#111;color:var(--text);font-family:'DM Sans',sans-serif;text-align:left;cursor:pointer}.mock-history-item:hover{border-color:rgba(224,130,107,.48);background:#151515;transform:none}.mock-history-date{display:block;font-size:10px;color:#a39f97;margin-bottom:4px}.mock-history-score{display:block;font-size:13px;font-weight:650;color:var(--text)}.mock-history-score span{color:#E7A08C}.mock-history-preview{font-size:11px;line-height:1.5;color:var(--text-muted);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}.mock-history-open{font-size:11px;font-weight:650;color:#E7A08C;white-space:nowrap}.mock-history-anchor .bubble{box-shadow:0 0 0 2px rgba(224,130,107,.58),0 10px 32px rgba(0,0,0,.35);transition:box-shadow .22s ease}.workspace-empty{padding:17px;border:1px dashed var(--border2);border-radius:12px;background:rgba(255,255,255,.012);font-size:12px;line-height:1.55;color:var(--text-dim)}.marg-journey-card{margin-bottom:16px;padding:18px;border:1px solid rgba(201,168,76,.25);border-radius:16px;background:linear-gradient(145deg,rgba(201,168,76,.07),#0f0f0f)}.marg-journey-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:17px}.marg-journey-title{font-size:15px;font-weight:650;color:var(--text)}.marg-journey-sub{font-size:11px;line-height:1.5;color:var(--text-muted);margin-top:4px}.marg-journey-status{padding:4px 8px;border:1px solid rgba(201,168,76,.28);border-radius:999px;background:rgba(201,168,76,.08);font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gold-light);white-space:nowrap}.marg-journey-steps{display:flex;flex-direction:column}.marg-journey-step{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr);gap:11px;padding:0 0 17px}.marg-journey-step:last-child{padding-bottom:0}.marg-journey-step:not(:last-child):before{content:'';position:absolute;left:11px;top:24px;bottom:0;width:1px;background:rgba(255,255,255,.1)}.marg-journey-marker{position:relative;z-index:1;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border2);border-radius:50%;background:#171717;color:#8f8b84;font-size:10px;font-weight:700}.marg-journey-step.complete .marg-journey-marker{border-color:rgba(76,175,125,.45);background:rgba(76,175,125,.1);color:#6CC796}.marg-journey-step.current .marg-journey-marker{border-color:rgba(201,168,76,.5);background:rgba(201,168,76,.12);color:var(--gold-light)}.marg-journey-label{font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#7e7a73;margin:2px 0 4px}.marg-journey-copy{font-size:12px;line-height:1.58;color:#c5c1b9;overflow-wrap:anywhere}.marg-journey-meta{font-size:10px;line-height:1.45;color:#7f7b74;margin-top:4px}.marg-journey-evidence{display:flex;flex-direction:column;gap:5px;margin-top:5px}.marg-journey-evidence-item{padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:#121212;font-size:10.5px;line-height:1.45;color:#aaa69e}.marg-journey-evidence-item.supports{border-left:2px solid #4CAF7D}.marg-journey-evidence-item.challenges{border-left:2px solid #E0826B}.marg-journey-cta{width:100%;margin-top:16px;padding:10px 13px;border:1px solid rgba(201,168,76,.28);border-radius:9px;background:rgba(201,168,76,.08);color:var(--gold-light);font:650 12px 'DM Sans',sans-serif;cursor:pointer}.marg-journey-cta:hover{background:rgba(201,168,76,.13);transform:none}@media(max-width:600px){.mock-history-item{grid-template-columns:1fr auto;gap:8px 10px;padding:13px}.mock-history-main{grid-column:1}.mock-history-preview{grid-column:1/-1;grid-row:2}.mock-history-open{grid-column:2;grid-row:1}.marg-journey-card{padding:15px 14px}.marg-journey-head{flex-direction:column;gap:8px}}`;
+  document.head.appendChild(style);
+}
 var currentPracticeType = 'rc';
 var practiceData = { rc: null, dilr: null, qa: null };
 var currentSetIndex = 0;
@@ -12875,6 +12980,141 @@ function openMockScorecardUpload() {
   setTimeout(function() { openImagePicker(); }, 120);
 }
 
+function mockHistoryPlainText(value, maxLength) {
+  return String(value || '')
+    .replace(/\[MARG_INTERNAL:[\s\S]*$/g, '')
+    .replace(/\[[A-Z_]+:[^\]]*\]/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[*_#>`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength || 220);
+}
+
+function extractMockScoresFromHistoryMessage(message) {
+  var text = String(message || '');
+  if (!/\bmock\b|scorecard/i.test(text)) return null;
+  var varc = text.match(/\bvarc\s*[:|=-]?\s*(\d{1,2})\b/i);
+  var dilr = text.match(/\b(?:dilr|lrdi)\s*[:|=-]?\s*(\d{1,2})\b/i);
+  var qa = text.match(/\b(?:qa|quant)\s*[:|=-]?\s*(\d{1,2})\b/i);
+  if (!varc || !dilr || !qa) return null;
+  var scores = { varc:Number(varc[1]), dilr:Number(dilr[1]), qa:Number(qa[1]) };
+  if (scores.varc > 72 || scores.dilr > 60 || scores.qa > 60) return null;
+  scores.total = scores.varc + scores.dilr + scores.qa;
+  return scores;
+}
+
+function formatMockHistoryDate(value) {
+  if (!value) return 'Earlier mock';
+  var date = new Date(value);
+  if (isNaN(date.getTime())) return String(value);
+  try { return date.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' }); }
+  catch(e) { return date.toLocaleDateString(); }
+}
+
+function buildPreviousMockAnalyses() {
+  var analyses = [];
+  var seen = {};
+  (conversationHistory || []).forEach(function(message, index) {
+    if (!message || message.role !== 'user') return;
+    var scores = extractMockScoresFromHistoryMessage(message.content);
+    var isScorecardReview = /\b(?:analyse|analyze|review)\b[\s\S]{0,45}\bmock\s+scorecard\b|\bmock\s+scorecard\b[\s\S]{0,45}\b(?:analyse|analyze|review)\b/i.test(String(message.content || ''));
+    if (!scores && !isScorecardReview) return;
+    var nextAssistant = null;
+    for (var cursor = index + 1; cursor < conversationHistory.length && cursor <= index + 8; cursor++) {
+      var candidate = conversationHistory[cursor];
+      if (!candidate) continue;
+      if (candidate.role === 'user' && extractMockScoresFromHistoryMessage(candidate.content)) break;
+      if (candidate.role === 'assistant' && !isInternalMemoryMessage(candidate) && !isLegacyAutoMissionReminder(candidate)) {
+        nextAssistant = candidate;
+        break;
+      }
+    }
+    var ref = simpleStableHash(message.content);
+    var identity = scores
+      ? [message.createdAt || '', scores.varc, scores.dilr, scores.qa].join(':')
+      : [message.createdAt || '', 'scorecard', ref].join(':');
+    if (seen[identity]) return;
+    seen[identity] = true;
+    analyses.push({
+      ref:ref,
+      createdAt:message.createdAt || null,
+      scores:scores,
+      preview:mockHistoryPlainText(nextAssistant && nextAssistant.content, 230) || 'Open the original conversation to continue this mock review.'
+    });
+  });
+
+  (studentProfile.mockHistory || []).forEach(function(mock) {
+    if (!mock) return;
+    var identity = [mock.date || '', Number(mock.varc || 0), Number(mock.dilr || 0), Number(mock.qa || 0)].join(':');
+    var alreadyRepresented = analyses.some(function(item) {
+      return Number(item.scores.varc) === Number(mock.varc || 0)
+        && Number(item.scores.dilr) === Number(mock.dilr || 0)
+        && Number(item.scores.qa) === Number(mock.qa || 0)
+        && (!item.createdAt || !mock.date || String(item.createdAt).slice(0, 10) === String(mock.date).slice(0, 10));
+    });
+    if (seen[identity] || alreadyRepresented) return;
+    seen[identity] = true;
+    analyses.push({
+      ref:null,
+      createdAt:mock.date || null,
+      scores:{ varc:Number(mock.varc || 0), dilr:Number(mock.dilr || 0), qa:Number(mock.qa || 0), total:Number(mock.total || (Number(mock.varc || 0) + Number(mock.dilr || 0) + Number(mock.qa || 0))) },
+      preview:'The score is saved. Its detailed discussion remains in your Marg chat history.'
+    });
+  });
+  return analyses.sort(function(a, b) { return String(b.createdAt || '').localeCompare(String(a.createdAt || '')); }).slice(0, 12);
+}
+
+function renderPreviousMockAnalyses() {
+  var container = document.getElementById('previous-mock-analyses');
+  if (!container) return;
+  previousMockAnalyses = buildPreviousMockAnalyses();
+  if (!previousMockAnalyses.length) {
+    container.innerHTML = '<div class="workspace-empty">Your earlier mock reviews will appear here after Marg has analysed one.</div>';
+    return;
+  }
+  container.innerHTML = previousMockAnalyses.map(function(item, index) {
+    var scores = item.scores;
+    var action = item.ref ? 'Open in chat' : 'Find in chat';
+    var scoreLine = scores
+      ? '<span class="mock-history-score"><span>' + scores.total + '</span> total · VARC ' + scores.varc + ' · DILR ' + scores.dilr + ' · QA ' + scores.qa + '</span>'
+      : '<span class="mock-history-score"><span>Scorecard</span> analysis</span>';
+    return '<button class="mock-history-item" type="button" onclick="openPreviousMockAnalysis(' + index + ')">' +
+      '<span class="mock-history-main"><span class="mock-history-date">' + escapeChatHtml(formatMockHistoryDate(item.createdAt)) + '</span>' + scoreLine + '</span>' +
+      '<span class="mock-history-preview">' + escapeChatHtml(item.preview) + '</span>' +
+      '<span class="mock-history-open">' + action + ' →</span>' +
+      '</button>';
+  }).join('');
+}
+
+function openPreviousMockAnalysis(index) {
+  var analysis = previousMockAnalyses[Number(index)];
+  if (!analysis) return;
+  switchTab('chat');
+  setTimeout(function() {
+    var target = analysis.ref ? document.querySelector('[data-message-hash="' + analysis.ref + '"]') : null;
+    if (!target && analysis.scores) {
+      var candidates = document.querySelectorAll('#messages .msg-wrap.user');
+      Array.prototype.some.call(candidates, function(wrap) {
+        var scores = extractMockScoresFromHistoryMessage(messageTextFromWrap(wrap));
+        if (!scores) return false;
+        if (scores.varc === analysis.scores.varc && scores.dilr === analysis.scores.dilr && scores.qa === analysis.scores.qa) {
+          target = wrap;
+          return true;
+        }
+        return false;
+      });
+    }
+    if (!target) {
+      showComposerStatus('That score is saved, but its older chat message could not be located.', 'info', true);
+      return;
+    }
+    target.scrollIntoView({ behavior:'smooth', block:'center' });
+    target.classList.add('mock-history-anchor');
+    setTimeout(function() { target.classList.remove('mock-history-anchor'); }, 1800);
+  }, 160);
+}
+
 function startSectionalFromHub(section) {
   var isDilr = section === 'dilr';
   var select = document.getElementById(isDilr ? 'home-dilr-sectional-topic' : 'home-qa-sectional-topic');
@@ -12883,6 +13123,7 @@ function startSectionalFromHub(section) {
 }
 
 function switchTab(tab) {
+  ensureWorkspaceHistoryStyles();
   if (['home','chat','practice','mock','sectionals','progress'].indexOf(tab) === -1) tab = 'home';
   if (currentTab === 'chat') saveCurrentChatDraft();
   clearInsightToast();
@@ -12896,8 +13137,12 @@ function switchTab(tab) {
   document.querySelectorAll('.desktop-nav-btn').forEach(function(b) { b.classList.remove('active'); });
 
   var chatElements = ['messages', 'quick-actions', 'input-area', 'varc-section'];
-  var mobileNav = document.getElementById('bnav-' + tab);
-  var desktopNav = document.getElementById('dnav-' + tab);
+  // Sectionals live inside Practice in the simplified navigation, so opening
+  // the timed workspace keeps Practice highlighted instead of creating a
+  // separate primary destination.
+  var navTab = tab === 'sectionals' ? 'practice' : tab;
+  var mobileNav = document.getElementById('bnav-' + navTab);
+  var desktopNav = document.getElementById('dnav-' + navTab);
   if (mobileNav) mobileNav.classList.add('active');
   if (desktopNav) desktopNav.classList.add('active');
 
@@ -12934,6 +13179,7 @@ function switchTab(tab) {
       loadDailyPractice();
     } else if (tab === 'mock') {
       document.getElementById('mock-tab').classList.add('active');
+      renderPreviousMockAnalyses();
     } else if (tab === 'sectionals') {
       document.getElementById('sectionals-tab').classList.add('active');
     } else if (tab === 'progress') {
@@ -13613,10 +13859,10 @@ function preventStructuredOutputLeak(text) {
     var rc = normalizePracticeAnswers(parsed, 'rc');
     if (validateRCPracticeSet(rc)) return formatGuidedExerciseForChat('rc', rc, null);
     if (parsed && (parsed.questions || parsed.sets || parsed.varc || parsed.dilr || parsed.qa)) {
-      return 'That practice did not load in a usable form, so I stopped it before showing you a broken exercise. Rebuild the same check once more.';
+      return 'I could not open that exercise properly. Your topic is still here—use Retry answer and I will continue from the same point.';
     }
   } catch(e) {
-    return 'That practice did not load cleanly, so I stopped it rather than show you broken questions.';
+    return 'I could not open that exercise properly. Your topic is still here—use Retry answer and I will continue from the same point.';
   }
   return raw;
 }
@@ -14288,6 +14534,14 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
     hideTyping();
     console.error('Guided prediction exercise failed:', { section:section, name:e && e.name, status:e && e.status, message:e && e.message });
     markGuidedGenerationRetry(e);
+    // A failed generation attempt must not leave the durable task stuck in
+    // "generating". Keep the same diagnosis and task ready for one-click retry.
+    if (diagnosticEntry) await upsertMentorTaskForDiagnosis(diagnosticEntry, {
+      status:'ready',
+      title:(section === 'strategy' ? 'Strategy decision check' : guidedGenerationLabel(section)),
+      objective:'Continue the same targeted check from the saved diagnosis.',
+      actionPayload:{ retry_section:section, interrupted_at:new Date().toISOString() }
+    });
   }
   isLoading = false;
   if (sendButton) sendButton.disabled = false;
@@ -14360,7 +14614,7 @@ async function generateGuidedMiniMock(diagnosticEntry) {
     completeChatFirstOnboarding(null);
   } catch(e) {
     hideTyping();
-    addMentorLeadMessage("The verified mini mock could not open, so I stopped instead of diagnosing you from incomplete questions. Try the same check once more.");
+    addMentorLeadMessage("I could not open that four-question check just now. Your mock diagnosis is saved, so one tap will continue the same check.");
     showConversationalOptions(['Retry the same mini mock'], 'mini_mock_retry');
   } finally {
     isLoading = false;
@@ -14443,11 +14697,11 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   var timedStatusTimers = [
     setTimeout(function() {
       var label = contentEl.querySelector && contentEl.querySelector('.practice-loading-text');
-      if (label) label.textContent = 'Marg is building the questions and checking that no required condition is missing...';
+      if (label) label.textContent = 'Building your test. This is taking a little longer than usual…';
     }, 12000),
     setTimeout(function() {
       var label = contentEl.querySelector && contentEl.querySelector('.practice-loading-text');
-      if (label) label.textContent = 'Still checking—this test will not open unless the independent answer key agrees.';
+      if (label) label.textContent = 'Still getting your test ready. You can keep this screen open.';
     }, 32000)
   ];
   var clearTimedStatus = function() { timedStatusTimers.forEach(function(timer) { clearTimeout(timer); }); };
@@ -14491,7 +14745,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       console.error('Timed test failed count/options validation. Parsed shape:', parsed, 'Raw model output:', text);
       throw new Error('Generated test failed structural validation');
     }
-    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is checking every answer and condition before showing the test...</div></div>';
+    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Almost ready—setting up your timed questions…</div></div>';
     var knownTimedIssues = collectSolutionPresentationIssues(parsed, section)
       .concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
     var timedAuditTimeoutMs = Math.max(8000, Math.min(
@@ -14528,9 +14782,23 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     clearTimedStatus();
     console.error('Timed test generation error:', e);
     recordProductIncident('timed_test_generation_failed', e, { surface:'timed_test', section:section, topic:topic });
-    var verifiedFallback = getUnseenVerifiedFallbackPractice(section, questionCount, topic);
-    if (verifiedFallback) {
-      timedTestQuestions = flattenTimedTestQuestions(section, verifiedFallback);
+    var expectedFallbackCount = section === 'qa' ? (questionCount || 10) : Math.max(1, Math.round((questionCount || 12) / 4)) * 4;
+    var fallbackCandidate = getReliablePracticeCandidate(section, expectedFallbackCount, topic, true);
+    var verifiedFallback = fallbackCandidate && fallbackCandidate.data;
+    var fallbackQuestions = verifiedFallback ? flattenTimedTestQuestions(section, verifiedFallback) : [];
+    var verifiedFallbackValid = verifiedFallback && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
+      ? validateQASetShape(verifiedFallback, topic, expectedFallbackCount)
+      : validateDILRPracticeSet(verifiedFallback, Math.max(1, expectedFallbackCount / 4)));
+    if (!verifiedFallbackValid) {
+      fallbackCandidate = getReliablePracticeCandidate(section, expectedFallbackCount, null, true);
+      verifiedFallback = fallbackCandidate && fallbackCandidate.data;
+      fallbackQuestions = verifiedFallback ? flattenTimedTestQuestions(section, verifiedFallback) : [];
+      verifiedFallbackValid = verifiedFallback && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
+        ? validateQASetShape(verifiedFallback, null, expectedFallbackCount)
+        : validateDILRPracticeSet(verifiedFallback, Math.max(1, expectedFallbackCount / 4)));
+    }
+    if (verifiedFallbackValid) {
+      timedTestQuestions = fallbackQuestions;
       timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
       timedTestSecondsTotal = timedTestQuestions.length * 120;
       timedTestSecondsLeft = timedTestSecondsTotal;
@@ -14542,7 +14810,13 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       startTimedTestTimer();
       return;
     }
-    var timedErrorMessage = isGeminiServiceError(e) ? getGeminiErrorMessage(e) : 'Having trouble building this test right now. Try again in a moment.';
+    if (timedTestDiagnosticEntry) await upsertMentorTaskForDiagnosis(timedTestDiagnosticEntry, {
+      status:'ready',
+      title:topic + ' timed check',
+      objective:'Continue the same timed check from the saved diagnosis.',
+      actionPayload:{ retry_section:section, retry_topic:topic, retry_count:timedTestRequestedCount }
+    });
+    var timedErrorMessage = 'I could not open that timed set just now. Your section and topic are saved.';
     contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div><button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
   }
 }
@@ -14830,16 +15104,17 @@ async function loadDailyPractice() {
   }
 
   var typeName = currentPracticeType === 'rc' ? 'RC' : currentPracticeType === 'dilr' ? 'DILR' : 'QA';
-  content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is generating today\'s personalised ' + typeName + ' practice based on your profile...</div></div>';
+  content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Preparing today\'s ' + typeName + ' practice for you…</div></div>';
   practiceLoadMetrics.shellVisibleAt = Date.now();
   var generationStatusTimers = [
     setTimeout(function() {
       if (!practiceLoadInFlight || mySeq !== practiceLoadSeq) return;
       var label = content.querySelector && content.querySelector('.practice-loading-text');
-      if (label) label.textContent = 'Marg is writing the ' + typeName + ' material and checking that every fact needed to solve it is present...';
-      var safeAlternative = getUnseenVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, null);
+      if (label) label.textContent = 'This is taking a little longer. You can wait or start a ready set now.';
+      var safeAlternativeCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, null, true);
+      var safeAlternative = safeAlternativeCandidate && safeAlternativeCandidate.data;
       if (safeAlternative && !content.querySelector('.practice-safe-alternative')) {
-        var recoveryLabel = currentPracticeType === 'qa' ? 'Open verified Mixed QA now' : currentPracticeType === 'dilr' ? 'Open a verified DILR set now' : 'Open the verified RC now';
+        var recoveryLabel = currentPracticeType === 'qa' ? 'Open Mixed QA now' : currentPracticeType === 'dilr' ? 'Open a DILR set now' : 'Open an RC now';
         var recoveryButton = document.createElement('button');
         recoveryButton.type = 'button';
         recoveryButton.className = 'pcard-nav-btn secondary practice-safe-alternative';
@@ -14852,7 +15127,7 @@ async function loadDailyPractice() {
     setTimeout(function() {
       if (!practiceLoadInFlight || mySeq !== practiceLoadSeq) return;
       var label = content.querySelector && content.querySelector('.practice-loading-text');
-      if (label) label.textContent = 'Still working—this draft will only open after its answer key and solvability check agree.';
+      if (label) label.textContent = 'Still preparing your set. You can use the ready option above without losing your topic.';
     }, 26000)
   ];
   var clearGenerationStatus = function() { generationStatusTimers.forEach(function(timer) { clearTimeout(timer); }); };
@@ -14976,18 +15251,36 @@ async function loadDailyPractice() {
     if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
     console.error('Practice error:', e);
     recordProductIncident('practice_generation_failed', e, { surface:'practice', section:currentPracticeType, topic:selectedPracticeTopic || '', stage:practiceFailureStage });
-    var fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, selectedPracticeTopic, true);
+    var requestedPracticeTopic = selectedPracticeTopic;
+    var questionCount = currentPracticeType === 'qa' ? 3 : 4;
+    var fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, requestedPracticeTopic, true);
     var fallbackPractice = fallbackCandidate && fallbackCandidate.data;
     var fallbackValid = fallbackPractice && (currentPracticeType === 'qa'
-      ? validateQASetShape(fallbackPractice, selectedPracticeTopic, 3)
+      ? validateQASetShape(fallbackPractice, requestedPracticeTopic, 3)
       : currentPracticeType === 'dilr'
         ? validateDILRPracticeSet(fallbackPractice)
         : validateRCPracticeSet(fallbackPractice));
+    // Do not leave the student on an error screen merely because the exact
+    // topic pack is unavailable. Continue with a checked pack in the same
+    // section and label the switch in ordinary student language.
+    if (!fallbackValid) {
+      fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, null, true);
+      fallbackPractice = fallbackCandidate && fallbackCandidate.data;
+      fallbackValid = fallbackPractice && (currentPracticeType === 'qa'
+        ? validateQASetShape(fallbackPractice, null, 3)
+        : currentPracticeType === 'dilr'
+          ? validateDILRPracticeSet(fallbackPractice)
+          : validateRCPracticeSet(fallbackPractice));
+      if (fallbackValid) {
+        selectedPracticeTopic = null;
+        fallbackPractice._margRecoveryNote = 'I kept you in ' + currentPracticeType.toUpperCase() + ' and opened a ready mixed set so your session can continue.';
+      }
+    }
     if (fallbackValid) {
-      if (fallbackCandidate.repeated) fallbackPractice._margRecoveryNote = 'A fresh draft did not pass Marg’s answer check, so this is a previously verified topic-matched set. It may look familiar, but it is complete and safe to solve.';
+      if (fallbackCandidate.repeated && !fallbackPractice._margRecoveryNote) fallbackPractice._margRecoveryNote = 'This checked topic set may look familiar. You can solve it again or choose another topic.';
       practiceLoadMetrics.source = fallbackCandidate.source;
       practiceData[currentPracticeType] = fallbackPractice;
-      storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-fallback', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' verified practice', purpose:'Reliable CAT practice used after a generated draft failed validation', generationStartedAt:practiceGenerationStartedAt, validationVerdict:{ status:'verified_local' }, content:fallbackPractice });
+      storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-fallback', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' practice', purpose:'Continue the student’s CAT practice in the selected section', generationStartedAt:practiceGenerationStartedAt, validationVerdict:{ status:'verified_local' }, content:fallbackPractice });
       currentSetIndex = 0;
       currentQuestionIndex = 0;
       practiceAnswered = false;
@@ -14995,27 +15288,19 @@ async function loadDailyPractice() {
       renderPractice(fallbackPractice);
       return;
     }
-    var failedAudit = e && e.practiceAudit;
-    var errorMessage = e && e.name === 'AbortError'
-      ? 'This practice set did not finish its answer check in time, so Marg discarded it instead of showing incomplete questions.'
-      : Number(e && e.status) === 400 && String(e && e.code || '').toUpperCase() === 'FAILED_PRECONDITION'
-        ? 'The checked practice generator is temporarily misconfigured. Retrying the same request will not help until it is corrected.'
-      : failedAudit && failedAudit.failureType === 'technical'
-        ? 'The questions were generated, but the independent answer check could not finish. Marg discarded them rather than risk showing a flawed set.'
-      : isGeminiServiceError(e)
-        ? 'The practice service is busy right now. No unverified questions were shown.'
-        : 'This practice draft failed its completeness or answer check, so Marg discarded it.';
-    var recoveryLabel = currentPracticeType === 'qa' ? 'Use verified Mixed QA' : currentPracticeType === 'dilr' ? 'Use a verified DILR set' : 'Use the verified RC';
-    var recoveryCandidate = getUnseenVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, null);
-    var recoveryAvailable = recoveryCandidate && (currentPracticeType === 'qa'
-      ? validateQASetShape(recoveryCandidate, null, 3)
+    var errorMessage = 'I could not open that set properly, but your section and topic are still selected.';
+    var recoveryLabel = currentPracticeType === 'qa' ? 'Open Mixed QA' : currentPracticeType === 'dilr' ? 'Open another DILR set' : 'Open another RC';
+    var recoveryCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, null, true);
+    var recoveryData = recoveryCandidate && recoveryCandidate.data;
+    var recoveryAvailable = recoveryData && (currentPracticeType === 'qa'
+      ? validateQASetShape(recoveryData, null, 3)
       : currentPracticeType === 'dilr'
-        ? validateDILRPracticeSet(recoveryCandidate)
-        : validateRCPracticeSet(recoveryCandidate));
+        ? validateDILRPracticeSet(recoveryData)
+        : validateRCPracticeSet(recoveryData));
     var recoveryButton = recoveryAvailable
       ? '<button class="pcard-nav-btn secondary" onclick="useVerifiedPracticeRecovery()" style="margin-top:8px;max-width:220px;">' + recoveryLabel + '</button>'
       : '';
-    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Retry the same topic</button>' + recoveryButton + '</div>';
+    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Try the same topic again</button>' + recoveryButton + '</div>';
   }
 }
 
@@ -15024,7 +15309,8 @@ function useVerifiedPracticeRecovery() {
   // loading. Invalidate that request first so it cannot overwrite the safe
   // exercise after the student has already started it.
   cancelActivePracticeLoad();
-  var recovery = getUnseenVerifiedFallbackPractice(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, null);
+  var recoveryCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'qa' ? 3 : 4, null, true);
+  var recovery = recoveryCandidate && recoveryCandidate.data;
   var valid = recovery && (currentPracticeType === 'qa'
     ? validateQASetShape(recovery, null, 3)
     : currentPracticeType === 'dilr'
@@ -15032,7 +15318,7 @@ function useVerifiedPracticeRecovery() {
       : validateRCPracticeSet(recovery));
   if (!valid) {
     var content = document.getElementById('practice-content');
-    if (content) content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">No verified recovery set is available for this section yet. Retry the same topic instead.</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Retry the same topic</button></div>';
+    if (content) content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">I could not open another set in this section just now. Your topic is still selected.</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Try again</button></div>';
     return false;
   }
   // The user explicitly chose a mixed recovery pack. This is never presented
@@ -15413,7 +15699,150 @@ async function loadReferralChallengeStats() {
   } catch(e) { return false; }
 }
 
+function latestByTimestamp(items, fields) {
+  fields = fields || ['updated_at','completed_at','occurred_at','created_at'];
+  return (items || []).slice().sort(function(a, b) {
+    function stamp(item) {
+      for (var i = 0; i < fields.length; i++) if (item && item[fields[i]]) return String(item[fields[i]]);
+      return '';
+    }
+    return stamp(b).localeCompare(stamp(a));
+  })[0] || null;
+}
+
+function getProgressJourneyData() {
+  loadDiagnosticMemory();
+  var diagnoses = (mentorExecutionLoop.diagnoses || []).filter(function(item) {
+    return item && item.status !== 'superseded';
+  });
+  var activeDiagnoses = diagnoses.filter(function(item) { return item.status !== 'rejected'; });
+  var diagnosis = latestByTimestamp(activeDiagnoses.length ? activeDiagnoses : diagnoses);
+  var memoryEntry = null;
+
+  if (diagnosis) memoryEntry = diagnosticMemory[normalizeExecutionSection(diagnosis.section)] || null;
+  if (!diagnosis) {
+    var memoryItems = Object.keys(diagnosticMemory || {}).map(function(key) {
+      var entry = diagnosticMemory[key];
+      if (!entry || entry.doNotReuse || entry.status === 'rejected') return null;
+      return { key:key, entry:entry, updated_at:entry.updatedAt || '' };
+    }).filter(Boolean);
+    var latestMemory = latestByTimestamp(memoryItems);
+    if (latestMemory) {
+      memoryEntry = latestMemory.entry;
+      diagnosis = {
+        id:memoryEntry.dbDiagnosisId || null,
+        section:normalizeExecutionSection(memoryEntry.topic || latestMemory.key),
+        mechanism:memoryEntry.confirmedDiagnosis || memoryEntry.originalPrediction || memoryEntry.selectedPattern,
+        evidence_summary:memoryEntry.selectedPattern || memoryEntry.lastEvidence || '',
+        status:normalizeDiagnosisStatus(memoryEntry),
+        updated_at:memoryEntry.updatedAt || ''
+      };
+    }
+  }
+
+  if (!diagnosis) return { diagnosis:null, evidence:[], task:null, attempt:null };
+  var evidence = (mentorExecutionLoop.evidence || []).filter(function(item) {
+    return diagnosis.id && item && item.diagnosis_id === diagnosis.id;
+  });
+  if (!evidence.length && memoryEntry) evidence = localDiagnosisEvidence(memoryEntry);
+  evidence = evidence.slice().sort(function(a, b) {
+    return String(b.occurred_at || b.occurredAt || '').localeCompare(String(a.occurred_at || a.occurredAt || ''));
+  });
+
+  var tasks = (mentorExecutionLoop.tasks || []).filter(function(item) {
+    if (!item) return false;
+    if (diagnosis.id && item.diagnosis_id === diagnosis.id) return true;
+    return !diagnosis.id && item.section === diagnosis.section;
+  });
+  var task = latestByTimestamp(tasks);
+  var attempts = (mentorExecutionLoop.attempts || []).filter(function(item) { return task && item && item.task_id === task.id; });
+  var attempt = latestByTimestamp(attempts, ['completed_at','updated_at','created_at']);
+  return { diagnosis:diagnosis, evidence:evidence, task:task, attempt:attempt };
+}
+
+function progressJourneyStatus(status) {
+  var labels = {
+    hypothesis:'Working pattern',
+    supported:'Supported once',
+    confirmed:'Confirmed pattern',
+    rejected:'Pattern ruled out',
+    inconclusive:'More evidence needed'
+  };
+  return labels[String(status || '').toLowerCase()] || 'Building evidence';
+}
+
+function progressJourneyStep(number, label, copy, meta, state, extraHtml) {
+  return '<div class="marg-journey-step ' + (state || '') + '">' +
+    '<div class="marg-journey-marker">' + number + '</div>' +
+    '<div><div class="marg-journey-label">' + escapeChatHtml(label) + '</div><div class="marg-journey-copy">' + escapeChatHtml(copy) + '</div>' +
+    (meta ? '<div class="marg-journey-meta">' + escapeChatHtml(meta) + '</div>' : '') + (extraHtml || '') + '</div></div>';
+}
+
+function renderProgressJourney() {
+  var steps = document.getElementById('marg-journey-steps');
+  var status = document.getElementById('marg-journey-status');
+  var cta = document.getElementById('marg-journey-cta');
+  if (!steps || !status || !cta) return;
+
+  var journey = getProgressJourneyData();
+  var recommendation = buildHomeRecommendation();
+  progressNextDecisionAction = recommendation.action || { destination:'diagnosis' };
+  cta.textContent = recommendation.cta || 'Continue with Marg →';
+
+  if (!journey.diagnosis) {
+    status.textContent = 'No pattern yet';
+    steps.innerHTML = '<div class="workspace-empty">Marg has not formed a working pattern yet. Start with one real CAT problem; the evidence trail will appear here instead of a generic score dashboard.</div>';
+    return;
+  }
+
+  var diagnosis = journey.diagnosis;
+  var task = journey.task;
+  var attempt = journey.attempt;
+  status.textContent = progressJourneyStatus(diagnosis.status);
+
+  var evidenceRows = journey.evidence.slice(0, 3);
+  var evidenceHtml = '';
+  if (evidenceRows.length) {
+    evidenceHtml = '<div class="marg-journey-evidence">' + evidenceRows.map(function(item) {
+      var supports = item.supports;
+      var className = supports === true ? 'supports' : supports === false ? 'challenges' : '';
+      var prefix = supports === true ? 'Supports: ' : supports === false ? 'Challenges: ' : 'Signal: ';
+      return '<div class="marg-journey-evidence-item ' + className + '">' + escapeChatHtml(prefix + String(item.claim || 'Evidence recorded from this attempt.')) + '</div>';
+    }).join('') + '</div>';
+  }
+
+  var evidenceCopy = evidenceRows.length
+    ? 'Marg is using observed work and your explanation—not the label alone.'
+    : (diagnosis.evidence_summary || 'This is still a working read and needs a real attempt before Marg treats it as reliable.');
+  var taskCopy = task ? (task.title || task.objective) : 'No intervention has been selected yet.';
+  var taskMeta = task ? (task.objective || '') : 'Marg will choose the smallest useful check after the pattern is clear enough.';
+  var retestCopy = 'No re-test result yet.';
+  var retestMeta = task ? 'Complete the saved check before changing the plan.' : 'The result will appear here after a targeted check.';
+  if (attempt) {
+    var total = Number(attempt.correct || 0) + Number(attempt.wrong || 0) + Number(attempt.skipped || 0);
+    retestCopy = (attempt.marks !== null && attempt.marks !== undefined && attempt.max_marks !== null && attempt.max_marks !== undefined)
+      ? Number(attempt.marks) + '/' + Number(attempt.max_marks) + ' marks'
+      : Number(attempt.correct || 0) + '/' + total + ' correct';
+    if (attempt.verdict) retestCopy += ' · ' + progressJourneyStatus(attempt.verdict).replace(' pattern', '');
+    retestMeta = attempt.evidence_summary || (Number(attempt.wrong || 0) + ' wrong · ' + Number(attempt.skipped || 0) + ' skipped');
+  }
+
+  var patternMeta = String(diagnosis.section || 'CAT').toUpperCase() + ' · ' + progressJourneyStatus(diagnosis.status);
+  steps.innerHTML =
+    progressJourneyStep('1', 'Current / working pattern', diagnosis.mechanism || 'Marg is narrowing the pattern.', patternMeta, 'complete') +
+    progressJourneyStep('2', 'Supporting evidence', evidenceCopy, evidenceRows.length ? evidenceRows.length + ' saved signal' + (evidenceRows.length === 1 ? '' : 's') : '', evidenceRows.length ? 'complete' : 'current', evidenceHtml) +
+    progressJourneyStep('3', 'Intervention tested', taskCopy, taskMeta, task ? (attempt ? 'complete' : 'current') : '') +
+    progressJourneyStep('4', 'Re-test result', retestCopy, retestMeta, attempt ? 'complete' : (task ? 'current' : '')) +
+    progressJourneyStep('5', 'Next decision', recommendation.title, recommendation.copy, 'current');
+}
+
+function runProgressNextDecision() {
+  homeRecommendationAction = progressNextDecisionAction || { destination:'diagnosis' };
+  runHomeRecommendation();
+}
+
 async function loadProgressDashboard() {
+  if (canUseMentorExecutionLoop() && !mentorExecutionLoop.loaded) await loadMentorExecutionLoop();
   loadReferralChallengeStats();
   var sessEl = document.getElementById('stat-sessions');
   if (sessEl) sessEl.textContent = studentProfile.sessionsCount || 0;
@@ -15433,6 +15862,7 @@ async function loadProgressDashboard() {
   }
 
   renderMockChart(mockHistory);
+  renderProgressJourney();
 
   var varcEl = document.getElementById('varc-pattern-display');
   if (varcEl && studentProfile.varcPattern) varcEl.textContent = studentProfile.varcPattern;
