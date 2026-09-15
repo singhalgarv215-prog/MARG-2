@@ -18,7 +18,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<script defer src="/landing-bootstrap.js?v=20260914-rclab17"></script>
+<script defer src="/landing-bootstrap.js?v=20260915-reliability1"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -444,7 +444,7 @@ transition: all 0.15s;
 .home-section-title{font-size:15px;font-weight:600;color:var(--text);}
 .home-section-note{font-size:11px;color:var(--text-dim);}
 .home-feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
-.home-feature-card{min-height:166px;padding:19px;border:1px solid var(--border2);border-radius:16px;background:linear-gradient(145deg,#141414,#0f0f0f);text-align:left;color:var(--text);font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;flex-direction:column;align-items:flex-start;}
+.home-feature-card{min-height:148px;padding:18px;border:1px solid var(--border2);border-radius:16px;background:linear-gradient(145deg,#141414,#0f0f0f);text-align:left;color:var(--text);font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;flex-direction:column;align-items:flex-start;}
 .home-feature-card:hover{border-color:var(--feature-color,var(--gold));background:#171717;transform:translateY(-2px);}
 .home-feature-icon{width:38px;height:38px;display:flex;align-items:center;justify-content:center;margin-bottom:14px;border:1px solid rgba(201,168,76,.3);border-radius:11px;background:rgba(201,168,76,.08);font-size:18px;}
 .home-feature-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px;}
@@ -531,8 +531,8 @@ html,body,#landing-page{max-width:100%;overflow-x:hidden;}
 .mentor-home-sub{font-size:12px;}
 .home-recommendation{padding:18px;margin-bottom:21px;}
 .home-rec-title{font-size:18px;}
-.home-feature-grid{grid-template-columns:1fr 1fr;gap:9px;}
-.home-feature-card{min-height:156px;padding:15px;}
+.home-feature-grid{grid-template-columns:1fr;gap:9px;}
+.home-feature-card{min-height:0;padding:15px;}
 .home-feature-icon{width:34px;height:34px;margin-bottom:11px;}
 .home-feature-copy{font-size:10.5px;}
 .home-section-note{display:none;}
@@ -1141,10 +1141,9 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="desktop-nav-label">Your preparation</div>
 <div class="desktop-nav-items">
 <button class="desktop-nav-btn" id="dnav-home" type="button" onclick="switchTab('home')"><span class="desktop-nav-icon">⌂</span>Home</button>
-<button class="desktop-nav-btn" id="dnav-chat" type="button" onclick="switchTab('chat')"><span class="desktop-nav-icon">💬</span>Mentor Chat</button>
+<button class="desktop-nav-btn" id="dnav-chat" type="button" onclick="switchTab('chat')"><span class="desktop-nav-icon">💬</span>Ask MARG</button>
 <button class="desktop-nav-btn" id="dnav-practice" type="button" onclick="switchTab('practice')"><span class="desktop-nav-icon">✍️</span>Practice</button>
 <button class="desktop-nav-btn" id="dnav-mock" type="button" onclick="switchTab('mock')"><span class="desktop-nav-icon">📊</span>Mock Analysis</button>
-<button class="desktop-nav-btn" id="dnav-sectionals" type="button" onclick="switchTab('sectionals')"><span class="desktop-nav-icon">⏱</span>Sectional Tests</button>
 <button class="desktop-nav-btn" id="dnav-progress" type="button" onclick="switchTab('progress')"><span class="desktop-nav-icon">↗</span>Progress</button>
 </div>
 <div class="desktop-nav-secondary">
@@ -1156,8 +1155,8 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="mentor-home-header">
 <div>
 <div class="mentor-home-eyebrow">Mentor Home</div>
-<h1 class="mentor-home-title" id="mentor-home-title">What do you need today?</h1>
-<div class="mentor-home-sub">Choose a clear starting point. Marg keeps the context connected.</div>
+<h1 class="mentor-home-title" id="mentor-home-title">Here’s what we should work on today.</h1>
+<div class="mentor-home-sub">Marg uses your last activity to choose one useful next step.</div>
 </div>
 <button class="section-more-btn" type="button" onclick="openAppMenu()" aria-label="Open more options">•••</button>
 </div>
@@ -1168,15 +1167,10 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button class="home-rec-cta" id="home-rec-cta" type="button" onclick="runHomeRecommendation()">Start diagnosis →</button>
 </div>
 <div class="home-section-head">
-<div class="home-section-title">Choose what you need</div>
-<div class="home-section-note">Each option opens its own workspace</div>
+<div class="home-section-title">Or do something else</div>
+<div class="home-section-note">Your context stays connected</div>
 </div>
 <div class="home-feature-grid">
-<button class="home-feature-card feature-diagnosis" type="button" onclick="openHomeDestination('diagnosis')">
-<span class="home-feature-icon">🧠</span><span class="home-feature-title">Diagnose me</span>
-<span class="home-feature-copy">Find the repeated decision or thinking pattern costing you marks.</span>
-<span class="home-feature-arrow">Start a guided diagnosis →</span>
-</button>
 <button class="home-feature-card feature-chat" type="button" onclick="openHomeDestination('chat')">
 <span class="home-feature-icon">💬</span><span class="home-feature-title">Ask Marg</span>
 <span class="home-feature-copy">Talk through strategy, confidence, resources or your study plan.</span>
@@ -1191,16 +1185,6 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <span class="home-feature-icon">📊</span><span class="home-feature-title">Analyse a Mock</span>
 <span class="home-feature-copy">Separate score outcomes from the execution leak that produced them.</span>
 <span class="home-feature-arrow">Enter your scores →</span>
-</button>
-<button class="home-feature-card feature-tests" type="button" onclick="openHomeDestination('sectionals')">
-<span class="home-feature-icon">⏱</span><span class="home-feature-title">Sectional Tests</span>
-<span class="home-feature-copy">Open the timed QA or audited DILR interface with navigation and analysis.</span>
-<span class="home-feature-arrow">Choose a timed test →</span>
-</button>
-<button class="home-feature-card feature-progress" type="button" onclick="openHomeDestination('progress')">
-<span class="home-feature-icon">↗</span><span class="home-feature-title">Progress &amp; Plan</span>
-<span class="home-feature-copy">See mock history, recurring patterns, streaks and the next useful move.</span>
-<span class="home-feature-arrow">View your progress →</span>
 </button>
 </div>
 </div>
@@ -1329,6 +1313,15 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button class="mac-btn" type="button" onclick="submitMockScores()">Analyse my mock →</button>
 <button class="mock-secondary-action" type="button" onclick="openMockScorecardUpload()">I have a scorecard screenshot</button>
 </div>
+<section class="workspace-section" aria-labelledby="previous-mock-analyses-title">
+<div class="workspace-section-head">
+<div class="workspace-section-title" id="previous-mock-analyses-title">Previous Analyses</div>
+<div class="workspace-section-note">Open original chat</div>
+</div>
+<div class="mock-history-list" id="previous-mock-analyses">
+<div class="workspace-empty">No mock analyses yet.</div>
+</div>
+</section>
 </div>
 </section>
 <section id="sectionals-tab" class="tab-section destination-shell" aria-label="Sectional Tests">
@@ -1369,6 +1362,10 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button class="ptab-btn" onclick="switchPracticeTab('dilr')" id="ptab-dilr">🧩 DILR</button>
 <button class="ptab-btn" onclick="switchPracticeTab('qa')" id="ptab-qa">🔢 QA</button>
 </div>
+<div class="practice-hub-actions" aria-label="Other practice modes">
+<button class="practice-hub-action" type="button" onclick="appMenuOpenVarc()">Today’s VARC</button>
+<button class="practice-hub-action" type="button" onclick="switchTab('sectionals')">Timed &amp; sectional tests</button>
+</div>
 <div class="practice-submit-note">Tap an option to submit your answer. Chat messages do not select an option in Practice.</div>
 </div>
 <div class="practice-content" id="practice-content">
@@ -1397,6 +1394,16 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="stat-label">Day streak</div>
 </div>
 </div>
+<section class="marg-journey-card" id="marg-journey-card" aria-labelledby="marg-journey-title">
+<div class="marg-journey-head">
+<div><div class="marg-journey-title" id="marg-journey-title">Your Marg journey</div><div class="marg-journey-sub">Pattern, evidence, test and next step.</div></div>
+<div class="marg-journey-status" id="marg-journey-status">Building evidence</div>
+</div>
+<div class="marg-journey-steps" id="marg-journey-steps">
+<div class="workspace-empty">Your evidence trail appears after a diagnosis and targeted check.</div>
+</div>
+<button class="marg-journey-cta" id="marg-journey-cta" type="button" onclick="runProgressNextDecision()">Start with Marg →</button>
+</section>
 <div class="referral-progress-card" id="referral-progress-card">
 <div class="referral-progress-title">Your challenge trail</div>
 <div class="referral-progress-copy">Successful means a friend actually answered—not merely opened the link.</div>
@@ -1496,9 +1503,9 @@ Chat
 </svg>
 Practice
 </button>
-<button class="bnav-btn" onclick="switchTab('sectionals')" id="bnav-sectionals">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="13" r="8"/><path d="M12 9v5l3 2M9 2h6"/></svg>
-Tests
+<button class="bnav-btn" onclick="switchTab('mock')" id="bnav-mock">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+Mocks
 </button>
 <button class="bnav-btn" onclick="switchTab('progress')" id="bnav-progress">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
