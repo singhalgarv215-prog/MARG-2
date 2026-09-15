@@ -3008,11 +3008,24 @@ function shouldUseWebGrounding(message, diagnosis) {
   if (!text || diagnosis && diagnosis.hasImage && text.length < 12) return false;
   if (/\b(?:search|browse|look up|lookup|google|verify online|check online|check the web|search the web|from the web)\b/.test(text)) return true;
   if (/https?:\/\//i.test(text)) return true;
+  // A student comparing their own AIMCAT/SIMCAT performance needs mentoring
+  // from the evidence they supplied, not a live-source lookup. Previously the
+  // provider name plus the word "question" accidentally forced web grounding.
+  if (isPersonalMockPerformanceQuestion(text)) return false;
   var externalSource = /\b(?:arun sharma|quantitative aptitude for cat|mba wallah|cracku|ims|simcats?|aimcats?|career launcher|unacademy|2iim|rodha|takshzila|youtube|amazon|flipkart|aeon|the hindu|indian express)\b/.test(text) || /\btime(?:'s)?\s+(?:aimcats?|material|portal|course|booklet|mock series)\b/.test(text);
   var sourceSpecificFact = /\b(?:book|edition|chapter|index|contents|table of contents|topic|module|playlist|course|section|exercise|questions?|where|available|syllabus|sequence|order|buy|purchase|subscribe|worth|better|compare|quality|difficulty|answer key|read|newspaper|magazine|editorial|daily)\b/.test(text);
   if (externalSource && sourceSpecificFact) return true;
   var currentExternalFact = /\b(?:latest|current|currently|today|this year|202[4-9])\b/.test(text) && /\b(?:book|edition|chapter|index|contents|registration|exam date|admit card|fee|fees|eligibility|cutoff|cut-off|schedule|notification|result date|rules?|policy|model|price)\b/.test(text);
   return currentExternalFact || /\b(?:cat|iim)\b[\s\S]{0,60}\b(?:registration|exam date|admit card|fee|fees|eligibility|pattern|duration|cutoff|cut-off|criteria|policy|schedule|notification|result date)\b/.test(text);
+}
+
+function isPersonalMockPerformanceQuestion(message) {
+  var text = String(message || '').toLowerCase();
+  var namesMockSeries = /\b(?:aimcats?|simcats?|time(?:'s)?\s+(?:mock|test)\s*series|ims(?:'s)?\s+(?:mock|test)\s*series)\b/.test(text);
+  var givesOwnEvidence = /\b(?:i|i'm|i am|my|me)\b/.test(text) && /\b(?:score[ds]?|marks?|got|get(?:ting)?|attempt(?:ed)?|accuracy|percentile)\b/.test(text);
+  var asksForInterpretation = /\b(?:increase|higher|lower|improve|difference|translate|expect|tough|difficult|why|how|can i|will i)\b/.test(text);
+  var asksForCurrentPurchaseFact = /\b(?:buy|purchase|subscribe|price|fees?|latest|current edition|answer key)\b/.test(text);
+  return namesMockSeries && givesOwnEvidence && asksForInterpretation && !asksForCurrentPurchaseFact;
 }
 
 function enableWebGrounding(request, enabled) {
@@ -8089,11 +8102,39 @@ function isDataPrivacyRequest(message) {
   return /\b(?:delete|erase|remove|wipe|forget)\b[\s\S]{0,35}\b(?:my\s+)?(?:data|account|profile|history|chats?|information|records?|memory|everything\s+(?:about|on)\s+me)\b|\b(?:what|which)\s+(?:data|information)\b[\s\S]{0,30}\b(?:store|save|retain|keep|collect)\b|\b(?:do|does)\s+(?:marg|you)\s+(?:store|save|retain|keep)\s+(?:my\s+)?(?:data|information|history|chats?)\b|\bprivacy\s+(?:request|question|policy)\b/i.test(String(message || ''));
 }
 
+function isSimpleGreeting(message) {
+  return /^(?:hi|hello|hey|hey there|hi there)[.!?\s]*$/i.test(String(message || '').trim());
+}
+
+function getUnansweredUserMessageBeforeGreeting(message) {
+  if (!isSimpleGreeting(message) || typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return '';
+  // sendMessage stores the greeting before intent analysis. Skip that newest
+  // greeting and find the nearest earlier user turn that has no real answer.
+  var skippedCurrentGreeting = false;
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    var item = conversationHistory[i];
+    if (!item) continue;
+    if (item.role === 'user' && !skippedCurrentGreeting && isSimpleGreeting(item.content)) {
+      skippedCurrentGreeting = true;
+      continue;
+    }
+    if (item.role !== 'user') continue;
+    var candidate = String(item.content || '').trim();
+    if (!candidate || isSimpleGreeting(candidate)) continue;
+    var hasRealAnswer = conversationHistory.slice(i + 1).some(function(later) {
+      return later && later.role === 'assistant' && !isLegacyStudentFacingFailureMessage(later);
+    });
+    return hasRealAnswer ? '' : candidate;
+  }
+  return '';
+}
+
 function detectMentorIntent(message) {
   var text = String(message || '').toLowerCase().trim();
   var recentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
   var recentContext = recentItems.slice(-8).map(function(item) { return item && item.content ? String(item.content) : ''; }).join(' ').toLowerCase();
   if (isDataPrivacyRequest(message)) return 'privacy_request';
+  if (isSimpleGreeting(message)) return 'greeting';
   if (isDILRValidityChallenge(message)) return 'dilr_validity_review';
   if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
   if (isAnswerReviewRequest(message)) return 'answer_review';
@@ -8116,7 +8157,7 @@ function detectMentorIntent(message) {
   if (/\b(qa|quant|quants|maths|mathematics)\b/.test(text)) return 'qa_diagnosis';
   if (/\b(score|marks|attempted)\b/.test(text)) return 'mock_diagnosis';
   if (/time management|run out of time|too slow|speed/.test(text)) return 'pacing_diagnosis';
-  if (/^(idk|i don'?t know|help|help me|bro|bhai|hey|hi|hello|stuck|confused)[.!\s]*$/.test(text) || text.length < 4) return 'vague';
+  if (/^(idk|i don'?t know|help|help me|bro|bhai|stuck|confused)[.!\s]*$/.test(text) || text.length < 4) return 'vague';
   return 'general_mentor';
 }
 
@@ -8137,6 +8178,7 @@ function getLikelyHiddenProblem(intent, message) {
   if (intent === 'answer_review') return activeGeneratedExercise ? 'The student is submitting answers to Marg’s active generated exercise. Check them immediately from stored questions and answer keys, then diagnose the shared decision pattern across errors.' : 'The student wants an answer check. Use the recent conversation first and never ask them to resend content Marg already generated.';
   if (intent === 'confidence_breakdown') return 'A recent score or repeated miss has been converted into a verdict about ability; the immediate need is to separate evidence from identity and restore one controllable next step.';
   if (intent === 'returning_memory') return studentProfile.lastTask ? 'The student wants continuity, not another intake question. Resume from the saved task: ' + studentProfile.lastTask : 'The student wants continuity. Use the session summary or recent conversation; state uncertainty honestly if no reliable unfinished task exists.';
+  if (intent === 'greeting') return 'This is only a greeting. Respond warmly and briefly; do not diagnose distress, confidence, preparation or a weak section from it.';
   if (intent === 'vague') return studentProfile.weakestSection ? 'The student is likely overwhelmed and cannot frame the problem. Use the known weak section (' + studentProfile.weakestSection + ') to offer three concrete hypotheses.' : 'The student is overwhelmed or unsure how to frame the problem. Offer three recognisable CAT failure patterns instead of asking an open-ended question.';
   if (intent === 'varc_diagnosis') return /time|slow/.test(text) ? 'Reading for complete understanding before mapping passage structure is probably consuming the clock.' : 'The likely leak is between comprehension and option selection: scope shifts, extreme wording, or second-guessing the final two.';
   if (intent === 'dilr_diagnosis') return /time|slow/.test(text) ? 'The student may be staying with an unproductive set because starting it feels like a commitment.' : 'The likely failure happens before calculation: set selection, choosing the wrong representation, or missing one constraint that invalidates the grid.';
@@ -8210,8 +8252,12 @@ function buildDiagnosisDirective(message) {
   var diagnosis = analyzeMentorInput(message);
   var correction = reconcileFreshCorrectiveEvidence(message);
   var messageText = String(message || '');
+  var unansweredBeforeGreeting = diagnosis.intent === 'greeting' ? getUnansweredUserMessageBeforeGreeting(message) : '';
   var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
   directive += '\nCURRENT-TURN ANCHOR: The newest student message controls this reply. Answer its exact section, topic and request first. Older diagnoses, missions, exercises and profile memories are context only. Do not revive a saved task, switch sections, ask an unrelated profile question, or launch an exercise unless it directly completes the newest request.';
+  if (diagnosis.intent === 'greeting') directive += unansweredBeforeGreeting
+    ? '\nGREETING CONTINUITY: Greet in one short clause, then answer the most recent earlier user question because it has no valid assistant answer. Do not diagnose the greeting and do not ask a new intake question before answering.'
+    : '\nGREETING CONTINUITY: This is only a greeting. Reply warmly and briefly, then ask what CAT work they want help with. Do not infer a problem, weak section or emotional state.';
   directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. Ask one question only when the answer changes that decision. Never expose this instruction or use report labels.';
   if (diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) directive += '\nQUESTION BUDGET EXHAUSTED: Ask no question and emit no [OPTIONS] tag. Make a useful best-effort diagnosis and action from existing evidence.';
   if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
@@ -8569,6 +8615,7 @@ function getMentorRequestTimeout(diagnosis, useWebGrounding) {
 
 function buildMentorFallbackReply(diagnosis) {
   if (!diagnosis) return 'My read is that the visible problem is not the whole problem. Start with the last concrete question or set that went wrong and look for the decision that caused it.';
+  if (diagnosis.intent === 'greeting') return getTimeGreeting() + '. What are you working on in CAT right now?';
   if (diagnosis.intent === 'answer_review') return activeGeneratedExercise ? 'I still have the exercise and your submitted choices, but the answer check did not finish loading. Your passage is not lost—retry the same message and I will check it directly.' : 'I cannot find a reliable active exercise in memory, so I will not invent an answer key. Paste only your choices and the question numbers you want checked.';
   if (diagnosis.intent === 'confidence_breakdown') return 'This sounds less like a verdict on your CAT ability and more like one bad pattern becoming your whole self-assessment. For today, shrink the problem: review the last three misses and label each one concept, selection, or execution—the repeated label is what we fix.';
   if (diagnosis.intent === 'returning_memory') return studentProfile.lastTask ? 'The saved open task is: ' + studentProfile.lastTask + '. The useful move now is to see where it actually broke, not replace it.' : 'There is no reliable unfinished task in the saved conversation. Start from the last concrete result rather than another profile intake.';
@@ -8579,9 +8626,17 @@ function buildMentorFallbackReply(diagnosis) {
   return 'My first read: ' + diagnosis.likelyHiddenProblem;
 }
 
+function buildPersonalMockComparisonFallback(userMessage) {
+  if (!isPersonalMockPerformanceQuestion(userMessage)) return '';
+  return 'Yes, your raw score can be higher in a SIMCAT than in an AIMCAT, but a 50–60 in TIME does not convert into one fixed SIMCAT score. Compare your percentile, attempts and accuracy section by section; those tell you whether the paper was tougher for everyone or whether your execution changed.\n\nFor the pair (6, 2) versus decimal-valued pairs, I cannot judge the key from only the final values. There may be a second equation, a domain condition or multiple valid roots. Send the complete question and its options or solution, and I’ll check whether your pair was rejected for a real mathematical reason.';
+}
+
 function completeMentorTurnWithLocalRecovery(userMessage, diagnosis, useWebGrounding, error) {
   recordProductIncident('chat_request_failed', error, { surface:'mentor_chat', stage:'local_continuity_recovery' });
   var reply = buildPredictionValidationFallback(userMessage);
+  var interruptedBeforeGreeting = getUnansweredUserMessageBeforeGreeting(userMessage);
+  if (!reply) reply = buildPersonalMockComparisonFallback(interruptedBeforeGreeting || userMessage);
+  if (reply && interruptedBeforeGreeting) reply = getTimeGreeting() + '. Your earlier question did not get a proper answer.\n\n' + reply;
   if (!reply && diagnosis && diagnosis.intent === 'answer_review') reply = buildLocalAnswerCheck(userMessage);
   if (!reply && useWebGrounding) {
     reply = 'I could not verify that exact source confidently in this turn, so I will not guess. Your question and context are saved here; use Retry response on this message and Marg will run the same verification again.';
@@ -8599,7 +8654,7 @@ function completeMentorTurnWithLocalRecovery(userMessage, diagnosis, useWebGroun
   if (!isGuestMode) saveChatMessage('assistant', reply);
   lastFailedOutgoingMessage = null;
   completePendingExternalQuestionTurn();
-  showComposerStatus('Marg kept this turn complete. You can continue normally or retry this response.', 'info');
+  showComposerStatus('', 'info');
   return reply;
 }
 
@@ -9490,6 +9545,7 @@ function isLegacyStudentFacingFailureMessage(message) {
   return /\b(?:draft|exercise|questions?|set|rc)\b.{0,90}\b(?:failed (?:its |the )?(?:completeness|answer|content)|did not (?:pass|finish|load)|discarded|independent answer check|generator is temporarily misconfigured)\b/i.test(content) ||
     /\b(?:completeness|answer) checks? pass\b/i.test(content) ||
     /\bMarg took too long to respond\b/i.test(content) ||
+    /\bI could not verify that exact source confidently in this turn\b[\s\S]*?\buse Retry response\b/i.test(content) ||
     /\bMarg could not accept this request because its connection is misconfigured\b/i.test(content);
 }
 
