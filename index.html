@@ -632,7 +632,7 @@ html,body,#landing-page{max-width:100%;overflow-x:hidden;}
 <div id="landing-page">
 <nav class="nav">
 <div class="nav-logo"><img src="/Logo-full.png" alt="Marg" fetchpriority="high"></div>
-<a class="nav-cta" href="#homepage-chat-entry" onclick="return window.focusHomepageChat?!window.focusHomepageChat():true">Ask Marg →</a>
+<div style="display:flex;align-items:center;gap:20px"><a href="/blog/" style="color:var(--text-muted);font-size:14px;text-decoration:none">Blog</a><a class="nav-cta" href="#homepage-chat-entry" onclick="return window.focusHomepageChat?!window.focusHomepageChat():true">Ask Marg →</a></div>
 </nav>
 <section class="hero">
 <div class="hero-badge"><span></span> Free CAT workspace · No card</div>
@@ -884,6 +884,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <footer class="footer">
 <div class="footer-logo"><img src="https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/Logo-full.png" alt="Marg"></div>
 <div class="footer-links">
+<a href="/blog/" class="footer-link">Blog</a>
 <span class="footer-link" onclick="showLegalPage('about-section')">About</span>
 <a href="https://trymarg.com/privacy" class="footer-link" target="_blank">Privacy Policy</a>
 <span class="footer-link" onclick="showLegalPage('terms-section')">Terms of Service</span>
