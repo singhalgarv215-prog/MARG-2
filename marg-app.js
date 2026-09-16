@@ -2576,7 +2576,7 @@ TRUTH AND CORRECTION CONTRACT
 Use only student, result or verified facts; never turn inference into fact. For a false Marg claim or direct correction, say "I misread that" and rebuild. Sharper evidence is not an error: contrast the old and new clues without apologizing. Missing evidence means one precise question or a tentative read.
 
 ANSWER-KEY TRUST CONTRACT
-Before grading, distinguish student choices from keys; a bare "Answer" may be a choice or a supplied key. Solve independently, reconcile every verdict with the total, and exclude ambiguous or conflicting items. Never diagnose a student from a disputed or unverified error.
+Separate choices from keys; a bare "Answer" may be a choice or a supplied key. Solve first, compare the actual answer, then write consistent verdicts and totals. Never diagnose a student from a disputed or unverified error. Short tests support only the topics checked.
 
 USEFULNESS CHECK
 Every factual claim needs a supplied or verified basis; every diagnosis needs exact evidence; every action must measure one observable decision. Remove anything that fails. Never fill uncertainty with “practise more”, “work on basics” or “manage time”. Answer product questions directly.
@@ -4960,11 +4960,13 @@ function isAnswerReviewRequest(message) {
   var text = String(message || '').toLowerCase();
   var parsedAnswerCount = Object.keys(parseSubmittedAnswerChoices(message)).length;
   var answerOnlyMessage = parsedAnswerCount > 0 && /^[\s\dA-D,;|/():.\-]+$/i.test(String(message || ''));
+  var contextualAnswers = getConversationAnswerChoices(message);
   var explicitWrongQuestionReview = /\b(?:got|answered|picked|chose)\b[\s\S]{0,90}\b(?:rc|varc|reading comprehension|question|answer|option)\b[\s\S]{0,45}\b(?:wrong|incorrect)\b/.test(text) ||
     /\b(?:rc|varc|reading comprehension)\b[\s\S]{0,60}\b(?:answer|question|option)\b[\s\S]{0,35}\b(?:wrong|incorrect)\b/.test(text);
   return /\b(check|evaluate|verify|analyse|analyze|review)\b.{0,30}\b(my\s+)?answers?\b/.test(text) ||
     /\b(my\s+)?answers?\b.{0,30}\b(correct|right|wrong|check)\b/.test(text) ||
-    answerOnlyMessage || parsedAnswerCount >= 2 || explicitWrongQuestionReview;
+    answerOnlyMessage || parsedAnswerCount >= 2 || explicitWrongQuestionReview || Object.keys(contextualAnswers).length > 0 ||
+    /^(?:give|show|tell|send)?\s*(?:the\s+)?answers?\s+(?:above|for (?:all|these)|to (?:all|these))\b/.test(text);
 }
 
 function isPredictionValidationExercise(exercise) {
@@ -5030,14 +5032,17 @@ function getActiveExerciseQuestions() {
   var content = activeGeneratedExercise.content;
   if (Array.isArray(content.answerKey) && content.answerKey.length) {
     return content.answerKey.map(function(answer, index) {
-      return { number:answer.question || index + 1, correct:String(answer.correct || '').toUpperCase(), explanation:cleanStudentFacingSolution(answer.explanation || ''), pattern:answer.trap || '' };
+      return { number:answer.question || index + 1, correct:String(answer.correct == null ? '' : answer.correct).trim().toUpperCase(), explanation:cleanStudentFacingSolution(answer.explanation || ''), pattern:answer.trap || '' };
     });
   }
   var questions = [];
   if (Array.isArray(content.questions)) questions = content.questions;
   else if (Array.isArray(content.sets)) content.sets.forEach(function(set) { (set.questions || []).forEach(function(question) { questions.push(question); }); });
   return questions.map(function(question, index) {
-    return { number:index + 1, correct:typeof question.correct === 'number' ? String.fromCharCode(65 + question.correct) : String(question.correct || '').replace(/^[^A-D]*([A-D]).*$/i, '$1').toUpperCase(), explanation:cleanStudentFacingSolution(question.explanation || question.solution || ''), pattern:question.marg_insight || question.common_mistake || question.trap_type || '' };
+    var hasOptions = Array.isArray(question.options) && question.options.length > 0;
+    var key = question.correct == null ? '' : question.correct;
+    var indexedKey = hasOptions && Number.isInteger(key) && key >= 0 && key < question.options.length;
+    return { number:index + 1, correct:indexedKey ? String.fromCharCode(65 + key) : String(key).trim().replace(/^([A-D])[.)]\s+.*$/i, '$1').toUpperCase(), explanation:cleanStudentFacingSolution(question.explanation || question.solution || ''), pattern:question.marg_insight || question.common_mistake || question.trap_type || '' };
   });
 }
 
@@ -5060,7 +5065,61 @@ function parseSubmittedAnswerChoices(message) {
   text.replace(/(?:^|[\s,;|])(\d{1,2})([abcd])(?=$|[\s,;|])/gi, function(_, number, letter) {
     found[Number(number)] = letter.toUpperCase(); return _;
   });
+  // Numeric/TITA and para-jumble answers need explicit labels, not a loose
+  // search for numbers in a question stem. Preserve zero and signed values.
+  var answerToken = '([A-D]|[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:\\s*\\/\\s*[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))?)';
+  text.replace(new RegExp('(?:^|[\\n,;|])\\s*Q(?:uestion)?\\s*(\\d{1,2})\\s*[:.)-]\\s*' + answerToken + '(?=$|[\\s,;|])', 'gi'), function(_, number, answer) {
+    found[Number(number)] = answer.replace(/\s/g, '').toUpperCase(); return _;
+  });
+  text.replace(new RegExp('(?:^|[\\n,;|])\\s*(\\d{1,2})\\s*[:)-]\\s*' + answerToken + '(?=$|[\\s,;|])', 'gi'), function(_, number, answer) {
+    found[Number(number)] = answer.replace(/\s/g, '').toUpperCase(); return _;
+  });
+  var blocks = text.split(/(?:^|\n)\s*Q(?:uestion)?\s*(\d{1,2})\b/gi);
+  for (var i = 1; i < blocks.length; i += 2) {
+    var ownAnswer = new RegExp('\\b(?:my\\s+)?answer\\s*[-:]\\s*' + answerToken + '(?=$|[\\s,;|])', 'i').exec(blocks[i + 1] || '');
+    if (ownAnswer) found[Number(blocks[i])] = ownAnswer[1].replace(/\s/g, '').toUpperCase();
+  }
   return found;
+}
+
+function normalizeGradingAnswer(value) {
+  var token = String(value == null ? '' : value).trim().replace(/\s/g, '').toUpperCase();
+  if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(token)) {
+    var numeric = Number(token);
+    if (!Number.isFinite(numeric) || (/^[+-]?\d+$/.test(token) && !Number.isSafeInteger(numeric))) return token;
+    return String(numeric);
+  }
+  var fraction = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\/([+-]?(?:\d+(?:\.\d+)?|\.\d+))$/.exec(token);
+  if (fraction && Number(fraction[2]) !== 0) return String(Number(fraction[1]) / Number(fraction[2]));
+  return token;
+}
+
+function getConversationAnswerChoices(message) {
+  var explicit = parseSubmittedAnswerChoices(message);
+  if (Object.keys(explicit).length) return explicit;
+  var text = String(message || '').trim();
+  if (!/^(?:[A-D]|[+-]?(?:\d+(?:\.\d+)?|\.\d+))(?:\s*[,;|]\s*(?:[A-D]|[+-]?(?:\d+(?:\.\d+)?|\.\d+)))*[.!]?$/i.test(text)) return {};
+  var values = text.replace(/[!]$/, '').split(/\s*[,;|]\s*/);
+  var recent = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
+  for (var i = recent.length - 1; i >= Math.max(0, recent.length - 4); i--) {
+    if (!recent[i] || recent[i].role !== 'assistant' || /^\[MARG_INTERNAL:/.test(recent[i].content || '')) continue;
+    var prompt = String(recent[i].content || '');
+    var range = /(?:send|give|submit|answers?\s+for)[\s\S]{0,90}?Q(?:uestion)?\s*(\d{1,2})\s*(?:to|through|[-–])\s*Q?(\d{1,2})\b/i.exec(prompt);
+    var start = range && Number(range[1]);
+    var count = range ? Number(range[2]) - start + 1 : 0;
+    if (!range) {
+      var numbers = [], heading;
+      var headings = /(?:^|\n)\s*(?:\*\*)?Q(?:uestion)?\s*(\d{1,2})\b/gim;
+      while ((heading = headings.exec(prompt))) numbers.push(Number(heading[1]));
+      if (numbers.length === values.length && numbers.every(function(n, index) { return n === numbers[0] + index; })) { start = numbers[0]; count = numbers.length; }
+    }
+    if ((count === values.length || (range && values.length === 1)) && start > 0) {
+      var found = {}; values.forEach(function(value, index) { found[start + index] = value.trim().toUpperCase(); }); return found;
+    }
+    // Do not cross a newer assistant turn to borrow an obsolete question range.
+    break;
+  }
+  return {};
 }
 
 function getPastedAnswerEvidence(message) {
@@ -5091,13 +5150,78 @@ function guardPastedAnswerChoiceIntegrity(response, diagnosis) {
   if (!evidence || !evidence.choices) return value;
   var mismatch = false;
   Object.keys(evidence.choices).forEach(function(number) {
-    var claim = new RegExp('Q(?:uestion)?\\s*' + number + '[\\s\\S]{0,90}?(?:your (?:choice|answer)|you (?:chose|picked|marked|selected))\\s*[:\\-]?\\s*([A-D])\\b', 'i').exec(value);
-    if (claim && claim[1].toUpperCase() !== evidence.choices[number]) mismatch = true;
+    var claim = new RegExp('Q(?:uestion)?\\s*' + number + '[\\s\\S]{0,90}?(?:your (?:choice|answer)|you (?:chose|picked|marked|selected))\\s*[:\\-]?\\s*([A-D]|[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))\\b', 'i').exec(value);
+    if (claim && normalizeGradingAnswer(claim[1]) !== normalizeGradingAnswer(evidence.choices[number])) mismatch = true;
   });
   if (!mismatch) return value;
   var labels = Object.keys(evidence.choices).sort(function(a, b) { return Number(a) - Number(b); }).map(function(number) { return 'Q' + number + ' ' + evidence.choices[number]; }).join(', ');
   var owner = evidence.role === 'official' ? 'The official answers shown in the passage are ' : evidence.role === 'student' ? 'The choices you supplied are ' : 'The answers labelled in the pasted material are ';
   return owner + labels + '. I’m not going to replace them with choices you never gave. I can check each one against the passage, but I need the official key or explanation separately before comparing your answers with AIMCAT.';
+}
+
+function hasVerifiedActiveAnswerKey() {
+  var status = activeGeneratedExercise && activeGeneratedExercise.validationVerdict && activeGeneratedExercise.validationVerdict.status;
+  return /^(?:verified_local|independently_verified|preverified)$/.test(String(status || ''));
+}
+
+function guardExerciseAbilityOverclaim(response) {
+  return String(response || '').replace(/[^.!?\n]*\byour\b[^.!?\n]*(?:strong|solid|perfect|proven)[^.!?\n]*(?:across all|all sub[ -]?topics|entire foundation|whole foundation)[^.!?\n]*[.!]?/gi,
+    'These answers tell us about the topics checked here, not your entire foundation.');
+}
+
+function guardAnswerVerdictConsistency(response, diagnosis) {
+  var text = String(response || '');
+  var plain = text.replace(/\*\*/g, '');
+  var pieces = plain.split(/\bQ(?:uestion)?\s*(\d{1,2})\b/gi);
+  var choices = diagnosis && diagnosis.submittedAnswers || {};
+  var stored = typeof activeGeneratedExercise !== 'undefined' && hasVerifiedActiveAnswerKey() && !(diagnosis && diagnosis.freshPastedMaterial);
+  var localChoices = stored ? getActiveExerciseAnswerChoices(diagnosis && diagnosis.submittedAnswerText || '') : {};
+  var questions = stored ? getActiveExerciseQuestions() : [];
+  var reviews = [], conflict = false;
+  var token = '([A-D]|[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:\\s*\\/\\s*[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))?)';
+  for (var i = 1; i < pieces.length; i += 2) {
+    var number = Number(pieces[i]), body = pieces[i + 1] || '';
+    var heading = body.slice(0, 220);
+    var negative = /(?:^|[\s:.)—-])(?:❌\s*)?(?:incorrect|wrong)\b/i.test(heading);
+    var positive = /(?:^|[\s:.)—-])(?:✅\s*)?correct\b/i.test(heading.replace(/(?:correct (?:key|answer)|(?:in|not )correct)/gi, ''));
+    var selectedMatch = new RegExp('^\\s*\\(\\s*' + token + '\\s*\\)|(?:you (?:chose|picked|marked|selected)|your (?:answer|choice))\\s*(?:of\\s+)?[:—-]?\\s*' + token + '\\b', 'i').exec(body);
+    var selected = choices[number] != null ? choices[number] : selectedMatch ? selectedMatch[1] || selectedMatch[2] : null;
+    var keyMatch = new RegExp('(?:correct (?:key|answer)\\s*[:—-]\\s*|the (?:saved|correct) answer is\\s*)' + token + '\\b|\\b' + token + '\\s+is correct\\b', 'i').exec(body);
+    var key = keyMatch ? keyMatch[1] || keyMatch[2] : null;
+    var savedQuestion = questions.find(function(question) { return Number(question.number) === number; });
+    var savedChoice = localChoices[number];
+    var reliable = savedQuestion && savedQuestion.correct !== '' && savedChoice != null;
+    var shouldBeCorrect = reliable ? normalizeGradingAnswer(savedChoice) === normalizeGradingAnswer(savedQuestion.correct) : selected != null && key != null ? normalizeGradingAnswer(selected) === normalizeGradingAnswer(key) : null;
+    var contradicted = (negative && positive) || (shouldBeCorrect === true && negative) || (reliable && shouldBeCorrect === false && positive) || (reliable && key != null && normalizeGradingAnswer(key) !== normalizeGradingAnswer(savedQuestion.correct));
+    if (reliable && selected != null && normalizeGradingAnswer(selected) !== normalizeGradingAnswer(savedChoice)) contradicted = true;
+    if (contradicted) conflict = true;
+    if (negative || positive) reviews.push({ number:number, body:body, selected:selected, key:key, conflict:contradicted });
+  }
+  if (stored && Object.keys(localChoices).length) {
+    var reviewed = 0, correct = 0;
+    questions.forEach(function(question) {
+      if (localChoices[question.number] == null || question.correct === '') return;
+      reviewed++; if (normalizeGradingAnswer(localChoices[question.number]) === normalizeGradingAnswer(question.correct)) correct++;
+    });
+    var score = /(?:score\s*[:—-]?|you got)\s*(\d+)\s*\/\s*(\d+)\s*(?:correct|right)/i.exec(plain);
+    if (score && reviewed && (Number(score[1]) !== correct || Number(score[2]) !== reviewed)) conflict = true;
+  }
+  if (!conflict) return text;
+  if (diagnosis) diagnosis.gradingIntegrityRepaired = true;
+  var local = stored ? buildLocalAnswerCheck(diagnosis && diagnosis.submittedAnswerText || '') : '';
+  if (local) return local + '\n\nWant to go through one of these answers step by step before we move on?';
+  // A model-derived key is not an independently verified key. Remove the
+  // contradictory verdict AND its score/diagnosis, rather than silently
+  // converting it into a confident claim about the student's ability.
+  var repaired = reviews.map(function(review) {
+    if (!review.conflict) return 'Q' + review.number + review.body.split(/(?:###|Scorecard Summary|\[PRACTICE_LOG:)/i)[0].trimEnd();
+    if (review.selected != null && review.key != null && normalizeGradingAnswer(review.selected) === normalizeGradingAnswer(review.key)) {
+      return 'Q' + review.number + ' — Your answer, ' + review.selected + ', matches the answer calculated here (' + review.key + '). Calling it incorrect does not follow from that calculation.';
+    }
+    return 'Q' + review.number + ' — This check gave conflicting verdicts. I’m leaving this item ungraded, rather than counting it as your mistake.';
+  }).join('\n\n');
+  var disputed = reviews.find(function(review) { return review.conflict; });
+  return repaired + '\n\nI’m not using the conflicting verdict to score or diagnose you. Want to work through Q' + (disputed ? disputed.number : '') + ' step by step before we move on?\n[HYPOTHESIS_VERDICT: inconclusive]';
 }
 
 function findRecentSubmittedAnswerText(message) {
@@ -5111,25 +5235,19 @@ function findRecentSubmittedAnswerText(message) {
 function buildLocalAnswerCheck(message) {
   var questions = getActiveExerciseQuestions();
   if (!questions.length) return '';
-  var choices = parseSubmittedAnswerChoices(findRecentSubmittedAnswerText(message));
-  if (!Object.keys(choices).length && activeGeneratedExercise.uiSelections) {
-    activeGeneratedExercise.uiSelections.forEach(function(selection, index) {
-      var number = parseInt(String(selection.position).split('.').pop(), 10) || index + 1;
-      choices[number] = typeof selection.selected === 'number' ? String.fromCharCode(65 + selection.selected) : String(selection.selected || '').toUpperCase();
-    });
-  }
+  var choices = getActiveExerciseAnswerChoices(message);
   if (!Object.keys(choices).length) return '';
   var blocks = [], wrongPatterns = [], correctCount = 0, reviewedCount = 0;
   questions.forEach(function(question) {
     var selected = choices[question.number];
-    if (!selected) return;
+    if (selected == null || selected === '' || question.correct === '') return;
     reviewedCount++;
-    var isCorrect = selected === question.correct;
+    var isCorrect = normalizeGradingAnswer(selected) === normalizeGradingAnswer(question.correct);
     if (isCorrect) correctCount++;
     var diagnosis = isCorrect
       ? (question.explanation || 'Your choice matches the stored answer and the tested condition.')
       : (question.pattern || question.explanation || 'Your choice moved away from the condition or scope being tested.');
-    var block = 'Q' + question.number + ' — You chose ' + selected + '; ' + question.correct + ' is correct.\n' + diagnosis;
+    var block = 'Q' + question.number + ' — ' + (isCorrect ? '✅ Correct.' : '❌ Incorrect.') + ' You chose ' + selected + '; the saved answer is ' + question.correct + '.\n' + diagnosis;
     if (!isCorrect) {
       block += '\nBefore marking next time, name the exact evidence that makes your option necessary.';
       if (question.pattern) wrongPatterns.push(question.pattern);
@@ -5138,9 +5256,51 @@ function buildLocalAnswerCheck(message) {
   });
   if (!blocks.length) return '';
   var result = 'Let\'s look at your choices for this exercise:\n\n' + blocks.join('\n\n') + '\n\nYou got ' + correctCount + '/' + reviewedCount + ' right.';
-  if (wrongPatterns.length) result += ' The repeated leak was ' + wrongPatterns[0];
+  var repeatedPattern = wrongPatterns.find(function(pattern) { return wrongPatterns.filter(function(other) { return other === pattern; }).length >= 2; });
+  if (repeatedPattern) result += ' Two or more misses in this exercise involved ' + repeatedPattern + '. That is a working clue, not proof across mocks.';
   if (activeGeneratedExercise && activeGeneratedExercise.hypothesis) result += '\n[HYPOTHESIS_VERDICT: inconclusive]';
   return result;
+}
+
+function getActiveExerciseAnswerChoices(message) {
+  var explicit = getConversationAnswerChoices(message);
+  if (Object.keys(explicit).length) return explicit;
+  if (!activeGeneratedExercise || !activeGeneratedExercise.content) return {};
+  var found = {}, content = activeGeneratedExercise.content;
+  (activeGeneratedExercise.uiSelections || []).forEach(function(selection) {
+    var parts = String(selection.position || '').split('.').map(Number);
+    var number = parts[0];
+    if (parts.length === 2) {
+      if (!Array.isArray(content.sets) || !content.sets[parts[0] - 1] || !Number.isInteger(parts[1]) || parts[1] < 1 || parts[1] > (content.sets[parts[0] - 1].questions || []).length) return;
+      number = parts[1];
+      for (var i = 0; i < parts[0] - 1; i++) number += (content.sets[i].questions || []).length;
+    }
+    if (!Number.isInteger(number) || number < 1 || number > getActiveExerciseQuestions().length || selection.selected == null) return;
+    found[number] = typeof selection.selected === 'number' ? String.fromCharCode(65 + selection.selected) : String(selection.selected).trim().toUpperCase();
+  });
+  if (Object.keys(found).length) return found;
+  var resultAnswers = activeGeneratedExercise.result && activeGeneratedExercise.result.answers;
+  if (Array.isArray(resultAnswers)) {
+    resultAnswers.forEach(function(answer, index) {
+      if (answer == null) return;
+      if (typeof answer === 'number') {
+        var allQuestions = Array.isArray(content.questions) ? content.questions : (content.sets || []).reduce(function(list, set) { return list.concat(set.questions || []); }, []);
+        found[index + 1] = allQuestions[index] && Array.isArray(allQuestions[index].options) && allQuestions[index].options.length ? String.fromCharCode(65 + answer) : String(answer);
+      }
+      else Object.assign(found, parseSubmittedAnswerChoices(answer));
+    });
+  }
+  if (!Object.keys(found).length) found = parseSubmittedAnswerChoices(activeGeneratedExercise.lastSubmittedAnswers || '');
+  return found;
+}
+
+function hasVerifiedRepeatedAnswerError(message) {
+  if (!hasVerifiedActiveAnswerKey()) return false;
+  var choices = getActiveExerciseAnswerChoices(message), patterns = {};
+  getActiveExerciseQuestions().forEach(function(question) {
+    if (choices[question.number] != null && question.correct !== '' && normalizeGradingAnswer(choices[question.number]) !== normalizeGradingAnswer(question.correct) && question.pattern) patterns[question.pattern] = (patterns[question.pattern] || 0) + 1;
+  });
+  return Object.keys(patterns).some(function(pattern) { return patterns[pattern] >= 2; });
 }
 
 function getRCWrongAnswerEvidence(message) {
@@ -5151,19 +5311,13 @@ function getRCWrongAnswerEvidence(message) {
   var explicitRCWrong = /\b(?:rc|varc|reading comprehension)\b/.test(lower) && /\b(?:wrong|incorrect)\b/.test(lower);
   if (!activeIsRC && !explicitRCWrong) return { matches:false, mechanism:'' };
 
-  var choices = parseSubmittedAnswerChoices(findRecentSubmittedAnswerText(message));
-  if (!Object.keys(choices).length && activeGeneratedExercise && Array.isArray(activeGeneratedExercise.uiSelections)) {
-    activeGeneratedExercise.uiSelections.forEach(function(selection, index) {
-      var number = parseInt(String(selection.position).split('.').pop(), 10) || index + 1;
-      choices[number] = typeof selection.selected === 'number' ? String.fromCharCode(65 + selection.selected) : String(selection.selected || '').toUpperCase();
-    });
-  }
+  var choices = getActiveExerciseAnswerChoices(message);
 
   var wrongMechanisms = [];
   if (activeIsRC) {
     getActiveExerciseQuestions().forEach(function(question) {
       var selected = choices[question.number];
-      if (selected && selected !== question.correct) wrongMechanisms.push(question.pattern || question.explanation || '');
+      if (selected != null && selected !== '' && question.correct !== '' && normalizeGradingAnswer(selected) !== normalizeGradingAnswer(question.correct)) wrongMechanisms.push(question.pattern || question.explanation || '');
     });
   }
 
@@ -6346,6 +6500,9 @@ function applyRegeneratedReplyGuard(response, diagnosis) {
   text = guardVagueMentorAdvice(text, diagnosis);
   text = guardMalformedChatExercise(text);
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
+  text = guardExerciseAbilityOverclaim(text);
+  text = guardAnswerVerdictConsistency(text, diagnosis);
+  if (diagnosis && diagnosis.gradingIntegrityRepaired) return stripInternalMentorTags(text).trim();
   text = guardEvidenceRefinementLanguage(text, diagnosis);
   text = formatMultiAnswerReview(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
@@ -8284,6 +8441,10 @@ function analyzeMentorInput(message) {
     rcFullSetReview:rcFullSetReview,
     rcClaimLocationRefinement:isRCClaimLocationRefinement(message),
     pastedAnswerEvidence:pastedAnswerEvidence,
+    submittedAnswers:getConversationAnswerChoices(message),
+    submittedAnswerText:String(message || ''),
+    requestedExistingSolutions:/^(?:please\s+)?(?:give|show|tell|send)?\s*(?:the\s+)?answers?\s+(?:above|for (?:all|these)|to (?:all|these))\b/i.test(String(message || '').trim()),
+    freshPastedMaterial:isFreshPastedPracticeMaterial(message),
     dilrValidityCheck:isDILRValidityChallenge(message)
   };
 }
@@ -8313,6 +8474,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'dilr_validity_review') directive += '\nDILR VALIDITY REVIEW: Stop every older mission, Decision Lab and progression prompt for this reply. Re-read only the exact set and objection supplied by the student. First state whether the wording is unambiguous under the stated convention. Then either exhibit one complete assignment that satisfies EVERY clue, checking the disputed clue explicitly, or identify the exact pair of conditions that cannot coexist. Never call a set valid merely because one partial arrangement looks plausible. Never invent a missing convention, score, clue, question or arrangement. If the material in the visible transcript is incomplete, say exactly what is missing instead of reconstructing it from memory. Do not append a practice invitation or resume an older task.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. Use the actual choice pattern as evidence and abandon the stored prediction when evidence contradicts it. For multiple answers, separate each question with a blank line and write naturally: “Q2 — You chose C; A is correct.” Explain the exact mismatch and correction without Diagnosis, Fix or Pattern Check labels. End with a plain score-and-pattern sentence. Ask no diagnostic intake question.';
+  if (diagnosis.requestedExistingSolutions) directive += '\nEXISTING SOLUTIONS REQUEST: The student is asking for answers/solutions to the questions already above, not submitting a new attempt. Use those exact questions from history and solve them. Do not ask for their calculated values, start a diagnosis, or generate a different test.';
   if (diagnosis.rcFullSetReview) directive += '\nFULL-RC REVIEW CONTINUATION: This is a completed multi-question RC, not the older paragraph-function drill. Finish the answer review first. The interface will then ask one short question about how the difficult choice felt; do not append homework, an unrelated old progression, or another exercise yourself.';
   if (diagnosis.pastedAnswerEvidence) {
     var pastedLabels = Object.keys(diagnosis.pastedAnswerEvidence.choices).sort(function(a, b) { return Number(a) - Number(b); }).map(function(number) { return 'Q' + number + '=' + diagnosis.pastedAnswerEvidence.choices[number]; }).join(', ');
@@ -8635,6 +8797,12 @@ function guardVagueMentorAdvice(text, diagnosis) {
 
 function guardMalformedChatExercise(text) {
   var value = String(text || '').trim();
+  // A numerical setup without a requested quantity is not a solvable task.
+  // This narrowly checks an explicitly introduced one-question geometry drill,
+  // not a normal explanatory example or a numbered multi-question test.
+  if (/\b(?:try this|give it a[n]? attempt|angle-chasing problem)\b/i.test(value) && /\b(?:regular polygon|rhombus|trapezium)\b/i.test(value) && !/\b(?:find|calculate|determine|how many|what is|what are)\b/i.test(value) && !/\bQ\s*\d+\b/i.test(value)) {
+    return 'That setup does not say what to find, so I won’t ask you to solve an incomplete question. What would you like to practise: finding the number of sides, or finding an angle?';
+  }
   var options = value.match(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+[^\n]+/gm) || [];
   if (options.length < 3) return value;
   var missingStem = /\b(?:question|try this|one more)\s*:?[ \t]*(?:\n\s*)?A\s*[).:\-]/i.test(value);
@@ -8652,6 +8820,9 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardVagueMentorAdvice(text, diagnosis);
   text = guardMalformedChatExercise(text);
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
+  text = guardExerciseAbilityOverclaim(text);
+  text = guardAnswerVerdictConsistency(text, diagnosis);
+  if (diagnosis && diagnosis.gradingIntegrityRepaired) return text;
   text = guardEvidenceRefinementLanguage(text, diagnosis);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
@@ -9298,7 +9469,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
       response = stripInternalMentorTags(response);
       response = appendGroundingSources(response, data);
       markExerciseReviewCompleted(response);
-      if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(userMessage).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
+      if (!mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(userMessage)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
 
       var cleanResponse = response
         .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
@@ -10361,7 +10532,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     reply = stripInternalMentorTags(reply);
     reply = appendGroundingSources(reply, data);
     markExerciseReviewCompleted(reply);
-    if (mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && buildLocalAnswerCheck(text).indexOf('✗') !== -1) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
+    if (!mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(text)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
     const formatted = renderGroundingSourcesForChat(renderMentorStructuredText(reply));
@@ -15107,14 +15278,15 @@ function submitTimedTest(isAutoSubmit) {
   var correct = 0, wrong = 0, skipped = 0, marks = 0;
   timedTestQuestions.forEach(function(q, i) {
     var ans = timedTestAnswers[i];
-    if (ans === null) { skipped++; return; }
+    if (ans == null) { skipped++; return; }
     if (ans === q.correct) { correct++; marks += 3; }
     else { wrong++; marks -= 1; }
   });
 
   var total = timedTestQuestions.length;
   var maxMarks = total * 3;
-  var accuracy = total ? (correct / total) * 100 : 0;
+  var attempted = correct + wrong;
+  var accuracy = attempted ? (correct / attempted) * 100 : 0;
   recordTopicProgress(timedTestSection, timedTestTopic, { timedPractice:1, timedSectionals:1, accuracy:accuracy });
   recordEngagementEvent('recommended_task_completed', {
     section:timedTestSection, topic:timedTestTopic, question_count:total,
@@ -15125,7 +15297,7 @@ function submitTimedTest(isAutoSubmit) {
     markActiveExerciseInteraction(isAutoSubmit ? 'timer_auto_submit' : 'manual_submit', { answered:correct + wrong, skipped:skipped });
     activeGeneratedExercise.result = {
       correct:correct, wrong:wrong, skipped:skipped, total:total,
-      marks:marks, maxMarks:maxMarks, answers:timedTestAnswers.slice(), autoSubmitted:!!isAutoSubmit
+      marks:marks, maxMarks:maxMarks, accuracy:accuracy, attempted:attempted, answers:timedTestAnswers.slice(), autoSubmitted:!!isAutoSubmit
     };
     activeGeneratedExercise.awaitingAnswers = false;
     activeGeneratedExercise.reviewPending = true;
@@ -15136,7 +15308,7 @@ function submitTimedTest(isAutoSubmit) {
 
   noteActiveMentorPlanEvidence((timedTestSection === 'qa' ? 'QA' : 'DILR') + ' ' + timedTestTopic + ': ' + correct + '/' + total + ' correct, ' + wrong + ' wrong, ' + skipped + ' skipped.');
 
-  renderTimedTestResults({ correct: correct, wrong: wrong, skipped: skipped, marks: marks, maxMarks: maxMarks, total: total, isAutoSubmit: isAutoSubmit });
+  renderTimedTestResults({ correct: correct, wrong: wrong, skipped: skipped, marks: marks, maxMarks: maxMarks, total: total, accuracy:accuracy, attempted:attempted, isAutoSubmit: isAutoSubmit });
 
   window._practiceCompleteSummary = 'I just finished a timed ' + (timedTestSection === 'qa' ? 'QA' : 'DILR') + ' sectional test on ' + timedTestTopic + ' on Marg. Scored ' + marks + '/' + maxMarks + ' marks — ' + correct + ' correct, ' + wrong + ' wrong, ' + skipped + ' skipped out of ' + total + ' questions' + (isAutoSubmit ? ' (time ran out before I finished)' : '') + '.' + (timedTestDiagnosticEntry ? ' This was designed to test the working diagnosis: ' + timedTestDiagnosticEntry.confirmedDiagnosis + '. Say whether the evidence SUPPORTS, REJECTS, or is INCONCLUSIVE for that diagnosis, then give one next move.' : ' Based on this, tell me whether I am ready to move past ' + timedTestTopic + ' or what specifically still needs work.');
 }
@@ -15154,13 +15326,14 @@ function renderTimedTestResults(stats) {
     '<div class="stat-card"><div class="stat-value">' + stats.correct + '</div><div class="stat-label">Correct</div></div>' +
     '<div class="stat-card"><div class="stat-value">' + stats.wrong + '</div><div class="stat-label">Wrong</div></div>' +
     '<div class="stat-card"><div class="stat-value">' + stats.skipped + '</div><div class="stat-label">Skipped</div></div>' +
+    '<div class="stat-card"><div class="stat-value">' + Math.round(stats.accuracy || 0) + '%</div><div class="stat-label">Accuracy on attempts</div></div>' +
     '</div>';
 
   var reviewHtml = timedTestQuestions.map(function(q, i) {
     var ans = timedTestAnswers[i];
-    var cls = ans === null ? 'tt-review-skipped' : (ans === q.correct ? 'tt-review-correct' : 'tt-review-wrong');
+    var cls = ans == null ? 'tt-review-skipped' : (ans === q.correct ? 'tt-review-correct' : 'tt-review-wrong');
     var label;
-    if (ans === null) label = 'Skipped';
+    if (ans == null) label = 'Skipped';
     else if (ans === q.correct) label = 'Correct';
     else label = 'Wrong — you picked ' + q.options[ans].replace(/^[A-D]\.\s*/, '') + ', correct was ' + q.options[q.correct].replace(/^[A-D]\.\s*/, '');
     return '<div class="tt-review-item ' + cls + '">Q' + (i + 1) + ' — ' + label + '</div>';
@@ -15213,7 +15386,15 @@ function buildActiveExerciseReviewRequest() {
     : '';
   var quality = assessExerciseEvidenceQuality(activeGeneratedExercise);
   var qualityNote = ' Evidence quality: ' + quality.level + '. ' + quality.reason;
-  return 'Review my completed ' + (activeGeneratedExercise.title || activeGeneratedExercise.type || 'practice') + ' result: ' + score + Number(result.correct || 0) + '/' + total + ' correct, ' + Number(result.wrong || 0) + ' wrong, ' + Number(result.skipped || 0) + ' skipped.' + qualityNote + diagnosis + ' Tell me what this evidence does and does not show, then give one next move tied to the actual pattern—not another generic question target.';
+  var choices = getActiveExerciseAnswerChoices('');
+  var answerDetails = getActiveExerciseQuestions().map(function(question) {
+    var choice = choices[question.number];
+    if (choice == null) return 'Q' + question.number + ': skipped.';
+    if (question.correct === '') return 'Q' + question.number + ': my answer ' + choice + '; no usable key, ungraded.';
+    var verdict = normalizeGradingAnswer(choice) === normalizeGradingAnswer(question.correct) ? 'correct' : 'incorrect';
+    return 'Q' + question.number + ': my answer ' + choice + '; saved key ' + question.correct + '; ' + verdict + '.';
+  }).join('\n');
+  return 'Review my completed ' + (activeGeneratedExercise.title || activeGeneratedExercise.type || 'practice') + ' result: ' + score + Number(result.correct || 0) + '/' + total + ' correct, ' + Number(result.wrong || 0) + ' wrong, ' + Number(result.skipped || 0) + ' skipped.' + qualityNote + diagnosis + '\nSaved per-question attempt:\n' + answerDetails + '\nTell me what this evidence does and does not show, then give one next move tied to the actual pattern—not another generic question target.';
 }
 
 async function reviewLatestPracticeWithMarg() {
