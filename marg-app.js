@@ -376,7 +376,7 @@ async function persistAcquisitionFunnelEvent(event) {
     'Prefer':'return=minimal'
   };
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/acquisition_funnel_events', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/acquisition_funnel_events', {
       method:'POST',
       headers:headers,
       body:JSON.stringify(payload),
@@ -1235,13 +1235,58 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
 const LOGO_ICON = 'https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png';
 let SUPABASE_TOKEN = null;
+var supabaseRefreshPromise = null;
+
+async function refreshSupabaseSession() {
+  if (supabaseRefreshPromise) return supabaseRefreshPromise;
+  supabaseRefreshPromise = (async function() {
+    var refreshToken = '';
+    try { refreshToken = localStorage.getItem('marg_refresh_token') || ''; } catch(e) {}
+    if (!refreshToken) return false;
+    try {
+      var refreshRes = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY },
+        body:JSON.stringify({ refresh_token:refreshToken })
+      });
+      if (!refreshRes.ok) return false;
+      var refreshData = await refreshRes.json();
+      if (!refreshData.access_token) return false;
+      SUPABASE_TOKEN = refreshData.access_token;
+      localStorage.setItem('marg_token', SUPABASE_TOKEN);
+      if (refreshData.refresh_token) localStorage.setItem('marg_refresh_token', refreshData.refresh_token);
+      if (refreshData.expires_in) localStorage.setItem('marg_token_expiry', String(Date.now() + Number(refreshData.expires_in) * 1000));
+      return true;
+    } catch(error) {
+      console.error('Supabase session refresh failed:', error);
+      return false;
+    }
+  })();
+  try { return await supabaseRefreshPromise; }
+  finally { supabaseRefreshPromise = null; }
+}
+
+async function authenticatedSupabaseFetch(url, options) {
+  var requestOptions = Object.assign({}, options || {});
+  var headers = new Headers(requestOptions.headers || {});
+  if (!headers.has('apikey')) headers.set('apikey', SUPABASE_ANON_KEY);
+  if (SUPABASE_TOKEN) headers.set('Authorization', 'Bearer ' + SUPABASE_TOKEN);
+  requestOptions.headers = headers;
+  var response = await fetch(url, requestOptions);
+  if (response.status !== 401 || !await refreshSupabaseSession()) return response;
+  headers = new Headers(requestOptions.headers || {});
+  headers.set('apikey', SUPABASE_ANON_KEY);
+  headers.set('Authorization', 'Bearer ' + SUPABASE_TOKEN);
+  requestOptions.headers = headers;
+  return fetch(url, requestOptions);
+}
 
 async function sbFetch(path, method, body) {
   const headers = { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Prefer': 'return=minimal' };
   if (SUPABASE_TOKEN) headers['Authorization'] = 'Bearer ' + SUPABASE_TOKEN;
   const opts = { method: method || 'GET', headers };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, opts);
+  const res = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/' + path, opts);
   if (method === 'POST' || method === 'PATCH') return { ok: res.ok, status: res.status };
   if (!res.ok) return { data: null, error: res.status };
   const data = await res.json();
@@ -1307,7 +1352,7 @@ async function upsertCommunityInterest(updates) {
   var payload = Object.assign({ user_id:currentUser.id, updated_at:new Date().toISOString() }, communityInterestState || {}, updates || {});
   delete payload.created_at;
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/community_interest?on_conflict=user_id', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/community_interest?on_conflict=user_id', {
       method:'POST',
       headers:{
         'Content-Type':'application/json',
@@ -1368,7 +1413,7 @@ async function recordEngagementEvent(eventType, metadata, idempotencySuffix) {
   if (engagementRecordedThisSession[idempotencyKey]) return false;
   engagementRecordedThisSession[idempotencyKey] = true;
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/engagement_events?on_conflict=user_id,idempotency_key', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/engagement_events?on_conflict=user_id,idempotency_key', {
       method:'POST',
       headers:{
         'Content-Type':'application/json',
@@ -1462,7 +1507,7 @@ async function getWebPushPublicKey() {
 async function saveWebPushSubscription(subscription) {
   var serialized = subscription && subscription.toJSON ? subscription.toJSON() : null;
   if (!serialized || !serialized.endpoint || !serialized.keys || !serialized.keys.p256dh || !serialized.keys.auth) throw new Error('Browser returned an incomplete push subscription');
-  var response = await fetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?on_conflict=user_id,endpoint', {
+  var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?on_conflict=user_id,endpoint', {
     method:'POST',
     headers:{
       'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY,
@@ -1499,7 +1544,7 @@ async function syncGrantedBrowserPushSubscription() {
 async function getDailyPushReminderState() {
   if (!currentUser || !SUPABASE_TOKEN) return null;
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?select=daily_reminders_enabled&user_id=eq.' + currentUser.id + '&enabled=eq.true', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?select=daily_reminders_enabled&user_id=eq.' + currentUser.id + '&enabled=eq.true', {
       headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN }
     });
     if (!response.ok) return null;
@@ -1512,7 +1557,7 @@ async function getDailyPushReminderState() {
 async function setDailyPushRemindersEnabled(enabled) {
   if (!currentUser || !SUPABASE_TOKEN) return false;
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?user_id=eq.' + currentUser.id, {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/web_push_subscriptions?user_id=eq.' + currentUser.id, {
       method:'PATCH',
       headers:{
         'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY,
@@ -1683,7 +1728,7 @@ async function enqueuePushReminder(reminder) {
   var copy = getPushReminderCopy(reminder);
   var reminderIdentity = reminder.chatContext && (reminder.chatContext.task || reminder.chatContext.action) || reminder.label || reminder.kind;
   var dedupeKey = 'scheduled:' + reminder.kind + ':' + String(reminder.scheduledFor).slice(0, 16) + ':' + simpleStableHash(reminderIdentity);
-  var response = await fetch(SUPABASE_URL + '/rest/v1/push_notification_queue?on_conflict=user_id,dedupe_key', {
+  var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/push_notification_queue?on_conflict=user_id,dedupe_key', {
     method:'POST',
     headers:{
       'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY,
@@ -1992,7 +2037,7 @@ async function createReferralChallenge(snapshot) {
     if (cached && cached.share_token) return cached;
   } catch(e) {}
 
-  var response = await fetch(SUPABASE_URL + '/rest/v1/referral_challenges', {
+  var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/referral_challenges', {
     method:'POST',
     headers:{
       'Content-Type':'application/json',
@@ -2024,7 +2069,7 @@ async function createReferralChallenge(snapshot) {
 async function recordReferralShare(token) {
   if (!token || !SUPABASE_TOKEN) return false;
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/rpc/record_referral_share', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/rpc/record_referral_share', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN },
       body:JSON.stringify({ p_token:token })
@@ -2164,7 +2209,7 @@ async function claimPendingReferralSignup() {
     return false;
   }
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/rpc/claim_referral_signup', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/rpc/claim_referral_signup', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN },
       body:JSON.stringify({ p_token:pending.token, p_visitor_id:pending.visitorId })
@@ -4291,7 +4336,7 @@ async function persistMentorDiagnosis(entry) {
     updated_at:new Date().toISOString()
   };
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_diagnoses?on_conflict=user_id,client_ref&select=*', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_diagnoses?on_conflict=user_id,client_ref&select=*', {
       method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -4333,7 +4378,7 @@ async function persistDiagnosisEvidence(entry, evidence) {
     occurred_at:localEvidence.occurredAt
   };
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_diagnosis_evidence?on_conflict=user_id,client_ref&select=*', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_diagnosis_evidence?on_conflict=user_id,client_ref&select=*', {
       method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -4381,7 +4426,7 @@ async function upsertMentorTaskForDiagnosis(entry, options) {
     updated_at:new Date().toISOString()
   };
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
       method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -4448,7 +4493,7 @@ async function persistGeneratedExerciseTask(exercise) {
       reviewed_at:exercise.reviewedAt || null, updated_at:new Date().toISOString()
     };
     try {
-      var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
+      var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
         method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
       });
       if (!response.ok) { markExecutionLoopUnavailable(response, 'mentor_tasks'); return null; }
@@ -4501,7 +4546,7 @@ async function persistMentorTaskAttempt(exercise, result) {
     started_at:exercise.generatedAt || null, completed_at:completedAt, updated_at:new Date().toISOString()
   };
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?on_conflict=user_id,client_ref&select=*', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?on_conflict=user_id,client_ref&select=*', {
       method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
     });
     if (!response.ok) { markExecutionLoopUnavailable(response, 'mentor_task_attempts'); return null; }
@@ -4526,10 +4571,10 @@ async function updateMentorExecutionReview(exercise, responseText) {
   var attemptId = exercise.mentorAttemptId || null;
   var verdict = exercise.validationVerdict ? String(exercise.validationVerdict).toLowerCase() : null;
   try {
-    if (taskId) await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(taskId), {
+    if (taskId) await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(taskId), {
       method:'PATCH', headers:executionLoopHeaders('return=minimal'), body:JSON.stringify({ status:'reviewed', reviewed_at:exercise.reviewedAt || new Date().toISOString(), updated_at:new Date().toISOString() })
     });
-    if (attemptId) await fetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?id=eq.' + encodeURIComponent(attemptId), {
+    if (attemptId) await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?id=eq.' + encodeURIComponent(attemptId), {
       method:'PATCH', headers:executionLoopHeaders('return=minimal'), body:JSON.stringify({ verdict:verdict, evidence_summary:String(responseText || '').slice(0, 1600), reviewed_at:exercise.reviewedAt || new Date().toISOString(), updated_at:new Date().toISOString() })
     });
     return true;
@@ -4555,7 +4600,7 @@ async function reconcileInterruptedMentorTasks() {
         : 'ready';
     var updatedAt = new Date().toISOString();
     try {
-      var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(task.id) + '&user_id=eq.' + encodeURIComponent(currentUser.id), {
+      var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(task.id) + '&user_id=eq.' + encodeURIComponent(currentUser.id), {
         method:'PATCH', headers:executionLoopHeaders('return=minimal'),
         body:JSON.stringify({ status:nextStatus, updated_at:updatedAt })
       });
@@ -4574,9 +4619,9 @@ async function loadMentorExecutionLoop() {
   if (!canUseMentorExecutionLoop()) return false;
   try {
     var responses = await Promise.all([
-      fetch(SUPABASE_URL + '/rest/v1/mentor_diagnoses?select=*&user_id=eq.' + currentUser.id + '&order=updated_at.desc&limit=20', { headers:executionLoopHeaders() }),
-      fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?select=*&user_id=eq.' + currentUser.id + '&order=updated_at.desc&limit=30', { headers:executionLoopHeaders() }),
-      fetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?select=*&user_id=eq.' + currentUser.id + '&order=completed_at.desc&limit=30', { headers:executionLoopHeaders() })
+      authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_diagnoses?select=*&user_id=eq.' + currentUser.id + '&order=updated_at.desc&limit=20', { headers:executionLoopHeaders() }),
+      authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?select=*&user_id=eq.' + currentUser.id + '&order=updated_at.desc&limit=30', { headers:executionLoopHeaders() }),
+      authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?select=*&user_id=eq.' + currentUser.id + '&order=completed_at.desc&limit=30', { headers:executionLoopHeaders() })
     ]);
     if (responses.some(function(response) { return !response.ok; })) {
       responses.forEach(function(response) { markExecutionLoopUnavailable(response, 'load'); });
@@ -4586,7 +4631,7 @@ async function loadMentorExecutionLoop() {
     mentorExecutionLoop.tasks = await responses[1].json();
     mentorExecutionLoop.attempts = await responses[2].json();
     try {
-      var evidenceResponse = await fetch(SUPABASE_URL + '/rest/v1/mentor_diagnosis_evidence?select=*&user_id=eq.' + currentUser.id + '&order=occurred_at.desc&limit=80', { headers:executionLoopHeaders() });
+      var evidenceResponse = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_diagnosis_evidence?select=*&user_id=eq.' + currentUser.id + '&order=occurred_at.desc&limit=80', { headers:executionLoopHeaders() });
       if (evidenceResponse.ok) mentorExecutionLoop.evidence = await evidenceResponse.json();
       else if (evidenceResponse.status === 404) mentorExecutionLoop.evidenceUnavailable = true;
     } catch(evidenceError) {
@@ -4968,7 +5013,7 @@ function cancelActiveExerciseForChat(message) {
   if (task) {
     task.status = 'cancelled';
     task.updated_at = cancelled.cancelledAt;
-    if (canUseMentorExecutionLoop()) fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(task.id), {
+    if (canUseMentorExecutionLoop()) authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(task.id), {
       method:'PATCH', headers:executionLoopHeaders('return=minimal'),
       body:JSON.stringify({ status:'cancelled', updated_at:cancelled.cancelledAt })
     }).catch(function(error) { console.error('Exercise cancellation persistence error:', error); });
@@ -5562,7 +5607,7 @@ async function persistActiveMentorPlanTask(plan) {
     completed_at:plan.completedAt || null, reviewed_at:plan.lastReviewedAt || null, updated_at:new Date().toISOString()
   };
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
       method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'), body:JSON.stringify(payload)
     });
     if (!response.ok) { markExecutionLoopUnavailable(response, 'mentor_plan_task'); return null; }
@@ -6014,6 +6059,8 @@ async function logout() {
     await fetch(SUPABASE_URL + '/auth/v1/logout', { method: 'POST', headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN } });
   }
   localStorage.removeItem('marg_token');
+  localStorage.removeItem('marg_refresh_token');
+  localStorage.removeItem('marg_token_expiry');
   localStorage.removeItem('marg_user');
   location.href = window.location.origin;
 }
@@ -6038,7 +6085,7 @@ async function saveUserEmail(email) {
       'Authorization': 'Bearer ' + SUPABASE_TOKEN,
       'Prefer': 'resolution=merge-duplicates'
     };
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -6055,14 +6102,14 @@ async function saveProfile() {
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
     const headers = { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' };
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', { method: 'POST', headers, body: JSON.stringify({ user_id: currentUser.id, attempt_number: studentProfile.attemptNumber, months_left: studentProfile.monthsLeft, weakest_section: studentProfile.weakestSection, daily_hours: studentProfile.dailyHours, situation: studentProfile.situation }) });
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', { method: 'POST', headers, body: JSON.stringify({ user_id: currentUser.id, attempt_number: studentProfile.attemptNumber, months_left: studentProfile.monthsLeft, weakest_section: studentProfile.weakestSection, daily_hours: studentProfile.dailyHours, situation: studentProfile.situation }) });
   } catch(e) {}
 }
 
 async function ensureAuthenticatedProfile() {
   if (!currentUser || !SUPABASE_TOKEN) return false;
   try {
-    const response = await fetch(SUPABASE_URL + '/rest/v1/profiles?on_conflict=user_id', {
+    const response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles?on_conflict=user_id', {
       method:'POST',
       headers:{
         'Content-Type':'application/json',
@@ -8493,8 +8540,46 @@ function ensureDiagnosisForwardLead(text, diagnosis) {
 
 function guardPromptInstructionLeak(text, diagnosis) {
   var value = String(text || '');
-  if (!/(?:DIAGNOSIS ENGINE|RESPONSE ORDER IS MANDATORY|QUESTION BUDGET EXHAUSTED|There is not enough evidence for a narrow diagnosis|make one bounded hypothesis from the message|label it as a read)/i.test(value)) return value;
+  if (!/(?:DIAGNOSIS ENGINE|RESPONSE ORDER IS MANDATORY|QUESTION BUDGET EXHAUSTED|There is not enough evidence for a narrow diagnosis|make one bounded hypothesis from the message|label it as a read|This is only a greeting|Respond warmly and briefly|do not diagnose distress)/i.test(value)) return value;
   return buildMentorFallbackReply(diagnosis);
+}
+
+function ensureMockEvidenceContinuation(text, context, diagnosis) {
+  var value = String(text || '').trim();
+  if (context !== 'mock_section_evidence') return value;
+  value = value
+    .replace(/\bThis confirms\b/gi, 'This points to')
+    .replace(/\bThis proves\b/gi, 'This suggests');
+  if (/\[CONTEXT:\s*diagnosis_confirmation_lead\]/i.test(value)) return value;
+  var visible = value.replace(/\[[A-Z_]+:[^\]]*\]/g, '').trim();
+  if (!/[?]\s*$/.test(visible)) {
+    value += '\n\nThat is a working read from this mock, not proof across mocks. Does it match what happened?\n[OPTIONS: Exactly|Mostly|Not Really][CONTEXT: diagnosis_confirmation_lead]';
+  }
+  return value;
+}
+
+function rememberMockWorkingRead(response) {
+  var visible = String(response || '')
+    .replace(/\[[A-Z_]+:[^\]]*\]/g, '')
+    .replace(/^Good (?:morning|afternoon|evening)\.\s*/i, '')
+    .trim();
+  if (!visible) return;
+  var mechanism = visible.split(/\n\s*\n/).slice(0, 2).join(' ').replace(/\s+/g, ' ').slice(0, 900);
+  var now = new Date().toISOString();
+  diagnosticMemory.mock = {
+    selectedSection:'Mock Analysis', topic:'mock', subcategory:activeMockReviewPriority || null,
+    selectedPattern:'One mock review pointed to a possible ' + (activeMockReviewPriority || 'execution') + ' leak.',
+    confirmedDiagnosis:mechanism, confirmation:'Inconclusive', confidence:.48,
+    status:'hypothesis', source:'mock_analysis', updatedAt:now,
+    evidenceHistory:[{
+      clientRef:'mock-self-report-' + simpleStableHash(mechanism + now.slice(0, 10)),
+      type:'self_report', claim:'The student described what happened near the costly moment in this mock.',
+      supports:null, strength:.45, occurredAt:now, payload:{ section:activeMockReviewPriority || null }
+    }]
+  };
+  activeDiagnosticTopic = 'mock';
+  saveDiagnosticMemory();
+  persistMentorDiagnosis(diagnosticMemory.mock);
 }
 
 function guardSectionalEvidenceOverclaim(text, diagnosis) {
@@ -9114,6 +9199,14 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     mentorAnalysis.diagnosis.hasImage = true;
     mentorAnalysis.directive += getImageAnalysisDirective(imageAttachments);
   }
+  if (mentorAnalysis.diagnosis.intent === 'greeting') {
+    var greetingReply = buildMentorFallbackReply(mentorAnalysis.diagnosis);
+    addMessage('marg', renderMentorStructuredText(greetingReply));
+    conversationHistory.push({ role:'assistant', content:greetingReply });
+    if (!isGuestMode) saveChatMessage('assistant', greetingReply);
+    completePendingExternalQuestionTurn();
+    return true;
+  }
   var useWebGrounding = shouldUseWebGrounding(userMessage, mentorAnalysis.diagnosis);
   showTyping(userMessage, mentorAnalysis.diagnosis, useWebGrounding);
   var profileSoFar = '';
@@ -9191,6 +9284,8 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     var geminiText = getGeminiText(data);
     var response = geminiText ? applyMentorResponseGuard(preventStructuredOutputLeak(geminiText), mentorAnalysis.diagnosis) : null;
     if (response) response = enforceVerifiedDILRChatBoundary(response, mentorAnalysis.diagnosis, userMessage, imageAttachments);
+    if (response) response = ensureMockEvidenceContinuation(response, context, mentorAnalysis.diagnosis);
+    if (response && context === 'mock_section_evidence') rememberMockWorkingRead(response);
     if (response) response = stabilizeAndRememberMission(response, userMessage);
     if (response) response = suppressUnrelatedActivePlanReminder(response, userMessage);
     if (response) response = suppressUnrelatedExerciseContinuation(response, userMessage);
@@ -9435,7 +9530,7 @@ async function savePracticeTopicLog() {
         flagged: !!practiceTopicFlagged[key]
       };
     }
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
       body: JSON.stringify({ user_id: currentUser.id, practice_topic_log: payload })
@@ -9453,7 +9548,7 @@ async function saveProfileProgressively() {
     if (studentProfile.situation) updates.situation = studentProfile.situation;
     if (studentProfile.monthsLeft) updates.months_left = studentProfile.monthsLeft;
 
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -11724,12 +11819,13 @@ async function initSession() {
           switchTab(requestedInitialTab || 'home');
         }
 
-        // The feature tour is account-scoped and appears once for a genuine
-        // first session, including users who arrived through a saved homepage
-        // intent. It never replays for returning accounts.
-        checkAndShowTour({ newUser:true, delayMs:700 });
-
       }
+      // A homepage diagnosis can create chat history before Google auth. That
+      // history must not make a genuinely new account look like a returning
+      // user and suppress its one-time product tour.
+      var accountCreatedAt = Date.parse(currentUser && currentUser.created_at || 0);
+      var isFreshAccount = !!(accountCreatedAt && Date.now() - accountCreatedAt < 30 * 60 * 1000);
+      if (!prevOnboarded2 && (isFreshAccount || !hasHistory)) checkAndShowTour({ newUser:true, delayMs:700 });
     });
   } catch(e) { localStorage.removeItem('marg_token'); showLanding(); }
 }
@@ -12126,7 +12222,7 @@ async function saveCognitivePattern(varc, dilr, qa) {
     if (qa) updates.qa_cognitive_pattern = qa;
     if (Object.keys(updates).length === 0) return;
     updates.user_id = currentUser.id;
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -12162,7 +12258,7 @@ async function saveMockScore(varc, dilr, qa) {
     const updated = [...existing, newEntry].slice(-20);
     studentProfile.mockHistory = updated;
 
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -12182,7 +12278,7 @@ async function saveMockScore(varc, dilr, qa) {
 async function saveSessionSummary(summary) {
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -12258,7 +12354,7 @@ function buildEvidenceBoundSessionSummary(history) {
 async function saveLastTask(task, insight) {
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -12302,7 +12398,7 @@ async function saveTomorrowTask(task) {
       'Authorization': 'Bearer ' + SUPABASE_TOKEN,
       'Prefer': 'resolution=merge-duplicates'
     };
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -12436,7 +12532,7 @@ function submitProfileSetup() {
     newUserProfile = { category: category, tenth: tenth, twelfth: twelfth, grad: grad, mock: mock, weak: weak, email: email };
 
     if (email && currentUser) {
-      fetch(SUPABASE_URL + '/rest/v1/profiles', {
+      authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
         body: JSON.stringify({ user_id: currentUser.id, notification_email: email })
@@ -12696,6 +12792,17 @@ function getLatestTopicProgress() {
   })[0] || null;
 }
 
+function studentFacingTaskObjective(task) {
+  if (!task) return '';
+  var objective = String(task.objective || '').trim();
+  if (!objective || /Continue the student|Targeted CAT practice based on the student|Reliable CAT practice|Evidence-based CAT RC diagnosis/i.test(objective)) {
+    var section = normalizeExecutionSection(task.section);
+    var label = section === 'varc' ? 'RC' : section === 'dilr' ? 'DILR' : section === 'qa' ? 'QA' : 'CAT';
+    return 'Continue the exact ' + label + ' work you started. Your place and recorded choices are saved.';
+  }
+  return objective;
+}
+
 function getDurableMentorTaskRecommendation() {
   if (!mentorExecutionLoop || !mentorExecutionLoop.loaded) return null;
   var openTasks = (mentorExecutionLoop.tasks || []).filter(function(task) {
@@ -12713,7 +12820,7 @@ function getDurableMentorTaskRecommendation() {
   var evidence = attempt ? [attempt.correct + '/' + (Number(attempt.correct || 0) + Number(attempt.wrong || 0) + Number(attempt.skipped || 0)) + ' correct', attempt.evidence_summary].filter(Boolean).join('. ') : '';
   return {
     title:task.status === 'evidence_ready' ? 'Your result is saved. Now decide what it proved.' : task.title,
-    copy:compactHomeText(task.status === 'evidence_ready' ? (evidence || task.success_metric) : task.objective, 230),
+    copy:compactHomeText(task.status === 'evidence_ready' ? (evidence || task.success_metric) : studentFacingTaskObjective(task), 230),
     label:task.status === 'evidence_ready' ? 'Evidence waiting' : 'Your saved next move',
     cta:task.status === 'evidence_ready' ? 'Review the evidence →' : 'Start the saved task →',
     action:{ destination:'durable_task', taskId:task.id }
@@ -12910,6 +13017,29 @@ function resumeDurableMentorTask(taskId) {
     if (attempt) activeGeneratedExercise.mentorAttemptId = attempt.id;
     try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
   }
+  if (activeGeneratedExercise && activeGeneratedExercise.awaitingAnswers && /^rc-lab-/i.test(String(activeGeneratedExercise.source || '')) && getArticleRCExerciseData(activeGeneratedExercise)) {
+    switchTab('chat');
+    addArticleRCAttemptMessage(activeGeneratedExercise);
+    return;
+  }
+  if (activeGeneratedExercise && activeGeneratedExercise.awaitingAnswers && task.destination === 'practice' && activeGeneratedExercise.content) {
+    var savedType = activeGeneratedExercise.type === 'varc' ? 'rc' : activeGeneratedExercise.type;
+    if (['rc','dilr','qa'].indexOf(savedType) !== -1) {
+      switchTab('practice');
+      cancelActivePracticeLoad();
+      currentPracticeType = savedType;
+      practiceData[savedType] = activeGeneratedExercise.content;
+      currentSetIndex = 0;
+      currentQuestionIndex = 0;
+      practiceAnswered = false;
+      practiceTopicChosen = true;
+      document.querySelectorAll('.ptab-btn').forEach(function(button) { button.classList.remove('active'); });
+      var savedTab = document.getElementById('ptab-' + savedType);
+      if (savedTab) savedTab.classList.add('active');
+      renderPractice(activeGeneratedExercise.content);
+      return;
+    }
+  }
   if (activeGeneratedExercise && activeGeneratedExercise.type === 'strategy' && activeGeneratedExercise.awaitingAnswers) {
     switchTab('chat');
     var strategyReplay = formatStoredExerciseForReplay(activeGeneratedExercise);
@@ -12937,7 +13067,7 @@ function resumeDurableMentorTask(taskId) {
   switchTab('chat');
   renderTransientMentorContinuity(
     'durable-task-' + task.id,
-    'Your saved task is still here: ' + task.title + '.\n\n' + task.objective,
+    'Your saved task is still here: ' + task.title + '.\n\n' + studentFacingTaskObjective(task),
     task.id
   );
 }
@@ -15591,7 +15721,7 @@ async function updateCognitivePattern(type, insight) {
     var profMap = { rc: 'varcPattern', dilr: 'dilrPattern', qa: 'qaPattern' };
     var col = colMap[type];
 
-    var res = await fetch(SUPABASE_URL + '/rest/v1/profiles?select=' + col + '&user_id=eq.' + currentUser.id, {
+    var res = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles?select=' + col + '&user_id=eq.' + currentUser.id, {
       headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN }
     });
     var data = await res.json();
@@ -15602,7 +15732,7 @@ async function updateCognitivePattern(type, insight) {
     var updates = { user_id: currentUser.id };
     updates[col] = parts;
 
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
       body: JSON.stringify(updates)
@@ -15626,7 +15756,7 @@ async function incrementSessionCount() {
   try {
     var newCount = (studentProfile.sessionsCount || 0) + 1;
     studentProfile.sessionsCount = newCount;
-    await fetch(SUPABASE_URL + '/rest/v1/profiles', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN, 'Prefer': 'resolution=merge-duplicates' },
       body: JSON.stringify({ user_id: currentUser.id, sessions_count: newCount })
@@ -15735,7 +15865,7 @@ async function loadReferralChallengeStats() {
   var card = document.getElementById('referral-progress-card');
   if (!card || !currentUser || !SUPABASE_TOKEN || isGuestMode) return false;
   try {
-    var response = await fetch(SUPABASE_URL + '/rest/v1/rpc/get_my_referral_stats', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/rpc/get_my_referral_stats', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + SUPABASE_TOKEN },
       body:'{}'
@@ -16245,7 +16375,7 @@ function selectFeedback(btn) {
 async function submitFeedback() {
   var text = document.getElementById('feedback-text').value;
   try {
-    await fetch(SUPABASE_URL + '/rest/v1/feedback', {
+    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + (SUPABASE_TOKEN || SUPABASE_ANON_KEY) },
       body: JSON.stringify({ user_id: currentUser ? currentUser.id : 'guest', selected: feedbackSelected || 'none', text: text, page: 'marg_chat', sessions: studentProfile ? studentProfile.sessionsCount : 0 })
