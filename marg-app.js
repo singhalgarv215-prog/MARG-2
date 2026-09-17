@@ -4466,6 +4466,7 @@ async function persistGeneratedExerciseTask(exercise) {
         completedAt:exercise.completedAt || null, reviewedAt:exercise.reviewedAt || null,
         cancelledAt:exercise.cancelledAt || null,
         validationVerdict:exercise.validationVerdict || null,
+        hypothesisVerdict:exercise.hypothesisVerdict || null,
         uiSelections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : []
       } }
     });
@@ -4542,7 +4543,7 @@ async function persistMentorTaskAttempt(exercise, result) {
       evidence_quality:evidenceQuality
     },
     evidence_summary:String(result.evidenceSummary || (Number(result.correct || 0) + '/' + total + ' correct; ' + Number(result.wrong || 0) + ' wrong; ' + Number(result.skipped || 0) + ' skipped.')).slice(0, 1600),
-    verdict:exercise.validationVerdict ? String(exercise.validationVerdict).toLowerCase() : null,
+    verdict:getExerciseHypothesisVerdict(exercise),
     started_at:exercise.generatedAt || null, completed_at:completedAt, updated_at:new Date().toISOString()
   };
   try {
@@ -4569,7 +4570,7 @@ async function updateMentorExecutionReview(exercise, responseText) {
   if (!exercise || !canUseMentorExecutionLoop()) return false;
   var taskId = exercise.mentorTaskId || null;
   var attemptId = exercise.mentorAttemptId || null;
-  var verdict = exercise.validationVerdict ? String(exercise.validationVerdict).toLowerCase() : null;
+  var verdict = getExerciseHypothesisVerdict(exercise);
   try {
     if (taskId) await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(taskId), {
       method:'PATCH', headers:executionLoopHeaders('return=minimal'), body:JSON.stringify({ status:'reviewed', reviewed_at:exercise.reviewedAt || new Date().toISOString(), updated_at:new Date().toISOString() })
@@ -4792,6 +4793,10 @@ function markActiveExerciseDelivered(surface) {
   if (!activeGeneratedExercise.deliveredAt) activeGeneratedExercise.deliveredAt = new Date().toISOString();
   activeGeneratedExercise.deliveryState = 'rendered';
   activeGeneratedExercise.deliverySurface = surface || activeGeneratedExercise.deliverySurface || 'unknown';
+  var priorMaterial = (conversationHistory || []).slice().reverse().find(function(item) {
+    return item && item.role === 'assistant' && !/^\[MARG_INTERNAL:/.test(item.content || '') && (String(item.content || '').match(/(?:^|\n)\s*[A-D][.)]\s+[^\n]+/gm) || []).length >= 4;
+  });
+  activeGeneratedExercise.visibleMaterialAtDelivery = priorMaterial ? String(priorMaterial.content || '').replace(/<[^>]*>/g, ' ').replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
   if (/practice|sectional|prediction-validation/i.test(String(activeGeneratedExercise.source || ''))) {
     markPracticeSeen(activeGeneratedExercise.type === 'varc' ? 'rc' : activeGeneratedExercise.type, activeGeneratedExercise.content);
   }
@@ -4926,7 +4931,36 @@ function maybeReplayActiveExercise(message) {
 
 function hasPendingExerciseReview() {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
-  return !!(activeGeneratedExercise && activeGeneratedExercise.result && activeGeneratedExercise.reviewPending !== false && !activeGeneratedExercise.reviewedAt);
+  return !!(isActiveExerciseCurrentInConversation() && activeGeneratedExercise.result && activeGeneratedExercise.reviewPending !== false && !activeGeneratedExercise.reviewedAt);
+}
+
+// A numbered answer is not an exercise identity. A newer passage in the
+// conversation must never inherit the old widget's key, result or selections.
+function isActiveExerciseCurrentInConversation() {
+  if (!activeGeneratedExercise || !activeGeneratedExercise.content) return false;
+  var content = activeGeneratedExercise.content;
+  var normalize = function(value) { return String(value || '').replace(/<[^>]*>/g, ' ').replace(/[^a-z0-9]/gi, '').toLowerCase(); };
+  var material = normalize(content.exerciseText || '');
+  var sets = content.structuredData && content.structuredData.sets || content.sets || [];
+  var passage = normalize(sets[0] && (sets[0].passage || sets[0].setup) || '');
+  var history = typeof conversationHistory !== 'undefined' ? conversationHistory || [] : [];
+  for (var i = history.length - 1; i >= 0; i--) {
+    var item = history[i];
+    if (!item || item.role !== 'assistant' || /^\[MARG_INTERNAL:/.test(item.content || '')) continue;
+    var text = String(item.content || '');
+    // Review headings are not new exercises; require actual option blocks.
+    var options = text.match(/(?:^|\n)\s*[A-D][.)]\s+[^\n]+/gm) || [];
+    if (options.length < 4) continue;
+    var visible = normalize(text);
+    // A dedicated Practice/sectional can be newer than the last chat passage.
+    // Its delivery baseline prevents that older chat from invalidating it.
+    if (/practice|sectional/i.test(activeGeneratedExercise.deliverySurface || '') && activeGeneratedExercise.visibleMaterialAtDelivery === visible) return true;
+    if (item.exerciseId === activeGeneratedExercise.id) return true;
+    if (passage.length > 80 && visible.indexOf(passage.slice(0, 180)) !== -1) return true;
+    if (material.length > 80 && (visible === material || visible.indexOf(material.slice(0, 180)) !== -1)) return true;
+    return false;
+  }
+  return true; // Dedicated Practice surfaces need not duplicate their text in chat.
 }
 
 function isExerciseResultReviewRequest(message) {
@@ -4936,7 +4970,7 @@ function isExerciseResultReviewRequest(message) {
 }
 
 function markExerciseReviewCompleted(responseText) {
-  if (!activeGeneratedExercise || !activeGeneratedExercise.result || !isExerciseResultReviewRequest(findRecentUserMessage())) return;
+  if (!isActiveExerciseCurrentInConversation() || !activeGeneratedExercise.result || !(isExerciseResultReviewRequest(findRecentUserMessage()) || isAnswerReviewRequest(findRecentUserMessage()))) return;
   activeGeneratedExercise.reviewPending = false;
   activeGeneratedExercise.reviewedAt = new Date().toISOString();
   activeGeneratedExercise.reviewSummary = String(responseText || '').substring(0, 600);
@@ -5031,6 +5065,7 @@ function cancelActiveExerciseForChat(message) {
 }
 
 function getActiveExerciseQuestions() {
+  if (!isActiveExerciseCurrentInConversation()) return [];
   if (!activeGeneratedExercise || !activeGeneratedExercise.content) return [];
   var content = activeGeneratedExercise.content;
   if (Array.isArray(content.answerKey) && content.answerKey.length) {
@@ -5051,7 +5086,7 @@ function getActiveExerciseQuestions() {
 
 function parseSubmittedAnswerChoices(message) {
   var found = {};
-  var text = String(message || '');
+  var text = String(message || '').replace(/["“”‘’]/g, ' ');
   // Pasted RCs often place "Answer - D" at the end of each Q1/Q2 block.
   // Preserve that association instead of guessing choices from nearby options.
   text.replace(/(?:^|\n)\s*Q(?:uestion)?\s*(\d{1,2})\s*[-:.)]?[\s\S]*?\b(?:my\s+)?answer\s*[-:]\s*([A-D])\b(?=[\s\S]*?(?:\n\s*Q(?:uestion)?\s*\d{1,2}\s*[-:.)]?|$))/gi, function(_, number, letter) {
@@ -5164,11 +5199,22 @@ function guardPastedAnswerChoiceIntegrity(response, diagnosis) {
 
 function hasVerifiedActiveAnswerKey() {
   var status = activeGeneratedExercise && activeGeneratedExercise.validationVerdict && activeGeneratedExercise.validationVerdict.status;
-  return /^(?:verified_local|independently_verified|preverified)$/.test(String(status || ''));
+  return /^(?:verified_local|independently_verified|preverified)$/.test(String(status || '')) && isActiveExerciseCurrentInConversation();
+}
+
+function getExerciseHypothesisVerdict(exercise) {
+  var value = exercise && (exercise.hypothesisVerdict || (typeof exercise.validationVerdict === 'string' ? exercise.validationVerdict : ''));
+  return /^(?:supported|rejected|inconclusive)$/i.test(String(value || '')) ? String(value).toLowerCase() : null;
 }
 
 function guardExerciseAbilityOverclaim(response) {
-  return String(response || '').replace(/[^.!?\n]*\byour\b[^.!?\n]*(?:strong|solid|perfect|proven)[^.!?\n]*(?:across all|all sub[ -]?topics|entire foundation|whole foundation)[^.!?\n]*[.!]?/gi,
+  return String(response || '').replace(/[^.!?\n]*\b(?:proves?|demonstrates conclusively)\b[^.!?\n]*\b(?:comprehension|reading ability|foundation)\b[^.!?\n]*[.!]?/gi,
+    'You got these answers right, but the score alone does not tell us whether the first read was clear or whether rereading helped.')
+    .replace(/[^.!?\n]*(?:the issue (?:isn['’]?t|is not) a failure of ["“]?active reading|your main accuracy barrier[^.!?\n]*(?:wasn['’]?t|was not) comprehension)[^.!?\n]*[.!]?/gi,
+      'Your first-read understanding still needs checking; this score cannot rule out difficulty mapping the passage.')
+    .replace(/[^.!?\n]*(?:which caused your Q\d+ error|only need to return[^.!?\n]*for 5 seconds)[^.!?\n]*[.!]?/gi,
+      'We still need to check which part of the reading or option comparison caused difficulty.')
+    .replace(/[^.!?\n]*\byour\b[^.!?\n]*(?:strong|solid|perfect|proven)[^.!?\n]*(?:across all|all sub[ -]?topics|entire foundation|whole foundation)[^.!?\n]*[.!]?/gi,
     'These answers tell us about the topics checked here, not your entire foundation.')
     .replace(/\bcomprehension (?:isn['’]?t|is not) (?:your |the )?(?:issue|problem)(?: at all)?\b/gi,
       'comprehension may not be the only issue; we still need to check how you locate and interpret the claim');
@@ -5181,6 +5227,17 @@ function guardHintOnlyResponse(response) {
   return text.replace(/\[(?:OPTIONS|CONTEXT|HYPOTHESIS_VERDICT|MARG_INTERNAL)[^\]]*\]/g, '').trim();
 }
 
+function guardMissingExerciseControl(response) {
+  var text = String(response || '');
+  if (!/\b(?:click|press|tap)\s+(?:the\s+)?Start\b|\bI (?:have |just )?(?:launched|opened) (?:the |this |your )?(?:check|test|passage)\b/i.test(text)) return text;
+  if (/\[START_TEST:[^\]]*\]/.test(text)) return text; // The real renderer consumes this command.
+  var visibleCard = typeof document !== 'undefined' && typeof document.querySelector === 'function' && document.querySelector('.test-module, .article-rc-attempt');
+  if (!visibleCard) return 'The passage card isn’t visible here yet. Want me to generate a fresh RC with four clickable questions here?';
+  // RC cards have choices and Next/Submit, not a fictional Start button.
+  if (activeGeneratedExercise && /^rc-lab-/.test(activeGeneratedExercise.source || '')) return text.replace(/[^.!?\n]*\b(?:click|press|tap)\s+(?:the\s+)?Start\b[^.!?\n]*[.!]?/gi, 'Use the clickable choices in the RC card, then Next and Submit answers.');
+  return text;
+}
+
 function guardAnswerVerdictConsistency(response, diagnosis) {
   var text = String(response || '');
   var plain = text.replace(/\*\*/g, '');
@@ -5189,6 +5246,16 @@ function guardAnswerVerdictConsistency(response, diagnosis) {
   var stored = typeof activeGeneratedExercise !== 'undefined' && hasVerifiedActiveAnswerKey() && !(diagnosis && diagnosis.freshPastedMaterial);
   var localChoices = stored ? getActiveExerciseAnswerChoices(diagnosis && diagnosis.submittedAnswerText || '') : {};
   var questions = stored ? getActiveExerciseQuestions() : [];
+  // The model explains; it does not get a vote on a checked answer key.
+  // Recompute the verdict from this submission on EVERY review, not only
+  // when a regex happens to recognise a contradiction in the model prose.
+  if (stored && diagnosis && diagnosis.intent === 'answer_review' && Object.keys(localChoices).length && !isSingleAnswerExplanationRequest(diagnosis.submittedAnswerText)) {
+    var authoritativeReview = buildLocalAnswerCheck(diagnosis.submittedAnswerText || 'Review my answers');
+    if (authoritativeReview) {
+      diagnosis.gradingIntegrityRepaired = true;
+      return authoritativeReview + '\n\nWant to go through the reasoning for one answer together?';
+    }
+  }
   var reviews = [], conflict = false;
   var token = '([A-D]|[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:\\s*\\/\\s*[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))?)';
   for (var i = 1; i < pieces.length; i += 2) {
@@ -5220,6 +5287,7 @@ function guardAnswerVerdictConsistency(response, diagnosis) {
     });
     var score = /(?:score\s*[:—-]?|you got)\s*(\d+)\s*\/\s*(\d+)\s*(?:correct|right)/i.exec(plain);
     if (score && reviewed && (Number(score[1]) !== correct || Number(score[2]) !== reviewed)) conflict = true;
+    if (reviews.length && reviewed > reviews.length && Object.keys(choices).length >= 2) conflict = true;
   }
   if (!conflict) return text;
   if (diagnosis) diagnosis.gradingIntegrityRepaired = true;
@@ -5239,15 +5307,25 @@ function guardAnswerVerdictConsistency(response, diagnosis) {
   return repaired + '\n\nI’m not using the conflicting verdict to score or diagnose you. Want to work through Q' + (disputed ? disputed.number : '') + ' step by step before we move on?\n[HYPOTHESIS_VERDICT: inconclusive]';
 }
 
+function isSingleAnswerExplanationRequest(message) {
+  var text = String(message || '');
+  return Object.keys(parseSubmittedAnswerChoices(text)).length < 2 &&
+    /\b(?:why|explain|reason|reasoning|understand|how)\b/i.test(text) &&
+    /\b(?:q(?:uestion)?\s*\d+|option\s*[A-D])\b/i.test(text);
+}
+
 function findRecentSubmittedAnswerText(message) {
   if (Object.keys(parseSubmittedAnswerChoices(message)).length) return message;
   for (var i = conversationHistory.length - 1; i >= Math.max(0, conversationHistory.length - 8); i--) {
+    if (conversationHistory[i].role === 'assistant' && /(?:^|\n)\s*A[.)]\s+/m.test(conversationHistory[i].content || '')) break;
     if (conversationHistory[i].role === 'user' && Object.keys(parseSubmittedAnswerChoices(conversationHistory[i].content)).length) return conversationHistory[i].content;
   }
   return message;
 }
 
 function buildLocalAnswerCheck(message) {
+  if (!hasVerifiedActiveAnswerKey()) return '';
+  if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(message)) return '';
   var questions = getActiveExerciseQuestions();
   if (!questions.length) return '';
   var choices = getActiveExerciseAnswerChoices(message);
@@ -5261,7 +5339,7 @@ function buildLocalAnswerCheck(message) {
     if (isCorrect) correctCount++;
     var diagnosis = isCorrect
       ? (question.explanation || 'Your choice matches the stored answer and the tested condition.')
-      : (question.pattern || question.explanation || 'Your choice moved away from the condition or scope being tested.');
+      : (question.explanation || 'Your choice moved away from the condition or scope being tested.');
     var block = 'Q' + question.number + ' — ' + (isCorrect ? '✅ Correct.' : '❌ Incorrect.') + ' You chose ' + selected + '; the saved answer is ' + question.correct + '.\n' + diagnosis;
     if (!isCorrect) {
       block += '\nBefore marking next time, name the exact evidence that makes your option necessary.';
@@ -5278,9 +5356,12 @@ function buildLocalAnswerCheck(message) {
 }
 
 function getActiveExerciseAnswerChoices(message) {
+  if (!isActiveExerciseCurrentInConversation()) return {};
   var explicit = getConversationAnswerChoices(message);
   if (Object.keys(explicit).length) return explicit;
   if (!activeGeneratedExercise || !activeGeneratedExercise.content) return {};
+  // "Yes" after an explanation means continue, not resubmit an old attempt.
+  if (String(message || '').trim() && !isExerciseResultReviewRequest(message) && !/\b(?:review|check|answers?|choices?|q(?:uestion)?\s*\d+|score)\b/i.test(String(message || ''))) return {};
   var found = {}, content = activeGeneratedExercise.content;
   (activeGeneratedExercise.uiSelections || []).forEach(function(selection) {
     var parts = String(selection.position || '').split('.').map(Number);
@@ -5291,7 +5372,10 @@ function getActiveExerciseAnswerChoices(message) {
       for (var i = 0; i < parts[0] - 1; i++) number += (content.sets[i].questions || []).length;
     }
     if (!Number.isInteger(number) || number < 1 || number > getActiveExerciseQuestions().length || selection.selected == null) return;
-    found[number] = typeof selection.selected === 'number' ? String.fromCharCode(65 + selection.selected) : String(selection.selected).trim().toUpperCase();
+    var rawQuestions = Array.isArray(content.questions) ? content.questions : (content.sets || []).reduce(function(list, set) { return list.concat(set.questions || []); }, []);
+    var rawQuestion = rawQuestions[number - 1];
+    var numericInput = rawQuestion && (!Array.isArray(rawQuestion.options) || !rawQuestion.options.length);
+    found[number] = typeof selection.selected === 'number' && !numericInput ? String.fromCharCode(65 + selection.selected) : String(selection.selected).trim().toUpperCase();
   });
   if (Object.keys(found).length) return found;
   var resultAnswers = activeGeneratedExercise.result && activeGeneratedExercise.result.answers;
@@ -5307,6 +5391,24 @@ function getActiveExerciseAnswerChoices(message) {
   }
   if (!Object.keys(found).length) found = parseSubmittedAnswerChoices(activeGeneratedExercise.lastSubmittedAnswers || '');
   return found;
+}
+
+function maybeCompleteVerifiedAnswerReview(message) {
+  if (pendingExternalQuestionTurnMode || Object.keys(getConversationAnswerChoices(message)).length < 2) return false;
+  var review = buildLocalAnswerCheck(message);
+  if (!review) return false;
+  // The exact questions already have checked explanations. Deliver their
+  // score immediately; an unavailable model must not block or rescore them.
+  review += '\n\nWant to go through the reasoning for one answer together?';
+  applyPredictionValidationVerdict(review);
+  markExerciseReviewCompleted(review);
+  var visible = stripInternalMentorTags(review);
+  addMessage('marg', renderMentorStructuredText(visible));
+  conversationHistory.push({role:'assistant',content:visible});
+  if (!isGuestMode) saveChatMessage('assistant',visible);
+  lastFailedOutgoingMessage = null;
+  showComposerStatus('', 'info');
+  return true;
 }
 
 function hasVerifiedRepeatedAnswerError(message) {
@@ -5329,7 +5431,7 @@ function getRCWrongAnswerEvidence(message) {
   var choices = getActiveExerciseAnswerChoices(message);
 
   var wrongMechanisms = [];
-  if (activeIsRC) {
+  if (activeIsRC && hasVerifiedActiveAnswerKey()) {
     getActiveExerciseQuestions().forEach(function(question) {
       var selected = choices[question.number];
       if (selected != null && selected !== '' && question.correct !== '' && normalizeGradingAnswer(selected) !== normalizeGradingAnswer(question.correct)) wrongMechanisms.push(question.pattern || question.explanation || '');
@@ -5498,6 +5600,9 @@ function buildPredictionValidationFallback(message) {
 
 function getGeneratedExerciseMemoryContext(message) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(message)) return '\n\nUse only the newly pasted passage/questions for this turn. The saved exercise key belongs to different material and must not be applied.';
+  if (!isActiveExerciseCurrentInConversation()) return '\n\nEXERCISE IDENTITY: The newest passage/questions in this conversation are different from the saved exercise. Do not use the old key, score or selections. Check only the newest visible material and the answers supplied in this turn. If verification fails, leave it ungraded. Never ask the student to paste it again.';
+  if (!hasVerifiedActiveAnswerKey()) return '\n\nUNVERIFIED SAVED EXERCISE: The saved answer key has no valid verification status. Do not use it to grade, score or diagnose the student. The visible questions are still in conversation history; do not ask for another paste. Explain what can be established from the visible evidence, and leave any unchecked verdict ungraded.';
   var text = String(message || '').toLowerCase();
   var isFollowUp = isAnswerReviewRequest(message) || isExerciseResultReviewRequest(message) || /\b(?:q(?:uestion)?\s*\d+|why\s+(?:is|was)|explain\s+(?:this|the|q|question|answer|option)|this\s+(?:question|set|passage)|the\s+(?:question|set|passage))\b/.test(text);
   var isValidationFollowUp = isPredictionValidationExercise(activeGeneratedExercise) &&
@@ -5509,15 +5614,16 @@ function getGeneratedExerciseMemoryContext(message) {
     isValidationFollowUp = false;
   }
   if (!activeGeneratedExercise || (!isFollowUp && !isValidationFollowUp)) return '';
-  var memoryJson = JSON.stringify(activeGeneratedExercise);
+  var memoryJson = JSON.stringify(activeGeneratedExercise, function(key, value) { return key === 'visibleMaterialAtDelivery' ? undefined : value; });
   if (memoryJson.length > 24000) memoryJson = memoryJson.substring(0, 24000) + '...';
-  return '\n\nACTIVE GENERATED EXERCISE MEMORY — this was created by Marg. Never ask the student to resend it. Check the current response against it now:\n' + memoryJson +
+  return '\n\nACTIVE GENERATED EXERCISE MEMORY — this was created by Marg. Never ask the student to resend it. Check the current response against it now:\n' + memoryJson + '\nElapsed seconds are wall-clock time and may include pauses or leaving the page. Do not infer reading speed or time per stage from this number. Correct answers after rereading do not prove first-read comprehension. A single error is not a repeated pattern.' +
     (activeGeneratedExercise.result && activeGeneratedExercise.reviewPending !== false ? '\nThe completed result is waiting for interpretation. Lead with what this evidence does and does not show, connect it to the stored hypothesis or error pattern, and give exactly one next move. Do not answer with score praise or another generic volume target.' + getExerciseEvidenceContext(activeGeneratedExercise) : '') +
     (activeGeneratedExercise.hypothesis ? '\nThis exercise tested a stored hypothesis. Explain the evidence naturally. Silently include exactly one [HYPOTHESIS_VERDICT: supported|rejected|inconclusive] tag so memory can update; never show report-style verdict labels to the student. Do not protect the original prediction if evidence contradicts it.' : '');
 }
 
 function markActiveExerciseAttempt(answerText, force) {
-  if (!activeGeneratedExercise || (!force && !isAnswerReviewRequest(answerText))) return;
+  if (!isActiveExerciseCurrentInConversation() || (!force && !isAnswerReviewRequest(answerText))) return;
+  if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(answerText)) return;
   activeGeneratedExercise.lastSubmittedAnswers = String(answerText || '').substring(0, 1000);
   activeGeneratedExercise.lastAttemptAt = new Date().toISOString();
   activeGeneratedExercise.awaitingAnswers = false;
@@ -5531,7 +5637,7 @@ function markActiveExerciseAttempt(answerText, force) {
 
 function applyPredictionValidationVerdict(responseText) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
-  if (!isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.hypothesis) return null;
+  if (!isActiveExerciseCurrentInConversation() || !isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.hypothesis) return null;
   var match = String(responseText || '').match(/\[HYPOTHESIS_VERDICT:\s*(supported|rejected|inconclusive)\s*\]/i) || String(responseText || '').match(/\b(SUPPORTED|REJECTED|INCONCLUSIVE)\b/i);
   if (!match) return null;
   var verdict = match[1].toUpperCase();
@@ -5540,7 +5646,7 @@ function applyPredictionValidationVerdict(responseText) {
   // cognitive diagnosis. The only honest verdict in that state is inconclusive.
   if (!evidenceQuality.usable) verdict = 'INCONCLUSIVE';
   var hypothesis = activeGeneratedExercise.hypothesis;
-  activeGeneratedExercise.validationVerdict = verdict;
+  activeGeneratedExercise.hypothesisVerdict = verdict;
   activeGeneratedExercise.validatedAt = new Date().toISOString();
   activeGeneratedExercise.awaitingAnswers = false;
   var entry = diagnosticMemory[hypothesis.topic] || hypothesis;
@@ -6234,17 +6340,97 @@ async function logout() {
   location.href = window.location.origin;
 }
 
-async function saveChatMessage(role, msgContent) {
-  if (!currentUser || !SUPABASE_TOKEN) return;
+var chatOutboxFlushes = {};
+var lastChatLocalTimestamp = 0;
+
+function readChatOutbox(userId) {
   try {
-    const result = await sbFetch('chats', 'POST', {
-      user_id: currentUser.id,
-      role: role,
-      content: msgContent
-    });
-    if (!result.ok) console.error('Chat save failed:', result.status);
-  } catch(e) { console.error('Chat save error:', e); }
+    var rows = JSON.parse(localStorage.getItem('marg_chat_outbox_v1_' + userId) || '[]');
+    return Array.isArray(rows) ? rows.filter(function(row) { return row && row.user_id === userId && row.id && typeof row.content === 'string'; }) : [];
+  } catch(e) { return []; }
 }
+
+function writeChatOutbox(userId, rows) {
+  try { localStorage.setItem('marg_chat_outbox_v1_' + userId, JSON.stringify(rows)); return true; }
+  catch(e) { console.error('Local chat backup unavailable:', e); return false; }
+}
+
+function enqueueChatWrite(row, operation) {
+  var rows = readChatOutbox(row.user_id);
+  var existing = rows.find(function(item) { return item.id === row.id; });
+  if (existing) existing.content = row.content;
+  else rows.push(Object.assign({}, row, { operation:operation || 'insert' }));
+  return writeChatOutbox(row.user_id, rows);
+}
+
+function mergePendingChatWrites(chats, userId) {
+  var merged = (chats || []).map(function(row) { return Object.assign({}, row); });
+  readChatOutbox(userId).forEach(function(row) {
+    var existing = merged.find(function(item) { return item.id === row.id; });
+    if (existing) existing.content = row.content;
+    else merged.push(Object.assign({}, row));
+  });
+  return merged.sort(function(a, b) { return String(a.created_at || '').localeCompare(String(b.created_at || '')); });
+}
+
+function flushChatOutbox(userId) {
+  if (!userId || !currentUser || currentUser.id !== userId || !SUPABASE_TOKEN) return Promise.resolve(false);
+  if (chatOutboxFlushes[userId]) return chatOutboxFlushes[userId];
+  chatOutboxFlushes[userId] = (async function() {
+    while (currentUser && currentUser.id === userId && SUPABASE_TOKEN) {
+      var pending = readChatOutbox(userId)[0];
+      if (!pending) return true;
+      var sent = Object.assign({}, pending), result;
+      try {
+        if (sent.operation === 'update') {
+          result = await sbFetch('chats?id=eq.' + encodeURIComponent(sent.id) + '&user_id=eq.' + encodeURIComponent(userId), 'PATCH', {content:sent.content});
+        } else {
+          // A stable client UUID lets a timed-out write be reconciled without
+          // creating a second copy of the same turn. Existing rows stay owned by RLS.
+          result = await sbFetch('chats', 'POST', {id:sent.id, user_id:userId, role:sent.role, content:sent.content, created_at:sent.created_at});
+          if (result && result.status === 409) {
+            var lookup = await sbFetch('chats?select=id,content&id=eq.' + encodeURIComponent(sent.id) + '&user_id=eq.' + encodeURIComponent(userId), 'GET');
+            var existing = lookup && lookup.data && lookup.data[0];
+            if (existing && existing.content === sent.content) result = {ok:true};
+            else if (existing) result = await sbFetch('chats?id=eq.' + encodeURIComponent(sent.id) + '&user_id=eq.' + encodeURIComponent(userId), 'PATCH', {content:sent.content});
+          }
+        }
+      } catch(e) { console.error('Chat sync failed:', e); return false; }
+      if (!result || !result.ok) return false;
+      var rows = readChatOutbox(userId);
+      var latest = rows.find(function(row) { return row.id === sent.id; });
+      if (latest && latest.content !== sent.content) latest.operation = 'update';
+      else rows = rows.filter(function(row) { return row.id !== sent.id; });
+      if (!writeChatOutbox(userId, rows)) return false;
+    }
+    return false;
+  })().finally(function() { delete chatOutboxFlushes[userId]; });
+  return chatOutboxFlushes[userId];
+}
+
+async function saveChatMessage(role, msgContent) {
+  if (!currentUser || !SUPABASE_TOKEN) return false;
+  var userId = currentUser.id;
+  var item = conversationHistory.slice().reverse().find(function(entry) { return entry.role === role && entry.content === msgContent && !entry.id; });
+  var id = crypto.randomUUID();
+  // Preserve turn order even when two saves are scheduled in one millisecond.
+  lastChatLocalTimestamp = Math.max(Date.now(), lastChatLocalTimestamp + 1);
+  var createdAt = new Date(lastChatLocalTimestamp).toISOString();
+  if (item) { item.id = id; item.createdAt = createdAt; }
+  var backedUp = enqueueChatWrite({id:id,user_id:userId,role:role,content:msgContent,created_at:createdAt}, 'insert');
+  if (!backedUp) {
+    try {
+      var direct = await sbFetch('chats', 'POST', {id:id,user_id:userId,role:role,content:msgContent,created_at:createdAt});
+      if (!direct.ok) showComposerStatus('This message could not be saved. Keep this tab open and check your connection.', 'error', true);
+      return !!direct.ok;
+    } catch(e) { showComposerStatus('This message could not be saved. Keep this tab open and check your connection.', 'error', true); return false; }
+  }
+  var synced = await flushChatOutbox(userId);
+  if (!synced && currentUser && currentUser.id === userId) showComposerStatus('Your recent messages are backed up in this browser; account sync is pending.', 'info', true);
+  return synced;
+}
+
+window.addEventListener('online', function() { if (currentUser) flushChatOutbox(currentUser.id); });
 async function saveUserEmail(email) {
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
@@ -6298,8 +6484,10 @@ async function ensureAuthenticatedProfile() {
 
 async function loadUserData() {
   if (!currentUser || !SUPABASE_TOKEN) return false;
+  var loadingUserId = currentUser.id;
   try {
     const { data: profiles } = await sbFetch('profiles?select=*&user_id=eq.' + currentUser.id, 'GET');
+    if (!currentUser || currentUser.id !== loadingUserId) return false;
     const profile = profiles && profiles.length ? profiles[0] : null;
     var profileHasOnboardingData = false;
 
@@ -6339,7 +6527,10 @@ async function loadUserData() {
       saveTopicProgression();
     }
 
-    const { data: chats } = await sbFetch('chats?select=*&user_id=eq.' + currentUser.id + '&order=created_at.asc', 'GET');
+    // Request the newest rows first; PostgREST's row cap must not drop recent turns.
+    const chatResult = await sbFetch('chats?select=*&user_id=eq.' + loadingUserId + '&order=created_at.desc&limit=1000', 'GET');
+    if (!currentUser || currentUser.id !== loadingUserId) return false;
+    const chats = mergePendingChatWrites(chatResult.data || [], loadingUserId);
     if (chats && chats.length > 0) {
       conversationHistory = chats.map(function(c) { return { id:c.id || null, role:c.role, content:c.content, createdAt:c.created_at || null }; });
     }
@@ -6347,8 +6538,19 @@ async function loadUserData() {
     hydrateDiagnosticMemoryFromHistory();
     loadMentorMemory();
     sanitizeLoadedContinuityMemory();
+    flushChatOutbox(loadingUserId);
     return !!(profileHasOnboardingData || (chats && chats.length));
-  } catch(e) { return false; }
+  } catch(e) {
+    // A failed profile request must not strand the locally backed-up turns.
+    if (!currentUser || currentUser.id !== loadingUserId) return false;
+    var pending = readChatOutbox(loadingUserId);
+    if (pending.length) {
+      var existingRows = conversationHistory.map(function(item) { return {id:item.id,role:item.role,content:item.content,created_at:item.createdAt}; });
+      conversationHistory = mergePendingChatWrites(existingRows, loadingUserId).map(function(row) { return {id:row.id,role:row.role,content:row.content,createdAt:row.created_at}; });
+      return true;
+    }
+    return false;
+  }
 }
 
 function updateUserUI(user) {
@@ -6526,6 +6728,7 @@ function applyRegeneratedReplyGuard(response, diagnosis) {
   text = guardUnusableExerciseEvidence(text, diagnosis);
   text = guardVagueMentorAdvice(text, diagnosis);
   text = guardMalformedChatExercise(text);
+  text = guardMissingExerciseControl(text);
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
   text = guardExerciseAbilityOverclaim(text);
   text = guardAnswerVerdictConsistency(text, diagnosis);
@@ -6555,18 +6758,23 @@ function isLatestAssistantBubble(wrap) {
 
 async function persistRegeneratedAssistantMessage(historyItem, previousContent, nextContent) {
   if (!currentUser || !SUPABASE_TOKEN || !historyItem) return false;
+  var userId = currentUser.id;
   var rowId = historyItem.id || null;
   try {
     if (!rowId) {
-      var result = await sbFetch('chats?select=id,content&user_id=eq.' + currentUser.id + '&role=eq.assistant&order=created_at.desc&limit=20', 'GET');
+      var result = await sbFetch('chats?select=id,content&user_id=eq.' + userId + '&role=eq.assistant&order=created_at.desc&limit=20', 'GET');
       var rows = result && result.data || [];
-      var match = rows.find(function(row) { return String(row.content || '') === String(previousContent || ''); });
+      var matches = rows.filter(function(row) { return String(row.content || '') === String(previousContent || ''); });
+      var match = matches.length === 1 ? matches[0] : null;
       rowId = match && match.id || null;
     }
-    if (!rowId) return false;
-    var updated = await sbFetch('chats?id=eq.' + encodeURIComponent(rowId), 'PATCH', { content:nextContent });
-    if (updated && updated.ok) historyItem.id = rowId;
-    return !!(updated && updated.ok);
+    if (!rowId || !currentUser || currentUser.id !== userId) return false;
+    historyItem.id = rowId;
+    if (!enqueueChatWrite({id:rowId,user_id:userId,role:'assistant',content:nextContent,created_at:historyItem.createdAt || new Date().toISOString()}, 'update')) {
+      var updated = await sbFetch('chats?id=eq.' + encodeURIComponent(rowId) + '&user_id=eq.' + encodeURIComponent(userId), 'PATCH', { content:nextContent });
+      return !!(updated && updated.ok);
+    }
+    return await flushChatOutbox(userId);
   } catch(e) {
     console.error('Regenerated response save failed:', e);
     return false;
@@ -6584,8 +6792,9 @@ function renderAssistantVersion(wrap, versionIndex) {
   bubble.removeAttribute('style');
   bubble.innerHTML = renderGroundingSourcesForChat(renderMentorStructuredText(content));
   decoratePassageMessage(wrap);
-  var historyIndex = latestVisibleAssistantHistoryIndex();
-  if (historyIndex >= 0) conversationHistory[historyIndex].content = content;
+  // This bubble can be older than the latest reply. Never edit a different turn.
+  var historyItem = wrap._margHistoryItem;
+  if (historyItem && conversationHistory.indexOf(historyItem) >= 0) historyItem.content = content;
   var nav = wrap.querySelector('.message-version-nav');
   if (nav) {
     var label = nav.querySelector('.message-version-count');
@@ -6606,10 +6815,12 @@ function ensureResponseVersionNavigator(wrap) {
   nav.addEventListener('click', function(event) {
     var button = event.target.closest('[data-version-step]');
     if (!button) return;
-    var oldContent = conversationHistory[latestVisibleAssistantHistoryIndex()] && conversationHistory[latestVisibleAssistantHistoryIndex()].content;
+    var item = wrap._margHistoryItem;
+    var oldContent = item && item.content;
     renderAssistantVersion(wrap, (wrap._margResponseVersionIndex || 0) + Number(button.getAttribute('data-version-step')));
-    var item = conversationHistory[latestVisibleAssistantHistoryIndex()];
-    if (item) persistRegeneratedAssistantMessage(item, oldContent, item.content);
+    if (item && conversationHistory.indexOf(item) >= 0) persistRegeneratedAssistantMessage(item, oldContent, item.content).then(function(saved) {
+      setMessageActionStatus(wrap, saved ? 'Version saved' : 'Version changed; account sync pending');
+    });
   });
   actions.insertBefore(nav, actions.querySelector('.message-action-status'));
   renderAssistantVersion(wrap, wrap._margResponseVersions.length - 1);
@@ -6642,6 +6853,7 @@ async function regenerateAssistantMessage(wrap) {
     return;
   }
   var previousContent = String(historyItem.content || '');
+  wrap._margHistoryItem = historyItem;
   var versions = Array.isArray(wrap._margResponseVersions) ? wrap._margResponseVersions.slice() : [previousContent];
   responseRegenerationInFlight = true;
   var retryButton = wrap.querySelector('[data-message-action="retry"]');
@@ -6653,7 +6865,7 @@ async function regenerateAssistantMessage(wrap) {
     var regenerationInstruction = '\n\nREWRITE-ONLY CONTRACT: You are revising one existing answer, not continuing the conversation. Keep its exact purpose, conclusion, factual claims and next step. Make it clearer and more natural, but do not add a heading, diagnosis, exercise, mission, action step, timeline, follow-up question or new advice that the existing answer did not contain. Do not turn a short answer into a lesson. Return only the rewritten answer.';
     var regenerationMaterial = 'ORIGINAL USER MESSAGE:\n' + userMessage + '\n\nEXISTING ANSWER TO REWRITE:\n' + previousContent;
     var request = buildGeminiRequest(
-      SYSTEM_PROMPT + getDateContext() + regenerationInstruction,
+      SYSTEM_PROMPT + getDateContext() + getGeneratedExerciseMemoryContext(userMessage) + regenerationInstruction,
       [{ role:'user', content:regenerationMaterial }],
       getMentorResponseMaxTokens(diagnosis.diagnosis)
     );
@@ -6670,10 +6882,10 @@ async function regenerateAssistantMessage(wrap) {
     versions.push(regenerated);
     wrap._margResponseVersions = versions;
     historyItem.content = regenerated;
-    await persistRegeneratedAssistantMessage(historyItem, previousContent, regenerated);
+    var versionSaved = await persistRegeneratedAssistantMessage(historyItem, previousContent, regenerated);
     ensureResponseVersionNavigator(wrap);
     renderAssistantVersion(wrap, versions.length - 1);
-    setMessageActionStatus(wrap, 'New version');
+    setMessageActionStatus(wrap, versionSaved ? 'New version saved' : 'New version; account sync pending');
   } catch(e) {
     console.error('Response regeneration failed:', e);
     setMessageActionStatus(wrap, e && e.name === 'AbortError' ? 'Regeneration timed out' : 'Could not regenerate');
@@ -8502,6 +8714,7 @@ function buildDiagnosisDirective(message) {
   var unansweredBeforeGreeting = diagnosis.intent === 'greeting' ? getUnansweredUserMessageBeforeGreeting(message) : '';
   var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
   directive += '\nCURRENT-TURN ANCHOR: The newest student message controls this reply. Answer its exact section, topic and request first. Older diagnoses, missions, exercises and profile memories are context only. Do not revive a saved task, switch sections, ask an unrelated profile question, or launch an exercise unless it directly completes the newest request.';
+  directive += '\nRC EVIDENCE: Correct answers after rereading do not prove first-read understanding. Ask about the reading process when relevant. Elapsed time may include pauses; do not invent reading-stage timings, a guaranteed lookup speed, or a cause for an error. A yes accepts the immediately preceding offer; it does not resubmit saved answers. Never claim a Start button or launched test exists without an actual interface command.';
   if (diagnosis.intent === 'greeting') directive += unansweredBeforeGreeting
     ? '\nGREETING CONTINUITY: Greet in one short clause, then answer the most recent earlier user question because it has no valid assistant answer. Do not diagnose the greeting and do not ask a new intake question before answering.'
     : '\nGREETING CONTINUITY: This is only a greeting. Reply warmly and briefly, then ask what CAT work they want help with. Do not infer a problem, weak section or emotional state.';
@@ -8741,6 +8954,7 @@ function ensureDiagnosisForwardLead(text, diagnosis) {
 
 function guardPromptInstructionLeak(text, diagnosis) {
   var value = String(text || '');
+  if (/I do not have enough evidence to name one cause yet[\s\S]*last concrete CAT question/i.test(value)) return buildMentorFallbackReply(diagnosis);
   if (!/(?:DIAGNOSIS ENGINE|RESPONSE ORDER IS MANDATORY|QUESTION BUDGET EXHAUSTED|There is not enough evidence for a narrow diagnosis|make one bounded hypothesis from the message|label it as a read|This is only a greeting|Respond warmly and briefly|do not diagnose distress)/i.test(value)) return value;
   return buildMentorFallbackReply(diagnosis);
 }
@@ -8814,7 +9028,7 @@ function guardMockScoreArithmeticOverclaim(text, diagnosis) {
 }
 
 function guardUnusableExerciseEvidence(text, diagnosis) {
-  if (!activeGeneratedExercise || !activeGeneratedExercise.result) return text;
+  if (!isActiveExerciseCurrentInConversation() || !activeGeneratedExercise.result) return text;
   var quality = assessExerciseEvidenceQuality(activeGeneratedExercise);
   if (quality.usable) return text;
   var recentMessage = findRecentUserMessage();
@@ -8866,6 +9080,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardUnusableExerciseEvidence(text, diagnosis);
   text = guardVagueMentorAdvice(text, diagnosis);
   text = guardMalformedChatExercise(text);
+  text = guardMissingExerciseControl(text);
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
   text = guardExerciseAbilityOverclaim(text);
   text = guardAnswerVerdictConsistency(text, diagnosis);
@@ -8881,7 +9096,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   var visibleValue = text.replace(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g, '').trim();
   var valueWithoutQuestions = visibleValue.replace(/[^.!?\n]*\?/g, '').trim();
   if (valueWithoutQuestions.length < 18 && diagnosis && diagnosis.likelyHiddenProblem) {
-    text = 'My read: ' + diagnosis.likelyHiddenProblem + (text ? '\n' + text : '');
+    text = text || buildMentorFallbackReply(diagnosis);
   }
   text = formatMultiAnswerReview(text, diagnosis);
   text = enforceDirectRCWrongAnswerClose(text, diagnosis);
@@ -8895,7 +9110,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardTimeAllocationArithmetic(text);
   // Do not mechanically slice model output. The prompt controls normal reply
   // length; hard word caps were capable of manufacturing mid-answer cutoffs.
-  if (!text) text = diagnosis && diagnosis.likelyHiddenProblem ? 'My read: ' + diagnosis.likelyHiddenProblem : 'My read is that the visible problem is not the whole problem. Let us work from the last concrete thing that went wrong.';
+  if (!text) text = buildMentorFallbackReply(diagnosis);
   return text;
 }
 
@@ -8917,16 +9132,26 @@ function getMentorRequestTimeout(diagnosis, useWebGrounding) {
 }
 
 function buildMentorFallbackReply(diagnosis) {
-  if (!diagnosis) return 'My read is that the visible problem is not the whole problem. Start with the last concrete question or set that went wrong and look for the decision that caused it.';
+  if (!diagnosis) return 'I couldn’t finish this reply. Your message is still here; use Retry response to continue from it.';
+  var userText = String(diagnosis.submittedAnswerText || '');
+  if (/\b(?:said|saying|marked)\b[\s\S]{0,100}\b(?:wrong|incorrect)\b[\s\S]{0,100}\b(?:correct|right)\b/i.test(userText)) return 'Those verdicts contradict each other. That is a grading error from Marg, not evidence that you made those mistakes. I won’t count the disputed answers against you. Retry this response and I’ll re-check the passage you actually answered, without using an older key.';
+  if (/^(?:yes(?: sure)?|sure|yep)[.!\s]*$/i.test(userText)) {
+    var latest = (conversationHistory || []).slice().reverse().find(function(item) { return item && item.role === 'assistant' && !/^\[MARG_INTERNAL:/.test(item.content || ''); });
+    if (latest && /\b(?:go through|step by step|explain|work through)\b/i.test(latest.content || '')) {
+      if (hasVerifiedActiveAnswerKey()) {
+        var choices = getActiveExerciseAnswerChoices(findRecentSubmittedAnswerText(''));
+        var questions = getActiveExerciseQuestions();
+        var question = questions.find(function(item) { return choices[item.number] != null && normalizeGradingAnswer(choices[item.number]) !== normalizeGradingAnswer(item.correct); }) || questions.find(function(item) { return choices[item.number] != null; });
+        if (question && question.explanation) return 'Let’s take Q' + question.number + '. You chose ' + choices[question.number] + '; the checked answer is ' + question.correct + '.\n\n' + question.explanation + '\n\nWhich words in your option made it feel right when you chose it?';
+      }
+      return 'You’re saying yes to working through that answer, not starting a new diagnosis. I couldn’t finish that explanation this time. Retry this response and we’ll continue from the same question; your passage and answers are still here.';
+    }
+  }
   if (diagnosis.intent === 'greeting') return getTimeGreeting() + '. What are you working on in CAT right now?';
   if (diagnosis.intent === 'answer_review') return 'Your questions and answers are still in this conversation. I couldn’t finish checking them this time, so I won’t mark them or diagnose you from an unchecked answer. Use Retry response here; you don’t need to paste them again.';
-  if (diagnosis.intent === 'confidence_breakdown') return 'This sounds less like a verdict on your CAT ability and more like one bad pattern becoming your whole self-assessment. For today, shrink the problem: review the last three misses and label each one concept, selection, or execution—the repeated label is what we fix.';
   if (diagnosis.intent === 'returning_memory') return studentProfile.lastTask ? 'The saved open task is: ' + studentProfile.lastTask + '. The useful move now is to see where it actually broke, not replace it.' : 'There is no reliable unfinished task in the saved conversation. Start from the last concrete result rather than another profile intake.';
   if (diagnosis.intent === 'vague') return studentProfile.weakestSection ? 'My first read is that "help" means the problem feels too tangled to name. Given your ' + studentProfile.weakestSection + ' pattern, the likely issue is either selection, execution, or not knowing the first move—which one feels closest?' : 'When someone can only say "help," it usually means one of three things: scores are stuck, the plan feels chaotic, or confidence has dropped. Pick the closest one and I will give you a read, not an interview.';
-  if (diagnosis.intent === 'varc_diagnosis') return 'My first read: your English is probably not the main issue; marks are leaking between understanding the passage and choosing the final option. Check whether your last three misses were scope shifts, extreme wording, or changed answers.';
-  if (diagnosis.intent === 'dilr_diagnosis') return 'My first read: the failure is probably happening before the calculations—in set selection, the representation you choose, or one missed constraint. On the next set, record the exact minute the setup stopped progressing; that tells us which one.';
-  if (diagnosis.intent === 'qa_diagnosis') return 'My first read: this is either concept recall, recognizing the setup, or execution after a correct setup. Label your last five misses with those three buckets; the largest bucket is the real QA problem.';
-  return 'My first read: ' + diagnosis.likelyHiddenProblem;
+  return 'I couldn’t finish the response to your latest message. Your conversation is still here. Use Retry response on this reply and we’ll continue from the same point—no need to repeat your story.';
 }
 
 function buildPersonalMockComparisonFallback(userMessage) {
@@ -9403,6 +9628,8 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     captureProgressiveProfileDetails(userMessage);
     if (!isGuestMode) saveChatMessage('user', userMessage);
   }
+  if (!(Array.isArray(imageAttachments) && imageAttachments.length) && maybeCompleteVerifiedAnswerReview(userMessage)) return true;
+  if (!(Array.isArray(imageAttachments) && imageAttachments.length) && await maybeGenerateConversationalRC(userMessage)) return true;
   if (isAdHocDILRGenerationRequest(userMessage, imageAttachments)) {
     return routeAdHocDILRRequestToVerifiedInterface(userMessage);
   }
@@ -10267,7 +10494,7 @@ function parseExplicitPracticeLaunchRequest(message) {
   if (/\b(?:one more|another)\s+question\b/i.test(text) && /\b(?:this|same)\s+passage\b/i.test(text)) return null;
 
   var type = /\b(?:dilr|lrdi|logical reasoning|data interpretation)\b/i.test(text) ? 'dilr'
-    : /\b(?:rc|reading comprehension|varc passage)\b/i.test(text) ? 'rc'
+    : /\b(?:rc|reading comprehension|(?:fresh|new|another|full|short|single|one)\s+(?:CAT[ -](?:style|length)\s+)?passage|passage check|varc passage)\b/i.test(text) ? 'rc'
     : /\b(?:qa|quant|quants|percentages?|ratio|proportion|profit|loss|time[ -]speed|quadratic|linear equation|algebra|geometry|mensuration|logarithm|number system|probability|permutation|combination)\b/i.test(text) ? 'qa'
     : null;
   if (!type) return null;
@@ -10290,6 +10517,11 @@ function parseExplicitPracticeLaunchRequest(message) {
 
 async function maybeGenerateConversationalRC(message) {
   var request = parseExplicitPracticeLaunchRequest(message);
+  var latestAssistant = (conversationHistory || []).slice().reverse().find(function(item) { return item && item.role === 'assistant' && !/^\[MARG_INTERNAL:/.test(item.content || ''); });
+  var previous = String(latestAssistant && latestAssistant.content || '');
+  var acceptsPassage = /^(?:yes(?: sure)?|yep|sure|okay|ok|let['’]?s do it|go ahead)[.!\s]*$/i.test(String(message || '').trim()) && /\b(?:want|shall|ready|would you like)\b[^?\n]{0,160}\b(?:fresh|new|another|full|short|one)[^?\n]{0,50}\b(?:passage|RC)\b/i.test(previous);
+  var missingControl = /\b(?:don['’]?t|do not|can['’]?t|cannot)\s+(?:see|find)\b[^.!?\n]{0,45}\b(?:start|button|check)\b/i.test(String(message || '')) && /\b(?:passage|RC|reading)\b/i.test(previous);
+  if (acceptsPassage || missingControl) request = {type:'rc',topic:null};
   if (!request || request.type !== 'rc' || /\b(?:practice|practise)\s+(?:tab|section|page)\b/i.test(String(message || ''))) return false;
   // Reuse the existing checked, four-question RC card inside this thread.
   // A conversational request must not silently navigate away from the chat.
@@ -10547,6 +10779,11 @@ async function sendMessage(fromQueue, submissionOptions) {
   noteMentorPlanCompletionClaim(text);
   var predictionValidationReply = isPredictionValidationReply(text);
   if (!pendingExternalQuestionTurnMode && (isAnswerReviewRequest(text) || predictionValidationReply)) markActiveExerciseAttempt(text, predictionValidationReply);
+
+  if (!hasImages && maybeCompleteVerifiedAnswerReview(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
 
   if (!hasImages && (await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
@@ -11706,14 +11943,14 @@ function buildArticleRCAttemptHtml(exercise) {
   }).join('');
   var steps = questions.map(function(_item, stepIndex) {
     var classes = 'article-rc-step' + (stepIndex === index ? ' active' : '') + (Number.isInteger(state.selections[stepIndex]) ? ' answered' : '');
-    return '<button type="button" class="' + classes + '" onclick="goToArticleRCQuestion(' + stepIndex + ')" aria-label="Question ' + (stepIndex + 1) + '">' + (stepIndex + 1) + '</button>';
+    return '<button type="button" class="' + classes + '" onclick="goToArticleRCQuestion(' + stepIndex + ',this)" aria-label="Question ' + (stepIndex + 1) + '">' + (stepIndex + 1) + '</button>';
   }).join('');
   var options = (question.options || []).map(function(option, optionIndex) {
     var selected = state.selections[index] === optionIndex;
     var className = 'article-rc-option' + (selected ? ' selected' : '');
     if (submitted && optionIndex === Number(question.correct)) className += ' correct';
     else if (submitted && selected && optionIndex !== Number(question.correct)) className += ' wrong';
-    return '<button type="button" class="' + className + '" onclick="chooseArticleRCOption(' + optionIndex + ')" aria-pressed="' + (selected ? 'true' : 'false') + '"' + (submitted ? ' disabled' : '') + '><span class="article-rc-letter">' + String.fromCharCode(65 + optionIndex) + '</span><span>' + escapeVisualText(cleanArticleRCOption(option)) + '</span></button>';
+    return '<button type="button" class="' + className + '" onclick="chooseArticleRCOption(' + optionIndex + ',this)" aria-pressed="' + (selected ? 'true' : 'false') + '"' + (submitted ? ' disabled' : '') + '><span class="article-rc-letter">' + String.fromCharCode(65 + optionIndex) + '</span><span>' + escapeVisualText(cleanArticleRCOption(option)) + '</span></button>';
   }).join('');
   var nextDisabled = !Number.isInteger(state.selections[index]) || index >= questions.length - 1;
   var allAnswered = answered === questions.length;
@@ -11722,10 +11959,10 @@ function buildArticleRCAttemptHtml(exercise) {
   var kicker = labConfig.fallback ? 'RC Lab · verified mixed fallback' : 'RC Lab' + (labConfig.focusLabel ? ' · ' + labConfig.focusLabel : '');
   return '<div class="article-rc-head"><div><div class="article-rc-kicker">' + escapeVisualText(kicker) + '</div><div class="article-rc-title">' + escapeVisualText(exercise.title || setObj.topic || 'CAT reading passage') + '</div></div><div><div class="article-rc-progress">' + (index + 1) + ' / ' + questions.length + '</div><div class="article-rc-timer" data-rc-timer>' + elapsedLabel + '</div></div></div>' +
     '<div class="article-rc-step-row">' + steps + '</div>' +
-    '<div class="article-rc-tools"><button type="button" class="article-rc-tool primary" onclick="toggleArticleRCPassage()">' + (state.passageOpen ? 'Hide passage' : 'View passage') + '</button><button type="button" class="article-rc-tool" onclick="openArticleRCPassageFocus(this)">Focus · Aa</button></div>' +
+    '<div class="article-rc-tools"><button type="button" class="article-rc-tool primary" onclick="toggleArticleRCPassage(this)">' + (state.passageOpen ? 'Hide passage' : 'View passage') + '</button><button type="button" class="article-rc-tool" onclick="openArticleRCPassageFocus(this)">Focus · Aa</button></div>' +
     '<div class="article-rc-passage passage-reading-content"' + (state.passageOpen ? '' : ' hidden') + '>' + passageHtml + '</div>' +
     '<div class="article-rc-question-area"><div class="article-rc-question-label">Question ' + (index + 1) + '</div><div class="article-rc-question">' + escapeVisualText(convertLatexToPlainText(question.q || '')) + '</div><div class="article-rc-options">' + options + '</div></div>' +
-    '<div class="article-rc-nav"><span class="article-rc-count">' + answered + ' of ' + questions.length + ' answered</span><button type="button" class="article-rc-prev" onclick="moveArticleRCQuestion(-1)"' + (index === 0 ? ' disabled' : '') + '>Previous</button>' + (index < questions.length - 1 ? '<button type="button" class="article-rc-next" onclick="moveArticleRCQuestion(1)"' + (nextDisabled ? ' disabled' : '') + '>Next</button>' : '') + '<button type="button" class="article-rc-submit" onclick="submitArticleRCAttempt()"' + (!allAnswered || submitted ? ' disabled' : '') + '>' + (submitted ? 'Submitted' : 'Submit answers') + '</button></div>' +
+    '<div class="article-rc-nav"><span class="article-rc-count">' + answered + ' of ' + questions.length + ' answered</span><button type="button" class="article-rc-prev" onclick="moveArticleRCQuestion(-1,this)"' + (index === 0 ? ' disabled' : '') + '>Previous</button>' + (index < questions.length - 1 ? '<button type="button" class="article-rc-next" onclick="moveArticleRCQuestion(1,this)"' + (nextDisabled ? ' disabled' : '') + '>Next</button>' : '') + '<button type="button" class="article-rc-submit" onclick="submitArticleRCAttempt(this)"' + (!allAnswered || submitted ? ' disabled' : '') + '>' + (submitted ? 'Submitted' : 'Submit answers') + '</button></div>' +
     '<div class="article-rc-submit-note' + (submitted ? ' done' : '') + '">' + note + '</div>';
 }
 
@@ -11764,7 +12001,17 @@ function addArticleRCAttemptMessage(exercise) {
   return wrap;
 }
 
-function chooseArticleRCOption(optionIndex) {
+function isCurrentArticleRCControl(button) {
+  if (!activeGeneratedExercise) return false;
+  if (!button) return true; // Internal calls already operate on the active artifact.
+  var card = button.closest('.article-rc-attempt');
+  var matches = card && card.getAttribute('data-exercise-id') === activeGeneratedExercise.id;
+  if (!matches && typeof showComposerStatus === 'function') showComposerStatus('This is an older RC card. Use the latest card below; your older answers are unchanged.', 'info');
+  return !!matches;
+}
+
+function chooseArticleRCOption(optionIndex, button) {
+  if (!isCurrentArticleRCControl(button)) return;
   var data = getArticleRCExerciseData(activeGeneratedExercise);
   if (!data || activeGeneratedExercise.awaitingAnswers === false) return;
   var state = ensureArticleRCState(activeGeneratedExercise);
@@ -11774,7 +12021,8 @@ function chooseArticleRCOption(optionIndex) {
   renderActiveArticleRCWidget();
 }
 
-function goToArticleRCQuestion(questionIndex) {
+function goToArticleRCQuestion(questionIndex, button) {
+  if (!isCurrentArticleRCControl(button)) return;
   var data = getArticleRCExerciseData(activeGeneratedExercise);
   if (!data) return;
   var state = ensureArticleRCState(activeGeneratedExercise);
@@ -11783,12 +12031,14 @@ function goToArticleRCQuestion(questionIndex) {
   renderActiveArticleRCWidget();
 }
 
-function moveArticleRCQuestion(direction) {
+function moveArticleRCQuestion(direction, button) {
+  if (!isCurrentArticleRCControl(button)) return;
   var state = ensureArticleRCState(activeGeneratedExercise);
   goToArticleRCQuestion(state.currentIndex + Number(direction || 0));
 }
 
-function toggleArticleRCPassage() {
+function toggleArticleRCPassage(button) {
+  if (!isCurrentArticleRCControl(button)) return;
   if (!activeGeneratedExercise) return;
   var state = ensureArticleRCState(activeGeneratedExercise);
   state.passageOpen = !state.passageOpen;
@@ -11800,7 +12050,8 @@ function openArticleRCPassageFocus(button) {
   if (wrap) openPassageReadingMode(wrap);
 }
 
-function submitArticleRCAttempt() {
+function submitArticleRCAttempt(button) {
+  if (!isCurrentArticleRCControl(button)) return;
   var data = getArticleRCExerciseData(activeGeneratedExercise);
   if (!data || activeGeneratedExercise.awaitingAnswers === false) return;
   var state = ensureArticleRCState(activeGeneratedExercise);
@@ -11819,7 +12070,7 @@ function submitArticleRCAttempt() {
   activeGeneratedExercise.awaitingAnswers = false;
   activeGeneratedExercise.completedAt = new Date().toISOString();
   activeGeneratedExercise.reviewPending = true;
-  activeGeneratedExercise.result = { correct:correct, wrong:questions.length - correct, skipped:0, total:questions.length, answers:answers, elapsedSeconds:Math.max(0, Math.round((state.completedAt - Number(state.startedAt || state.completedAt)) / 1000)) };
+  activeGeneratedExercise.result = { exerciseId:activeGeneratedExercise.id, timingBasis:'wall_clock_including_pauses', correct:correct, wrong:questions.length - correct, skipped:0, total:questions.length, answers:answers, elapsedSeconds:Math.max(0, Math.round((state.completedAt - Number(state.startedAt || state.completedAt)) / 1000)) };
   activeGeneratedExercise.lastSubmittedAnswers = answers.join(', ');
   // Save the completed card before handing the answers to chat. sendMessage()
   // performs the single durable EXERCISE write; doing it here too produced two
@@ -11829,7 +12080,7 @@ function submitArticleRCAttempt() {
   var input = document.getElementById('user-input');
   if (!input) return;
   var submittedConfig = activeGeneratedExercise.content && activeGeneratedExercise.content.rcLab || {};
-  input.value = 'My RC Lab answers are ' + answers.join(', ') + '. I took ' + activeGeneratedExercise.result.elapsedSeconds + ' seconds. I chose this focus: ' + (submittedConfig.focusLabel || 'mixed RC') + '. Check each answer, then tell me what my choices actually show and what the next RC should test.';
+  input.value = 'My RC Lab answers are ' + answers.join(', ') + '. The elapsed timer was ' + activeGeneratedExercise.result.elapsedSeconds + ' seconds (it may include pauses). I chose this focus: ' + (submittedConfig.focusLabel || 'mixed RC') + '. Check every answer against this passage, then tell me what my choices actually show and what the next RC should test.';
   input.dispatchEvent(new Event('input', { bubbles:true }));
   sendMessage();
 }
