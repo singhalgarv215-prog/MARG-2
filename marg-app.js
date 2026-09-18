@@ -2784,8 +2784,51 @@ function runIndiaTimeTests() {
 
 var geminiRetryBlockedUntil = 0;
 var geminiRetryBlockedStatus = 429;
+var dilrEngineLoadPromise = null;
+
+async function ensureDILREngine() {
+  if (typeof MargDILREngine !== 'undefined') return MargDILREngine;
+  if (!dilrEngineLoadPromise) dilrEngineLoadPromise = new Promise(function(resolve,reject) {
+    var script = document.createElement('script');
+    var timer = setTimeout(function(){dilrEngineLoadPromise=null;script.remove();reject(new Error('DILR solver loading timed out'));},12000);
+    script.src = '/dilr-engine.js?v=20260918-backend3';
+    script.onload = function() {
+      clearTimeout(timer);
+      if (typeof MargDILREngine !== 'undefined') resolve(MargDILREngine);
+      else { dilrEngineLoadPromise = null; reject(new Error('DILR solver did not load')); }
+    };
+    script.onerror = function() { clearTimeout(timer);dilrEngineLoadPromise = null; reject(new Error('DILR solver could not load')); };
+    document.body.appendChild(script);
+  });
+  return dilrEngineLoadPromise;
+}
+
+async function constructVerifiedDILRResponse(request, signal) {
+  var engine = await ensureDILREngine();
+  if (signal && signal.aborted) throw new DOMException('Request cancelled','AbortError');
+  var seed = Math.floor(Math.random() * 4294967296) ^ Date.now();
+  var data, verification;
+  for (var attempt=0;attempt<8;attempt++) {
+    try { data = engine.create(request.margDILRTopic, (seed + attempt * 2654435761) >>> 0, request.margDILRSetCount); }
+    catch(constructionError) { if(attempt===7) throw constructionError;continue; }
+    verification = engine.verify(data, request.margDILRTopic);
+    if (!verification.valid) throw new Error('DILR construction failed its independent code proof');
+    if (!wasPracticeRecentlySeen('dilr',data)) break;
+  }
+  if (wasPracticeRecentlySeen('dilr',data)) throw new Error('No unseen DILR structure was constructed');
+  if (signal && signal.aborted) throw new DOMException('Request cancelled','AbortError');
+  return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(data)}]},finishReason:'STOP'}],margRequest:{upstreamCalls:0,construction:'exhaustive-code-solver'}}), {status:200,headers:{'Content-Type':'application/json','X-Marg-Upstream-Calls':'0'}});
+}
 
 async function fetchWithTimeout(url, options, timeoutMs) {
+  // DILR construction is finite-domain code, not an upstream AI draft. It
+  // remains usable during Google quota, location and service failures. The
+  // same path covers Practice, full sectionals and diagnosis/re-tests.
+  if (url === WORKER_URL && options && typeof options.body === 'string') {
+    var localRequest = null;
+    try { localRequest = JSON.parse(options.body); } catch(e) {}
+    if (localRequest && localRequest.margAction === 'construct_dilr') return constructVerifiedDILRResponse(localRequest, options.signal);
+  }
   if (url === WORKER_URL && Date.now() < geminiRetryBlockedUntil) {
     var cooldownError = new Error('A controlled retry already failed; waiting before another Gemini request');
     cooldownError.name = 'GeminiAPIError';
@@ -2807,6 +2850,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   // seconds; larger generation flows pass their own longer budgets.
   var requestedTimeout = Number(timeoutMs);
   var effectiveTimeout = Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? requestedTimeout : 60000;
+  if (url === WORKER_URL) options = Object.assign({}, options, { headers:Object.assign({}, options && options.headers, {'X-Marg-Timeout-Ms':String(Math.max(1000,effectiveTimeout-1500))}) });
   var timeoutId = setTimeout(function() { controller.abort(); }, effectiveTimeout);
   try {
     var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
@@ -2851,7 +2895,12 @@ function isGeminiServiceError(error) {
   return !!(error && (error.name === 'GeminiAPIError' || error.name === 'GeminiEmptyResponseError' || error.name === 'AbortError'));
 }
 
+function isGeminiLocationError(error) {
+  return !!(error && Number(error.status) === 400 && /location.+not supported/i.test(String(error.message || '')));
+}
+
 function getGeminiErrorMessage(error) {
+  if (isGeminiLocationError(error)) return 'Marg’s answer service has a connection problem right now. Your message is saved, but repeating it will not fix the connection.';
   if (error && error.name === 'AbortError') return 'I could not finish this answer in time. Your message is saved—use Retry response to continue from the same point.';
   var status = Number(error && error.status) || 0;
   if (status === 429 || status === 503) return 'Marg is busy for a moment. Your message is saved—use Retry response to continue.';
@@ -2870,7 +2919,7 @@ function showGeminiServiceFailure(error) {
   });
   // The full error already exists as a chat turn. Repeating the same sentence
   // under the composer made one timeout look like two separate failures.
-  showComposerStatus('Your message is saved. Use Retry response on Marg’s message to continue from the same point.', 'error', true);
+  showComposerStatus(/repeating it will not fix/.test(serviceMessage) ? 'Your message is saved. Marg’s service connection needs to recover before this turn can be answered.' : 'Your message is saved. Use Retry response on Marg’s message to continue from the same point.', 'error', true);
   return serviceMessage;
 }
 
@@ -2929,11 +2978,17 @@ const GEMINI_PLAIN_TEXT_MATH_INSTRUCTION = '\n\nOUTPUT FORMAT — PLAIN-TEXT MAT
 function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, responseMimeType, responseJsonSchema) {
   var requestedOutputTokens = Number(maxOutputTokens) || 500;
   var wantsJsonResponse = String(responseMimeType || '').toLowerCase() === 'application/json' || String(responseMimeType || '').toUpperCase() === 'APPLICATION_JSON';
+  var isCATStructuredTask = !!(wantsJsonResponse && responseJsonSchema && responseJsonSchema.properties && (responseJsonSchema.properties.questions || responseJsonSchema.properties.sets || responseJsonSchema.properties.verification));
+  var isCATAnswerAudit = !!(isCATStructuredTask && responseJsonSchema.properties.verification);
+  var generatedSetsSchema = responseJsonSchema && responseJsonSchema.properties && responseJsonSchema.properties.sets;
+  var isDILRDraft = !!(generatedSetsSchema && generatedSetsSchema.items && generatedSetsSchema.items.properties && generatedSetsSchema.items.properties.setup);
   // JSON does not inherently need a 16k floor. That old floor made a
   // three-question QA set as expensive and slow as a full sectional. Each
   // call site now owns the budget appropriate to the artifact it requests.
   var minimumOutputTokens = 4096;
-  var effectiveOutputTokens = Math.min(32768, Math.max(requestedOutputTokens, minimumOutputTokens));
+  // Thinking consumes this same cap. Enough headroom must remain to finish
+  // the JSON; an 8k cap with medium thinking left <1k for a QA set in testing.
+  var effectiveOutputTokens = Math.min(32768, Math.max(requestedOutputTokens, isCATAnswerAudit || isDILRDraft ? 16384 : isCATStructuredTask ? 12288 : minimumOutputTokens));
   var contents = [];
   (messages || []).forEach(function(message) {
     if (!message) return;
@@ -2953,7 +3008,7 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
       maxOutputTokens:effectiveOutputTokens,
       // Ordinary mentor chat is short and does not need paid medium reasoning.
       // Preserve medium reasoning for plans, images, answer reviews and content generation.
-      thinkingConfig:{ thinkingLevel:wantsJsonResponse && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
+      thinkingConfig:{ thinkingLevel:isCATAnswerAudit || isDILRDraft ? 'medium' : isCATStructuredTask ? 'low' : wantsJsonResponse && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
     }
   };
   if (responseMimeType) request.generationConfig.responseMimeType = wantsJsonResponse ? 'application/json' : responseMimeType;
@@ -2963,7 +3018,23 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
   if (responseJsonSchema && wantsJsonResponse) {
     request.generationConfig.responseJsonSchema = responseJsonSchema;
   }
-  request.systemInstruction = { parts:[{ text:String(systemInstruction || '') + GEMINI_PLAIN_TEXT_MATH_INSTRUCTION }] };
+  if (isDILRDraft) {
+    var promptText = (messages || []).map(function(m){return typeof m.content === 'string' ? m.content : '';}).join(' ');
+    var families = ['Arrangements & Rankings','Scheduling & Allocation','Distribution & Grouping','Games & Tournaments','Routes & Networks','Tables, Charts & DI Caselets','Venn Diagrams & Set Data'];
+    request.margAction = 'construct_dilr';
+    // An explicit request marker wins over examples and generic family lists.
+    var topicMarker = /\[MARG_DILR_TOPIC:([^\]]+)\]/.exec(promptText);
+    var selectedFamily = topicMarker ? topicMarker[1].trim() : families.find(function(t){return promptText.indexOf(t)!==-1;}) || '';
+    var familyMatchers = [/arrange|seat|rank/i,/schedul|allocat/i,/distribut|group/i,/games?|tournament/i,/routes?|network/i,/table|chart|caselet/i,/venn|set data/i];
+    request.margDILRTopic = families.find(function(t,index){return familyMatchers[index].test(selectedFamily);}) || null;
+    request.margDILRSetCount = Number(generatedSetsSchema.maxItems) || 1;
+  }
+  var draftContract = responseJsonSchema && responseJsonSchema.properties && (responseJsonSchema.properties.questions || responseJsonSchema.properties.sets)
+    ? '\nDRAFT OUTPUT CONTRACT: Never shorten sufficiency_check or option_check to a label. For each item, write a specific sufficiency sentence of at least 40 characters and an option_check sentence of at least 60 characters stating why only the answer survives. This overrides any instruction to make those two fields short phrases. Every question must state its actual task. RC: write four substantial paragraphs of about 125-130 words each; target 500-520 passage words, not a summary. Never pad with repeated sentences or unrelated facts.'
+    : '';
+  var rcSetSchema = responseJsonSchema && responseJsonSchema.properties && responseJsonSchema.properties.sets;
+  if (draftContract && rcSetSchema && rcSetSchema.items && rcSetSchema.items.properties && rcSetSchema.items.properties.paragraphs) draftContract += '\nRC SCHEMA OVERRIDE: return paragraphs as an array of four substantial paragraphs, each about 125-130 words, instead of a passage field. The application joins them into the full passage.';
+  request.systemInstruction = { parts:[{ text:String(systemInstruction || '') + GEMINI_PLAIN_TEXT_MATH_INSTRUCTION + draftContract }] };
   return request;
 }
 
@@ -2985,7 +3056,7 @@ function getPracticeGenerationJsonSchema(section, questionCount) {
             required:['topic','q','options','correct','solution','sufficiency_check','option_check','common_mistake','concept_check','marg_insight'],
             properties:{
               topic:{ type:'string' }, q:{ type:'string' }, options:optionSchema, correct:answerIndexSchema,
-              solution:{ type:'string' }, sufficiency_check:{ type:'string' }, option_check:{ type:'string' },
+              solution:{ type:'string' }, sufficiency_check:{ type:'string', description:'A complete evidence sentence of at least 40 characters naming the actual given relationships that determine the answer. Not a short label.' }, option_check:{ type:'string', description:'At least 60 characters: name the surviving option and explain why only it survives, checking the alternative choices. Not a short label.' },
               common_mistake:{ type:'string' }, concept_check:{ type:'string' }, marg_insight:{ type:'string' }
             }
           }
@@ -2997,12 +3068,12 @@ function getPracticeGenerationJsonSchema(section, questionCount) {
     return {
       type:'object', required:['sets'],
       properties:{ sets:{ type:'array', minItems:1, maxItems:1, items:{
-        type:'object', required:['passage','difficulty','topic','questions'],
+        type:'object', required:['paragraphs','difficulty','topic','questions'],
         properties:{
-          passage:{ type:'string' }, difficulty:{ type:'string' }, topic:{ type:'string' },
+          paragraphs:{ type:'array', minItems:4, maxItems:4, description:'Four developed RC paragraphs, each approximately 125-130 words; total 500-520 words. Each develops the argument, not a summary.', items:{ type:'string', description:'One substantial paragraph of approximately 125-130 words with connected argument and evidence.' } }, difficulty:{ type:'string' }, topic:{ type:'string' },
           questions:{ type:'array', minItems:exactQuestions, maxItems:exactQuestions, items:{
             type:'object', required:['q','options','correct','explanation','sufficiency_check','option_check','trap_type','marg_insight'],
-            properties:{ q:{ type:'string' }, options:optionSchema, correct:answerIndexSchema, explanation:{ type:'string' }, sufficiency_check:{ type:'string' }, option_check:{ type:'string' }, trap_type:{ type:'string' }, marg_insight:{ type:'string' } }
+            properties:{ q:{ type:'string', description:'A complete explicit question ending in a question mark, or a complete forced-choice task ending in a colon.' }, options:optionSchema, correct:answerIndexSchema, explanation:{ type:'string' }, sufficiency_check:{ type:'string', description:'A full evidence sentence naming the passage support, at least 40 characters.' }, option_check:{ type:'string', description:'A full sentence of at least 60 characters explaining why only the selected option survives and the alternatives fail.' }, trap_type:{ type:'string' }, marg_insight:{ type:'string' } }
           } }
         }
       } } }
@@ -3020,7 +3091,7 @@ function getPracticeGenerationJsonSchema(section, questionCount) {
         derived_constraints:{ type:'array', minItems:3, items:{ type:'string' } }, setup:{ type:'string' },
         questions:{ type:'array', minItems:4, maxItems:4, items:{
           type:'object', required:['q','reasoning_type','options','correct','explanation','sufficiency_check','option_check','common_mistake','marg_insight'],
-          properties:{ q:{ type:'string' }, reasoning_type:{ type:'string' }, options:optionSchema, correct:answerIndexSchema, explanation:{ type:'string' }, sufficiency_check:{ type:'string' }, option_check:{ type:'string' }, common_mistake:{ type:'string' }, marg_insight:{ type:'string' } }
+          properties:{ q:{ type:'string' }, reasoning_type:{ type:'string' }, options:optionSchema, correct:answerIndexSchema, explanation:{ type:'string' }, sufficiency_check:{ type:'string', description:'A complete evidence sentence of at least 40 characters naming the actual constraints that determine the answer.' }, option_check:{ type:'string', description:'At least 60 characters explaining why only one option survives and checking the alternatives.' }, common_mistake:{ type:'string' }, marg_insight:{ type:'string' } }
         } }
       }
     } } }
@@ -3038,7 +3109,7 @@ function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCou
     verificationProperties.feasible_base_case_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
     verificationProperties.base_case_witnesses = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'string' } };
     verificationProperties.checked_constraint_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
-  } else if (section === 'rc') {
+  } else if (section === 'rc' || section === 'qa') {
     verificationProperties.answer_explanations = { type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'string' } };
   }
   return {
@@ -3046,7 +3117,7 @@ function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCou
     properties:{
       valid:{ type:'boolean' },
       issues:{ type:'array', items:{ type:'string' } },
-      verification:{ type:'object', required:section === 'rc' ? ['answer_indices','answer_explanations'] : ['answer_indices'], properties:verificationProperties }
+      verification:{ type:'object', required:section === 'rc' || section === 'qa' ? ['answer_indices','answer_explanations'] : ['answer_indices'], properties:verificationProperties }
     }
   };
 }
@@ -3146,7 +3217,7 @@ function getGeminiText(payload) {
   if (payload.usageMetadata || payload.margRequest) {
     console.info('Gemini usage:', {
       requestId:payload.margRequest && payload.margRequest.requestId || '',
-      upstreamCalls:payload.margRequest && payload.margRequest.upstreamCalls || 1,
+      upstreamCalls:payload.margRequest && Number.isFinite(Number(payload.margRequest.upstreamCalls)) ? Number(payload.margRequest.upstreamCalls) : 1,
       promptTokens:payload.usageMetadata && payload.usageMetadata.promptTokenCount || 0,
       outputTokens:payload.usageMetadata && payload.usageMetadata.candidatesTokenCount || 0,
       thinkingTokens:payload.usageMetadata && payload.usageMetadata.thoughtsTokenCount || 0,
@@ -5555,19 +5626,24 @@ function isRCProgressionReady(message, rcWrongAnswerEvidence) {
   // wrong. A correct second decision is still useful evidence and should not
   // leave the student at a dead end.
   if (!isRCDecisionReply(message)) return false;
+  if (isExerciseResultReviewRequest(message) || isFreshPastedPracticeMaterial(message)) return false;
   var decisionCount = getRecentRCDecisionCount(message);
   if (decisionCount < 2) return false;
   var activeQuestions = getActiveExerciseQuestions();
   // A full stored passage must be reviewed completely. The two-decision rule
   // is reserved for ad-hoc micro-checks whose questions were delivered one by
   // one and therefore are not available as one complete stored set.
-  if (activeQuestions.length > 2) return decisionCount >= activeQuestions.length;
+  // A complete stored RC has its own result-review continuation. Never add
+  // a micro-check invitation to its grade or revive an older short drill.
+  if (activeQuestions.length > 2) return false;
   return true;
 }
 
 function isRCFunctionMappingReply(message) {
   var value = String(message || '').trim();
   if (!value || value.length > 180 || /\[OPTIONS:|\[START_TEST:/i.test(value)) return false;
+  if (/^[A-D][.!\s]*$/i.test(value) || isExerciseResultReviewRequest(value) || isFreshPastedPracticeMaterial(value)) return false;
+  if (getActiveExerciseQuestions().length >= 3) return false;
   // A submitted RC answer key such as "1-C, 2-D, 3-C" is not a paragraph-
   // function answer. Treating it as one resurrected the previous micro-drill
   // after a full passage had already been completed.
@@ -5592,6 +5668,7 @@ function isCompletedFullRCReview(message) {
 function ensureFullRCReviewContinuation(text, diagnosis) {
   var value = String(text || '').trim();
   if (!diagnosis || !diagnosis.rcFullSetReview || /\[CONTEXT:\s*rc_full_review_feeling\]/i.test(value)) return value;
+  if (/\?\s*$|\[OPTIONS:|\[START_TEST:|\b(?:next (?:move|step|check)|run a timed|start (?:a|one|the) (?:full|fresh|timed))\b/i.test(value)) return value;
   value = value.replace(/\s*\[OPTIONS:[^\]]*\]\s*\[CONTEXT:[^\]]*\]\s*$/i, '').trim();
   var latestUser = '';
   for (var i = conversationHistory.length - 1; i >= 0; i--) {
@@ -5674,6 +5751,9 @@ function ensureRCProgressionClose(text, diagnosis) {
   var value = String(text || '').trim();
   if (!diagnosis || !diagnosis.rcProgressionReady) return value;
   if (/\[CONTEXT:\s*rc_(?:full_)?progression_timing\]/i.test(value)) return value;
+  // Honour an already concrete next offer instead of appending a second,
+  // contradictory prescription. Only close an actual micro-check dead end.
+  if (/\[OPTIONS:|\[START_TEST:|\?\s*$|\b(?:next (?:move|step|check)|run a timed|start (?:a|one|the) (?:full|fresh|timed))\b/i.test(value)) return value;
   // If Marg has already begun another visible question, do not interrupt it
   // with a progression card. The card belongs only at the end of the check.
   if (/\n\s*(?:Which of the following|What (?:is|was)|According to the passage)[\s\S]{0,500}\n\s*A[).]/i.test(value)) return value;
@@ -11759,7 +11839,7 @@ Each question must have exactly four distinct plausible options and one defensib
   showTyping();
   profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   var articleRCStage = 'generation_request';
-  var articleRCDeadline = Date.now() + 65000;
+  var articleRCDeadline = Date.now() + 90000;
   function remainingRCBudget(limit) {
     var remaining = articleRCDeadline - Date.now();
     if (remaining < 8000) throw new Error('RC preparation reached its time budget');
@@ -11786,6 +11866,7 @@ Each question must have exactly four distinct plausible options and one defensib
     articleRCStage = 'theme_selection';
     articleText = currentArticle.content || currentArticle.preview;
     prompt = buildArticleRCPrompt(articleText);
+    prompt += '\nPASSAGE TARGET OVERRIDE: write 500-520 words, four paragraphs of approximately 125-130 words each. Do not aim at the lower limit. Use a complete question ending in ? or an explicit forced-choice task ending in :. Each private check must be a specific evidence sentence, never a label.';
     var rcData = null;
     var localIssues = [];
     // Keep format/truncation and structural recovery inside this one student
@@ -11797,7 +11878,7 @@ Each question must have exactly four distinct plausible options and one defensib
       articleRCStage = draftAttempt === 0 ? 'generation_request' : 'generation_repair';
       var attemptPrompt = prompt;
       if (draftAttempt > 0) {
-        attemptPrompt += '\n\nThe previous draft was discarded before display because: ' + localIssues.join('; ') + '. Rebuild the complete RC from scratch. Count only the passage words and keep them between 450 and 520. Return exactly four complete questions with four options each.';
+        attemptPrompt += '\n\nRepair this existing draft rather than repeating the same short summary. Exact application checks: ' + localIssues.join('; ') + '. Expand a short passage to 500-520 words by developing its argument, qualification and example, without filler or new unsupported premises. Preserve valid question mechanics but update their support if the passage changes. Return the entire repaired JSON with four questions. EXISTING DRAFT:\n' + JSON.stringify(rcData);
       }
       try {
         const response = await fetchWithTimeout(WORKER_URL, {
@@ -11888,6 +11969,7 @@ Each question must have exactly four distinct plausible options and one defensib
     // An unavailable solver is not successful verification. Use the checked
     // recovery bank below instead of trusting the generator's own answer key.
     if (!articleAudit.valid) {
+      if (isGeminiLocationError(articleAudit.error)) throw articleAudit.error;
       var auditFailure = new Error('Article RC failed independent answer validation: ' + articleAudit.issues.join('; '));
       auditFailure.practiceAudit = articleAudit;
       if (articleAudit.error) {
@@ -11953,11 +12035,11 @@ Each question must have exactly four distinct plausible options and one defensib
       conversationHistory.push({ role:'assistant', content:fallbackReply });
       if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
     } else {
-      var failureText = 'I could not produce a complete, checked RC this time. Your choices are saved—try once more without setting them again.';
+      var failureText = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem right now. Your RC setup is saved; retrying it immediately will not fix the connection.' : 'I couldn’t finish checking a fresh RC this time, and I won’t send you a passage you’ve already seen as if it were new. Your RC setup is saved.';
       addMessage('marg', failureText, true);
       conversationHistory.push({ role:'assistant', content:failureText });
       if (!isGuestMode) saveChatMessage('assistant', failureText);
-      showArticleRCRecoveryChoices();
+      if (!isGeminiLocationError(e)) showArticleRCRecoveryChoices();
     }
   } finally {
     articleRCGenerating = false;
@@ -12280,12 +12362,17 @@ function getVerifiedArticleRCFallback(selectionKey) {
   var hash = 0;
   for (var i = 0; i < seed.length; i++) hash = ((hash * 31) + seed.charCodeAt(i)) >>> 0;
   var index = hash % bank.length;
-  try {
-    var last = Number(localStorage.getItem(articleFallbackRotationKey()));
-    if (Number.isInteger(last) && last === index) index = (index + 1) % bank.length;
-    localStorage.setItem(articleFallbackRotationKey(), String(index));
-  } catch(e) {}
-  return JSON.parse(JSON.stringify(bank[index]));
+  // Rotation alone cycles a three-passage bank back to old material. Check
+  // the actual account's delivery history across Practice AND RC Lab first.
+  var seen = getSeenPracticeSignatures().filter(function(item) { return item && item.section === 'rc'; });
+  for (var offset = 0; offset < bank.length; offset++) {
+    var candidate = bank[(index + offset) % bank.length];
+    var signature = practiceContentSignature('rc', candidate);
+    var fingerprint = practiceStructureFingerprint('rc', candidate);
+    if (seen.some(function(item) { return item.signature === signature || fingerprint && item.fingerprint === fingerprint; })) continue;
+    return JSON.parse(JSON.stringify(candidate));
+  }
+  return getCachedVerifiedPractice('rc', 4, null, false);
 }
 
 async function checkVarcShownToday() {
@@ -14239,6 +14326,7 @@ function buildDILRPrompt(topic) {
     }
   }
   var topicLine = topic ? 'The set must center on ' + topic + ' and may blend a secondary data representation where it arises naturally. ' : 'Choose one CAT-relevant family from arrangements/rankings, scheduling/allocation, distribution/grouping, games/tournaments, routes/networks, tables/charts/caselets, or Venn/set data. Prefer a genuine DI-LR hybrid rather than a routine pure arrangement puzzle. ';
+  topicLine = '[MARG_DILR_TOPIC: '+(topic || 'Mixed')+'] '+topicLine;
   var dilrPyqMap = ' PYQ-INFORMED DESIGN MAP: reproduce the reasoning character of CAT DILR PYQs without copying, paraphrasing, or changing only names/numbers. Real CAT sets are compact but data-rich; require choosing a useful table, grid, graph, cases or variables; make several constraints interact; and usually have a decisive inference that is not stated directly. Use 5-8 entities or a comparably rich data table. Include quantitative relationships where natural—totals, percentages, ratios, capacities, scores, ranks, distances or counts—so DI and LR reinforce each other. Avoid school-level blood-relation chains, a simple row of people with direct positions, one-clue-one-cell grids, standalone arithmetic tables, and trivia-like data sufficiency.';
   return 'Generate exactly 1 complete CAT-level DILR set with exactly 4 questions. ' + topicLine + focusArea + recentMistakes + dilrPyqMap + ' DIFFICULTY: HARD, never easy or routine; a prepared CAT student should need roughly 14-18 minutes. SET CONSTRUCTION: use 7-9 entities or equivalent data density and 7-10 meaningful constraints. At least three deductions must emerge only by combining multiple constraints. The initial information must permit multiple cases until a non-obvious deduction, bound, conservation relationship, or conditional split narrows them. A direct one-clue-one-placement arrangement is forbidden. Do not make difficulty through long prose, ambiguity, exhaustive brute force or excessive arithmetic. Every condition must be necessary and the complete set must be feasible. QUESTION CONSTRUCTION: use four distinct reasoning types chosen from must/cannot be true, number of feasible cases, maximum/minimum or exact value requiring optimization, and a local hypothetical that forces re-deduction. No question may be a direct lookup after the base representation is completed.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: enumerate every feasible base case using only the written setup; never use an unstated assumption, convention or relationship. Solve every question without trusting the first answer; confirm four distinct options, exactly one correct option, the correct zero-based index and an explanation that reaches it. List three genuine derived constraints in derived_constraints; these must be deductions, not restatements of clues. For every question include a private sufficiency_check explaining why the setup fully determines the answer and an option_check confirming why exactly one option survives. Silently repair or replace any inconsistent, ambiguous, underdetermined or trivial set. Keep setup precise and between 120 and 300 words. Keep explanation to 1-2 compact but verifiable sentences and each diagnostic field to one short phrase. Return ONLY valid parseable JSON, no markdown, exactly this shape with exactly 1 set object and 4 question objects: {"sets":[{"set_title":"specific descriptive title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["primary structure","secondary structure or data type"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete self-contained set with all data and constraints","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"1-2 compact verifiable sentences","sufficiency_check":"why the written setup is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
 }
@@ -14382,6 +14470,7 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
   var dilrTopicInstruction = /mixed set selection/i.test(topic)
     ? 'Use structurally different set families. Make one look familiar but have a weak entry point, while another looks less familiar but has a clean representation and two interacting starting constraints; this must reveal set-selection quality.'
     : 'Center every set on ' + topic + ', while keeping the mechanics distinct.';
+  dilrTopicInstruction = '[MARG_DILR_TOPIC: '+(topic || 'Mixed')+'] '+dilrTopicInstruction;
   return 'Generate exactly ' + setsCount + ' independent HARD CAT-level DILR sets, each with 7-9 entities or equivalent data density, 7-10 interacting constraints, and exactly 4 questions. ' + dilrTopicInstruction + difficultyGuard + ' A prepared CAT student should need 14-18 minutes per set. Each set must contain at least three genuine deductions that arise only by combining clues; direct one-clue-one-cell arrangements are forbidden. Multiple cases must remain until a decisive bound, conservation relationship, conditional split, or structural inference narrows them. Every question must require fresh reasoning after the base representation; use at least three distinct types across must/cannot, case count, optimization/exact value, and local hypothetical. No direct-lookup question.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure every condition is necessary, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Every question must include a specific sufficiency_check showing that the written setup supplies every required fact and an option_check showing why exactly one option survives. Store three genuine deductions in derived_constraints, not restated clues. Keep each setup between 120 and 300 words and explanations compact. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Hard","estimated_solve_minutes":16,"constraint_types":["' + topic + '","secondary interacting structure"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete setup","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short verifiable sentence","sufficiency_check":"why the written setup is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
 }
 
@@ -14516,7 +14605,13 @@ function practiceStructureFingerprint(section, data) {
     // DILR titles and entity names are cosmetic. Prefer the declared logical
     // structure so the same tournament/seating template cannot masquerade as
     // a fresh set after merely changing names and numbers.
-    if (section === 'dilr' && constraintTypes.length) tokens.push(constraintTypes.slice().sort().join(' '));
+    if (section === 'dilr') {
+      tokens.push(constraintTypes.slice().sort().join(' '));
+      // A family label is not an exercise identity: two new schedules can
+      // both use conditional sequencing. Compare the written relationships,
+      // with cosmetic single-letter entities/numbers normalised below.
+      tokens.push(String(setObj && setObj.setup || ''));
+    }
     else if (section === 'rc') {
       tokens.push(String(setObj && setObj.passage || '').slice(0, 700));
       (setObj && Array.isArray(setObj.questions) ? setObj.questions : []).forEach(function(question) {
@@ -14535,7 +14630,7 @@ function practiceStructureFingerprint(section, data) {
     .replace(/[^a-z#]+/g, ' ')
     .replace(/\b(?:the|a|an|and|or|of|to|in|with|from|each|exactly|team|person|persons)\b/g, ' ')
     .replace(/\s+/g, ' ').trim();
-  return normalized.split(' ').slice(0, 42).join(' ');
+  return section === 'dilr' ? normalized : normalized.split(' ').slice(0, 42).join(' ');
 }
 
 function getSeenPracticeSignatures() {
@@ -14548,7 +14643,7 @@ function getSeenPracticeSignatures() {
 function wasPracticeRecentlySeen(section, data) {
   var signature = practiceContentSignature(section, data);
   var fingerprint = practiceStructureFingerprint(section, data);
-  var recent = getSeenPracticeSignatures().filter(function(item) { return item && item.section === section; }).slice(-4);
+  var recent = getSeenPracticeSignatures().filter(function(item) { return item && item.section === section; });
   return recent.some(function(item) { return item && (item.signature === signature || fingerprint && item.fingerprint === fingerprint); });
 }
 
@@ -14779,6 +14874,15 @@ function validateIndependentPracticeVerification(audit, generatedData, section) 
       issues.push('The independent audit did not check every DILR set constraint-by-constraint');
     }
   }
+  if (section === 'qa') {
+    var solvedExplanations = verification && verification.answer_explanations;
+    if (!Array.isArray(solvedExplanations) || solvedExplanations.length !== expected.length || solvedExplanations.some(function(text){return typeof text !== 'string' || text.trim().length<20 || hasExposedSolutionScratchwork(text);})) issues.push('The independent QA check did not supply a clean arithmetic derivation for every question');
+    // These findings inform a repair only. They never override a key or
+    // approve a disagreement; the repaired artifact is blindly solved again.
+    expected.forEach(function(index,position){
+      if (audited[position]!==index && Number.isInteger(audited[position])) issues.push('Recalculate question '+(position+1)+': the independent solver obtained option '+String.fromCharCode(65+audited[position])+(solvedExplanations && solvedExplanations[position] ? ' with derivation: '+solvedExplanations[position] : '')+'. Recheck the written stem and all options; do not assume either key is right.');
+    });
+  }
   return { valid:issues.length === 0, issues:issues };
 }
 
@@ -14819,7 +14923,40 @@ function buildStudentVisiblePracticeForAudit(data, section) {
   return visible;
 }
 
+async function repairCATDraftBeforeAudit(section, data, issues, options) {
+  options = options || {};
+  if (!issues || !issues.length) return data;
+  // One bounded repair, then the SAME independent audit. Never turn a
+  // generator's revised key into verification or extend the total deadline.
+  var remaining = Number(options.deadlineMs || 0) - Date.now() - Number(options.auditReserveMs || 25000);
+  if (remaining < 8000) return data;
+  var count = Number(options.expectedQuestionCount) || (section === 'qa' ? (data.questions || []).length : (data.sets || []).reduce(function(n, set) { return n + (set.questions || []).length; }, 0));
+  if (!count) return data;
+  var prompt = 'Repair this existing CAT ' + section.toUpperCase() + ' draft. Return the complete JSON, not a patch. Exact application checks: ' + issues.join('; ') + '. Preserve the requested topic, number of sets and questions. Fix every missing task, required fact, ambiguity and exposed false start; solutions must contain only a final verifiable derivation. sufficiency_check must be a specific evidence sentence of at least 40 characters; option_check must be at least 60 characters stating why only one option survives and why the other choices fail. RC passages must have 500-520 words in four substantial paragraphs, with no filler. Do not invent verification. EXISTING DRAFT:\n' + JSON.stringify(data);
+  try {
+    var response = await fetchWithTimeout(WORKER_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'}, signal:options.signal,
+      body:JSON.stringify(buildGeminiRequest('You repair incomplete CAT drafts before a separate independent solver checks them. Return only complete valid JSON.', [{role:'user',content:prompt}], options.maxTokens || 8192, 'application/json', getPracticeGenerationJsonSchema(section, count)))
+    }, Math.min(25000, remaining));
+    if (!response.ok) throw new Error('Draft repair returned status ' + response.status);
+    var payload = await response.json();
+    if (isGeminiStructuredResponseTruncated(payload)) throw new SyntaxError('Repaired practice JSON was truncated');
+    return normalizePracticeAnswers(parseGeneratedJson(getGeminiText(payload)), section);
+  } catch(e) {
+    if (options.signal && options.signal.aborted) throw e;
+    return data; // Retain the failure for the gate; never render this draft.
+  }
+}
+
 async function auditGeneratedCATContent(section, generatedData, expectedTopic, knownPresentationIssues, auditOptions) {
+  if (section === 'dilr' && generatedData && generatedData._margConstruction) {
+    if (knownPresentationIssues && knownPresentationIssues.length) return {valid:false,issues:knownPresentationIssues.slice(),failureType:'local'};
+    var exactEngine = await ensureDILREngine();
+    var exactAudit = exactEngine.verify(generatedData,expectedTopic);
+    exactAudit.failureType = exactAudit.valid ? undefined : 'verification';
+    exactAudit.correctedData = null;
+    return exactAudit;
+  }
   var topicAudit = section === 'qa' && expectedTopic ? ' TOPIC PURITY: every question must centrally test exactly "' + expectedTopic + '" and carry that exact topic field; using an unrelated Geometry, Algebra, Number Systems or other question is an automatic failure.' : '';
   var levelAudit = section === 'rc'
     ? ' RC LEVEL: the application has already counted and confirmed 450-550 passage words, so do not estimate or reject its length again. A question anchored in a specific detail is valid when it asks for that detail’s role, implication or relationship to the argument; reject only mechanical copy-the-line retrieval. Reject fewer than three paragraphs. Judge distractor quality, but do not mark an otherwise coherent and uniquely answerable RC invalid merely because one distractor is easier than ideal.'
@@ -14848,8 +14985,9 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
         }
       : section === 'rc'
         ? { answer_indices:exampleAnswerIndices, answer_explanations:Array.from({ length:answerCount }, function() { return 'The passage directly supports this option while the alternatives change its scope or force.'; }), feasible_base_case_counts:[] }
-        : { answer_indices:exampleAnswerIndices, feasible_base_case_counts:[] }
+        : { answer_indices:exampleAnswerIndices, answer_explanations:Array.from({length:answerCount},function(){return 'A compact arithmetic derivation using only the written numbers and relationships.';}), feasible_base_case_counts:[] }
   });
+  if (section === 'qa') levelAudit += ' QA PROOF: return one clean 2-4 step arithmetic derivation per question in verification.answer_explanations, using only the stated numbers and relationships and ending in the selected option’s value. Independently recompute percentages, totals, rounding and each possible branch. Never infer a missing quantity.';
   var studentVisibleMaterial = buildStudentVisiblePracticeForAudit(generatedData, section);
   var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. For RC, return one short passage-grounded answer explanation for every independently solved answer; these explanations replace the generator\'s untrusted key and explanation. For RC, valid=false is reserved for a fatal student-facing defect: an incomplete passage or question, contradictory information, no passage-supported answer, or more than one defensible answer. A merely easier-than-ideal question or distractor is a quality note, not a reason to discard a complete solvable RC. Return the independently solved zero-based answer indices for every question in display order. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not alter the student-visible questions or options. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
   var auditSetCount = setCount || 1;
@@ -14930,6 +15068,13 @@ function normalizePracticeAnswers(data, type) {
 
 function normalizeRCPassageParagraphs(data) {
   var setObj = data && Array.isArray(data.sets) ? data.sets[0] : null;
+  if (setObj && Array.isArray(setObj.paragraphs)) {
+    // The generation schema makes paragraph count explicit. Keep the
+    // canonical stored/rendered shape compatible with existing saved RCs.
+    if (setObj.paragraphs.length !== 4 || !setObj.paragraphs.every(function(p) { return typeof p === 'string' && p.trim(); })) return data;
+    setObj.passage = setObj.paragraphs.map(function(p) { return p.trim(); }).join('\n\n');
+    delete setObj.paragraphs;
+  }
   if (!setObj || typeof setObj.passage !== 'string') return data;
   var passage = setObj.passage.replace(/\r\n?/g, '\n').trim();
   var paragraphs = passage.split(/\n\s*\n/).map(function(item) { return item.trim(); }).filter(Boolean);
@@ -14986,7 +15131,8 @@ function questionHasExplicitTask(stem) {
     /:\s*$/.test(text) && (
       /\b(?:is|are|can be|could be|would be)\s+(?:best|most|least)?\s*(?:accurately\s+|appropriately\s+)?(?:described|characterised|characterized|summarised|summarized|inferred|concluded|supported)\s+as\b/i.test(text) ||
       /\b(?:primary purpose|central (?:claim|argument|idea)|author(?:'s|’s)? (?:attitude|tone|view|position)|function|role|inference|statement|option)\b/i.test(text) ||
-      /\b(?:in order to|serves? to|functions? to|is (?:used|mentioned|introduced|intended) to|best (?:captures|explains|supports|weakens|strengthens)|can be (?:inferred|concluded)|would (?:weaken|strengthen)|except)\b/i.test(text)
+      /\b(?:in order to|serves? to|functions? to|is (?:used|mentioned|introduced|intended) to|best (?:captures|explains|supports|weakens|strengthens)|can be (?:inferred|concluded)|would (?:weaken|strengthen)|except)\b/i.test(text) ||
+      /\b(?:mentions?|discusses?|introduces?|cites?|compares?|contrasts?|acknowledges?|includes?|refers to|example)\b[\s\S]{0,260}\b(?:to|because|shows?|illustrates?|establishes?|demonstrates?|suggests?|highlights?)\s*:\s*$/i.test(text)
     );
 }
 
@@ -15007,7 +15153,8 @@ function flattenTimedTestQuestions(section, data) {
       (setObj.questions || []).forEach(function(q, qi) {
         flat.push({
           q: q.q, options: q.options, correct: q.correct,
-          setupText: qi === 0 ? setObj.setup : null,
+          setupText: setObj.setup,
+          setQuestionIndex:qi,
           setLabel: 'Set ' + (si + 1),
           explanation: cleanStudentFacingSolution(q.explanation), commonMistake: q.common_mistake || ''
         });
@@ -15540,7 +15687,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     if (instantQuestions.length === timedTestRequestedCount && instantQuestions.every(isValidTimedTestQuestion)) {
       timedTestQuestions = instantQuestions;
       timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
-      timedTestSecondsTotal = timedTestQuestions.length * 120;
+      timedTestSecondsTotal = section === 'dilr' ? Math.min(2400,timedTestQuestions.length*240) : timedTestQuestions.length * 120;
       timedTestSecondsLeft = timedTestSecondsTotal;
       storeActiveGeneratedExercise({
         type:section, source:timedTestDiagnosticEntry ? 'prediction-validation-verified' : 'timed-verified-short-check', title:topic + ' verified check',
@@ -15616,6 +15763,14 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       : validateDILRPracticeSet(parsed, expectedSetCount);
     if (wasPracticeRecentlySeen(section, parsed)) throw new Error('Generated test repeated a recently shown exercise');
     timedTestQuestions = flattenTimedTestQuestions(section, parsed);
+    var timedDraftRepaired = false;
+    if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion)) {
+      parsed = await repairCATDraftBeforeAudit(section, parsed, ['The requested count, complete task statements or four distinct options failed structural checks'].concat(collectGeneratedPracticeCompletenessIssues(parsed, section)), { deadlineMs:timedFlowDeadlineMs, signal:generationController.signal, maxTokens:maxTokens, expectedQuestionCount:expectedQuestionCount });
+      timedDraftRepaired = true;
+      if (!isCurrentGeneration()) return;
+      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, topic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
+      timedTestQuestions = flattenTimedTestQuestions(section, parsed);
+    }
     if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion)) {
       console.error('Timed test failed count/options validation. Parsed shape:', parsed, 'Raw model output:', text);
       throw new Error('Generated test failed structural validation');
@@ -15623,6 +15778,15 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Almost ready—setting up your timed questions…</div></div>';
     var knownTimedIssues = collectSolutionPresentationIssues(parsed, section)
       .concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
+    if (knownTimedIssues.length && !timedDraftRepaired) {
+      timedDraftRepaired = true;
+      parsed = await repairCATDraftBeforeAudit(section, parsed, knownTimedIssues, { deadlineMs:timedFlowDeadlineMs, signal:generationController.signal, maxTokens:maxTokens, expectedQuestionCount:expectedQuestionCount });
+      if (!isCurrentGeneration()) return;
+      knownTimedIssues = collectSolutionPresentationIssues(parsed, section).concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
+      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, topic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
+      timedTestQuestions = flattenTimedTestQuestions(section, parsed);
+      if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion) || wasPracticeRecentlySeen(section, parsed)) throw new Error('Repaired timed test failed structural or freshness checks');
+    }
     var timedAuditTimeoutMs = Math.max(8000, Math.min(
       isCompactTimedCheck ? (section === 'dilr' ? 40000 : 30000) : (section === 'dilr' ? 70000 : 55000),
       timedFlowDeadlineMs - Date.now()
@@ -15635,7 +15799,18 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       { timeoutMs:timedAuditTimeoutMs, maxTokens:section === 'dilr' ? 24576 : 18432, signal:generationController.signal }
     );
     if (!isCurrentGeneration()) return;
+    if (!semanticAudit.valid && semanticAudit.failureType !== 'technical' && !timedDraftRepaired && timedFlowDeadlineMs - Date.now() >= 33000) {
+      parsed = await repairCATDraftBeforeAudit(section, parsed, semanticAudit.issues, { deadlineMs:timedFlowDeadlineMs, signal:generationController.signal, maxTokens:maxTokens, expectedQuestionCount:expectedQuestionCount });
+      if (!isCurrentGeneration()) return;
+      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, topic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
+      timedTestQuestions = flattenTimedTestQuestions(section, parsed);
+      if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion) || wasPracticeRecentlySeen(section, parsed)) throw new Error('Repaired timed test failed structural or freshness checks');
+      knownTimedIssues = collectSolutionPresentationIssues(parsed, section).concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
+      semanticAudit = await auditGeneratedCATContent(section, parsed, topic, knownTimedIssues, { timeoutMs:Math.max(8000,Math.min(30000,timedFlowDeadlineMs-Date.now())), maxTokens:18432, signal:generationController.signal, technicalRetry:false });
+      if (!isCurrentGeneration()) return;
+    }
     if (!semanticAudit.valid) {
+      if (isGeminiLocationError(semanticAudit.error)) throw semanticAudit.error;
       console.error('Timed test failed semantic audit:', semanticAudit.issues);
       throw new Error('Generated test failed semantic validation: ' + semanticAudit.issues.join('; '));
     }
@@ -15644,7 +15819,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     }
 
     timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
-    timedTestSecondsTotal = timedTestQuestions.length * 120;
+    timedTestSecondsTotal = section === 'dilr' ? Math.min(2400,timedTestQuestions.length*240) : timedTestQuestions.length * 120;
     timedTestSecondsLeft = timedTestSecondsTotal;
     storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation' : 'sectional', title:topic + ' sectional', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Timed CAT sectional diagnosis for ' + topic, hypothesis:timedTestDiagnosticEntry || null, generationStartedAt:timedTestGenerationStartedAt, validationVerdict:{ status:'independently_verified', verification:semanticAudit.verification || null }, content:{ questions:timedTestQuestions } });
 
@@ -15677,7 +15852,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     if (verifiedFallbackValid) {
       timedTestQuestions = fallbackQuestions;
       timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
-      timedTestSecondsTotal = timedTestQuestions.length * 120;
+      timedTestSecondsTotal = section === 'dilr' ? Math.min(2400,timedTestQuestions.length*240) : timedTestQuestions.length * 120;
       timedTestSecondsLeft = timedTestSecondsTotal;
       storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation-fallback' : 'sectional-fallback', title:topic + ' verified fallback', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Reliable timed CAT practice for ' + topic, hypothesis:timedTestDiagnosticEntry || null, generationStartedAt:timedTestGenerationStartedAt, validationVerdict:{ status:'verified_local' }, content:{ questions:timedTestQuestions } });
       renderTimedTestQuestionNav();
@@ -15698,8 +15873,9 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var shortRecoveryData = shortRecovery && shortRecovery.data;
     var shortRecoveryValid = shortRecoveryData && (section === 'qa' ? validateQASetShape(shortRecoveryData, topic, 3) : validateDILRPracticeSet(shortRecoveryData, 1));
     var shortRecoveryButton = shortRecoveryValid ? '<button class="pcard-nav-btn secondary" onclick="openCheckedTimedRecovery()" style="margin-top:12px;">Open a checked ' + (section === 'qa' ? '3-question QA' : '4-question DILR') + ' check instead</button>' : '';
-    var timedErrorMessage = 'I could not open that timed set just now. Your section and topic are saved.';
-    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div><button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button>' + shortRecoveryButton + '</div>';
+    var timedErrorMessage = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem. Your topic is saved; retrying immediately will not fix it.' : 'I could not open that timed set just now. Your section and topic are saved.';
+    var timedRetryButton = isGeminiLocationError(e) ? '' : '<button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button>';
+    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div>' + timedRetryButton + shortRecoveryButton + '</div>';
   }
 }
 
@@ -15724,10 +15900,13 @@ function renderTimedTestQuestion() {
   var q = timedTestQuestions[timedTestIndex];
   if (!q) return;
 
-  var setupHtml = q.setupText ? '<div class="pcard-passage">' + (q.setLabel ? '<strong>' + q.setLabel + ':</strong> ' : '') + q.setupText + '</div>' : '';
+  var setupTextHtml = q.setupText ? escapeChatHtml(convertLatexToPlainText(q.setupText)).replace(/\n/g,'<br>') : '';
+  var setupHtml = setupTextHtml ? (q.setQuestionIndex > 0
+    ? '<details class="pcard-passage"><summary>Read '+(q.setLabel || 'set')+' again</summary><div style="margin-top:12px">'+setupTextHtml+'</div></details>'
+    : '<div class="pcard-passage">'+(q.setLabel ? '<strong>'+escapeChatHtml(q.setLabel)+':</strong><br>' : '')+setupTextHtml+'</div>') : '';
   var optionsHtml = q.options.map(function(opt, i) {
     var selected = timedTestAnswers[timedTestIndex] === i ? ' tt-selected' : '';
-    return '<button class="tt-option' + selected + '" onclick="selectTimedTestAnswer(' + i + ')">' + opt + '</button>';
+    return '<button class="tt-option' + selected + '" onclick="selectTimedTestAnswer(' + i + ')">' + escapeChatHtml(convertLatexToPlainText(opt)) + '</button>';
   }).join('');
 
   var prevBtn = timedTestIndex > 0 ? '<button class="pcard-nav-btn secondary" onclick="goToTimedTestQuestion(' + (timedTestIndex - 1) + ')">Previous</button>' : '';
@@ -15736,7 +15915,7 @@ function renderTimedTestQuestion() {
     ? '<button class="pcard-nav-btn primary" onclick="confirmSubmitTimedTest()">Submit Test</button>'
     : '<button class="pcard-nav-btn primary" onclick="goToTimedTestQuestion(' + (timedTestIndex + 1) + ')">Next question</button>';
 
-  contentEl.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Question ' + (timedTestIndex + 1) + ' of ' + timedTestQuestions.length + '</div></div><div class="pcard-body">' + setupHtml + '<div class="pcard-question">' + q.q + '</div><div class="pcard-options">' + optionsHtml + '</div></div><div class="pcard-nav">' + prevBtn + nextBtn + '</div></div>';
+  contentEl.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Question ' + (timedTestIndex + 1) + ' of ' + timedTestQuestions.length + '</div></div><div class="pcard-body">' + setupHtml + '<div class="pcard-question">' + escapeChatHtml(convertLatexToPlainText(q.q)) + '</div><div class="pcard-options">' + optionsHtml + '</div></div><div class="pcard-nav">' + prevBtn + nextBtn + '</div></div>';
 }
 
 function selectTimedTestAnswer(idx) {
@@ -15780,7 +15959,9 @@ function startTimedTestTimer() {
 }
 
 function confirmExitTimedTest() {
-  if (timedTestSubmitted) { closeTimedTest(); return; }
+  // Nothing has been answered during loading/recovery. Abort immediately;
+  // a blocking browser dialog here has no progress to protect.
+  if (timedTestSubmitted || !timedTestQuestions.length || !timedTestAnswers.some(function(answer) { return answer != null; })) { closeTimedTest(); return; }
   if (confirm('Leave this test? Your progress will be lost.')) {
     closeTimedTest();
   }
@@ -16092,6 +16273,17 @@ async function loadDailyPractice() {
     // so the user does not pay for two sequential audits.
     var knownPracticeIssues = collectSolutionPresentationIssues(practiceJson, currentPracticeType)
       .concat(collectGeneratedPracticeCompletenessIssues(practiceJson, currentPracticeType));
+    var practiceDraftRepaired = false;
+    if (currentPracticeType === 'rc') knownPracticeIssues = collectArticleRCStructureIssues(practiceJson, 3).concat(knownPracticeIssues);
+    if (knownPracticeIssues.length) {
+      practiceDraftRepaired = true;
+      practiceFailureStage = 'same_action_draft_repair';
+      practiceJson = await repairCATDraftBeforeAudit(currentPracticeType, practiceJson, knownPracticeIssues, { deadlineMs:practiceDeadlineMs, signal:requestController.signal, maxTokens:maxTokens, expectedQuestionCount:currentPracticeType === 'dilr' ? 4 : 3 });
+      if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
+      knownPracticeIssues = collectSolutionPresentationIssues(practiceJson, currentPracticeType).concat(collectGeneratedPracticeCompletenessIssues(practiceJson, currentPracticeType));
+      if (currentPracticeType === 'rc') knownPracticeIssues = collectArticleRCStructureIssues(practiceJson, 3).concat(knownPracticeIssues);
+      if (wasPracticeRecentlySeen(currentPracticeType, practiceJson)) throw new Error('Repaired practice repeated a recently shown exercise');
+    }
     content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">The questions are ready. Marg is now checking that the given information leads to one complete answer...</div></div>';
     var auditBudgetMs = Math.max(8000, Math.min(
       currentPracticeType === 'dilr' ? 45000 : 35000,
@@ -16106,7 +16298,18 @@ async function loadDailyPractice() {
       { timeoutMs:auditBudgetMs, maxTokens:currentPracticeType === 'dilr' ? 18432 : currentPracticeType === 'rc' ? 12288 : 12288, signal:requestController.signal, technicalRetry:false }
     );
     if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
+    if (!practiceAudit.valid && practiceAudit.failureType !== 'technical' && !practiceDraftRepaired && practiceDeadlineMs - Date.now() >= 33000) {
+      practiceFailureStage = 'same_action_answer_repair';
+      practiceJson = await repairCATDraftBeforeAudit(currentPracticeType, practiceJson, practiceAudit.issues, { deadlineMs:practiceDeadlineMs, signal:requestController.signal, maxTokens:maxTokens, expectedQuestionCount:currentPracticeType === 'dilr' ? 4 : 3 });
+      if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
+      knownPracticeIssues = collectSolutionPresentationIssues(practiceJson, currentPracticeType).concat(collectGeneratedPracticeCompletenessIssues(practiceJson, currentPracticeType));
+      if (currentPracticeType === 'rc') knownPracticeIssues = collectArticleRCStructureIssues(practiceJson, 3).concat(knownPracticeIssues);
+      practiceAudit = await auditGeneratedCATContent(currentPracticeType, practiceJson, selectedPracticeTopic, knownPracticeIssues, { timeoutMs:Math.max(8000,Math.min(30000,practiceDeadlineMs-Date.now())), maxTokens:12288, signal:requestController.signal, technicalRetry:false });
+      if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
+      if (wasPracticeRecentlySeen(currentPracticeType, practiceJson)) throw new Error('Repaired practice repeated previously delivered material');
+    }
     if (!practiceAudit.valid) {
+      if (isGeminiLocationError(practiceAudit.error)) throw practiceAudit.error;
       console.error('Practice failed semantic audit:', practiceAudit.issues);
       var auditFailure = new Error('Generated practice failed semantic validation: ' + practiceAudit.issues.join('; '));
       auditFailure.practiceAudit = practiceAudit;
@@ -16186,7 +16389,7 @@ async function loadDailyPractice() {
       renderPractice(fallbackPractice);
       return;
     }
-    var errorMessage = 'A fresh checked set isn’t ready for this topic yet. Your section and topic are still selected.';
+    var errorMessage = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem. Your section and topic are saved; retrying immediately will not fix it.' : 'A fresh checked set isn’t ready for this topic yet. Your section and topic are still selected.';
     var recoveryLabel = currentPracticeType === 'qa' ? 'Open Mixed QA' : currentPracticeType === 'dilr' ? 'Open another DILR set' : 'Open another RC';
     var recoveryCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, null, true);
     if (recoveryCandidate && recoveryCandidate.repeated) recoveryLabel = 'Review a previous checked set';
@@ -16199,7 +16402,8 @@ async function loadDailyPractice() {
     var recoveryButton = recoveryAvailable
       ? '<button class="pcard-nav-btn secondary" onclick="useVerifiedPracticeRecovery()" style="margin-top:8px;max-width:220px;">' + recoveryLabel + '</button>'
       : '';
-    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Try the same topic again</button>' + recoveryButton + '</div>';
+    var practiceRetryButton = isGeminiLocationError(e) ? '' : '<button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Try the same topic again</button>';
+    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + errorMessage + '</div>' + practiceRetryButton + recoveryButton + '</div>';
   }
 }
 
@@ -16246,7 +16450,46 @@ function getOptionsHtml(options) {
 
 function usesSets(type) { return type === 'rc' || type === 'dilr'; }
 
+var practiceExerciseArtifacts = {};
+
+function ensurePracticeExerciseArtifact(data) {
+  if (!data || !currentPracticeType) return;
+  var section = currentPracticeType;
+  var artifactKey = getUserScopedKey('practice_artifact_' + section);
+  var sameMaterial = function(exercise) {
+    return exercise && exercise.type === section && exercise.content &&
+      JSON.stringify(exercise.content.sets || exercise.content.questions) === JSON.stringify(data.sets || data.questions);
+  };
+  var startingNewAttempt = !!(typeof sessionResults !== 'undefined' && Number(sessionResults.total || 0) === 0);
+  if (sameMaterial(activeGeneratedExercise) && !(startingNewAttempt && activeGeneratedExercise.result)) { practiceExerciseArtifacts[artifactKey] = activeGeneratedExercise; return; }
+  var exercise = sameMaterial(activeGeneratedExercise) ? activeGeneratedExercise : practiceExerciseArtifacts[artifactKey];
+  if (!sameMaterial(exercise)) {
+    var archive = [];
+    try { archive = JSON.parse(localStorage.getItem(getUserScopedKey('marg_exercise_archive')) || '[]'); } catch(e) {}
+    exercise = Array.isArray(archive) ? archive.slice().reverse().find(sameMaterial) : null;
+  }
+  if (!exercise) {
+    // renderPractice receives validated packs only. Do not attach their
+    // answers or result to whatever newer RC/QA artifact chat happens to own.
+    exercise = {type:section,source:'practice-tab-resumed',title:(selectedPracticeTopic || section.toUpperCase()) + ' practice',validationVerdict:{status:'verified_local'},content:data};
+  }
+  exercise = JSON.parse(JSON.stringify(exercise));
+  if (startingNewAttempt && exercise.result) {
+    // A deliberate new Practice attempt must not inherit the previous grade,
+    // selections or persistence IDs. The old attempt stays in the archive.
+    ['id','generatedAt','result','completedAt','reviewedAt','mentorTaskId','mentorAttemptId','uiSelections','hypothesisVerdict'].forEach(function(field) { delete exercise[field]; });
+    exercise.awaitingAnswers = true;
+    exercise.reviewPending = false;
+  }
+  delete exercise.deliveredAt;
+  delete exercise.chatBoundaryAtDelivery;
+  storeActiveGeneratedExercise(exercise);
+  practiceExerciseArtifacts[artifactKey] = activeGeneratedExercise;
+  markActiveExerciseDelivered('practice-tab');
+}
+
 function renderPractice(data) {
+  if (typeof ensurePracticeExerciseArtifact === 'function') ensurePracticeExerciseArtifact(data);
   var content = document.getElementById('practice-content');
   var morningPrompt = getMorningPromptHtml();
   var recoveryNote = data && data._margRecoveryNote
@@ -16275,7 +16518,8 @@ function renderPractice(data) {
     total = setObj.questions.length;
     headerLabel = 'DILR — Set ' + (currentSetIndex + 1) + ' of ' + totalSets + ' · Question ' + qNum + ' of ' + total;
     diffLabel = (setObj.difficulty || 'Medium') + ' · ' + (setObj.constraint_types || []).join(' + ');
-    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong> ' + convertLatexToPlainText(setObj.setup) + '</div>' : '<details class="pcard-passage"><summary>Read set again</summary>' + convertLatexToPlainText(setObj.setup) + '</details>';
+    var readableSetup = escapeChatHtml(convertLatexToPlainText(setObj.setup)).replace(/\n/g,'<br>');
+    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong><br>' + readableSetup + '</div>' : '<details class="pcard-passage"><summary>Read set again</summary>' + readableSetup + '</details>';
     bodyHtml = setupHtml + '<div class="pcard-question">' + convertLatexToPlainText(q.q) + '</div><div class="pcard-submit-hint">Tap an option to submit your answer.</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
     hasPrev = currentSetIndex > 0 || currentQuestionIndex > 0;
     isLastOverall = currentSetIndex === totalSets - 1 && currentQuestionIndex === total - 1;
@@ -16531,6 +16775,7 @@ function prevQuestion() {
 }
 
 function showPracticeSummary() {
+  ensurePracticeExerciseArtifact(practiceData[currentPracticeType]);
   markPracticeDoneToday(currentPracticeType);
   var type = currentPracticeType.toUpperCase();
   var progressTopic = selectedPracticeTopic || sessionResults.passageTitle || (currentPracticeType === 'rc' ? 'RC' : 'Mixed');
@@ -16639,7 +16884,15 @@ function getProgressJourneyData() {
     }
   }
 
-  if (!diagnosis) return { diagnosis:null, evidence:[], task:null, attempt:null };
+  if (!diagnosis) {
+    // Completed practice is useful evidence even before a cause is known.
+    // Do not hide it or manufacture a diagnosis just to fill this view.
+    var standaloneTasks = (mentorExecutionLoop.tasks || []).filter(function(item) { return item && item.status !== 'cancelled'; });
+    var standaloneAttempts = (mentorExecutionLoop.attempts || []).filter(function(item) { return item && standaloneTasks.some(function(task) { return task.id === item.task_id; }); });
+    var standaloneAttempt = latestByTimestamp(standaloneAttempts, ['completed_at','updated_at','created_at']);
+    var standaloneTask = standaloneAttempt ? standaloneTasks.find(function(item) { return item.id === standaloneAttempt.task_id; }) : latestByTimestamp(standaloneTasks);
+    return { diagnosis:null, evidence:[], task:standaloneTask || null, attempt:standaloneAttempt || null };
+  }
   var evidence = (mentorExecutionLoop.evidence || []).filter(function(item) {
     return diagnosis.id && item && item.diagnosis_id === diagnosis.id;
   });
@@ -16688,15 +16941,15 @@ function renderProgressJourney() {
   progressNextDecisionAction = recommendation.action || { destination:'diagnosis' };
   cta.textContent = recommendation.cta || 'Continue with Marg →';
 
-  if (!journey.diagnosis) {
+  if (!journey.diagnosis && !journey.task && !journey.attempt) {
     status.textContent = 'No pattern yet';
     steps.innerHTML = '<div class="workspace-empty">Marg has not formed a working pattern yet. Start with one real CAT problem; the evidence trail will appear here instead of a generic score dashboard.</div>';
     return;
   }
 
-  var diagnosis = journey.diagnosis;
   var task = journey.task;
   var attempt = journey.attempt;
+  var diagnosis = journey.diagnosis || { section:task && task.section || 'CAT', status:'building_evidence', mechanism:'Your attempt is saved. Marg has not identified a reliable cause yet.' };
   status.textContent = progressJourneyStatus(diagnosis.status);
 
   var evidenceRows = journey.evidence.slice(0, 3);
@@ -16712,7 +16965,7 @@ function renderProgressJourney() {
 
   var evidenceCopy = evidenceRows.length
     ? 'Marg is using observed work and your explanation—not the label alone.'
-    : (diagnosis.evidence_summary || 'This is still a working read and needs a real attempt before Marg treats it as reliable.');
+    : (diagnosis.evidence_summary || (attempt ? 'The completed attempt below is evidence of your performance—not proof of why it happened. Review it with Marg to narrow the cause.' : 'This is still a working read and needs a real attempt before Marg treats it as reliable.'));
   var taskCopy = task ? (task.title || task.objective) : 'No intervention has been selected yet.';
   var taskMeta = task ? (task.objective || '') : 'Marg will choose the smallest useful check after the pattern is clear enough.';
   var retestCopy = 'No re-test result yet.';
@@ -16728,7 +16981,7 @@ function renderProgressJourney() {
 
   var patternMeta = String(diagnosis.section || 'CAT').toUpperCase() + ' · ' + progressJourneyStatus(diagnosis.status);
   steps.innerHTML =
-    progressJourneyStep('1', 'Current / working pattern', diagnosis.mechanism || 'Marg is narrowing the pattern.', patternMeta, 'complete') +
+    progressJourneyStep('1', 'Current / working pattern', diagnosis.mechanism || 'Marg is narrowing the pattern.', patternMeta, journey.diagnosis ? 'complete' : 'current') +
     progressJourneyStep('2', 'Supporting evidence', evidenceCopy, evidenceRows.length ? evidenceRows.length + ' saved signal' + (evidenceRows.length === 1 ? '' : 's') : '', evidenceRows.length ? 'complete' : 'current', evidenceHtml) +
     progressJourneyStep('3', 'Intervention tested', taskCopy, taskMeta, task ? (attempt ? 'complete' : 'current') : '') +
     progressJourneyStep('4', 'Re-test result', retestCopy, retestMeta, attempt ? 'complete' : (task ? 'current' : '')) +
