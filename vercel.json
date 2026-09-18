@@ -1,56 +1,19 @@
 {
   "version": 2,
   "routes": [
-    {
-      "src": "/blog/?",
-      "dest": "/blog/index.html"
-    },
-    {
-      "src": "/blog/why-your-cat-score-isnt-moving/?",
-      "dest": "/blog/why-your-cat-score-isnt-moving/index.html"
-    },
-    {
-      "src": "/blog/how-many-questions-to-attempt-in-cat/?",
-      "dest": "/blog/how-many-questions-to-attempt-in-cat/index.html"
-    },
-    {
-      "src": "/join/?",
-      "dest": "/marg-community-landing.html"
-    },
-    {
-      "src": "/landing/?",
-      "dest": "/marg-community-landing.html"
-    },
-    {
-      "src": "/privacy",
-      "dest": "/privacy.html"
-    },
-    {
-      "src": "/cat-percentile-predictor",
-      "dest": "/cat-percentile-predictor.html"
-    },
-    {
-      "src": "/mock-analysis",
-      "dest": "/mock-analysis.html"
-    },
-    {
-      "src": "/daily-rc/?",
-      "dest": "/daily-rc.html"
-    },
-    {
-      "src": "/daily-dilr/?",
-      "dest": "/daily-dilr/index.html"
-    },
-    {
-      "src": "/daily-qa/?",
-      "dest": "/daily-qa.html"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
+    { "src": "/blog/?", "dest": "/blog/index.html" },
+    { "src": "/blog/why-your-cat-score-isnt-moving/?", "dest": "/blog/why-your-cat-score-isnt-moving/index.html" },
+    { "src": "/blog/how-many-questions-to-attempt-in-cat/?", "dest": "/blog/how-many-questions-to-attempt-in-cat/index.html" },
+    { "src": "/blog/is-an-mba-still-worth-it-in-2026/?", "dest": "/blog/is-an-mba-still-worth-it-in-2026/index.html" },
+    { "src": "/join/?", "dest": "/marg-community-landing.html" },
+    { "src": "/landing/?", "dest": "/marg-community-landing.html" },
+    { "src": "/privacy", "dest": "/privacy.html" },
+    { "src": "/cat-percentile-predictor", "dest": "/cat-percentile-predictor.html" },
+    { "src": "/mock-analysis", "dest": "/mock-analysis.html" },
+    { "src": "/daily-rc/?", "dest": "/daily-rc.html" },
+    { "src": "/daily-dilr/?", "dest": "/daily-dilr/index.html" },
+    { "src": "/daily-qa/?", "dest": "/daily-qa.html" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }

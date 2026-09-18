@@ -1,0 +1,21 @@
+#chat-topic-toolbar{display:flex;align-items:center;gap:10px;padding:9px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;min-width:0;}
+#chat-topic-toolbar label{font-size:12px;color:var(--text-muted);}
+#chat-topic-select{min-width:0;flex:1;max-width:360px;padding:9px 10px;border:1px solid var(--border2);border-radius:9px;background:var(--surface2);color:var(--text);font:14px 'DM Sans',sans-serif;}
+#chat-topic-toolbar button,#new-chat-panel button{min-height:44px;padding:9px 12px;border:1px solid var(--border2);border-radius:9px;background:var(--surface2);color:var(--text);font:14px 'DM Sans',sans-serif;cursor:pointer;}
+#new-chat-panel{padding:15px 20px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;}
+#new-chat-panel[hidden]{display:none!important;}
+#new-chat-panel label{display:block;font-size:14px;margin-bottom:9px;}
+#new-chat-title{width:100%;max-width:500px;font:16px 'DM Sans',sans-serif;color:var(--text);background:var(--surface2);border:1px solid var(--border2);border-radius:9px;padding:11px;margin-bottom:10px;}
+#new-chat-panel p{font-size:12px;line-height:1.5;color:var(--text-muted);margin-top:9px;}
+.feature-example{display:block;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
+@media(max-width:768px){#chat-topic-toolbar{padding:7px 12px;gap:7px;}#chat-topic-toolbar label{display:none;}#chat-topic-select{font-size:16px;max-width:none;min-height:44px;}#new-chat-panel{padding:12px;}#tt-header{gap:8px;padding:12px;}#tt-title{font-size:13px;line-height:1.4;}#tt-close-btn{min-width:44px;min-height:44px;}#tt-qnav{flex-wrap:nowrap;overflow-x:auto;padding:8px 12px;}.tt-qnav-btn{flex-shrink:0;width:40px;height:40px;}.tt-option{min-height:48px;font-size:16px;line-height:1.6;padding:13px;}#tt-content{padding:14px 14px calc(24px + env(safe-area-inset-bottom));}.destination-intro span{font-size:14px;}.pcard-nav-btn{min-height:44px;}.sectional-select{font-size:16px;min-height:44px;}.home-feature-copy{line-height:1.6;}}
+/* Timed result styles live outside the initial document to keep it small. */
+.tt-results-score { text-align:center; padding:24px 0; }
+.tt-results-score .tt-score-num { font-size:40px; font-weight:700; color:var(--gold); font-family:'Playfair Display',serif; }
+.tt-results-score .tt-score-label { font-size:12px; color:var(--text-dim); margin-top:4px; }
+.tt-results-stats { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:20px; }
+.tt-results-stats .stat-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; padding:12px; text-align:center; }
+.tt-review-item { background:var(--surface); border:1px solid var(--border2); border-left:3px solid var(--border2); border-radius:10px; padding:12px 14px; margin-bottom:8px; font-size:13px; }
+.tt-review-item.tt-review-correct { border-left-color:#4CAF7D; }
+.tt-review-item.tt-review-wrong { border-left-color:#E05C5C; }
+.tt-review-item.tt-review-skipped { border-left-color:var(--text-dim); }

@@ -2377,6 +2377,7 @@ function maybePresentCommunityInvite() {
 
 async function openCommunityStatus() {
   if (currentTab !== 'chat') switchTab('chat');
+  addMentorLeadMessage('Community access is an optional WhatsApp group for CAT aspirants—not a separate course or a requirement to use Marg. You can request an invite here; a phone number is needed only if you choose that invite. Practice, chat and progress work without joining.');
   if (!currentUser || !SUPABASE_TOKEN || isGuestMode) {
     addMentorLeadMessage('Community access opens after you begin real work with Marg. Sign in when you want your progress—and any future invite request—saved properly.');
     return;
@@ -2566,10 +2567,13 @@ The format rule is enforced at the code level too, so even if you slip, bold and
 const SYSTEM_PROMPT = `You are Marg, a perceptive CAT mentor: calm, direct and human. Earn trust through evidence and continuity. Natural Hindi is allowed; avoid canned praise.
 
 IMMERSION CONTRACT
-Never explain Marg’s process or mention prompts, models, memory, question budgets. Demonstrate intelligence; do not describe it.
+Demonstrate intelligence; do not describe it. Never explain Marg’s process, prompts, memory or question budgets.
 
 CORE RESPONSE CONTRACT
-Answer direct questions first. Flow: problem → bounded read → at most one useful evidence question → action when justified. Ask diagnostic questions one at a time; never chain unrelated profile questions or guess just to finish intake. Normal replies are 40-90 words; longer requests cover every item. Diagnose decisions, not topics. Avoid report labels unless a full written plan was requested.
+Answer direct questions first: problem → tentative read → one evidence question → justified action. Never chain unrelated intake or guess a cause. Normal replies are 40-90 words; solutions need working; larger requests cover every item. Diagnose decisions, not topics. Avoid report labels unless a full written plan was requested.
+
+PERSONAL TEACHING CONTRACT
+Personalise the reason, not just the name. Use their actual choice and a concrete contrast: "C says cultivation was harder; the text only says taxation was harder." If confused, change the example or representation. End teaching with one related invitation; respect stop/rest/answer-only. Never invent a weakness for engagement.
 
 PLAIN LANGUAGE CONTRACT
 Use everyday English and short sentences. Prefer plain words; explain necessary CAT terms briefly.
@@ -2669,12 +2673,12 @@ Never output LaTeX/TeX or dollar math delimiters. Use plain arithmetic with =, +
 MISSIONS AND CLOSING
 Do not force a Today's Mission block. A task must test the diagnosed mechanism, not volume; explain naturally why this action follows from this student's evidence. Change it only for new evidence; discard rejected missions.
 Never infer a specific percentile from one mock. For full reviews give one evidence-linked priority per section and one checkpoint across two mocks.
-Keep saved missions out of unrelated chat; Home carries them. Normal closes leave a light thread, without a forced question. Sleep, exhaustion or completion should end cleanly.
+Keep saved missions out of unrelated chat; Home carries them. Leave a light thread, not a forced question. Sleep or exhaustion should end cleanly.
 
 TECHNICAL TAGS
-When a short option list helps, output one [OPTIONS: opt1|opt2|opt3][CONTEXT: type]. When the student reports completed QA/DILR practice, silently add [PRACTICE_LOG: section|Stable Topic Name|new count]. When genuinely recommending a timed QA/DILR sectional, add one [START_TEST: section|Topic|count]. Never explain these tags.
+Useful short choices: [OPTIONS: opt1|opt2|opt3][CONTEXT: type]. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. A genuine timed-test recommendation: [START_TEST: section|Topic|count]. Never explain tags.
 
-Before outputting any timed allocation, silently convert every duration to seconds and verify the parts equal the stated total. If they do not, recalculate before replying; never publish arithmetic that does not fit the section.`;
+Verify any timed allocation in seconds: parts must equal its total. Recalculate mismatches before publishing.`;
 
 function getDateContext() {
   var entries = [];
@@ -2785,13 +2789,41 @@ function runIndiaTimeTests() {
 var geminiRetryBlockedUntil = 0;
 var geminiRetryBlockedStatus = 429;
 var dilrEngineLoadPromise = null;
+var qaEngineLoadPromise = null;
+
+async function ensureQAEngine() {
+  if (typeof MargQAEngine !== 'undefined') return MargQAEngine;
+  if (!qaEngineLoadPromise) qaEngineLoadPromise = new Promise(function(resolve,reject) {
+    var script=document.createElement('script');
+    var timer=setTimeout(function(){qaEngineLoadPromise=null;script.remove();reject(new Error('QA solver loading timed out'));},12000);
+    script.src='/qa-engine.js?v=20260918-pilot4';
+    script.onload=function(){clearTimeout(timer);if(typeof MargQAEngine!=='undefined')resolve(MargQAEngine);else{qaEngineLoadPromise=null;reject(new Error('QA solver did not load'));}};
+    script.onerror=function(){clearTimeout(timer);qaEngineLoadPromise=null;script.remove();reject(new Error('QA solver could not load'));};
+    document.body.appendChild(script);
+  });
+  return qaEngineLoadPromise;
+}
+
+async function constructVerifiedQAResponse(request,signal) {
+  if(signal&&signal.aborted)throw new DOMException('Request cancelled','AbortError');
+  var engine=await ensureQAEngine(),seed=(Math.floor(Math.random()*4294967296)^Date.now())>>>0,data,audit;
+  for(var i=0;i<8;i++){
+    data=engine.create(request.margQATopic,seed+i*71237,request.margQAQuestionCount);
+    audit=engine.verify(data,request.margQATopic);
+    if(!audit.valid)throw new Error('QA arithmetic proof failed: '+audit.issues.join('; '));
+    if(!wasPracticeRecentlySeen('qa',data))break;
+  }
+  if(wasPracticeRecentlySeen('qa',data))throw new Error('No unseen QA pack was constructed');
+  if(signal&&signal.aborted)throw new DOMException('Request cancelled','AbortError');
+  return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(data)}]},finishReason:'STOP'}],margRequest:{upstreamCalls:0,construction:'independent-numeric-code-solver'}}),{status:200,headers:{'Content-Type':'application/json','X-Marg-Upstream-Calls':'0'}});
+}
 
 async function ensureDILREngine() {
   if (typeof MargDILREngine !== 'undefined') return MargDILREngine;
   if (!dilrEngineLoadPromise) dilrEngineLoadPromise = new Promise(function(resolve,reject) {
     var script = document.createElement('script');
     var timer = setTimeout(function(){dilrEngineLoadPromise=null;script.remove();reject(new Error('DILR solver loading timed out'));},12000);
-    script.src = '/dilr-engine.js?v=20260918-backend3';
+    script.src = '/dilr-engine.js?v=20260918-pilot4';
     script.onload = function() {
       clearTimeout(timer);
       if (typeof MargDILREngine !== 'undefined') resolve(MargDILREngine);
@@ -2828,6 +2860,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     var localRequest = null;
     try { localRequest = JSON.parse(options.body); } catch(e) {}
     if (localRequest && localRequest.margAction === 'construct_dilr') return constructVerifiedDILRResponse(localRequest, options.signal);
+    if (localRequest && localRequest.margAction === 'construct_qa') return constructVerifiedQAResponse(localRequest, options.signal);
   }
   if (url === WORKER_URL && Date.now() < geminiRetryBlockedUntil) {
     var cooldownError = new Error('A controlled retry already failed; waiting before another Gemini request');
@@ -3028,6 +3061,15 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
     var familyMatchers = [/arrange|seat|rank/i,/schedul|allocat/i,/distribut|group/i,/games?|tournament/i,/routes?|network/i,/table|chart|caselet/i,/venn|set data/i];
     request.margDILRTopic = families.find(function(t,index){return familyMatchers[index].test(selectedFamily);}) || null;
     request.margDILRSetCount = Number(generatedSetsSchema.maxItems) || 1;
+  }
+  var qaDraftSchema=responseJsonSchema&&responseJsonSchema.properties&&responseJsonSchema.properties.questions;
+  if(qaDraftSchema&&qaDraftSchema.items&&qaDraftSchema.items.properties&&qaDraftSchema.items.properties.solution){
+    var qaPrompt=(messages||[]).map(function(m){return typeof m.content==='string'?m.content:'';}).join(' ');
+    var qaMarker=/\[MARG_QA_TOPIC:([^\]]+)\]/.exec(qaPrompt);
+    var qaLock=/exact primary topic "([^"]+)"/.exec(qaPrompt);
+    request.margAction='construct_qa';request.margQATopic=qaMarker?qaMarker[1].trim():qaLock?qaLock[1]:null;
+    if(/^(?:mixed|diagnostic|qa)/i.test(request.margQATopic||''))request.margQATopic=null;
+    request.margQAQuestionCount=Number(qaDraftSchema.maxItems)||3;
   }
   var draftContract = responseJsonSchema && responseJsonSchema.properties && (responseJsonSchema.properties.questions || responseJsonSchema.properties.sets)
     ? '\nDRAFT OUTPUT CONTRACT: Never shorten sufficiency_check or option_check to a label. For each item, write a specific sufficiency sentence of at least 40 characters and an option_check sentence of at least 60 characters stating why only the answer survives. This overrides any instruction to make those two fields short phrases. Every question must state its actual task. RC: write four substantial paragraphs of about 125-130 words each; target 500-520 passage words, not a summary. Never pad with repeated sentences or unrelated facts.'
@@ -3425,7 +3467,7 @@ function getMessageSubmissionDecision(state) {
 }
 
 function getChatDraftStorageKey() {
-  return 'marg_chat_draft_' + (currentUser && currentUser.id ? currentUser.id : isGuestMode ? 'guest' : 'anonymous');
+  return 'marg_chat_draft_' + (currentUser && currentUser.id ? currentUser.id : isGuestMode ? 'guest' : 'anonymous') + (typeof margActiveThreadId !== 'undefined' && margActiveThreadId !== 'legacy' ? '_' + margActiveThreadId : '');
 }
 
 function saveCurrentChatDraft() {
@@ -4781,7 +4823,8 @@ async function loadMentorExecutionLoop() {
 }
 
 function getUserScopedKey(name) {
-  return name + '_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+  var suffix=typeof margActiveThreadId!=='undefined'&&margActiveThreadId!=='legacy'&&/^(?:marg_active_exercise|marg_pending_external_question)$/.test(name)?'_'+margActiveThreadId:'';
+  return name + '_' + (currentUser && currentUser.id ? currentUser.id : 'guest') + suffix;
 }
 
 function isInternalMemoryMessage(message) {
@@ -4826,6 +4869,7 @@ function recordProductIncident(kind, error, details) {
 
 function storeActiveGeneratedExercise(exercise) {
   if (!exercise) return;
+  if(typeof margActiveThreadId!=='undefined')exercise.threadId=exercise.threadId||margActiveThreadId;
   var exerciseSection = exercise.type === 'qa' ? 'qa' : exercise.type === 'dilr' ? 'dilr' : null;
   if (exerciseSection && collectSolutionPresentationIssues(exercise.content, exerciseSection).length) {
     console.error('Refused to store an exercise with exposed solution scratchwork:', exercise.source || exercise.type);
@@ -4858,6 +4902,7 @@ function storeActiveGeneratedExercise(exercise) {
 function loadActiveGeneratedExercise() {
   activeGeneratedExercise = null;
   try { activeGeneratedExercise = JSON.parse(localStorage.getItem(getUserScopedKey('marg_active_exercise')) || 'null'); } catch(e) {}
+  if(activeGeneratedExercise&&typeof margActiveThreadId!=='undefined'&&(activeGeneratedExercise.threadId||'legacy')!==margActiveThreadId)activeGeneratedExercise=null;
   if (!activeGeneratedExercise && conversationHistory && conversationHistory.length) {
     for (var i = conversationHistory.length - 1; i >= 0; i--) {
       var stored = parseInternalMemoryMessage(conversationHistory[i], 'EXERCISE');
@@ -6215,6 +6260,10 @@ function buildInvisibleMentorBrief(message, diagnosis, correction) {
     '- One decision: choose the smallest next move that follows from the strongest current evidence.',
     '- Specificity test: silently complete “Because the student showed X, recommend Y instead of Z.” If X is absent above, do not present Y as personalised.'
   ];
+  lines.push('- Current question to answer first: '+String(message||'').slice(0,1600));
+  lines.push('- Teach, do not label: if this is a conceptual doubt, use one concrete contrast or worked example. When evidence is missing, explain the plausible alternatives without claiming which one caused this student’s result.');
+  lines.push('- Evidence boundary: a section score cannot establish a stable base, strong comprehension or an easy question the student skipped. With a multi-section story, ask which section to unpack before choosing for them. In a passage explanation, do not add historical or biological facts absent from the supplied text; make analogies explicitly hypothetical.');
+  if(typeof getTopicChatMentorContext==='function')lines.push(getTopicChatMentorContext());
   if (recentCorrections.length) lines.push('- Corrections that override older memory: ' + recentCorrections.map(function(item) { return item.newEvidence; }).join(' | '));
   if (correction) lines.push('- This turn contains corrective evidence. Own the earlier mistake directly, state what it rules out, and do not reuse the rejected diagnosis' + (correction.planInvalidated ? ' or its mission' : '') + '.');
   if (diagnosis && diagnosis.committedAction) lines.push('- The student has already chosen the action. Execute the promised action in this response; no readiness question, repeated explanation or extra confirmation.');
@@ -6586,6 +6635,10 @@ async function saveChatMessage(role, msgContent) {
   lastChatLocalTimestamp = Math.max(Date.now(), lastChatLocalTimestamp + 1);
   var createdAt = new Date(lastChatLocalTimestamp).toISOString();
   if (item) { item.id = id; item.createdAt = createdAt; }
+  if(typeof encodeTopicChatContent==='function'){
+    if(item){item.threadId=item.threadId||margActiveThreadId;item.threadTitle=(margChatThreads.find(function(t){return t.id===item.threadId;})||{}).title;}
+    msgContent=encodeTopicChatContent(msgContent,item);captureActiveTopicChat();
+  }
   var backedUp = enqueueChatWrite({id:id,user_id:userId,role:role,content:msgContent,created_at:createdAt}, 'insert');
   if (!backedUp) {
     try {
@@ -6701,8 +6754,10 @@ async function loadUserData() {
     if (!currentUser || currentUser.id !== loadingUserId) return false;
     const chats = mergePendingChatWrites(chatResult.data || [], loadingUserId);
     if (chats && chats.length > 0) {
-      conversationHistory = chats.map(function(c) { return { id:c.id || null, role:c.role, content:c.content, createdAt:c.created_at || null }; });
+      if(typeof initialiseTopicChats==='function')initialiseTopicChats(chats);
+      else conversationHistory = chats.map(function(c) { return { id:c.id || null, role:c.role, content:c.content, createdAt:c.created_at || null }; });
     }
+    if(!chats.length&&typeof initialiseTopicChats==='function')initialiseTopicChats([]);
     loadDiagnosticMemory();
     hydrateDiagnosticMemoryFromHistory();
     loadMentorMemory();
@@ -6714,8 +6769,11 @@ async function loadUserData() {
     if (!currentUser || currentUser.id !== loadingUserId) return false;
     var pending = readChatOutbox(loadingUserId);
     if (pending.length) {
-      var existingRows = conversationHistory.map(function(item) { return {id:item.id,role:item.role,content:item.content,created_at:item.createdAt}; });
-      conversationHistory = mergePendingChatWrites(existingRows, loadingUserId).map(function(row) { return {id:row.id,role:row.role,content:row.content,createdAt:row.created_at}; });
+      if(typeof captureActiveTopicChat==='function')captureActiveTopicChat();
+      var backedUpHistory = typeof margAllChatMessages!=='undefined'&&typeof margThreadOwner!=='undefined' ? (margThreadOwner===loadingUserId ? margAllChatMessages : []) : conversationHistory;
+      var existingRows = backedUpHistory.map(function(item) { return {id:item.id,role:item.role,content:typeof encodeTopicChatContent==='function'?encodeTopicChatContent(item.content,item):item.content,created_at:item.createdAt}; });
+      if(typeof initialiseTopicChats==='function')initialiseTopicChats(mergePendingChatWrites(existingRows, loadingUserId));
+      else conversationHistory = mergePendingChatWrites(existingRows, loadingUserId).map(function(row) { return {id:row.id,role:row.role,content:row.content,createdAt:row.created_at}; });
       return true;
     }
     return false;
@@ -6928,12 +6986,17 @@ function isLatestAssistantBubble(wrap) {
 async function persistRegeneratedAssistantMessage(historyItem, previousContent, nextContent) {
   if (!currentUser || !SUPABASE_TOKEN || !historyItem) return false;
   var userId = currentUser.id;
+  var plainPreviousContent=previousContent,expectedThreadId=historyItem.threadId||'legacy';
+  if(typeof encodeTopicChatContent==='function'){previousContent=encodeTopicChatContent(previousContent,historyItem);nextContent=encodeTopicChatContent(nextContent,historyItem);}
   var rowId = historyItem.id || null;
   try {
     if (!rowId) {
       var result = await sbFetch('chats?select=id,content&user_id=eq.' + userId + '&role=eq.assistant&order=created_at.desc&limit=20', 'GET');
       var rows = result && result.data || [];
-      var matches = rows.filter(function(row) { return String(row.content || '') === String(previousContent || ''); });
+      var matches = rows.filter(function(row) {
+        if(typeof decodeTopicChatRow==='function'){var decoded=decodeTopicChatRow(row);return decoded.threadId===expectedThreadId&&decoded.content===String(plainPreviousContent||'');}
+        return String(row.content||'')===String(previousContent||'');
+      });
       var match = matches.length === 1 ? matches[0] : null;
       rowId = match && match.id || null;
     }
@@ -7630,7 +7693,7 @@ function buildDeferredAttemptContinuation(answer, entry) {
 }
 
 function getGuidedGenerationStorageKey() {
-  return 'marg_guided_generation_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+  return 'marg_guided_generation_' + (currentUser && currentUser.id ? currentUser.id : 'guest') + (typeof margActiveThreadId!=='undefined'&&margActiveThreadId!=='legacy'?'_'+margActiveThreadId:'');
 }
 
 function loadGuidedGenerationState() {
@@ -9211,6 +9274,9 @@ function rememberMockWorkingRead(response) {
 function guardSectionalEvidenceOverclaim(text, diagnosis) {
   var value = String(text || '');
   if (!diagnosis || diagnosis.intent !== 'mock_diagnosis') return value;
+  value=value.replace(/[^.!?\n]*(?:at\s+\d+\s+marks?|scor(?:e|ed|ing)\s+(?:of\s+)?\d+)[^.!?\n]*(?:your|the)\s+(?:base|foundation|comprehension)\s+(?:is|looks|seems)\s+(?:stable|strong|solid)[^.!?\n]*[.!?]?/gi,'That section score alone does not establish understanding, selection or pace.');
+  value=value.replace(/[^.!?\n]*you\s+(?:likely|probably|must have)\s+skipped\s+easy[^.!?\n]*[.!?]?/gi,'We still need to check which unattempted questions were solvable for you.');
+  value=value.replace(/[^.!?\n]*(?:VARC|DILR|QA)\s*\([^)]*\d+\s*marks?[^)]*\)[^.!?\n]*(?:you have a|your)\s+(?:stable|strong|solid)\s+(?:base|foundation)[^.!?\n]*[.!?]?/gi,'That section score alone does not establish understanding, selection or pace.');
   var overclaim = /[^.!?\n]*(?:accuracy foundation is elite|zero concept issues|score (?:was|is) (?:limited|capped) strictly by (?:volume|speed)|strictly capped by low volume|every additional attempt[^.!?\n]*pure upside|single bottleneck[^.!?\n]*(?:95|percentile)|the percentile does not change the underlying diagnostic fact)[^.!?\n]*[.!?]?/gi;
   var changed = false;
   value = value.replace(overclaim, function() { changed = true; return ''; }).replace(/\n{3,}/g, '\n\n').trim();
@@ -13642,7 +13708,7 @@ function renderMentorHome() {
   var title = document.getElementById('mentor-home-title');
   var name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
   var recommendation = buildHomeRecommendation();
-  if (title) title.textContent = getHomeTimeGreeting() + (name ? ', ' + name : '') + (recommendation.action && ['review_result','resume_diagnostic','resume_plan','durable_task'].indexOf(recommendation.action.destination) !== -1 ? '. Here is the thread worth continuing.' : '. What do you need today?');
+  if (title) title.textContent = 'Hi' + (name ? ', ' + name : '') + (recommendation.action && ['review_result','resume_diagnostic','resume_plan','durable_task'].indexOf(recommendation.action.destination) !== -1 ? '. Let’s pick up where you left off.' : '. Here’s what we can work on today.');
   homeRecommendationAction = recommendation.action || { destination:'diagnosis' };
   var label = document.querySelector('#home-recommendation .home-rec-label');
   var recTitle = document.getElementById('home-rec-title');
@@ -13934,15 +14000,18 @@ function formatMockHistoryDate(value) {
 function buildPreviousMockAnalyses() {
   var analyses = [];
   var seen = {};
-  (conversationHistory || []).forEach(function(message, index) {
+  if(typeof captureActiveTopicChat==='function')captureActiveTopicChat();
+  var mockTranscript=typeof margAllChatMessages!=='undefined'&&margAllChatMessages.length?margAllChatMessages:conversationHistory||[];
+  mockTranscript.forEach(function(message, index) {
     if (!message || message.role !== 'user') return;
     var scores = extractMockScoresFromHistoryMessage(message.content);
     var isScorecardReview = /\b(?:analyse|analyze|review)\b[\s\S]{0,45}\bmock\s+scorecard\b|\bmock\s+scorecard\b[\s\S]{0,45}\b(?:analyse|analyze|review)\b/i.test(String(message.content || ''));
     if (!scores && !isScorecardReview) return;
     var nextAssistant = null;
-    for (var cursor = index + 1; cursor < conversationHistory.length && cursor <= index + 8; cursor++) {
-      var candidate = conversationHistory[cursor];
+    for (var cursor = index + 1; cursor < mockTranscript.length && cursor <= index + 8; cursor++) {
+      var candidate = mockTranscript[cursor];
       if (!candidate) continue;
+      if((candidate.threadId||'legacy')!==(message.threadId||'legacy'))continue;
       if (candidate.role === 'user' && extractMockScoresFromHistoryMessage(candidate.content)) break;
       if (candidate.role === 'assistant' && !isInternalMemoryMessage(candidate) && !isLegacyAutoMissionReminder(candidate)) {
         nextAssistant = candidate;
@@ -13957,6 +14026,7 @@ function buildPreviousMockAnalyses() {
     seen[identity] = true;
     analyses.push({
       ref:ref,
+      threadId:message.threadId||'legacy',
       createdAt:message.createdAt || null,
       scores:scores,
       preview:mockHistoryPlainText(nextAssistant && nextAssistant.content, 230) || 'Open the original conversation to continue this mock review.'
@@ -13967,7 +14037,7 @@ function buildPreviousMockAnalyses() {
     if (!mock) return;
     var identity = [mock.date || '', Number(mock.varc || 0), Number(mock.dilr || 0), Number(mock.qa || 0)].join(':');
     var alreadyRepresented = analyses.some(function(item) {
-      return Number(item.scores.varc) === Number(mock.varc || 0)
+      return item.scores && Number(item.scores.varc) === Number(mock.varc || 0)
         && Number(item.scores.dilr) === Number(mock.dilr || 0)
         && Number(item.scores.qa) === Number(mock.qa || 0)
         && (!item.createdAt || !mock.date || String(item.createdAt).slice(0, 10) === String(mock.date).slice(0, 10));
@@ -14009,6 +14079,7 @@ function renderPreviousMockAnalyses() {
 function openPreviousMockAnalysis(index) {
   var analysis = previousMockAnalyses[Number(index)];
   if (!analysis) return;
+  if(analysis.threadId&&typeof switchTopicChat==='function')switchTopicChat(analysis.threadId);
   switchTab('chat');
   setTimeout(function() {
     var target = analysis.ref ? document.querySelector('[data-message-hash="' + analysis.ref + '"]') : null;
@@ -14055,7 +14126,10 @@ function switchTab(tab) {
   document.querySelectorAll('.bnav-btn').forEach(function(b) { b.classList.remove('active'); });
   document.querySelectorAll('.desktop-nav-btn').forEach(function(b) { b.classList.remove('active'); });
 
-  var chatElements = ['messages', 'quick-actions', 'input-area', 'varc-section'];
+  var chatElements = ['messages', 'quick-actions', 'input-area', 'varc-section', 'chat-topic-toolbar'];
+  if(typeof initialiseTopicChats==='function'&&margThreadOwner!==(currentUser&&currentUser.id||'guest'))initialiseTopicChats(conversationHistory);
+  if(typeof closeTopicChatCreator==='function')closeTopicChatCreator();
+  if(typeof renderTopicChatToolbar==='function')renderTopicChatToolbar();
   // Sectionals live inside Practice in the simplified navigation, so opening
   // the timed workspace keeps Practice highlighted instead of creating a
   // separate primary destination.
@@ -14949,6 +15023,10 @@ async function repairCATDraftBeforeAudit(section, data, issues, options) {
 }
 
 async function auditGeneratedCATContent(section, generatedData, expectedTopic, knownPresentationIssues, auditOptions) {
+  if(section==='qa'&&generatedData&&generatedData._margQAConstruction){
+    if(knownPresentationIssues&&knownPresentationIssues.length)return {valid:false,issues:knownPresentationIssues.slice(),failureType:'local'};
+    var qaEngine=await ensureQAEngine();return qaEngine.verify(generatedData,expectedTopic);
+  }
   if (section === 'dilr' && generatedData && generatedData._margConstruction) {
     if (knownPresentationIssues && knownPresentationIssues.length) return {valid:false,issues:knownPresentationIssues.slice(),failureType:'local'};
     var exactEngine = await ensureDILREngine();
