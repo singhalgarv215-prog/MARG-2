@@ -1079,11 +1079,13 @@ function renderMentorStructuredText(text) {
     if (!line) { flushParagraph(); return; }
     var visualMatch = line.match(/^@@MARG_VISUAL_(\d+)@@$/);
     var heading = line.match(/^#{1,3}\s+(.+)$/);
-    var bullet = line.match(/^(?:[-•])\s+(.+)$/);
+    var bullet = line.match(/^(?:[-•*])\s+(.+)$/);
     var numbered = line.match(/^(\d+)[.)]\s+(.+)$/);
     if (visualMatch) {
       flushParagraph();
       blocks.push(visualBlocks[Number(visualMatch[1])] || '');
+    } else if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(line)) {
+      flushParagraph();
     } else if (heading) {
       flushParagraph();
       blocks.push('<div class="mentor-heading">' + inline(heading[1]) + '</div>');
@@ -2574,6 +2576,7 @@ Use everyday English and short sentences. Prefer plain words; explain necessary 
 
 TRUTH AND CORRECTION CONTRACT
 Use only student, result or verified facts; never turn inference into fact. For a false Marg claim or direct correction, say "I misread that" and rebuild. Sharper evidence is not an error: contrast the old and new clues without apologizing. Missing evidence means one precise question or a tentative read.
+Never infer student working or an error's cause from a final answer. Show valid working. Supplied scores are self-reported, not verified.
 
 ANSWER-KEY TRUST CONTRACT
 Separate choices from keys; a bare "Answer" may be a choice or a supplied key. Solve first, compare the actual answer, then write consistent verdicts and totals. Never diagnose a student from a disputed or unverified error. Short tests support only the topics checked.
@@ -2591,10 +2594,10 @@ STUDENT-SPECIFIC DECISIONS
 Silently require: "Because this student showed X, recommend Y instead of generic Z." X must come from their message, verified result or reliable memory.
 
 ADAPTIVE FORMATTING CONTRACT
-Format for readability: headings for long parts, bullets for parallel points, numbers for order; bold at most three short spans. CAPS only for a brief warning; ✅/❌ only for checked results. Short replies stay plain. Preserve answer spacing, not decorative tables or emojis.
+Format for readability: headings for long parts, bullets for parallel points, numbers for order; bold at most three short spans. CAPS only for warnings; ✅/❌ only for checked results. Short replies stay plain. Space answers clearly; no decorative tables or emojis.
 
 TRUSTED VISUAL EXPLANATIONS
-Use one visual only when structure is clearer than text: DILR, geometry, cube, number line, sequence, comparison or chart. Never add decorative visuals to mentoring, emotion, RC or short replies; text must stand alone. Emit valid JSON, never HTML: [[MARG_VISUAL]]{"type":"flow|comparison|grid|bars|number_line|cube|geometry","title":"...",...}[[/MARG_VISUAL]]. Keys: flow items; comparison columns(title/items); grid headers/rows; bars items(label/value/display); number_line min/max/points; cube size/cutout; geometry shape/labels. Omit inaccurate visuals; they are not to scale.
+Use one visual only if it clarifies structure: DILR, geometry, cube, number line, sequence, comparison or chart. Never add decorative visuals; text stands alone. Emit JSON, not HTML: [[MARG_VISUAL]]{"type":"flow|comparison|grid|bars|number_line|cube|geometry","title":"...",...}[[/MARG_VISUAL]]. Keys: flow items; comparison columns(title/items); grid headers/rows; bars items(label/value/display); number_line min/max/points; cube size/cutout; geometry shape/labels. Omit inaccurate visuals; not to scale.
 
 EVIDENCE BEFORE REASSURANCE
 A score is an outcome, not a capability verdict. Examine attempts, accuracy, selection, timing, errors and the student's account before diagnosing. Separate observation from hypothesis; reassure only from evidence.
@@ -2625,7 +2628,7 @@ Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordi
 When challenged, audit first and keep one facing convention. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.”
 
 MEMORY AND CONTINUITY
-Use memory before advice, but the latest user topic controls the reply. A stop/one-point-summary request needs one point on that topic, no tasks or follow-up. Never invent history, causes of a third-party key error, or ask for material already pasted. Claims can occur anywhere: paragraph roles guide locating, not fixed first/last-line rules. Change plans only for fresh evidence or explicit redesign.
+Use memory; the latest topic controls the reply. Stop/one-point-summary means one relevant point, no tasks or follow-up. Never invent history or third-party key-error causes, or request already-pasted material. Claims can occur anywhere; paragraph roles guide locating, not fixed line rules. Change plans only for new evidence or explicit redesign.
 
 PROGRESSIVE PROFILE BUILDING
 Never run a profile survey. After answering, use a natural pause for one useful missing detail: familiarity, mock strategy, routine, resources, attempt or goal. Never interrupt work, repeat or chain these questions.
@@ -3210,10 +3213,32 @@ function cleanHistory(history) {
     var previous = list[index - 1];
     return !(previous && previous.role === message.role && String(previous.content || '').replace(/\s+/g, ' ').trim() === String(message.content || '').replace(/\s+/g, ' ').trim());
   });
-  // Long raw transcripts slow every response. Durable diagnostic, progression,
-  // exercise and plan memory are supplied separately, so 16 recent turns keep
-  // conversational continuity without resending the same session repeatedly.
-  return cleanedHistory.length > 16 ? cleanedHistory.slice(-16) : cleanedHistory;
+  if (cleanedHistory.length <= 16) return cleanedHistory;
+  var recentHistory = cleanedHistory.slice(-16);
+  var lastUser = cleanedHistory.slice().reverse().find(function(item) { return item && item.role === 'user'; });
+  var recallRequest = lastUser && String(lastUser.content || '');
+  // Short context is good for latency, but cannot erase evidence explicitly
+  // requested in a recap. Retrieve at most two relevant earlier user/reply
+  // pairs; normal turns still use only the recent 16 messages.
+  if (!/\b(?:recap|recall|remember|earlier|previous|summar(?:y|i[sz]e)|what did (?:i|you)|you (?:said|told|claimed)|never supplied)\b/i.test(recallRequest || '')) return recentHistory;
+  var excluded = /^(?:the|and|that|this|with|from|only|give|have|were|what|which|when|then|your|mine|answer|answers|question|questions|working|correct|wrong|corrected|recap|remember|earlier|previous|supplied|three|line|lines|college|target|total|scores|score|please|never|said|told|claim|claimed|practice|tasks|mock)$/;
+  var terms = Array.from(new Set((String(recallRequest).toLowerCase().match(/[a-z]{3,}|\bq\d+\b/g) || []).filter(function(term) { return !excluded.test(term); })));
+  if (!terms.length) return recentHistory;
+  var older = cleanedHistory.slice(0, -16);
+  var ranked = [];
+  older.forEach(function(item,index) {
+    if (!item || item.role !== 'user') return;
+    var words = String(item.content || '').toLowerCase().match(/[a-z]+|\bq\d+\b/g) || [];
+    var score = terms.filter(function(term) { return words.indexOf(term) !== -1; }).length;
+    if (score) ranked.push({index:index,score:score});
+  });
+  var retrieved = [];
+  ranked.sort(function(a,b) { return b.score - a.score || b.index - a.index; }).slice(0,2).sort(function(a,b) { return a.index - b.index; }).forEach(function(match) {
+    [older[match.index], older[match.index+1]].forEach(function(item) {
+      if (item && retrieved.indexOf(item) === -1) retrieved.push(item);
+    });
+  });
+  return retrieved.map(function(item) { return {role:item.role,content:String(item.content || '').slice(0,6000)}; }).concat(recentHistory);
 }
 
 let currentUser = null;
@@ -4790,7 +4815,11 @@ function loadActiveGeneratedExercise() {
 
 function markActiveExerciseDelivered(surface) {
   if (!activeGeneratedExercise) return;
-  if (!activeGeneratedExercise.deliveredAt) activeGeneratedExercise.deliveredAt = new Date().toISOString();
+  if (!activeGeneratedExercise.deliveredAt) {
+    activeGeneratedExercise.deliveredAt = new Date().toISOString();
+    var lastUser = (conversationHistory || []).slice().reverse().find(function(item) { return item && item.role === 'user'; });
+    activeGeneratedExercise.chatBoundaryAtDelivery = lastUser ? {id:lastUser.id || null,content:lastUser.content,createdAt:lastUser.createdAt || null} : null;
+  }
   activeGeneratedExercise.deliveryState = 'rendered';
   activeGeneratedExercise.deliverySurface = surface || activeGeneratedExercise.deliverySurface || 'unknown';
   var priorMaterial = (conversationHistory || []).slice().reverse().find(function(item) {
@@ -4946,6 +4975,10 @@ function isActiveExerciseCurrentInConversation() {
   var history = typeof conversationHistory !== 'undefined' ? conversationHistory || [] : [];
   for (var i = history.length - 1; i >= 0; i--) {
     var item = history[i];
+    var boundary = activeGeneratedExercise.chatBoundaryAtDelivery;
+    if (/practice|sectional|timed-test/i.test(activeGeneratedExercise.deliverySurface || '') && item && item.role === 'user' && boundary &&
+        (boundary.id ? item.id === boundary.id : boundary.createdAt && item.createdAt === boundary.createdAt && item.content === boundary.content)) return true;
+    if (item && item.role === 'user' && typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(item.content)) return false;
     if (!item || item.role !== 'assistant' || /^\[MARG_INTERNAL:/.test(item.content || '')) continue;
     var text = String(item.content || '');
     // Review headings are not new exercises; require actual option blocks.
@@ -4954,7 +4987,7 @@ function isActiveExerciseCurrentInConversation() {
     var visible = normalize(text);
     // A dedicated Practice/sectional can be newer than the last chat passage.
     // Its delivery baseline prevents that older chat from invalidating it.
-    if (/practice|sectional/i.test(activeGeneratedExercise.deliverySurface || '') && activeGeneratedExercise.visibleMaterialAtDelivery === visible) return true;
+    if (/practice|sectional|timed-test/i.test(activeGeneratedExercise.deliverySurface || '') && activeGeneratedExercise.visibleMaterialAtDelivery === visible) return true;
     if (item.exerciseId === activeGeneratedExercise.id) return true;
     if (passage.length > 80 && visible.indexOf(passage.slice(0, 180)) !== -1) return true;
     if (material.length > 80 && (visible === material || visible.indexOf(material.slice(0, 180)) !== -1)) return true;
@@ -5106,15 +5139,16 @@ function parseSubmittedAnswerChoices(message) {
   // Numeric/TITA and para-jumble answers need explicit labels, not a loose
   // search for numbers in a question stem. Preserve zero and signed values.
   var answerToken = '([A-D]|[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:\\s*\\/\\s*[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))?)';
-  text.replace(new RegExp('(?:^|[\\n,;|])\\s*Q(?:uestion)?\\s*(\\d{1,2})\\s*[:.)-]\\s*' + answerToken + '(?=$|[\\s,;|])', 'gi'), function(_, number, answer) {
+  var answerBoundary = '(?=$|[\\s,;|!?]|\\.(?=\\s|$))';
+  text.replace(new RegExp('(?:^|[\\n,;|])\\s*Q(?:uestion)?\\s*(\\d{1,2})\\s*[:.)-]\\s*' + answerToken + answerBoundary, 'gi'), function(_, number, answer) {
     found[Number(number)] = answer.replace(/\s/g, '').toUpperCase(); return _;
   });
-  text.replace(new RegExp('(?:^|[\\n,;|])\\s*(\\d{1,2})\\s*[:)-]\\s*' + answerToken + '(?=$|[\\s,;|])', 'gi'), function(_, number, answer) {
+  text.replace(new RegExp('(?:^|[\\n,;|])\\s*(\\d{1,2})\\s*[:)-]\\s*' + answerToken + answerBoundary, 'gi'), function(_, number, answer) {
     found[Number(number)] = answer.replace(/\s/g, '').toUpperCase(); return _;
   });
-  var blocks = text.split(/(?:^|\n)\s*Q(?:uestion)?\s*(\d{1,2})\b/gi);
+  var blocks = text.split(/\bQ(?:uestion)?\s*(\d{1,2})\b\s*[:.)-]?/gi);
   for (var i = 1; i < blocks.length; i += 2) {
-    var ownAnswer = new RegExp('\\b(?:my\\s+)?answer\\s*[-:]\\s*' + answerToken + '(?=$|[\\s,;|])', 'i').exec(blocks[i + 1] || '');
+    var ownAnswer = new RegExp('\\b(?:my\\s+)?answer\\s*[-:]\\s*' + answerToken + answerBoundary, 'i').exec(blocks[i + 1] || '');
     if (ownAnswer) found[Number(blocks[i])] = ownAnswer[1].replace(/\s/g, '').toUpperCase();
   }
   return found;
@@ -5137,7 +5171,7 @@ function getConversationAnswerChoices(message) {
   if (Object.keys(explicit).length) return explicit;
   var text = String(message || '').trim();
   if (!/^(?:[A-D]|[+-]?(?:\d+(?:\.\d+)?|\.\d+))(?:\s*[,;|]\s*(?:[A-D]|[+-]?(?:\d+(?:\.\d+)?|\.\d+)))*[.!]?$/i.test(text)) return {};
-  var values = text.replace(/[!]$/, '').split(/\s*[,;|]\s*/);
+  var values = text.replace(/[.!]$/, '').split(/\s*[,;|]\s*/);
   var recent = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
   for (var i = recent.length - 1; i >= Math.max(0, recent.length - 4); i--) {
     if (!recent[i] || recent[i].role !== 'assistant' || /^\[MARG_INTERNAL:/.test(recent[i].content || '')) continue;
@@ -5208,7 +5242,7 @@ function getExerciseHypothesisVerdict(exercise) {
 }
 
 function guardExerciseAbilityOverclaim(response) {
-  return String(response || '').replace(/[^.!?\n]*\b(?:proves?|demonstrates conclusively)\b[^.!?\n]*\b(?:comprehension|reading ability|foundation)\b[^.!?\n]*[.!]?/gi,
+  var value = String(response || '').replace(/[^.!?\n]*\b(?:proves?|demonstrates conclusively)\b[^.!?\n]*\b(?:comprehension|reading ability|foundation)\b[^.!?\n]*[.!]?/gi,
     'You got these answers right, but the score alone does not tell us whether the first read was clear or whether rereading helped.')
     .replace(/[^.!?\n]*(?:the issue (?:isn['’]?t|is not) a failure of ["“]?active reading|your main accuracy barrier[^.!?\n]*(?:wasn['’]?t|was not) comprehension)[^.!?\n]*[.!]?/gi,
       'Your first-read understanding still needs checking; this score cannot rule out difficulty mapping the passage.')
@@ -5218,6 +5252,21 @@ function guardExerciseAbilityOverclaim(response) {
     'These answers tell us about the topics checked here, not your entire foundation.')
     .replace(/\bcomprehension (?:isn['’]?t|is not) (?:your |the )?(?:issue|problem)(?: at all)?\b/gi,
       'comprehension may not be the only issue; we still need to check how you locate and interpret the claim');
+  return guardUnprovidedStudentWorking(value);
+}
+
+function guardUnprovidedStudentWorking(response) {
+  var recentUsers = (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : []).slice(-16).filter(function(item) { return item && item.role === 'user'; });
+  var suppliedWorking = recentUsers.some(function(item) {
+    var text = String(item.content || '');
+    return !/\b(?:never|not|no|didn['’]?t|don['’]?t)\b[^.!?\n]{0,60}\b(?:working|calculation|divid|multipl|calculat)/i.test(text) &&
+      /\bI (?:divided|multiplied|subtracted|added|calculated|used the formula)|\bmy working\s*[:=]/i.test(text);
+  });
+  if (suppliedWorking) return String(response || '');
+  return String(response || '')
+    .replace(/\([^()\n]*(?:arrived at by|you (?:divided|multiplied|subtracted|added|calculated))[^()\n]*\)/gi, '')
+    .replace(/\bYou (?:divided|multiplied|subtracted|added|calculated)\b[^\n!?]*(?:[!?]|$)/gi, 'I can show the valid calculation, but your final answer alone does not show which step went wrong.')
+    .replace(/\bQ(\d+) was an? (?:execution|calculation) error\b/gi, 'Q$1 has a wrong final answer; the cause still needs your working');
 }
 
 function guardHintOnlyResponse(response) {
@@ -5246,6 +5295,11 @@ function guardAnswerVerdictConsistency(response, diagnosis) {
   var stored = typeof activeGeneratedExercise !== 'undefined' && hasVerifiedActiveAnswerKey() && !(diagnosis && diagnosis.freshPastedMaterial);
   var localChoices = stored ? getActiveExerciseAnswerChoices(diagnosis && diagnosis.submittedAnswerText || '') : {};
   var questions = stored ? getActiveExerciseQuestions() : [];
+  var singleExplanation = stored && activeGeneratedExercise.result ? buildLocalSingleAnswerExplanation(diagnosis && diagnosis.submittedAnswerText) : '';
+  if (singleExplanation) {
+    if (diagnosis) diagnosis.gradingIntegrityRepaired = true;
+    return singleExplanation;
+  }
   // The model explains; it does not get a vote on a checked answer key.
   // Recompute the verdict from this submission on EVERY review, not only
   // when a regex happens to recognise a contradiction in the model prose.
@@ -5314,6 +5368,21 @@ function isSingleAnswerExplanationRequest(message) {
     /\b(?:q(?:uestion)?\s*\d+|option\s*[A-D])\b/i.test(text);
 }
 
+function buildLocalSingleAnswerExplanation(message) {
+  if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(message)) return '';
+  if (!hasVerifiedActiveAnswerKey() || !activeGeneratedExercise.result || !isSingleAnswerExplanationRequest(message)) return '';
+  var match = /\bq(?:uestion)?\s*(\d+)\b/i.exec(String(message || ''));
+  if (!match) return '';
+  var number = Number(match[1]);
+  var question = getActiveExerciseQuestions().find(function(item) { return Number(item.number) === number; });
+  if (!question || !question.explanation) return '';
+  var choice = getActiveExerciseAnswerChoices('Review my answers')[number];
+  var text = 'Let’s take Q' + number + '.' + (choice != null ? ' You chose ' + choice + '; the checked answer is ' + question.correct + '.' : ' The checked answer is ' + question.correct + '.') + '\n\n' + question.explanation;
+  // Explain the submitted item, not a new scorecard or ability diagnosis.
+  if (!/\b(?:don['’]?t|do not|no)\b[^.!?\n]{0,25}\b(?:ask|questions?|follow.?up)\b/i.test(String(message || ''))) text += '\n\nWhich part of that comparison still feels unclear?';
+  return text;
+}
+
 function findRecentSubmittedAnswerText(message) {
   if (Object.keys(parseSubmittedAnswerChoices(message)).length) return message;
   for (var i = conversationHistory.length - 1; i >= Math.max(0, conversationHistory.length - 8); i--) {
@@ -5351,6 +5420,16 @@ function buildLocalAnswerCheck(message) {
   var result = 'Let\'s look at your choices for this exercise:\n\n' + blocks.join('\n\n') + '\n\nYou got ' + correctCount + '/' + reviewedCount + ' right.';
   var repeatedPattern = wrongPatterns.find(function(pattern) { return wrongPatterns.filter(function(other) { return other === pattern; }).length >= 2; });
   if (repeatedPattern) result += ' Two or more misses in this exercise involved ' + repeatedPattern + '. That is a working clue, not proof across mocks.';
+  if (typeof isExerciseResultReviewRequest === 'function' && isExerciseResultReviewRequest(message)) {
+    result += '\n\nWhat this shows: ' + (correctCount === reviewedCount
+      ? 'you answered these particular questions correctly. That does not establish mastery of the whole section or your speed under mock conditions.'
+      : 'these are the checked misses in this attempt. Your choices alone do not prove why they happened; the working or passage evidence still matters.');
+    result += '\n\nNext check: ' + (activeGeneratedExercise.type === 'qa'
+      ? 'use a mixed-topic QA set without chapter labels, to see whether you can recognise the method when the topic is not announced.'
+      : activeGeneratedExercise.type === 'dilr'
+        ? 'compare your first useful deduction and any stalled cases in a fresh set, rather than assuming this score proves a selection or speed problem.'
+        : 'use a fresh RC and identify the exact passage support before choosing, to see whether the same option mismatch recurs.');
+  }
   if (activeGeneratedExercise && activeGeneratedExercise.hypothesis) result += '\n[HYPOTHESIS_VERDICT: inconclusive]';
   return result;
 }
@@ -5394,12 +5473,22 @@ function getActiveExerciseAnswerChoices(message) {
 }
 
 function maybeCompleteVerifiedAnswerReview(message) {
-  if (pendingExternalQuestionTurnMode || Object.keys(getConversationAnswerChoices(message)).length < 2) return false;
+  if (pendingExternalQuestionTurnMode) return false;
+  var singleExplanation = buildLocalSingleAnswerExplanation(message);
+  if (singleExplanation) {
+    addMessage('marg', renderMentorStructuredText(singleExplanation));
+    conversationHistory.push({role:'assistant',content:singleExplanation});
+    if (!isGuestMode) saveChatMessage('assistant',singleExplanation);
+    lastFailedOutgoingMessage = null;
+    showComposerStatus('', 'info');
+    return true;
+  }
+  if (Object.keys(getConversationAnswerChoices(message)).length < 2) return false;
   var review = buildLocalAnswerCheck(message);
   if (!review) return false;
   // The exact questions already have checked explanations. Deliver their
   // score immediately; an unavailable model must not block or rescore them.
-  review += '\n\nWant to go through the reasoning for one answer together?';
+  review += isExerciseResultReviewRequest(message) ? '\n\nWant to do that next check together?' : '\n\nWant to go through the reasoning for one answer together?';
   applyPredictionValidationVerdict(review);
   markExerciseReviewCompleted(review);
   var visible = stripInternalMentorTags(review);
@@ -6781,6 +6870,36 @@ async function persistRegeneratedAssistantMessage(historyItem, previousContent, 
   }
 }
 
+function saveResponseVersionsForBrowser(historyItem, versions, ownerId) {
+  if (!currentUser || (ownerId && currentUser.id !== ownerId) || !historyItem || !historyItem.id || !Array.isArray(versions)) return false;
+  try {
+    var key = getUserScopedKey('marg_response_versions');
+    var saved = JSON.parse(localStorage.getItem(key) || '{}');
+    if (!saved || Array.isArray(saved) || typeof saved !== 'object') saved = {};
+    saved[historyItem.id] = versions.filter(function(value) { return typeof value === 'string'; }).slice(-10);
+    var ids = Object.keys(saved);
+    ids.slice(0, Math.max(0, ids.length - 100)).forEach(function(id) { delete saved[id]; });
+    localStorage.setItem(key, JSON.stringify(saved));
+    return true;
+  } catch(e) { return false; }
+}
+
+function restoreResponseVersionsForBrowser(wrap, historyItem) {
+  if (!currentUser || !wrap || !historyItem || !historyItem.id || historyItem.role !== 'assistant') return false;
+  try {
+    var saved = JSON.parse(localStorage.getItem(getUserScopedKey('marg_response_versions')) || '{}');
+    var versions = saved && saved[historyItem.id];
+    if (!Array.isArray(versions) || versions.length < 2 || !versions.every(function(value) { return typeof value === 'string'; })) return false;
+    var selected = versions.indexOf(historyItem.content);
+    if (selected < 0) return false; // Never replace a newer reply from another device.
+    wrap._margResponseVersions = versions;
+    wrap._margHistoryItem = historyItem;
+    ensureResponseVersionNavigator(wrap);
+    renderAssistantVersion(wrap, selected);
+    return true;
+  } catch(e) { return false; }
+}
+
 function renderAssistantVersion(wrap, versionIndex) {
   if (!wrap || !Array.isArray(wrap._margResponseVersions) || !wrap._margResponseVersions.length) return;
   var index = Math.max(0, Math.min(Number(versionIndex) || 0, wrap._margResponseVersions.length - 1));
@@ -6827,6 +6946,7 @@ function ensureResponseVersionNavigator(wrap) {
 }
 
 async function regenerateAssistantMessage(wrap) {
+  var regenerationOwnerId = currentUser && currentUser.id;
   if (responseRegenerationInFlight || isLoading) {
     setMessageActionStatus(wrap, 'Marg is still responding');
     return;
@@ -6883,6 +7003,7 @@ async function regenerateAssistantMessage(wrap) {
     wrap._margResponseVersions = versions;
     historyItem.content = regenerated;
     var versionSaved = await persistRegeneratedAssistantMessage(historyItem, previousContent, regenerated);
+    saveResponseVersionsForBrowser(historyItem, versions, regenerationOwnerId);
     ensureResponseVersionNavigator(wrap);
     renderAssistantVersion(wrap, versions.length - 1);
     setMessageActionStatus(wrap, versionSaved ? 'New version saved' : 'New version; account sync pending');
@@ -8411,6 +8532,15 @@ function containsPracticeSourceAttribution(message) {
 
 function isFreshPastedPracticeMaterial(message) {
   var text = String(message || '');
+  // New QA/DILR stems can be short and need no passage. A numbered answer
+  // list alone is not new material; an actual task/stem is.
+  var numberedStems = text.split(/\bQ(?:uestion)?\s*\d{1,2}\s*[:.)-]\s*/i).slice(1);
+  if (numberedStems.some(function(block) {
+    var stem = block.split(/\b(?:my answer|my choice|answer key)\s*[:=-]/i)[0];
+    return stem.trim().length >= 5 && (/\b(?:solve|find|calculate|determine|which|what|triangle|rhombus|polygon|equation|arrange|arrangement|seated|ranked|condition|clue|ratio|perimeter|probability)\b/i.test(stem) || /[a-z]\s*[+−*/^=]\s*\d|\d\s*[a-z]\b/i.test(stem));
+  })) return true;
+  if (/\bmy answer\s*[:=-]/i.test(text) && /\b(?:solve|perimeter|diagonals?|rhombus|triangle|equation|polygon|probability)\b/i.test(text) && (text.match(/\d+/g) || []).length >= 2) return true;
+  if ((text.match(/(?:^|\n)\s*[A-D][).:]\s+/gm) || []).length >= 3 && /\b(?:which|what|find|solve|determine|infer|captures)\b/i.test(text)) return true;
   if (text.length < 500) return false;
   var questionMarkers = text.match(/(?:^|\n)\s*(?:Q(?:uestion)?\s*)?\d{1,2}\s*[).:]/gim) || [];
   var answerPairs = text.match(/\b\d{1,2}\s*[-:.)]?\s*[A-D]\b/gi) || [];
@@ -8453,7 +8583,7 @@ function loadPendingExternalQuestion() {
 
 function hasDeclaredQuestionAttempt(message) {
   var text = String(message || '');
-  return /\b(?:my answer|my choice|i (?:chose|choose|picked|marked|answered)|i think (?:the )?answer)\b[\s\S]{0,45}\b[A-D]\b/i.test(text) ||
+  return /\b(?:my answers?|my choices?|i (?:chose|choose|picked|marked|answered)|i think (?:the )?answer)\s*(?:is|are|was|were|[:=-])?\s*(?:[A-D]\b|[+-]?(?:\d+(?:\.\d+)?|\.\d+)|not enough (?:information|info|data))\b/i.test(text) ||
     /(?:^|\n)\s*(?:answer|ans|my answer|my answers|answer key)\s*[:\-]/im.test(text);
 }
 
@@ -8499,7 +8629,8 @@ function gateFreshExternalQuestion(message) {
 
 function isExternalQuestionAnswer(message) {
   var text = String(message || '').trim();
-  return /^[A-D](?:\s|[).,:\-]|$)/i.test(text) ||
+  return /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:\s*\/\s*[+-]?(?:\d+(?:\.\d+)?|\.\d+))?\s*(?:cm|m|seconds?|minutes?|%|[.!])?\s*$/i.test(text) ||
+    hasDeclaredQuestionAttempt(text) || /^[A-D](?:\s|[).,:\-]|$)/i.test(text) ||
     /\b(?:my answer|my choice|i (?:chose|choose|picked|marked|selected)|answer is|selected option)\b[\s\S]{0,35}\b[A-D]\b/i.test(text) ||
     /\b\d{1,2}\s*[-:.)]\s*[A-D]\b/i.test(text);
 }
@@ -10179,6 +10310,7 @@ function restoreConversation() {
       if (restoredWrap) {
         if (msg.id) restoredWrap.dataset.chatId = String(msg.id);
         restoredWrap.dataset.messageHash = simpleStableHash(msg.content || '');
+        restoreResponseVersionsForBrowser(restoredWrap, msg);
       }
     });
     isRestoringConversation = false;
@@ -10599,6 +10731,10 @@ var activeMockReviewSource = '';
 
 function isMultiSectionMockNarrative(message) {
   var text = String(message || '').toLowerCase();
+  // Mentioning several scores inside a correction, recall or answer-review
+  // request is not consent to restart diagnosis. The newest task wins.
+  if (/\b(?:correction|corrected|remember|recall|summari[sz]e|you (?:said|ignored|invented)|don['’]?t restart|do not restart|which (?:of (?:those|these) )?answers?\b|which answers? were|what (?:were|are) my)\b/.test(text)) return false;
+  if (/\bQ(?:uestion)?\s*\d+\s*[:.)-]/i.test(String(message || ''))) return false;
   if (!/\b(?:mock|aimcat|simcat|scorecard|sectional scores?)\b/.test(text)) return false;
   var sectionCount = [
     /\b(?:varc|rc|reading comprehension|verbal ability)\b/,
@@ -10613,10 +10749,7 @@ function maybeStartMultiSectionMockReview(message) {
   activeMockReviewPriority = '';
   activeMockReviewSource = 'narrative';
   addMentorLeadMessage(
-    'There are three different problems here, and mixing them would give you a shallow answer.\n\n' +
-    'DILR: one set took too much time and the setup became unreliable.\n\n' +
-    'VARC: rushing may be hurting understanding, but we have not proved that yet.\n\n' +
-    'QA: your practice mix may not match what the mock asks you to recognise.\n\n' +
+    'Let’s take this one section at a time. Those scores tell us where the marks went, but not yet why. I won’t assume rushing, weak concepts or a bad practice mix.\n\n' +
     'Which section should we unpack first?'
   );
   showConversationalOptions(['DILR', 'VARC', 'QA'], 'mock_section_priority');
@@ -10628,20 +10761,20 @@ function askMockSectionEvidenceQuestion(section) {
   if (activeMockReviewPriority === 'dilr') {
     addMentorLeadMessage(activeMockReviewSource === 'scores'
       ? 'Think about the DILR set that consumed the most time. Near the end, what was happening?'
-      : 'In that 20–22 minute set, what kept you there near the end?');
+      : 'In the DILR set you stayed with, what kept you there near the end?');
     showConversationalOptions(['I was still finding useful deductions', 'I was trying cases without real progress', 'A bit of both'], 'mock_section_evidence');
     return;
   }
   if (activeMockReviewPriority === 'varc') {
     addMentorLeadMessage(activeMockReviewSource === 'scores'
       ? 'Thinking about VARC, where did the marks mostly slip?'
-      : 'When you say you rushed VARC, where did the marks mostly go?');
+      : 'Thinking about VARC, where did the marks mostly slip?');
     showConversationalOptions(['I misunderstood the passage', 'I got stuck between two options', 'I ran out of time near the end'], 'mock_section_evidence');
     return;
   }
   addMentorLeadMessage(activeMockReviewSource === 'scores'
     ? 'For the QA questions you left or got wrong, what happened most often?'
-    : 'In the Arithmetic questions you attempted, what stopped you most often?');
+    : 'For the QA questions you left or got wrong, what happened most often?');
   showConversationalOptions(['I could not spot the method', 'I knew the method but was too slow', 'I made mistakes after the setup'], 'mock_section_evidence');
 }
 
@@ -13211,6 +13344,8 @@ var practiceTopicLog = {};
 var practiceTopicFlagged = {};
 
 var timedTestSection = null;
+var timedTestGenerationSequence = 0;
+var timedTestGenerationController = null;
 var timedTestTopic = null;
 var timedTestQuestions = [];
 var timedTestAnswers = [];
@@ -13320,8 +13455,15 @@ function getDurableMentorTaskRecommendation() {
   });
   var task = openTasks[0];
   if (!task) return null;
-  var attempt = (mentorExecutionLoop.attempts || []).find(function(item) { return item.task_id === task.id; });
-  var evidence = attempt ? [attempt.correct + '/' + (Number(attempt.correct || 0) + Number(attempt.wrong || 0) + Number(attempt.skipped || 0)) + ' correct', attempt.evidence_summary].filter(Boolean).join('. ') : '';
+  var attempt = (mentorExecutionLoop.attempts || []).filter(function(item) { return item.task_id === task.id; }).sort(function(a,b) {
+    return String(b.completed_at || b.updated_at || b.created_at || '').localeCompare(String(a.completed_at || a.updated_at || a.created_at || ''));
+  })[0];
+  var evidence = '';
+  if (attempt) {
+    var scoreLabel = Number(attempt.correct || 0) + '/' + (Number(attempt.correct || 0) + Number(attempt.wrong || 0) + Number(attempt.skipped || 0)) + ' correct';
+    var summary = String(attempt.evidence_summary || '').trim();
+    evidence = summary.indexOf(scoreLabel) === 0 ? summary : [scoreLabel,summary].filter(Boolean).join('. ');
+  }
   return {
     title:task.status === 'evidence_ready' ? 'Your result is saved. Now decide what it proved.' : task.title,
     copy:compactHomeText(task.status === 'evidence_ready' ? (evidence || task.success_metric) : studentFacingTaskObjective(task), 230),
@@ -13342,7 +13484,7 @@ function buildHomeRecommendation() {
     var reviewTotal = Number(result.total || (Number(result.correct || 0) + Number(result.wrong || 0) + Number(result.skipped || 0)));
     return {
       title:'Your result is saved. Now turn it into a decision.',
-      copy:(activeGeneratedExercise.title || 'The completed exercise') + ': ' + Number(result.correct || 0) + '/' + reviewTotal + ' correct. The useful next step is to test the mistake pattern, not chase another score.',
+      copy:(activeGeneratedExercise.title || 'The completed exercise') + ': ' + Number(result.correct || 0) + '/' + reviewTotal + ' correct. Let’s review what this attempt shows and decide what to test next.',
       label:'Unfinished review', cta:'Review the evidence →', action:{ destination:'review_result' }
     };
   }
@@ -13837,6 +13979,11 @@ function switchTab(tab) {
   if (desktopNav) desktopNav.classList.add('active');
 
   if (tab === 'chat') {
+    if (hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(120);
+    // Sidebar Chat and first-use diagnosis must be as usable as the Home chat
+    // card. Authentication is enough; no forced choice is required to send.
+    if (currentUser && SUPABASE_TOKEN && !onboardingComplete && !conversationHistory.length) onboardingComplete = true;
+    if (currentUser && SUPABASE_TOKEN) keepChatInteractive();
     chatElements.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.style.display = '';
@@ -13848,7 +13995,6 @@ function switchTab(tab) {
       requestAnimationFrame(function() { scrollChatToLatest({ instant:true }); });
     });
     setTimeout(function() { scrollChatToLatest({ instant:true }); }, 140);
-    if (hasPendingDeepLinkQuestion()) schedulePendingDeepLinkQuestionDispatch(120);
     if (window._practiceCompleteSummary) {
       setTimeout(function() {
         prefillMessage(window._practiceCompleteSummary);
@@ -15338,6 +15484,12 @@ async function generateGuidedMiniMock(diagnosticEntry) {
 }
 
 async function startTimedTest(section, topic, questionCount, diagnosticEntry, generationAttempt) {
+  if (timedTestGenerationController) timedTestGenerationController.abort();
+  if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+  var generationSequence = ++timedTestGenerationSequence;
+  var generationController = new AbortController();
+  timedTestGenerationController = generationController;
+  var isCurrentGeneration = function() { return generationSequence === timedTestGenerationSequence && !generationController.signal.aborted; };
   if (!generationAttempt) {
     recordEngagementEvent('recommended_task_started', {
       section:section, topic:topic, question_count:questionCount || 0,
@@ -15364,15 +15516,19 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   qnavEl.style.display = 'none';
   timerEl.textContent = '--:--';
   timerEl.classList.remove('tt-timer-warning');
-  titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + ' Sectional Test — ' + topic;
+  titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + (timedTestRequestedCount <= 4 ? ' Timed Check — ' : ' Sectional Test — ') + topic;
   contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is building a timed ' + (section === 'qa' ? 'QA' : 'DILR') + ' test on ' + topic + ' — CAT-level difficulty...</div></div>';
 
   // Short diagnostic checks should open immediately whenever a matching,
   // independently verified pack already exists. This avoids spending a model
   // call and audit delay merely to validate a working hypothesis.
-  if (timedTestDiagnosticEntry && timedTestRequestedCount <= 4) {
+  if (timedTestRequestedCount <= 4) {
     var instantExpectedTopic = topic;
     var instantDiagnostic = getUnseenVerifiedFallbackPractice(section, timedTestRequestedCount, topic);
+    if (!instantDiagnostic && !timedTestDiagnosticEntry) {
+      var readyShortCandidate = getReliablePracticeCandidate(section, timedTestRequestedCount, topic, true);
+      instantDiagnostic = readyShortCandidate && readyShortCandidate.data;
+    }
     if (!instantDiagnostic && section === 'qa' && /^(?:mixed qa|diagnostic(?: qa)?|qa)$/i.test(String(topic || ''))) {
       instantExpectedTopic = null;
       instantDiagnostic = getUnseenVerifiedFallbackPractice('qa', timedTestRequestedCount, null);
@@ -15387,7 +15543,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       timedTestSecondsTotal = timedTestQuestions.length * 120;
       timedTestSecondsLeft = timedTestSecondsTotal;
       storeActiveGeneratedExercise({
-        type:section, source:'prediction-validation-verified', title:topic + ' verified check',
+        type:section, source:timedTestDiagnosticEntry ? 'prediction-validation-verified' : 'timed-verified-short-check', title:topic + ' verified check',
         purpose:'Check whether the suspected ' + section.toUpperCase() + ' decision pattern appears', hypothesis:timedTestDiagnosticEntry,
         generationStartedAt:timedTestGenerationStartedAt, generationDurationMs:0,
         validationVerdict:{ status:'verified_local' },
@@ -15410,10 +15566,12 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   var timedGenerationTimeoutMs = isCompactTimedCheck ? (section === 'dilr' ? 35000 : 30000) : (section === 'dilr' ? 70000 : 55000);
   var timedStatusTimers = [
     setTimeout(function() {
+      if (!isCurrentGeneration()) return;
       var label = contentEl.querySelector && contentEl.querySelector('.practice-loading-text');
       if (label) label.textContent = 'Building your test. This is taking a little longer than usual…';
     }, 12000),
     setTimeout(function() {
+      if (!isCurrentGeneration()) return;
       var label = contentEl.querySelector && contentEl.querySelector('.practice-loading-text');
       if (label) label.textContent = 'Still getting your test ready. You can keep this screen open.';
     }, 32000)
@@ -15424,6 +15582,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal:generationController.signal,
       body: JSON.stringify(buildGeminiRequest(
         'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
         [{ role: 'user', content: prompt }],
@@ -15434,10 +15593,12 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     }, timedGenerationTimeoutMs);
 
     clearTimedStatus();
+    if (!isCurrentGeneration()) return;
 
     if (!res.ok) throw new Error('Worker returned status ' + res.status);
 
     var data = await res.json();
+    if (!isCurrentGeneration()) return;
     var text = getGeminiText(data);
     if (!text) throw new Error('No response');
 
@@ -15471,8 +15632,9 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       parsed,
       topic,
       knownTimedIssues,
-      { timeoutMs:timedAuditTimeoutMs, maxTokens:section === 'dilr' ? 24576 : 18432 }
+      { timeoutMs:timedAuditTimeoutMs, maxTokens:section === 'dilr' ? 24576 : 18432, signal:generationController.signal }
     );
+    if (!isCurrentGeneration()) return;
     if (!semanticAudit.valid) {
       console.error('Timed test failed semantic audit:', semanticAudit.issues);
       throw new Error('Generated test failed semantic validation: ' + semanticAudit.issues.join('; '));
@@ -15494,6 +15656,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
 
   } catch(e) {
     clearTimedStatus();
+    if (!isCurrentGeneration()) return;
     console.error('Timed test generation error:', e);
     recordProductIncident('timed_test_generation_failed', e, { surface:'timed_test', section:section, topic:topic });
     var expectedFallbackCount = section === 'qa' ? (questionCount || 10) : Math.max(1, Math.round((questionCount || 12) / 4)) * 4;
@@ -15530,9 +15693,18 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       objective:'Continue the same timed check from the saved diagnosis.',
       actionPayload:{ retry_section:section, retry_topic:topic, retry_count:timedTestRequestedCount }
     });
+    if (!isCurrentGeneration()) return;
+    var shortRecovery = getReliablePracticeCandidate(section, section === 'qa' ? 3 : 4, topic, true);
+    var shortRecoveryData = shortRecovery && shortRecovery.data;
+    var shortRecoveryValid = shortRecoveryData && (section === 'qa' ? validateQASetShape(shortRecoveryData, topic, 3) : validateDILRPracticeSet(shortRecoveryData, 1));
+    var shortRecoveryButton = shortRecoveryValid ? '<button class="pcard-nav-btn secondary" onclick="openCheckedTimedRecovery()" style="margin-top:12px;">Open a checked ' + (section === 'qa' ? '3-question QA' : '4-question DILR') + ' check instead</button>' : '';
     var timedErrorMessage = 'I could not open that timed set just now. Your section and topic are saved.';
-    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div><button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button></div>';
+    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div><button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button>' + shortRecoveryButton + '</div>';
   }
+}
+
+function openCheckedTimedRecovery() {
+  startTimedTest(timedTestSection, timedTestTopic, timedTestSection === 'qa' ? 3 : 4, null, 0);
 }
 
 function retryTimedTest() {
@@ -15615,6 +15787,8 @@ function confirmExitTimedTest() {
 }
 
 function closeTimedTest() {
+  timedTestGenerationSequence++;
+  if (timedTestGenerationController) { timedTestGenerationController.abort(); timedTestGenerationController = null; }
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
   document.getElementById('timed-test-overlay').classList.remove('visible');
 }
@@ -16089,7 +16263,7 @@ function renderPractice(data) {
     headerLabel = 'RC — Set ' + (currentSetIndex + 1) + ' of ' + totalSets + ' · Question ' + qNum + ' of ' + total;
     diffLabel = (setObj.difficulty || 'Medium') + ' · ' + (setObj.topic || 'General');
     var passageParas = convertLatexToPlainText(setObj.passage || '').split(/\n\s*\n/).map(function(p) { return '<p>' + p.trim().replace(/\n/g, '<br>') + '</p>'; }).join('');
-    var passageHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage">' + passageParas + '</div>' : '';
+    var passageHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage">' + passageParas + '</div>' : '<details class="pcard-passage"><summary>Read passage again</summary>' + passageParas + '</details>';
     bodyHtml = passageHtml + '<div class="pcard-question">' + convertLatexToPlainText(q.q) + '</div><div class="pcard-submit-hint">Tap an option to submit your answer.</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
     hasPrev = currentSetIndex > 0 || currentQuestionIndex > 0;
     isLastOverall = currentSetIndex === totalSets - 1 && currentQuestionIndex === total - 1;
@@ -16101,7 +16275,7 @@ function renderPractice(data) {
     total = setObj.questions.length;
     headerLabel = 'DILR — Set ' + (currentSetIndex + 1) + ' of ' + totalSets + ' · Question ' + qNum + ' of ' + total;
     diffLabel = (setObj.difficulty || 'Medium') + ' · ' + (setObj.constraint_types || []).join(' + ');
-    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong> ' + convertLatexToPlainText(setObj.setup) + '</div>' : '';
+    var setupHtml = currentQuestionIndex === 0 ? '<div class="pcard-passage"><strong>Set:</strong> ' + convertLatexToPlainText(setObj.setup) + '</div>' : '<details class="pcard-passage"><summary>Read set again</summary>' + convertLatexToPlainText(setObj.setup) + '</details>';
     bodyHtml = setupHtml + '<div class="pcard-question">' + convertLatexToPlainText(q.q) + '</div><div class="pcard-submit-hint">Tap an option to submit your answer.</div><div class="pcard-options" id="options-container">' + getOptionsHtml(q.options) + '</div>';
     hasPrev = currentSetIndex > 0 || currentQuestionIndex > 0;
     isLastOverall = currentSetIndex === totalSets - 1 && currentQuestionIndex === total - 1;
@@ -16150,7 +16324,7 @@ function selectAnswer(selectedIndex) {
 
   if (currentPracticeType === 'rc') {
     explanationText = q.explanation || '';
-    insightText = isCorrect ? 'Clean read — you found the right line.' : (q.marg_insight || '') + (q.trap_type ? ' This is the ' + q.trap_type + ' trap.' : '');
+    insightText = isCorrect ? 'Your choice matches the checked answer.' : (q.marg_insight || '') + (q.trap_type ? ' This is the ' + q.trap_type + ' trap.' : '');
   } else if (currentPracticeType === 'dilr') {
     explanationText = cleanStudentFacingSolution(q.explanation) + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + q.common_mistake : '');
     insightText = isCorrect ? 'Clean solve.' : (q.marg_insight || '');
@@ -16391,7 +16565,7 @@ function showPracticeSummary() {
   noteActiveMentorPlanEvidence(type + ' ' + progressTopic + ': ' + Number(sessionResults.correct || 0) + '/' + Number(sessionResults.total || 0) + ' correct.');
   var content = document.getElementById('practice-content');
   var completionObservation = sessionResults.total
-    ? sessionResults.correct + '/' + sessionResults.total + ' correct. The score is a signal, not the diagnosis; the mistake pattern decides the next move.'
+    ? sessionResults.correct + '/' + sessionResults.total + ' correct. Let’s look at what this attempt shows—and what to check next.'
     : 'The session is saved. Marg will use the attempted choices—not a guessed score—to decide the next move.';
   content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">' + completionObservation + '</div><button class="pcard-nav-btn primary" onclick="reviewLatestPracticeWithMarg()" style="max-width:220px;margin:0 auto;">Review what this means</button><button class="pcard-nav-btn" onclick="switchPracticeTab(\'' + currentPracticeType + '\')" style="max-width:200px;margin:8px auto 0;">Practice Again</button></div></div></div>';
   var _pattern = currentPracticeType === 'rc' ? studentProfile.varcCognitivePattern : currentPracticeType === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern;
