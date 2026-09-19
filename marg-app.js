@@ -4159,12 +4159,12 @@ function isComprehensiveRoadmapRequest(message) {
 
 function detectExplicitDiagnosticTopic(message) {
   var text = String(message || '').toLowerCase().replace(/[’']/g,'');
-  var explicitNeed = /\b(help|weak|weaker|weakest|terrible|bad|struggl|problem|issue|improve|fix|work on|focus on|switch|change topic|talk about|need advice|want to discuss)\b/.test(text);
+  var explicitNeed = /\b(help|weak|weaker|weakest|terrible|bad|struggl(?:e|es|ed|ing)?|freez(?:e|es|ing)|stuck|confus(?:e|ed|ing)|mistakes?|problem|issue|improve|fix|work on|focus on|switch|change topic|talk about|need advice|want to discuss|cannot|cant|dont know)\b/.test(text);
   if (isComprehensiveRoadmapRequest(text)) return 'study_plan';
   if (!explicitNeed) return null;
   if (/\b(study plan|study schedule|timetable|backlog|what to study|planning|plan my study|prepare a plan|roadmap|complete plan|full plan)\b/.test(text)) return 'study_plan';
   if (/\b(strategy|attempt order|question selection|revision strategy)\b/.test(text)) return 'strategy';
-  if (/\b(mock|mock analysis|mock test|percentile)\b/.test(text)) return 'mock';
+  if (/\b(mocks?|mock analysis|mock tests?|percentile)\b/.test(text)) return 'mock';
   if (/\b(confidence|confident|self doubt|self-doubt|want to quit|cant clear cat|cannot clear cat)\b/.test(text)) return 'confidence';
   if (/\b(varc|reading comprehension|verbal ability|\brc\b)/.test(text)) return 'varc';
   if (/\b(dilr|data interpretation|logical reasoning|\blr\b)/.test(text)) return 'dilr';
@@ -4597,6 +4597,7 @@ async function persistGeneratedExerciseTask(exercise) {
       reviewedAt:exercise.reviewedAt || null,
       actionPayload:{ artifact_snapshot:{
         id:exercise.id, type:exercise.type, source:exercise.source, title:exercise.title,
+        threadId:exercise.threadId || (typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy'),
         purpose:exercise.purpose, hypothesis:exercise.hypothesis || null, content:exercise.content,
         generatedAt:exercise.generatedAt, awaitingAnswers:exercise.awaitingAnswers,
         result:exercise.result || null, reviewPending:exercise.reviewPending,
@@ -4621,6 +4622,7 @@ async function persistGeneratedExerciseTask(exercise) {
       duration_minutes:null, artifact_ref:String(exercise.id).slice(0, 180),
       action_payload:{ source:exercise.source || 'practice', artifact_snapshot:{
         id:exercise.id, type:exercise.type, source:exercise.source, title:exercise.title,
+        threadId:exercise.threadId || (typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy'),
         purpose:exercise.purpose, content:exercise.content, generatedAt:exercise.generatedAt,
         awaitingAnswers:exercise.awaitingAnswers, result:exercise.result || null,
         reviewPending:exercise.reviewPending, completedAt:exercise.completedAt || null,
@@ -4804,7 +4806,10 @@ async function loadMentorExecutionLoop() {
     saveDiagnosticMemory();
     if (!loadActiveGeneratedExercise()) {
       var durableArtifactTask = mentorExecutionLoop.tasks.find(function(task) {
-        return task && task.action_payload && task.action_payload.artifact_snapshot && ['ready','in_progress','evidence_ready'].indexOf(task.status) !== -1;
+        if (!task || !task.action_payload || !task.action_payload.artifact_snapshot || ['ready','in_progress','evidence_ready'].indexOf(task.status) === -1) return false;
+        var snapshotThread = task.action_payload.artifact_snapshot.threadId || 'legacy';
+        var currentThread = typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy';
+        return snapshotThread === currentThread;
       });
       if (durableArtifactTask) {
         activeGeneratedExercise = durableArtifactTask.action_payload.artifact_snapshot;
@@ -5026,6 +5031,8 @@ function findStoredExerciseForReplay(message) {
   var seen = {};
   return candidates.find(function(exercise) {
     if (!exercise || !exercise.content || exercise.cancelledAt || exercise.status === 'cancelled') return false;
+    var currentThread = typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy';
+    if ((exercise.threadId || 'legacy') !== currentThread) return false;
     var identity = exercise.id || exercise.generatedAt || JSON.stringify(exercise.content).slice(0, 120);
     if (seen[identity]) return false;
     seen[identity] = true;
@@ -5172,12 +5179,13 @@ function isPredictionValidationReply(message) {
 function isActiveExerciseOptOut(message) {
   var text = String(message || '').trim().toLowerCase().replace(/[’]/g, "'");
   if (!text) return false;
-  return /^(?:nothing|not now|later|stop|cancel|skip|leave it|no thanks|no thank you)$/i.test(text) ||
-    /\b(?:i (?:do not|don't|dont) (?:want|wanna)|i(?:'m| am) not doing|stop|cancel|skip|leave)\b[\s\S]{0,55}\b(?:this|it|anything|exercise|check|lab|decision lab|task)\b/i.test(text);
+  return /^(?:nothing|not now|later|stop|cancel|skip|leave it|move on|no more|no thanks|no thank you)$/i.test(text) ||
+    /\b(?:i (?:do not|don't|dont) (?:want|wanna)|i(?:'m| am) (?:not doing|done with)|stop|cancel|skip|leave|forget|ignore|drop|move (?:on from|away from)|switch (?:away from|from))\b[\s\S]{0,55}\b(?:this|that|it|anything|exercise|check|lab|decision lab|task|set|passage|rc|dilr|qa)\b/i.test(text) ||
+    /\b(?:no more|done with)\s+(?:this\s+|that\s+|the\s+)?(?:exercise|check|lab|task|set|passage|rc|dilr|qa)\b/i.test(text);
 }
 
 function hasQuestionBeyondExerciseOptOut(message) {
-  return /\b(?:but|just tell|explain|why|how|is this|is the|what about|set valid|set false|constraint|condition)\b/i.test(String(message || ''));
+  return /\b(?:but|instead|just tell|explain|why|how|is this|is the|what about|set valid|set false|constraint|condition|switch to|move to|help (?:me )?with|i need|let'?s (?:do|discuss|work on))\b/i.test(String(message || ''));
 }
 
 function cancelActiveExerciseForChat(message) {
@@ -5194,6 +5202,7 @@ function cancelActiveExerciseForChat(message) {
   saveInternalMemoryMessage('EXERCISE', cancelled);
   savePendingDiagnosticExercise(null);
   clearGuidedGenerationState();
+  if (typeof stopArticleRCTimer === 'function') stopArticleRCTimer();
   var task = (mentorExecutionLoop.tasks || []).find(function(item) {
     return item && (item.id === cancelled.mentorTaskId || item.artifact_ref === cancelled.id);
   });
@@ -5235,6 +5244,9 @@ function getActiveExerciseQuestions() {
 function parseSubmittedAnswerChoices(message) {
   var found = {};
   var text = String(message || '').replace(/["“”‘’]/g, ' ');
+  var looseChoiceContext = /\b(?:my\s+)?(?:answers?|choices?)\b|\b(?:i\s+)?(?:chose|picked|marked|selected|answered)\b/i.test(text) ||
+    /^[\s\dA-D,;|/():.\-]+$/i.test(text.trim()) ||
+    /^(?:\s*(?:q(?:uestion)?\s*)?\d{1,2}\s*[-:.)]?\s*[A-D]\b[\s,;|]*){2,}$/i.test(text.trim());
   // Pasted RCs often place "Answer - D" at the end of each Q1/Q2 block.
   // Preserve that association instead of guessing choices from nearby options.
   text.replace(/(?:^|\n)\s*Q(?:uestion)?\s*(\d{1,2})\s*[-:.)]?[\s\S]*?\b(?:my\s+)?answer\s*[-:]\s*([A-D])\b(?=[\s\S]*?(?:\n\s*Q(?:uestion)?\s*\d{1,2}\s*[-:.)]?|$))/gi, function(_, number, letter) {
@@ -5242,19 +5254,23 @@ function parseSubmittedAnswerChoices(message) {
   });
   // Require an answer-like boundary. The old optional separator interpreted
   // ordinary prose such as "2 draws" as question 2 = D.
-  text.replace(/(?:^|[\s,;|])(\d{1,2})\s*[-:.)]\s*([abcd])(?=$|[\s,;|.!?])/gi, function(_, number, letter) {
-    found[Number(number)] = letter.toUpperCase(); return _;
-  });
-  text.replace(/(?:^|[\s,;|])(\d{1,2})\s+([abcd])(?=$|[\s,;|.!?])/gi, function(_, number, letter) {
-    found[Number(number)] = letter.toUpperCase(); return _;
-  });
-  text.replace(/(?:^|[\s,;|])(\d{1,2})([abcd])(?=$|[\s,;|.!?])/gi, function(_, number, letter) {
-    found[Number(number)] = letter.toUpperCase(); return _;
-  });
+  if (looseChoiceContext) {
+    text.replace(/(?:^|[\s,;|])(\d{1,2})\s*[-:.)]\s*([abcd])(?=$|[\s,;|.!?])/gi, function(_, number, letter) {
+      found[Number(number)] = letter.toUpperCase(); return _;
+    });
+    text.replace(/(?:^|[\s,;|])(\d{1,2})\s+([abcd])(?=$|[\s,;|.!?])/gi, function(_, number, letter) {
+      found[Number(number)] = letter.toUpperCase(); return _;
+    });
+    text.replace(/(?:^|[\s,;|])(\d{1,2})([abcd])(?=$|[\s,;|.!?])/gi, function(_, number, letter) {
+      found[Number(number)] = letter.toUpperCase(); return _;
+    });
+  }
   // Numeric/TITA and para-jumble answers need explicit labels, not a loose
   // search for numbers in a question stem. Preserve zero and signed values.
   var answerToken = '([A-D]|[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:\\s*\\/\\s*[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))?)';
-  var answerBoundary = '(?=$|[\\s,;|!?]|\\.(?=\\s|$))';
+  // Whitespace alone is not an answer boundary: "Question 1-A sits left"
+  // is a stem/constraint, not a submitted choice. A newline or separator is.
+  var answerBoundary = '(?=$|[\\n,;|!?]|\\.(?=\\s|$)|\\s+(?=Q(?:uestion)?\\s*\\d{1,2}\\b))';
   text.replace(new RegExp('(?:^|[\\n,;|])\\s*Q(?:uestion)?\\s*(\\d{1,2})\\s*[:.)-]\\s*' + answerToken + answerBoundary, 'gi'), function(_, number, answer) {
     found[Number(number)] = answer.replace(/\s/g, '').toUpperCase(); return _;
   });
@@ -7610,7 +7626,8 @@ var guidedGenerationState = null;
 var guidedGenerationProgressTimer = null;
 
 function getPendingDiagnosticStorageKey() {
-  return 'marg_pending_diagnostic_' + (currentUser && currentUser.id ? currentUser.id : 'guest');
+  var thread = typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy';
+  return 'marg_pending_diagnostic_' + (currentUser && currentUser.id ? currentUser.id : 'guest') + '_' + thread;
 }
 
 function savePendingDiagnosticExercise(entry, timing) {
@@ -8759,6 +8776,9 @@ function looksLikeFreshExternalCatQuestion(message) {
 }
 
 function gateFreshExternalQuestion(message) {
+  // An explicit request for the solution is already consent to solve. Do not
+  // make the student answer an unnecessary "have you attempted it?" gate.
+  if (hasExplicitNoAttemptOrSolutionRequest(message)) return false;
   if (!looksLikeFreshExternalCatQuestion(message)) return false;
   savePendingExternalQuestion({
     status:'awaiting_attempt_status',
@@ -8875,7 +8895,7 @@ function detectMentorIntent(message) {
   // A mock narrative often contains every section name. Route the overall event
   // before individual section keywords so one mention of VARC/DILR/QA does not
   // shrink a multi-section review into a single-section diagnostic.
-  if (/\b(mock|mock test|percentile|scorecard)\b/.test(text)) return 'mock_diagnosis';
+  if (/\b(mocks?|mock tests?|percentile|scorecard)\b/.test(text)) return 'mock_diagnosis';
   if (/\baccuracy\b|\bperc\s*accuracy\b/.test(text) && /\b(?:mock|sectional|score|qa|quant|varc|dilr)\b/.test(recentContext)) return 'mock_diagnosis';
   if (/\b(?:analy[sz]e|check|review)\b.{0,30}\b(?:image|screenshot|scorecard)\b/.test(text) && /\b(?:mock|sectional|score|percentile)\b/.test(recentContext)) return 'mock_diagnosis';
   if (/\b(varc|rc|reading comprehension|verbal)\b/.test(text)) return 'varc_diagnosis';
@@ -8975,9 +8995,13 @@ function analyzeMentorInput(message) {
 
 function isDILRValidityChallenge(message) {
   var text = String(message || '');
-  var hasLogicLanguage = /\b(?:dilr|lrdi|set|puzzle|constraint|condition|clue|arrangement|seating|standing|facing|left|right|rank|schedule|case)\b/i.test(text);
+  var discussesGeneralProcess = /\b(?:set selection|strategy|approach|practice|improve|time management|minutes?|section)\b/i.test(text) &&
+    !/\b(?:constraint|condition|clue|seating|standing|facing|immediately\s+(?:left|right)|extreme\s+(?:left|right)|case\s+\d+)\b/i.test(text);
+  if (discussesGeneralProcess) return false;
+  var hasSpecificPuzzleReference = /\b(?:this|that|the|your|given|last|final)\s+(?:dilr\s+|lrdi\s+)?(?:set|puzzle|arrangement)\b/i.test(text) ||
+    /\b(?:constraint|condition|clue|seating|standing|facing|immediately\s+(?:left|right)|extreme\s+(?:left|right)|case\s+\d+)\b/i.test(text);
   var challengesResult = /\b(?:valid|invalid|false|wrong|contradiction|solvable|unsolvable|possible|impossible|missing|doesn'?t satisfy|does not satisfy|cannot|can'?t|how is|why is)\b/i.test(text);
-  return hasLogicLanguage && challengesResult;
+  return hasSpecificPuzzleReference && challengesResult;
 }
 
 function buildDiagnosisDirective(message) {
@@ -9346,10 +9370,51 @@ function guardMalformedChatExercise(text) {
   return 'I left out the question stem, so those options are unusable. I’m discarding that question, and I won’t use it to judge your VARC, DILR or QA ability.';
 }
 
+function detectFullExerciseSection(text) {
+  var value = String(text || '');
+  var optionCount = (value.match(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+[^\n]+/gm) || []).length;
+  var questionCount = (value.match(/(?:^|\n)\s*(?:Q(?:uestion)?\s*)?\d{1,2}\s*[).:]\s+/gim) || []).length;
+  if (optionCount < 3 && questionCount < 2) return null;
+  if (/\bPASSAGE\b|\baccording to the passage\b|\bauthor(?:'s|’s)?\s+(?:claim|purpose|tone|attitude)\b/i.test(value)) return 'varc';
+  if (/\b(?:DILR|LRDI)\b|\b(?:constraint|clue|arrangement|seated|ranked|schedule)\b/i.test(value) && questionCount >= 2) return 'dilr';
+  if (/\b(?:QA|quantitative aptitude|equation|percentage|ratio|geometry|algebra|integer|probability)\b/i.test(value) && questionCount >= 2) return 'qa';
+  return null;
+}
+
+function buildSectionAlignmentFallback(diagnosis) {
+  var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
+  if (diagnosis && diagnosis.intent === 'qa_diagnosis') {
+    if (/label(?:led|s)?|mixed|recognis|recogniz|method|formula/i.test(userText)) return 'You’re asking about QA, so I’m not going to switch you into RC. Knowing the formulas when the chapter is labelled but freezing in a mixed sectional points first to method recognition: the topic label has been doing part of the identification for you. The useful next check is to take a small mixed QA sample and name the method clue before solving; that separates recognition from an actual concept gap.';
+    return 'You’re asking about QA, so I’m not going to replace your question with an RC or DILR set. The first useful distinction is whether the mark is lost before the setup, during the method, or after a correct setup; your latest QA example should decide which one.';
+  }
+  if (diagnosis && diagnosis.intent === 'dilr_diagnosis') return 'You’re asking about DILR, so I’m not going to switch sections. We first need to locate whether the set breaks at selection, representation, combining constraints, or the leave decision; the latest set you attempted is the right evidence for that.';
+  if (diagnosis && diagnosis.intent === 'varc_diagnosis') return 'You’re asking about VARC, so I’m not going to replace it with a Quant or DILR exercise. The useful distinction is whether the passage map is disappearing, the exact claim is hard to relocate, or the final option choice is drifting away from the evidence.';
+  return buildMentorFallbackReply(diagnosis);
+}
+
+function guardSectionAlignment(text, diagnosis) {
+  if (!diagnosis) return String(text || '');
+  var requested = diagnosis.intent === 'qa_diagnosis' ? 'qa' : diagnosis.intent === 'dilr_diagnosis' ? 'dilr' : diagnosis.intent === 'varc_diagnosis' ? 'varc' : null;
+  if (!requested) return String(text || '');
+  var generated = detectFullExerciseSection(text);
+  return generated && generated !== requested ? buildSectionAlignmentFallback(diagnosis) : String(text || '');
+}
+
+function guardUnlabelledNumericPrescription(text, diagnosis) {
+  var value = String(text || '');
+  if (!diagnosis || !/^(?:varc|dilr|qa|pacing)_diagnosis$/.test(diagnosis.intent)) return value;
+  var userText = String(diagnosis.submittedAnswerText || '');
+  var hasNewThreshold = /\b(?:within|by|after|at)\s+\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?)\b/i.test(value) &&
+    !/\b(?:within|by|after|at)\s+\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?)\b/i.test(userText);
+  if (!hasNewThreshold || /\b(?:starting trial|trial rule|test this|experiment|adjust (?:it|this)|not a universal rule|not a diagnosis)\b/i.test(value)) return value;
+  return value.replace(/\s+$/, '') + '\n\nTreat that timing as a starting trial, not a proven rule. Keep it only if the next attempt shows that it protects time without damaging accuracy.';
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
   if (diagnosis && diagnosis.hintOnly) return guardHintOnlyResponse(response);
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
   text = simplifyMentorLanguage(text);
+  text = guardSectionAlignment(text, diagnosis);
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
@@ -9384,6 +9449,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = removeTrailingActionQuestion(text, diagnosis);
   text = guardNaturalProfileClose(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
+  text = guardUnlabelledNumericPrescription(text, diagnosis);
   // Do not mechanically slice model output. The prompt controls normal reply
   // length; hard word caps were capable of manufacturing mid-answer cutoffs.
   if (!text) text = buildMentorFallbackReply(diagnosis);
@@ -9510,8 +9576,13 @@ var FAILURE_PATTERNS = {
   }
 };
 
+var margPendingConversationOptions = null;
+
 function removeConversationalOptions() {
   document.querySelectorAll('[id^="conv-options-"]').forEach(function(element) { element.remove(); });
+  margPendingConversationOptions = null;
+  if (typeof margThreadStates !== 'undefined' && typeof margActiveThreadId !== 'undefined' && margThreadStates[margActiveThreadId]) margThreadStates[margActiveThreadId].optionsState = null;
+  if (typeof persistTopicChatIndex === 'function') persistTopicChatIndex();
 }
 
 function keepChatInteractive() {
@@ -9525,6 +9596,9 @@ async function dispatchConversationalQuickReply(option, context, container) {
   if (container && container.dataset && container.dataset.handled === 'true') return;
   if (container && container.dataset) container.dataset.handled = 'true';
   if (container) container.remove();
+  margPendingConversationOptions = null;
+  if (typeof margThreadStates !== 'undefined' && typeof margActiveThreadId !== 'undefined' && margThreadStates[margActiveThreadId]) margThreadStates[margActiveThreadId].optionsState = null;
+  if (typeof persistTopicChatIndex === 'function') persistTopicChatIndex();
 
   // A quick reply is a normal user message first; the transition happens second.
   addMessage('user', option);
@@ -9545,6 +9619,13 @@ async function dispatchConversationalQuickReply(option, context, container) {
 function showConversationalOptions(options, context, config) {
   var existing = document.getElementById('conv-options-' + context);
   if (existing) existing.remove();
+  margPendingConversationOptions = {
+    options:(options || []).map(function(option) { return String(option); }),
+    context:String(context || 'general'),
+    config:config && (config.title || config.description || config.backToHome) ? {
+      title:config.title || '', description:config.description || '', backToHome:!!config.backToHome
+    } : null
+  };
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'conv-options-' + context;
   chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 0 4px 38px;max-width:100%;width:100%;';
@@ -9620,7 +9701,19 @@ function showConversationalOptions(options, context, config) {
   if (!messages) return null;
   messages.appendChild(chipsDiv);
   scrollChatToLatest();
+  if (typeof captureActiveTopicChat === 'function') captureActiveTopicChat();
   return chipsDiv;
+}
+
+function restorePendingConversationalOptions() {
+  var state = margPendingConversationOptions;
+  if (!state && typeof margThreadStates !== 'undefined' && typeof margActiveThreadId !== 'undefined') {
+    state = margThreadStates[margActiveThreadId] && margThreadStates[margActiveThreadId].optionsState;
+  }
+  if (!state || !Array.isArray(state.options) || !state.options.length || !state.context) return false;
+  if (document.getElementById('conv-options-' + state.context)) return true;
+  showConversationalOptions(state.options, state.context, state.config || null);
+  return true;
 }
 
 async function handleConversationalResponse(answer, context) {
@@ -10467,7 +10560,9 @@ function restoreConversation() {
   restoreCurrentChatDraft();
   if (!scheduleHomepageIntentDispatch(250)) schedulePendingDeepLinkQuestionDispatch(250);
   focusComposer();
-  return restorePendingGuidedGeneration();
+  var guidedRestored = restorePendingGuidedGeneration();
+  restorePendingConversationalOptions();
+  return guidedRestored;
 }
 
 function addSuggestionChips() {
@@ -10742,6 +10837,8 @@ function ambiguousShortInputClarification(message) {
   var known = new Set([
     'hi','hey','hello','help','bro','bhai','yes','no','yep','nope','ok','okay','exactly','mostly','continue',
     'varc','dilr','lrdi','qa','rc','mock','mocks','strategy','confidence','algebra','arithmetic','geometry',
+    'log','logs','logarithm','logarithms','quadratic','quadratics','linear','tsd','pj','pjs','parajumble','parajumbles',
+    'tita','lod','lod1','lod2','numbersystem','sentenceplacement','oddoneout','aeon','hindu',
     'percentage','percentages','busy','tired','exhausted','stuck','confused','anxious','now','later','today','tomorrow',
     'time','ims','aimcat','aimcats','simcat','simcats','cracku','cl','careerlauncher','catking','rodha'
   ]);
@@ -10761,9 +10858,21 @@ function maybeHandleAmbiguousShortInput(message) {
 
 function parseExplicitPracticeLaunchRequest(message) {
   var text = String(message || '').trim();
-  if (/\b(?:don['’]?t|do not|no need to|not ready to)\s+(?:generate|create|start|open|launch|practi[cs]e)\b|\b(?:don['’]?t|do not)\s+want\s+to\s+(?:generate|create|start|open|launch|practi[cs]e)\b/i.test(text)) return null;
+  var rejectsLaunch = /\b(?:don['’]?t|do not|no need to|not ready to)\s+(?:(?:please|just|yet|now|currently)\s+){0,3}(?:give|show|send|generate|create|start|open|launch|practi[cs]e)\b/i.test(text) ||
+    /\b(?:don['’]?t|do not)\s+want\s+(?:(?:you|marg)\s+)?to\s+(?:give|show|send|generate|create|start|open|launch|practi[cs]e)\b/i.test(text) ||
+    /\bwithout\s+(?:you\s+)?(?:giving|showing|sending|generating|creating|starting|opening|launching)\b/i.test(text);
+  if (rejectsLaunch) return null;
   if (/\b(?:solutions?|answers?|explanations?)\s+(?:to|for|of)\s+(?:this|these|the|my|that|above|previous|same|all)\b|\b(?:check|review|explain|solve)\s+(?:this|these|my|that|above|previous|same)\b/i.test(text)) return null;
-  var action = /\b(?:give|generate|create|start|open|launch|let'?s do|i want to (?:do|practi[cs]e)|can we do)\b/i.test(text);
+  if (/\b(?:how (?:do|should|can) i|explain how to|tell me how to|i (?:do not|don['’]?t) know how to)\s+(?:start|open|approach|attempt)\b/i.test(text)) return null;
+  // Advice, diagnosis and planning belong in chat even when the sentence also
+  // contains a section name and a broad verb such as "give" or "start".
+  if (/\b(?:advice|guidance|feedback|plan|roadmap|reason|explanation|strategy|diagnos(?:e|is|tic)|discussion|talk|help)\b/i.test(text) &&
+      !/\b(?:generate|create|launch|start)\b[\s\S]{0,35}\b(?:questions?|passage|practice|practise|test|set)\b/i.test(text)) return null;
+  var strongAction = /\b(?:generate|create|launch)\b[\s\S]{0,55}\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set)\b/i.test(text) ||
+    /\b(?:start|open)\s+(?:(?:a|an|the|one|another|new|fresh|full|short|timed|cat[ -]style)\s+){0,4}(?:practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set|questions?)\b/i.test(text) ||
+    /\b(?:let'?s do|i want to (?:do|practi[cs]e)|can we do)\b[\s\S]{0,45}\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set)\b/i.test(text);
+  var directGive = /\b(?:give|show|send)\s+me\b[\s\S]{0,70}\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set)\b/i.test(text);
+  var action = strongAction || directGive;
   var material = /\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|set)\b/i.test(text);
   if (!action || !material) return null;
   // One conversational follow-up on an already visible passage belongs in
@@ -12258,13 +12367,19 @@ function renderActiveArticleRCWidget() {
 }
 
 var articleRCTimerHandle = null;
-function startArticleRCTimer() {
+function stopArticleRCTimer() {
   if (articleRCTimerHandle) clearInterval(articleRCTimerHandle);
+  articleRCTimerHandle = null;
+}
+function startArticleRCTimer() {
+  stopArticleRCTimer();
   if (!activeGeneratedExercise) return;
+  var exerciseId = activeGeneratedExercise.id;
   var state = ensureArticleRCState(activeGeneratedExercise);
   if (state.submitted || activeGeneratedExercise.awaitingAnswers === false) return;
   articleRCTimerHandle = setInterval(function() {
-    var timer = document.querySelector('.article-rc-attempt[data-exercise-id="' + activeGeneratedExercise.id + '"] [data-rc-timer]');
+    if (!activeGeneratedExercise || activeGeneratedExercise.id !== exerciseId) { stopArticleRCTimer(); return; }
+    var timer = document.querySelector('.article-rc-attempt[data-exercise-id="' + exerciseId + '"] [data-rc-timer]');
     if (!timer) return;
     var seconds = Math.max(0, Math.round((Date.now() - Number(state.startedAt || Date.now())) / 1000));
     timer.textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
@@ -15536,7 +15651,8 @@ function formatGuidedExerciseForChat(section, data, diagnosticEntry) {
   var reviewPromise = section === 'rc'
     ? ' I’ll check each choice against the passage, show you where any miss happened, and decide the next useful step with you.'
     : ' I already have the answer key; I’ll use your choices to see whether the suspected problem actually appears.';
-  parts.push('Reply in one line: 1-A, 2-C' + (section === 'dilr' ? ', 3-B, 4-D' : ', 3-B') + '.' + processRequest + reviewPromise);
+  var answerSlots = (data.questions || []).map(function(_question, index) { return (index + 1) + '-[your choice]'; }).join(', ');
+  parts.push('Reply in one line using this format: ' + answerSlots + '.' + processRequest + reviewPromise);
   return parts.join('\n\n');
 }
 

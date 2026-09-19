@@ -18,6 +18,22 @@ function encodeTopicChatContent(content,item) {
 
 function topicChatStorageKey(){return 'marg_chat_topics_'+(currentUser&&currentUser.id||'guest');}
 
+function persistTopicChatIndex() {
+  var states={};
+  Object.keys(margThreadStates||{}).forEach(function(id){
+    var state=margThreadStates[id]||{};
+    states[id]={
+      diagnostic:state.diagnostic||null,
+      flow:state.flow||null,
+      mockPriority:state.mockPriority||'',
+      mockSource:state.mockSource||'',
+      diagnosticTopic:state.diagnosticTopic||null,
+      optionsState:state.optionsState||null
+    };
+  });
+  try{localStorage.setItem(topicChatStorageKey(),JSON.stringify({active:margActiveThreadId,threads:margChatThreads,states:states}));}catch(e){}
+}
+
 function captureActiveTopicChat() {
   if(margThreadOwner!==(currentUser&&currentUser.id||'guest'))return;
   conversationHistory.forEach(function(item){item.threadId=item.threadId||margActiveThreadId;});
@@ -26,12 +42,14 @@ function captureActiveTopicChat() {
   margThreadStates[margActiveThreadId].mockPriority=typeof activeMockReviewPriority!=='undefined'?activeMockReviewPriority:'';
   margThreadStates[margActiveThreadId].mockSource=typeof activeMockReviewSource!=='undefined'?activeMockReviewSource:'';
   margThreadStates[margActiveThreadId].diagnosticTopic=typeof activeDiagnosticTopic!=='undefined'?activeDiagnosticTopic:null;
-  try{localStorage.setItem(topicChatStorageKey(),JSON.stringify({active:margActiveThreadId,threads:margChatThreads}));}catch(e){}
+  margThreadStates[margActiveThreadId].optionsState=typeof margPendingConversationOptions!=='undefined'?margPendingConversationOptions:null;
+  persistTopicChatIndex();
 }
 
 function initialiseTopicChats(rows) {
   margThreadOwner=currentUser&&currentUser.id||'guest';margThreadStates={};margAllChatMessages=(rows||[]).map(decodeTopicChatRow);
   var saved={};try{saved=JSON.parse(localStorage.getItem(topicChatStorageKey())||'{}')||{};}catch(e){}
+  margThreadStates=saved.states&&typeof saved.states==='object'?saved.states:{};
   margChatThreads=Array.isArray(saved.threads)?saved.threads.filter(function(t){return t&&/^(?:legacy|[a-f0-9-]{36})$/.test(t.id)&&typeof t.title==='string';}):[];
   margAllChatMessages.forEach(function(item){if(!margChatThreads.some(function(t){return t.id===item.threadId;}))margChatThreads.push({id:item.threadId,title:item.threadTitle});});
   if(!margChatThreads.length)margChatThreads=[{id:'legacy',title:'CAT conversation'}];
@@ -64,6 +82,7 @@ function switchTopicChat(id) {
   if(typeof activeMockReviewSource!=='undefined')activeMockReviewSource=state.mockSource||'';
   if(typeof activeDiagnosticTopic!=='undefined')activeDiagnosticTopic=state.diagnosticTopic||null;
   activeGeneratedExercise=state.exercise||null;lastFailedOutgoingMessage=state.failed||null;
+  if(typeof stopArticleRCTimer==='function')stopArticleRCTimer();
   // Never carry a pending choice/diagnostic from a different conversation.
   if(typeof pendingExternalQuestion!=='undefined')pendingExternalQuestion=null;
   if(typeof chatDiagnosticState!=='undefined')chatDiagnosticState=state.diagnostic||{active:false,topic:null,subcategory:null,pattern:null,rejectedCount:0};
@@ -71,6 +90,7 @@ function switchTopicChat(id) {
   if(typeof pendingDiagnosticExercise!=='undefined')pendingDiagnosticExercise=null;
   if(typeof pendingExternalQuestionTurnMode!=='undefined')pendingExternalQuestionTurnMode='';
   if(typeof guidedGenerationState!=='undefined')guidedGenerationState=null;
+  if(typeof margPendingConversationOptions!=='undefined')margPendingConversationOptions=state.optionsState||null;
   pendingImageAttachments=[];queuedOutgoingMessage=null;
   if(typeof renderPendingImageAttachments==='function')renderPendingImageAttachments();
   var messages=document.getElementById('messages');if(messages)messages.innerHTML='';
