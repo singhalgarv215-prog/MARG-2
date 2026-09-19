@@ -2622,7 +2622,7 @@ EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-For a new topic: 1-2 narrowing questions → read → evidence → one confirmation → next step. Say "Here's my read", not "My prediction". Never finish a diagnosis with only "Does that feel accurate?"; the same reply must say what Marg will test or fix next. After confirmation, lead. Run/Start/Right now means execute it in that same turn. QA/DILR use timed interfaces; teach DILR’s opening first. For stored hypotheses add [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
+New topic: 1-2 narrowing questions → tentative read with evidence → confirmation → next step. Say "Here's my read", not "My prediction". Pair confirmation with what Marg will test. After confirmation, lead. Run/Start/Right now means execute now. QA/DILR use timed interfaces; teach DILR’s opening first. Stored hypotheses use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
 
 MULTI-SECTION MOCK STORIES
 For problems across two or more sections, separate facts from guesses, ask which section to unpack, then ask one question about where marks went. Read only after that answer; offer no practice yet. QA topic mix varies, so never claim Arithmetic has a fixed question count.
@@ -2635,7 +2635,7 @@ MEMORY AND CONTINUITY
 Use memory; the latest topic controls the reply. Stop/one-point-summary means one relevant point, no tasks or follow-up. Never invent history or third-party key-error causes, or request already-pasted material. Claims can occur anywhere; paragraph roles guide locating, not fixed line rules. Change plans only for new evidence or explicit redesign.
 
 PROGRESSIVE PROFILE BUILDING
-Never run a profile survey. After answering, use a natural pause for one useful missing detail: familiarity, mock strategy, routine, resources, attempt or goal. Never interrupt work, repeat or chain these questions.
+Never run a profile survey. After answering, use a natural pause for one useful missing detail. Never interrupt work, repeat or chain profile questions.
 
 CONTINUATION CONTRACT
 Use diagnosis → confirmation → smallest validation → evidence → one next step. Dates do not erase unfinished work. Review evidence before assigning more. On return, resume an unfinished check or unreviewed result before greeting. Never ask users to resend results Marg has.
@@ -2652,14 +2652,16 @@ PLANNING AND PERSONALIZATION
 A multi-section roadmap is planning, not section diagnosis. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify day versus rotation once. Valid confirmed evidence controls ordering and checkpoints: prioritise repeated score leakage over syllabus order.
 
 THIRD-PARTY KNOWLEDGE BOUNDARY
-Never invent third-party menus, labels or navigation. Be exact only from supplied or verified current context; otherwise describe the general content type and say labels may differ.
-Never recommend buying a mock series before inspecting the disputed material and verifying product facts. Do not invent industry rates. If evidence is mixed, suggest a sample or reversible test.
+Never invent third-party menus, labels, navigation, rates or product facts. Verify specifics; otherwise say labels may differ. Before recommending a mock purchase, inspect the disputed material. If evidence is mixed, suggest a reversible test.
 
 WEB VERIFICATION CONTRACT
 Never answer current or source-specific facts from memory when Google Search grounding is available: editions, chapters, contents, platform structures, CAT dates, fees, rules, cutoffs, schedules or product details. Use grounded evidence, separate verified facts from inference and briefly name checked sources. If the exact claim is unverified, say so. Mentoring judgment needs no search.
 
 PRACTICE LEADERSHIP
 Lead when Marg can create evidence and respect topic switches. Fresh pasted CAT question with no attempt status: never reveal the key. Ask if attempted; yes → ask their choice, no → solve. After practice, say what the result proves and does not prove; preserve one next step rather than defaulting to volume.
+
+CAT VARC QUESTION TYPES
+Do not reject informal labels. Vocabulary/cloze blanks differ from CAT sentence placement: placing one supplied sentence into blank 1, 2, 3 or 4. If “fill in the blanks” is ambiguous, clarify once—never infer a wrong practice mix. If the question is supplied, help with it instead of debating its label.
 
 IMAGES
 Inspect every image in page order. Never guess unreadable text or merge scorecard labels: marks, correct, attempted, accuracy, percentile and time differ. Clarify ambiguous units once.
@@ -2933,14 +2935,14 @@ function isGeminiLocationError(error) {
 }
 
 function getGeminiErrorMessage(error) {
-  if (isGeminiLocationError(error)) return 'Marg’s answer service has a connection problem right now. Your message is saved, but repeating it will not fix the connection.';
-  if (error && error.name === 'AbortError') return 'I could not finish this answer in time. Your message is saved—use Retry response to continue from the same point.';
+  if (isGeminiLocationError(error)) return 'Marg’s answer service has a connection problem right now; repeating it will not fix the connection yet.';
+  if (error && error.name === 'AbortError') return 'I could not finish this answer in time. Use Retry response to continue from the same point.';
   var status = Number(error && error.status) || 0;
-  if (status === 429 || status === 503) return 'Marg is busy for a moment. Your message is saved—use Retry response to continue.';
-  if (status === 400 || status === 401 || status === 403 || status === 404) return 'I could not finish this answer right now. Your message is saved—use Retry response to continue.';
-  if (status >= 500) return 'I could not finish this answer just now. Your message is saved—use Retry response to continue.';
-  if (error && error.name === 'GeminiEmptyResponseError') return 'I did not get a complete answer for this turn. Your message is saved—use Retry response to continue.';
-  return 'I could not complete this answer just now. Your message is saved—use Retry response to continue.';
+  if (status === 429 || status === 503) return 'Marg is busy for a moment. Use Retry response to continue.';
+  if (status === 400 || status === 401 || status === 403 || status === 404) return 'I could not finish this answer right now. Use Retry response to continue.';
+  if (status >= 500) return 'I could not finish this answer just now. Use Retry response to continue.';
+  if (error && error.name === 'GeminiEmptyResponseError') return 'I did not get a complete answer for this turn. Use Retry response to continue.';
+  return 'I could not complete this answer just now. Use Retry response to continue.';
 }
 
 function showGeminiServiceFailure(error) {
@@ -2952,7 +2954,7 @@ function showGeminiServiceFailure(error) {
   });
   // The full error already exists as a chat turn. Repeating the same sentence
   // under the composer made one timeout look like two separate failures.
-  showComposerStatus(/repeating it will not fix/.test(serviceMessage) ? 'Your message is saved. Marg’s service connection needs to recover before this turn can be answered.' : 'Your message is saved. Use Retry response on Marg’s message to continue from the same point.', 'error', true);
+  showComposerStatus(/repeating it will not fix/.test(serviceMessage) ? 'Marg’s service connection needs to recover before this turn can be answered.' : 'Use Retry response on Marg’s message to continue from the same point.', 'error', true);
   return serviceMessage;
 }
 
@@ -3402,13 +3404,10 @@ function ensureMobileComposerStyles() {
     '@media(max-width:900px){' +
       '#chat-app{position:fixed;top:var(--marg-chat-viewport-top,0px);left:var(--marg-chat-viewport-left,0px);right:auto;width:var(--marg-chat-viewport-width,100vw);height:var(--marg-chat-viewport-height);max-height:var(--marg-chat-viewport-height);overflow:hidden}' +
       '#user-input,#feedback-text,.ps-input,.ps-select,.mac-input-group input,.sectional-select{font-size:16px!important}' +
-      '#input-area{position:relative;bottom:auto;padding-bottom:calc(76px + env(safe-area-inset-bottom, 0px))}' +
+      '#input-area{position:relative;bottom:auto;padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px))}' +
       '#hint{display:none}' +
-      '#bottom-nav{padding-bottom:env(safe-area-inset-bottom, 0px)}' +
-      '.tab-section{bottom:calc(64px + env(safe-area-inset-bottom, 0px))}' +
+      '.tab-section{bottom:0}' +
       'html.marg-keyboard-open #input-area{padding-bottom:12px}' +
-      'html.marg-keyboard-open #bottom-nav.visible{display:none}' +
-      'html.marg-keyboard-open .tab-section{bottom:0}' +
       'html.marg-keyboard-open #messages{scroll-behavior:auto}' +
     '}';
   document.head.appendChild(style);
@@ -5525,7 +5524,7 @@ function buildLocalAnswerCheck(message) {
     var diagnosis = isCorrect
       ? (question.explanation || 'Your choice matches the stored answer and the tested condition.')
       : (question.explanation || 'Your choice moved away from the condition or scope being tested.');
-    var block = 'Q' + question.number + ' — ' + (isCorrect ? '✅ Correct.' : '❌ Incorrect.') + ' You chose ' + selected + '; the saved answer is ' + question.correct + '.\n' + diagnosis;
+    var block = 'Q' + question.number + ' — ' + (isCorrect ? '✅ Correct.' : '❌ Incorrect.') + ' You chose ' + selected + '; the correct answer is ' + question.correct + '.\n' + diagnosis;
     if (!isCorrect) {
       block += '\nBefore marking next time, name the exact evidence that makes your option necessary.';
       if (question.pattern) wrongPatterns.push(question.pattern);
@@ -10994,6 +10993,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     if (!reuseHomepageUserMessage && !reuseFailedUserMessage) {
       addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
       conversationHistory.push({ role: 'user', content: storedUserText });
+      if(typeof maybeRenameActiveTopicFromMessage==='function')maybeRenameActiveTopicFromMessage(typedText);
       capturePersonalGoalDetails(text);
       captureProgressiveProfileDetails(text);
       detectAndSaveMockScores(text);
@@ -12582,7 +12582,7 @@ async function initSession() {
           switchTab('chat');
           if (arrivedWithDeepLinkQuestion) schedulePendingDeepLinkQuestionDispatch(180);
         } else {
-          switchTab(requestedInitialTab || 'home');
+          switchTab(requestedInitialTab || 'chat');
         }
       } else {
 
@@ -12606,7 +12606,7 @@ async function initSession() {
           mobLoginForMock = false;
           showMockOnboarding();
         } else {
-          switchTab(requestedInitialTab || 'home');
+          switchTab(requestedInitialTab || 'chat');
         }
 
       }
@@ -16172,19 +16172,17 @@ function buildActiveExerciseReviewRequest() {
     ? result.marks + '/' + result.maxMarks + ' marks; '
     : '';
   var diagnosis = activeGeneratedExercise.hypothesis && activeGeneratedExercise.hypothesis.confirmedDiagnosis
-    ? ' This was meant to test: ' + activeGeneratedExercise.hypothesis.confirmedDiagnosis + '. Give a SUPPORTED, REJECTED, or INCONCLUSIVE verdict only from the saved evidence.'
+    ? ' We were checking whether this pattern appears: ' + activeGeneratedExercise.hypothesis.confirmedDiagnosis + '.'
     : '';
-  var quality = assessExerciseEvidenceQuality(activeGeneratedExercise);
-  var qualityNote = ' Evidence quality: ' + quality.level + '. ' + quality.reason;
   var choices = getActiveExerciseAnswerChoices('');
   var answerDetails = getActiveExerciseQuestions().map(function(question) {
     var choice = choices[question.number];
     if (choice == null) return 'Q' + question.number + ': skipped.';
-    if (question.correct === '') return 'Q' + question.number + ': my answer ' + choice + '; no usable key, ungraded.';
+    if (question.correct === '') return 'Q' + question.number + ': I chose ' + choice + '; ungraded.';
     var verdict = normalizeGradingAnswer(choice) === normalizeGradingAnswer(question.correct) ? 'correct' : 'incorrect';
-    return 'Q' + question.number + ': my answer ' + choice + '; saved key ' + question.correct + '; ' + verdict + '.';
+    return 'Q' + question.number + ': I chose ' + choice + ' — ' + verdict + '.';
   }).join('\n');
-  return 'Review my completed ' + (activeGeneratedExercise.title || activeGeneratedExercise.type || 'practice') + ' result: ' + score + Number(result.correct || 0) + '/' + total + ' correct, ' + Number(result.wrong || 0) + ' wrong, ' + Number(result.skipped || 0) + ' skipped.' + qualityNote + diagnosis + '\nSaved per-question attempt:\n' + answerDetails + '\nTell me what this evidence does and does not show, then give one next move tied to the actual pattern—not another generic question target.';
+  return 'I completed ' + (activeGeneratedExercise.title || activeGeneratedExercise.type || 'practice') + ': ' + score + Number(result.correct || 0) + '/' + total + ' correct, ' + Number(result.wrong || 0) + ' wrong, ' + Number(result.skipped || 0) + ' skipped.' + diagnosis + '\n\n' + answerDetails + '\n\nHelp me understand what this attempt suggests, what it cannot establish yet, and what I should do next.';
 }
 
 async function reviewLatestPracticeWithMarg() {
@@ -16889,7 +16887,7 @@ function showPracticeSummary() {
   var content = document.getElementById('practice-content');
   var completionObservation = sessionResults.total
     ? sessionResults.correct + '/' + sessionResults.total + ' correct. Let’s look at what this attempt shows—and what to check next.'
-    : 'The session is saved. Marg will use the attempted choices—not a guessed score—to decide the next move.';
+    : 'Nothing was answered this time, so there is not enough here to judge a pattern yet.';
   content.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Session Complete</div></div><div class="pcard-body"><div style="text-align:center;padding:20px 0;"><div style="font-size:32px;margin-bottom:12px;">🎯</div><div style="font-size:16px;color:var(--text);font-weight:600;margin-bottom:8px;">' + type + ' session done</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:20px;">' + completionObservation + '</div><button class="pcard-nav-btn primary" onclick="reviewLatestPracticeWithMarg()" style="max-width:220px;margin:0 auto;">Review what this means</button><button class="pcard-nav-btn" onclick="switchPracticeTab(\'' + currentPracticeType + '\')" style="max-width:200px;margin:8px auto 0;">Practice Again</button></div></div></div>';
   var _pattern = currentPracticeType === 'rc' ? studentProfile.varcCognitivePattern : currentPracticeType === 'dilr' ? studentProfile.dilrCognitivePattern : studentProfile.qaCognitivePattern;
   var _patternText = (_pattern && _pattern !== 'undefined' && _pattern !== 'null' && _pattern.trim() !== '') ? ' The stored working pattern is: ' + _pattern + '.' : '';

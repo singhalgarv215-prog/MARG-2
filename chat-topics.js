@@ -42,10 +42,15 @@ function initialiseTopicChats(rows) {
 }
 
 function renderTopicChatToolbar() {
-  var select=document.getElementById('chat-topic-select');if(!select)return;
-  select.innerHTML=margChatThreads.map(function(t){return '<option value="'+escapeChatHtml(t.id)+'">'+escapeChatHtml(t.title)+'</option>';}).join('');
-  select.value=margActiveThreadId;select.disabled=!!isLoading;
+  var select=document.getElementById('chat-topic-select');
+  if(select){select.innerHTML=margChatThreads.map(function(t){return '<option value="'+escapeChatHtml(t.id)+'">'+escapeChatHtml(t.title)+'</option>';}).join('');select.value=margActiveThreadId;select.disabled=!!isLoading;}
   var button=document.getElementById('new-topic-chat');if(button)button.disabled=!!isLoading;
+  var lists=[document.getElementById('desktop-chat-list'),document.getElementById('mobile-chat-list')];
+  var html=margChatThreads.slice().reverse().map(function(t){
+    var active=t.id===margActiveThreadId?' active':'';
+    return '<button type="button" class="sidebar-chat-item'+active+'" onclick="openTopicChatFromSidebar(\''+escapeChatHtml(t.id)+'\')" aria-current="'+(active?'page':'false')+'"><span class="sidebar-chat-title">'+escapeChatHtml(t.title)+'</span></button>';
+  }).join('');
+  lists.forEach(function(list){if(list)list.innerHTML=html;});
 }
 
 function switchTopicChat(id) {
@@ -79,6 +84,27 @@ function createTopicChat() {
   var id=crypto.randomUUID();margChatThreads.push({id:id,title:title});
   if(field)field.value='';closeTopicChatCreator();return switchTopicChat(id);
 }
+
+function createQuickTopicChat() {
+  if(isLoading||responseRegenerationInFlight)return false;
+  var count=margChatThreads.filter(function(t){return /^New chat(?: \d+)?$/.test(t.title);}).length;
+  var id=crypto.randomUUID(),title=count?'New chat '+(count+1):'New chat';
+  margChatThreads.push({id:id,title:title});
+  closeTopicChatCreator();return switchTopicChat(id);
+}
+
+function maybeRenameActiveTopicFromMessage(message) {
+  var thread=margChatThreads.find(function(t){return t.id===margActiveThreadId;});
+  if(!thread||!/^New chat(?: \d+)?$/.test(thread.title))return false;
+  var title=String(message||'').replace(/\[[^\]]+\]/g,' ').replace(/\s+/g,' ').trim();
+  if(!title)return false;
+  title=title.split(' ').slice(0,7).join(' ');
+  if(title.length>48)title=title.slice(0,47).trim()+'…';
+  thread.title=title;
+  captureActiveTopicChat();renderTopicChatToolbar();return true;
+}
+
+function openTopicChatFromSidebar(id){closeAppMenu();switchTab('chat');return switchTopicChat(id);}
 
 function openTopicChatCreator(){var panel=document.getElementById('new-chat-panel');if(panel){panel.hidden=false;document.getElementById('new-chat-title').focus();}}
 function closeTopicChatCreator(){var panel=document.getElementById('new-chat-panel');if(panel)panel.hidden=true;}

@@ -18,9 +18,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<link rel="stylesheet" href="/pilot-ui.css?v=20260918-pilot4">
-<script defer src="/chat-topics.js?v=20260918-pilot4"></script>
-<script defer src="/landing-bootstrap.js?v=20260918-pilot4"></script>
+<link rel="stylesheet" href="/pilot-ui.css?v=20260919-chatfirst1">
+<script defer src="/chat-topics.js?v=20260919-chatfirst1"></script>
+<script defer src="/landing-bootstrap.js?v=20260919-chatfirst1"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -1132,6 +1132,11 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 </div>
 <nav id="desktop-nav" aria-label="Marg features">
 <img class="desktop-nav-logo" src="/Logo-full.png" alt="Marg">
+<div class="sidebar-chat-controls">
+<button class="sidebar-new-chat" type="button" onclick="createQuickTopicChat()"><span>＋</span> New chat</button>
+<div class="sidebar-chat-label">Chats</div>
+<div class="sidebar-chat-list" id="desktop-chat-list" aria-label="Previous chats"></div>
+</div>
 <div class="desktop-nav-label">Your preparation</div>
 <div class="desktop-nav-items">
 <button class="desktop-nav-btn" id="dnav-home" type="button" onclick="switchTab('home')"><span class="desktop-nav-icon">⌂</span>Home</button>
@@ -1206,10 +1211,6 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div id="guest-limit-banner">
 <div id="guest-limit-text">You have <span id="guest-msgs-left">5</span> free messages left — login to save your progress and unlock unlimited access</div>
 <button id="guest-login-btn" onclick="startLogin()">Save progress →</button>
-</div>
-<div id="chat-topic-toolbar" aria-label="Your conversations">
-<label for="chat-topic-select">Conversation</label><select id="chat-topic-select" aria-label="Choose a conversation" onchange="switchTopicChat(this.value)"><option value="legacy">CAT conversation</option></select>
-<button id="new-topic-chat" type="button" onclick="openTopicChatCreator()">+ New chat</button>
 </div>
 <div id="new-chat-panel" hidden>
 <label for="new-chat-title">What do you want to discuss?</label>
@@ -1481,6 +1482,16 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 </div>
 </div>
 <div class="app-menu-items">
+<div class="app-menu-section-label">Navigate</div>
+<button class="app-menu-item" type="button" onclick="appMenuSwitchTab('home')"><span class="app-menu-item-icon">⌂</span>Home</button>
+<button class="app-menu-item" type="button" onclick="appMenuSwitchTab('chat')"><span class="app-menu-item-icon">💬</span>Ask MARG</button>
+<button class="app-menu-item" type="button" onclick="appMenuSwitchTab('practice')"><span class="app-menu-item-icon">✍️</span>Practice</button>
+<button class="app-menu-item" type="button" onclick="appMenuSwitchTab('mock')"><span class="app-menu-item-icon">📊</span>Mock Analysis</button>
+<button class="app-menu-item" type="button" onclick="appMenuSwitchTab('progress')"><span class="app-menu-item-icon">↗</span>Progress</button>
+<div class="app-menu-section-label">Chats</div>
+<button class="app-menu-item app-menu-new-chat" type="button" onclick="closeAppMenu();createQuickTopicChat()"><span class="app-menu-item-icon">＋</span>New chat</button>
+<div class="sidebar-chat-list mobile-chat-list" id="mobile-chat-list" aria-label="Previous chats"></div>
+<div class="app-menu-section-label">More</div>
 <button class="app-menu-item" type="button" onclick="appMenuOpenVarc()"><span class="app-menu-item-icon">📖</span>Today’s VARC</button>
 <button class="app-menu-item" type="button" onclick="appMenuCommunity()"><span class="app-menu-item-icon">👥</span>Community access</button>
 <button class="app-menu-item" type="button" onclick="appMenuPushReminders()"><span class="app-menu-item-icon">🔔</span>Study reminders</button>
@@ -1489,34 +1500,6 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button class="app-menu-item danger" type="button" onclick="closeAppMenu();logout()"><span class="app-menu-item-icon">↪</span>Sign out</button>
 </div>
 </aside>
-</div>
-<div id="bottom-nav">
-<button class="bnav-btn active" onclick="switchTab('home')" id="bnav-home">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>
-Home
-</button>
-<button class="bnav-btn" onclick="switchTab('chat')" id="bnav-chat">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-</svg>
-Chat
-</button>
-<button class="bnav-btn" onclick="switchTab('practice')" id="bnav-practice">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-</svg>
-Practice
-</button>
-<button class="bnav-btn" onclick="switchTab('mock')" id="bnav-mock">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-Mocks
-</button>
-<button class="bnav-btn" onclick="switchTab('progress')" id="bnav-progress">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-</svg>
-Progress
-</button>
 </div>
 
 </body>
