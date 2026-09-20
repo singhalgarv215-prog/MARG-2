@@ -1289,7 +1289,7 @@ async function sbFetch(path, method, body) {
   const opts = { method: method || 'GET', headers };
   if (body) opts.body = JSON.stringify(body);
   const res = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/' + path, opts);
-  if (method === 'POST' || method === 'PATCH') return { ok: res.ok, status: res.status };
+  if (method === 'POST' || method === 'PATCH' || method === 'DELETE') return { ok: res.ok, status: res.status };
   if (!res.ok) return { data: null, error: res.status };
   const data = await res.json();
   return { data, error: null };
@@ -4159,7 +4159,7 @@ function isComprehensiveRoadmapRequest(message) {
 
 function detectExplicitDiagnosticTopic(message) {
   var text = String(message || '').toLowerCase().replace(/[’']/g,'');
-  var explicitNeed = /\b(help|weak|weaker|weakest|terrible|bad|struggl(?:e|es|ed|ing)?|freez(?:e|es|ing)|stuck|confus(?:e|ed|ing)|mistakes?|problem|issue|improve|fix|work on|focus on|switch|change topic|talk about|need advice|want to discuss|cannot|cant|dont know)\b/.test(text);
+  var explicitNeed = /\b(help|weak|weaker|weakest|terrible|bad|struggl(?:e|es|ed|ing)?|freez(?:e|es|ing)|stuck|confus(?:e|ed|ing)|mistakes?|problem|issue|improve|fix|work on|focus on|switch|change topic|talk about|need advice|want to discuss|cannot|cant|dont know|wrong|not working|los(?:e|ing|t) marks?)\b/.test(text);
   if (isComprehensiveRoadmapRequest(text)) return 'study_plan';
   if (!explicitNeed) return null;
   if (/\b(study plan|study schedule|timetable|backlog|what to study|planning|plan my study|prepare a plan|roadmap|complete plan|full plan)\b/.test(text)) return 'study_plan';
@@ -5185,7 +5185,7 @@ function isActiveExerciseOptOut(message) {
 }
 
 function hasQuestionBeyondExerciseOptOut(message) {
-  return /\b(?:but|instead|just tell|explain|why|how|is this|is the|what about|set valid|set false|constraint|condition|switch to|move to|help (?:me )?with|i need|let'?s (?:do|discuss|work on))\b/i.test(String(message || ''));
+  return /\b(?:but|instead|just tell|explain|why|how|is this|is the|what about|set valid|set false|constraint|condition|switch to|move to|talk about|help (?:me )?with|i need|let['’]?s (?:do|discuss|work on))\b/i.test(String(message || ''));
 }
 
 function cancelActiveExerciseForChat(message) {
@@ -10866,11 +10866,11 @@ function parseExplicitPracticeLaunchRequest(message) {
   if (/\b(?:how (?:do|should|can) i|explain how to|tell me how to|i (?:do not|don['’]?t) know how to)\s+(?:start|open|approach|attempt)\b/i.test(text)) return null;
   // Advice, diagnosis and planning belong in chat even when the sentence also
   // contains a section name and a broad verb such as "give" or "start".
-  if (/\b(?:advice|guidance|feedback|plan|roadmap|reason|explanation|strategy|diagnos(?:e|is|tic)|discussion|talk|help)\b/i.test(text) &&
+  if (/\b(?:advice|guidance|feedback|plan|roadmap|reason|explanation|strategy|approach|diagnos(?:e|is|tic)|discussion|talk|help|understand)\b|\b(?:one thing|what)\s+to\s+change\b|\btell me whether\b/i.test(text) &&
       !/\b(?:generate|create|launch|start)\b[\s\S]{0,35}\b(?:questions?|passage|practice|practise|test|set)\b/i.test(text)) return null;
   var strongAction = /\b(?:generate|create|launch)\b[\s\S]{0,55}\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set)\b/i.test(text) ||
     /\b(?:start|open)\s+(?:(?:a|an|the|one|another|new|fresh|full|short|timed|cat[ -]style)\s+){0,4}(?:practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set|questions?)\b/i.test(text) ||
-    /\b(?:let'?s do|i want to (?:do|practi[cs]e)|can we do)\b[\s\S]{0,45}\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set)\b/i.test(text);
+    /\b(?:let['’]?s do|i want to (?:do|practi[cs]e)|can we do)\b[\s\S]{0,45}\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set)\b/i.test(text);
   var directGive = /\b(?:give|show|send)\s+me\b[\s\S]{0,70}\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|test|set)\b/i.test(text);
   var action = strongAction || directGive;
   var material = /\b(?:questions?|practice|practise|passage|rc|dilr|lrdi|qa|quant|quants|set)\b/i.test(text);
