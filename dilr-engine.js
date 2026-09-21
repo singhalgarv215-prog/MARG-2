@@ -73,8 +73,8 @@ var MargDILREngine = (function() {
     if(c.op==='gap') return 'The absolute difference between the '+noun+'s of '+a+' and '+b+' is exactly '+c.k*s+'.';
     if(c.op==='apart') return 'The '+noun+'s of '+a+' and '+b+' do not differ by '+s+'.';
     if(c.op==='sum') return 'The '+noun+'s of '+a+' and '+b+' add up to '+c.k*s+'.';
-    if(c.op==='parity') return 'After dividing their '+noun+'s by '+s+', '+a+' and '+b+' have the same parity (both odd or both even).';
-    if(c.op==='opposite-parity') return 'After dividing their '+noun+'s by '+s+', one of '+a+' and '+b+' is odd and the other is even.';
+    if(c.op==='parity') return s===1 ? 'The '+noun+'s of '+a+' and '+b+' have the same parity (both odd or both even).' : 'After expressing both '+noun+'s in units of '+s+', '+a+' and '+b+' have the same parity.';
+    if(c.op==='opposite-parity') return s===1 ? 'One of the '+noun+'s of '+a+' and '+b+' is odd and the other is even.' : 'After expressing both '+noun+'s in units of '+s+', one of '+a+' and '+b+' is odd and the other is even.';
     if(c.op==='range') return 'The '+noun+' of '+a+' is between '+c.lo*s+' and '+c.hi*s+', inclusive.';
     throw new Error('Unknown clue');
   }
@@ -120,7 +120,16 @@ var MargDILREngine = (function() {
     var max=Math.max.apply(null,subset.map(function(r){return r[target];}));
     q.push({kind:'conditional-max',condition:conditional,entity:target,choices:shuffle([1,2,3,4,5,6,7,8].filter(function(v){return v!==max;}),rng).slice(0,3).concat(max),answer:max});
     q[2].choices=shuffle(q[2].choices,rng);
-    var universal=extraPool.find(function(c){return cases.every(function(r){return holds(c,r);});});
+    function isOneClueConsequence(candidate){
+      return clues.some(function(clue){
+        var samePair=(clue.a===candidate.a&&clue.b===candidate.b)||(clue.a===candidate.b&&clue.b===candidate.a);
+        if(!samePair)return false;
+        if(candidate.op==='apart'&&(clue.op==='parity'||clue.op==='gap'&&clue.k!==1))return true;
+        return false;
+      });
+    }
+    var universal=extraPool.find(function(c){return !isOneClueConsequence(c)&&cases.every(function(r){return holds(c,r);});}) ||
+      extraPool.find(function(c){return cases.every(function(r){return holds(c,r);});});
     var notUniversal=extraPool.filter(function(c){return !cases.every(function(r){return holds(c,r);});}).slice(0,3);
     if(!universal || notUniversal.length!==3) return null;
     q.push({kind:'must',choices:shuffle([universal].concat(notUniversal),rng),answer:universal});
@@ -170,7 +179,7 @@ var MargDILREngine = (function() {
   function material(proof,cases) {
     var ctx=context(proof.topic,proof.scale);
     var setup=ctx.preamble+' Every value must be used exactly once: two labels cannot receive the same value. All the following conditions hold simultaneously. Do not assume any alphabetical order or any relationship not stated. For a conditional question, apply its extra condition to that question only; it does not change the base cases for the others.\n\n'+proof.clues.map(function(c,i){return (i+1)+'. '+clueText(c,ctx);}).join('\n');
-    return {set_title:ctx.title,difficulty:'Hard',estimated_solve_minutes:16,
+    return {set_title:ctx.title,difficulty:'Medium–Hard',estimated_solve_minutes:16,
       constraint_types:[proof.topic,'Distinct values with interacting order, gap, parity and sum restrictions'],
       derived_constraints:proof.deductions.map(function(c){return clueText(c,ctx);}),setup:setup,
       questions:proof.questions.map(function(s){return renderQuestion(s,ctx,cases);})};
@@ -181,7 +190,7 @@ var MargDILREngine = (function() {
     if(!Number.isInteger(count)||count<1||count>3) throw new Error('DILR supports one to three sets per exercise');
     for(var set=0;set<count;set++) {
       var chosen=TOPICS.indexOf(topic)>=0?topic:TOPICS[rng(TOPICS.length)], completed=false;
-      for(var attempt=0;attempt<32 && !completed;attempt++) {
+      for(var attempt=0;attempt<128 && !completed;attempt++) {
         var truth=shuffle([1,2,3,4,5,6,7,8],rng), pool=candidatePool(truth,rng), clues=[], cases=constructCases([]);
         for(var p=0;p<pool.length && clues.length<9;p++) {
           var next=cases.filter(function(row){return holds(pool[p],row);});

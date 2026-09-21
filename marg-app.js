@@ -28,6 +28,10 @@ function closeTour() {
   if (tourShowTimer) { clearTimeout(tourShowTimer); tourShowTimer = null; }
   try { localStorage.setItem(getTourStorageKey(), '1'); } catch(e) {}
   resetTourSlides();
+  setTimeout(function(){
+    var messages=document.getElementById('messages');
+    if(messages&&!messages.querySelector('.message,.msg-wrap')&&typeof startChatFirstOnboarding==='function')startChatFirstOnboarding();
+  },120);
 }
 function tourNext() {
   var cur = document.getElementById('tour-' + tourStep);
@@ -41,7 +45,7 @@ function tourNext() {
   if (nxt) { nxt.style.display = 'block'; }
   if (ndot) ndot.style.background = '#C9A84C';
   var btn = document.getElementById('tour-next-btn');
-  if (btn && tourStep === totalTourSteps - 1) btn.textContent = 'Lets go';
+  if (btn && tourStep === totalTourSteps - 1) btn.textContent = 'Let\'s go';
 }
 function checkAndShowTour(options) {
   // Do not surprise existing users with an old onboarding modal. The caller
@@ -2136,8 +2140,8 @@ function buildReferralOffer(snapshot, compact) {
   var share = document.createElement('button');
   share.type = 'button';
   share.className = 'referral-share-btn';
-  share.textContent = 'Preparing challenge…';
-  share.disabled = true;
+  share.textContent = 'Challenge a friend ↗';
+  share.disabled = false;
   var dismiss = document.createElement('button');
   dismiss.type = 'button';
   dismiss.className = 'referral-dismiss-btn';
@@ -2147,18 +2151,18 @@ function buildReferralOffer(snapshot, compact) {
   status.className = 'referral-share-status';
   status.setAttribute('role', 'status');
   var preparedChallenge = null;
-  createReferralChallenge(snapshot).then(function(challenge) {
-    preparedChallenge = challenge;
-    share.disabled = false;
-    share.textContent = 'Challenge a friend ↗';
-  }).catch(function() {
-    share.disabled = true;
-    share.textContent = 'Challenge unavailable';
-    status.textContent = 'The sharing service is not ready yet. Your practice result is unaffected.';
-  });
+  var preparingChallenge = null;
   share.onclick = function() {
-    if (!preparedChallenge) return;
-    shareReferralChallenge(snapshot, share, status, preparedChallenge);
+    if(preparingChallenge)return;
+    if(preparedChallenge){shareReferralChallenge(snapshot,share,status,preparedChallenge);return;}
+    share.disabled=true;share.textContent='Making the challenge…';status.textContent='';
+    preparingChallenge=createReferralChallenge(snapshot).then(function(challenge){
+      preparedChallenge=challenge;preparingChallenge=null;share.disabled=false;
+      return shareReferralChallenge(snapshot,share,status,preparedChallenge);
+    }).catch(function(){
+      preparingChallenge=null;share.disabled=false;share.textContent='Try sharing again';
+      status.textContent='Could not create the link yet. Nothing was shared.';
+    });
   };
   actions.appendChild(share);
   actions.appendChild(dismiss);
@@ -2367,6 +2371,7 @@ async function renderCommunityInviteCard(forceByUser) {
 
 function maybePresentCommunityInvite() {
   if (!communityInvitePending || communityInviteRenderedSession || isLoading || currentTab !== 'chat') return false;
+  if (activeGeneratedExercise && (activeGeneratedExercise.reviewPending || activeGeneratedExercise.awaitingAnswers)) return false;
   if (document.getElementById('push-reminder-card')) return false;
   if (document.querySelector('[id^="conv-options-"]')) return false;
   setTimeout(function() {
@@ -2798,7 +2803,7 @@ async function ensureQAEngine() {
   if (!qaEngineLoadPromise) qaEngineLoadPromise = new Promise(function(resolve,reject) {
     var script=document.createElement('script');
     var timer=setTimeout(function(){qaEngineLoadPromise=null;script.remove();reject(new Error('QA solver loading timed out'));},12000);
-    script.src='/qa-engine.js?v=20260918-pilot4';
+    script.src='/qa-engine.js?v=20260920-coreloop1';
     script.onload=function(){clearTimeout(timer);if(typeof MargQAEngine!=='undefined')resolve(MargQAEngine);else{qaEngineLoadPromise=null;reject(new Error('QA solver did not load'));}};
     script.onerror=function(){clearTimeout(timer);qaEngineLoadPromise=null;script.remove();reject(new Error('QA solver could not load'));};
     document.body.appendChild(script);
@@ -2825,7 +2830,7 @@ async function ensureDILREngine() {
   if (!dilrEngineLoadPromise) dilrEngineLoadPromise = new Promise(function(resolve,reject) {
     var script = document.createElement('script');
     var timer = setTimeout(function(){dilrEngineLoadPromise=null;script.remove();reject(new Error('DILR solver loading timed out'));},12000);
-    script.src = '/dilr-engine.js?v=20260918-pilot4';
+    script.src = '/dilr-engine.js?v=20260920-coreloop1';
     script.onload = function() {
       clearTimeout(timer);
       if (typeof MargDILREngine !== 'undefined') resolve(MargDILREngine);
@@ -4710,6 +4715,9 @@ async function updateMentorExecutionReview(exercise, responseText) {
   var taskId = exercise.mentorTaskId || null;
   var attemptId = exercise.mentorAttemptId || null;
   var verdict = getExerciseHypothesisVerdict(exercise);
+  var reviewedAt=exercise.reviewedAt||new Date().toISOString();
+  (mentorExecutionLoop.tasks||[]).forEach(function(task){if(task&&task.id===taskId){task.status='reviewed';task.reviewed_at=reviewedAt;task.updated_at=reviewedAt;}});
+  (mentorExecutionLoop.attempts||[]).forEach(function(attempt){if(attempt&&attempt.id===attemptId){attempt.verdict=verdict;attempt.evidence_summary=String(responseText||'').slice(0,1600);attempt.reviewed_at=reviewedAt;attempt.updated_at=reviewedAt;}});
   try {
     if (taskId) await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?id=eq.' + encodeURIComponent(taskId), {
       method:'PATCH', headers:executionLoopHeaders('return=minimal'), body:JSON.stringify({ status:'reviewed', reviewed_at:exercise.reviewedAt || new Date().toISOString(), updated_at:new Date().toISOString() })
@@ -5542,7 +5550,10 @@ function buildLocalAnswerCheck(message) {
       : (question.explanation || 'Your choice moved away from the condition or scope being tested.');
     var block = 'Q' + question.number + ' — ' + (isCorrect ? '✅ Correct.' : '❌ Incorrect.') + ' You chose ' + selected + '; the correct answer is ' + question.correct + '.\n' + diagnosis;
     if (!isCorrect) {
-      block += '\nBefore marking next time, name the exact evidence that makes your option necessary.';
+      var nextRule=question.trap||question.pattern||question.commonMistake||'';
+      block += nextRule
+        ? '\nNext time, check this exact trap before marking: '+String(nextRule).replace(/[.!?]+$/,'')+'.'
+        : '\nNext time, compare your last two options against the precise condition tested here.';
       if (question.pattern) wrongPatterns.push(question.pattern);
     }
     blocks.push(block);
@@ -8091,19 +8102,36 @@ function saveChatDiagnosticEntry(level, prediction) {
   return entry;
 }
 
+function rejectCurrentDiagnosticHypothesis(reason) {
+  loadDiagnosticMemory();
+  var topic=(chatDiagnosticState&&chatDiagnosticState.topic)||activeDiagnosticTopic||'mock';
+  var entry=diagnosticMemory[topic];
+  if(!entry&&topic!=='mock')entry=diagnosticMemory.mock;
+  if(!entry)return null;
+  var now=new Date().toISOString();
+  entry.confirmation='Not Really';entry.status='rejected';entry.doNotReuse=true;
+  entry.confidence=Math.min(.2,Number(entry.confidence||.2));entry.updatedAt=now;
+  entry.evidenceHistory=Array.isArray(entry.evidenceHistory)?entry.evidenceHistory:[];
+  entry.evidenceHistory.push({clientRef:'hypothesis-rejected-'+now,type:'self_report',claim:String(reason||'The student said this working read did not match what happened.'),supports:false,strength:.8,occurredAt:now,payload:{confirmation:'Not Really'}});
+  diagnosticMemory[entry.topic||topic]=entry;
+  if(activeDiagnosticTopic===(entry.topic||topic))activeDiagnosticTopic=null;
+  saveDiagnosticMemory();persistMentorDiagnosis(entry);
+  (mentorExecutionLoop.tasks||[]).forEach(function(task){
+    if((entry.dbDiagnosisId&&task.diagnosis_id===entry.dbDiagnosisId)&&['reviewed','cancelled'].indexOf(task.status)===-1)task.status='cancelled';
+  });
+  return entry;
+}
+
 async function confirmChatDiagnosticPrediction(level) {
   if (!chatDiagnosticState.pattern) return;
   if (level === 'Not Really') {
     chatDiagnosticState.rejectedCount++;
-    if (chatDiagnosticState.rejectedCount > 1) {
-      addMentorLeadMessage("Then the obvious explanation is wrong—and that itself is useful. Tell me what I missed in one sentence: what happens immediately before the problem appears?");
-      chatDiagnosticState.active = false;
-      completeChatFirstOnboarding(null);
-      return;
-    }
-    chatDiagnosticState.revisedPrediction = buildRevisedDiagnosticPrediction();
-    addMentorLeadMessage('Thanks—that changes my read.\n\n' + chatDiagnosticState.revisedPrediction + '\n\nDoes this sound closer?\n\nIf it does, ' + diagnosticForwardPreview({ topic:chatDiagnosticState.topic, action:chatDiagnosticState.pattern.action }) + '.');
-    showConversationalOptions(['Exactly', 'Mostly', 'Not Really'], 'prediction_diag_revised_confirm');
+    var rejected=saveChatDiagnosticEntry('Mostly',chatDiagnosticState.displayPrediction||chatDiagnosticState.pattern.prediction);
+    diagnosticMemory[rejected.topic]=rejected;rejectCurrentDiagnosticHypothesis('The student rejected this working read.');
+    chatDiagnosticState.active=false;chatDiagnosticState.revisedPrediction=null;
+    conversationalProfile.awaitingPatternCorrection=true;
+    addMentorLeadMessage("That rules out my first explanation, so I won’t replace it with another guess. What happens immediately before the problem appears—the exact doubt, action or decision that changes?");
+    completeChatFirstOnboarding(null);
     return;
   }
   var prediction = chatDiagnosticState.revisedPrediction || chatDiagnosticState.displayPrediction || chatDiagnosticState.pattern.prediction;
@@ -9414,6 +9442,9 @@ function applyMentorResponseGuard(response, diagnosis) {
   if (diagnosis && diagnosis.hintOnly) return guardHintOnlyResponse(response);
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
   text = simplifyMentorLanguage(text);
+  if(diagnosis&&diagnosis.intent!=='greeting'&&(conversationHistory||[]).some(function(item){return item&&item.role==='assistant'&&!isInternalMemoryMessage(item);})){
+    text=text.replace(/^\s*Good (?:morning|afternoon|evening)[,!]?\s*/i,'');
+  }
   text = guardSectionAlignment(text, diagnosis);
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
@@ -9450,6 +9481,14 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardNaturalProfileClose(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
   text = guardUnlabelledNumericPrescription(text, diagnosis);
+  var quoteCount=(text.match(/["“”]/g)||[]).length;
+  if(quoteCount%2===1){
+    var lastQuote=Math.max(text.lastIndexOf('"'),text.lastIndexOf('“'),text.lastIndexOf('”'));
+    if(lastQuote>Math.max(0,text.length-260)){
+      var boundary=Math.max(text.lastIndexOf('.',lastQuote),text.lastIndexOf('\n',lastQuote));
+      if(boundary>0)text=text.slice(0,boundary+1).trim()+'\n\nThat example was incomplete, so I have left it out rather than asking you to rely on a broken sentence.';
+    }
+  }
   // Do not mechanically slice model output. The prompt controls normal reply
   // length; hard word caps were capable of manufacturing mid-answer cutoffs.
   if (!text) text = buildMentorFallbackReply(diagnosis);
@@ -9726,6 +9765,10 @@ async function handleConversationalResponse(answer, context) {
 
   } else if (context === 'mock_section_evidence') {
     await sendConversationalMessage(answer, 'mock_section_evidence');
+
+  } else if (context === 'diagnosis_confirmation_lead') {
+    if(String(answer).trim().toLowerCase()==='not really')rejectCurrentDiagnosticHypothesis('The student rejected this working read.');
+    await sendConversationalMessage(answer, 'diagnosis_confirmation_lead');
 
   } else if (context === 'home_diagnosis_topic') {
     conversationHistory.push({ role:'user', content:answer });
@@ -10049,7 +10092,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     systemAddition += '\n\nThe student just confirmed the diagnosis pattern. Do not repeat it and do not ask another intake question. Move straight to the next useful action.';
   }
   if (context === 'diagnosis_confirmation_lead') {
-    systemAddition += '\n\nThe student just confirmed or corrected the diagnosis immediately above. If they said Exactly or Mostly, do not repeat the diagnosis and do not ask what they want to do next. Briefly connect the clue to the mechanism, then lead with one specific validation or coaching action and give clear Right now / Later today / Tomorrow choices using [OPTIONS: Right now|Later today|Tomorrow][CONTEXT: diagnosis_action_timing]. Immediately before those tags, add [REMINDER_CONTEXT: kind|short safe task], where kind is rc, varc, dilr, qa, mock, sectional or general and the task is a concise description of the promised check. Include the task only—never the student\'s emotional disclosure, score, diagnosis wording, name, phone number or raw chat text. This tag is internal and will be removed before display. If they said Not Really, revise the read once from existing evidence and preview the next concrete check; do not restart an intake interview.';
+    systemAddition += '\n\nThe student just confirmed or corrected the diagnosis immediately above. If they said Exactly or Mostly, do not repeat the diagnosis and do not ask what they want to do next. Briefly connect the clue to the mechanism, then lead with one specific validation or coaching action and give clear Right now / Later today / Tomorrow choices using [OPTIONS: Right now|Later today|Tomorrow][CONTEXT: diagnosis_action_timing]. Immediately before those tags, add [REMINDER_CONTEXT: kind|short safe task], where kind is rc, varc, dilr, qa, mock, sectional or general and the task is a concise description of the promised check. Include the task only—never the student\'s emotional disclosure, score, diagnosis wording, name, phone number or raw chat text. If they said Not Really, explicitly say the earlier read is ruled out. Do not replace it with a second diagnosis from the same evidence. Ask exactly one short question about the moment immediately before the problem appears, unless their correction already provides that detail; in that case reflect the new clue as tentative, not proven.';
   }
   if (context === 'diagnosis_action_timing') {
     systemAddition += '\n\nThe student is choosing when to do the concrete validation step you just proposed. If they chose Right now, begin that promised action immediately with no more confirmation or intake. For QA or DILR, launch the dedicated timed interface with the appropriate [START_TEST] tag instead of dumping questions into chat. If they chose Later today or Tomorrow, preserve the exact promised action, acknowledge the timing briefly, and state how the conversation will resume without inventing another task.';
@@ -11698,6 +11741,7 @@ let currentRCMode = 'diagnose';
 let currentRCNeed = 'diagnose';
 let currentRCSkill = 'mixed';
 let currentRCDifficulty = 'cat';
+let currentRCSource = 'aeon';
 
 const RC_LAB_THEMES = {
   ideas:[
@@ -11828,7 +11872,7 @@ function updateRCLabCard() {
   var summary = document.getElementById('varc-preview');
   if (summary) summary.textContent = config.focusLabel + ' · ' + config.difficultyLabel + ' · ' + config.topicLabel;
   var theme = document.getElementById('rc-lab-theme');
-  if (theme && currentArticle) theme.textContent = 'Today’s theme: ' + currentArticle.title + '. Change it if you want a different reading world.';
+  if (theme && currentArticle) theme.textContent = (/^Aeon/i.test(String(currentArticle.source||''))?'Today’s Aeon essay: ':'Today’s theme: ') + currentArticle.title + '.';
 }
 
 function selectRCLabMode(mode) {
@@ -11867,7 +11911,10 @@ async function loadVarcCard(topic) {
   if (RC_TOPIC_LABELS[topic]) currentTopic = topic;
   if (!RC_TOPIC_LABELS[currentTopic]) currentTopic = 'surprise';
   articleIndex = Math.max(0, Number(articleIndex) || 0);
-  currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  if(currentRCSource==='aeon'){
+    try{currentArticle=readDailyArticleSelection('philosophy')||await fetchFreshDailyArticle('philosophy',0);rememberDailyArticle('philosophy',currentArticle);}
+    catch(error){currentArticle=selectCuratedRCTheme(currentTopic,articleIndex);currentArticle.source='Marg Original (Aeon feed unavailable)';currentArticle.url='';}
+  }else currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
   var card = document.getElementById('varc-card');
   if (card) { card.style.display = ''; card.classList.add('visible'); }
   updateRCLabCard();
@@ -11878,15 +11925,17 @@ async function loadVarcCard(topic) {
 function selectVarcTopic(topic) {
   if (!RC_TOPIC_LABELS[topic]) return;
   currentTopic = topic;
-  articleIndex = 0;
-  currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  if(currentRCSource!=='aeon'){articleIndex = 0;currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);}
   saveRCLabPreferences();
   updateRCLabCard();
 }
 
 async function refreshArticle() {
   articleIndex = Math.max(0, Number(articleIndex) || 0) + 1;
-  currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  if(currentRCSource==='aeon'){
+    try{currentArticle=await fetchFreshDailyArticle('philosophy',articleIndex);rememberDailyArticle('philosophy',currentArticle);}
+    catch(error){currentArticle=selectCuratedRCTheme(currentTopic,articleIndex);currentArticle.source='Marg Original (Aeon feed unavailable)';currentArticle.url='';}
+  }else currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
   updateRCLabCard();
   return currentArticle;
 }
@@ -11996,11 +12045,11 @@ async function createRCPassage() {
   var prompt = '';
   var rcConfig = getRCLabConfiguration();
 
-  function buildArticleRCPrompt(sourceMaterial) { return `Use this Marg-owned theme brief as conceptual scaffolding. Write a completely original CAT-style RC; do not quote, reproduce or pretend it came from a published article.
+  function buildArticleRCPrompt(sourceMaterial) { var publisherGrounded=currentArticle&&/^Aeon/i.test(String(currentArticle.source||'')); return `${publisherGrounded?'Use the verified Aeon article material below as conceptual scaffolding':'Use this Marg-owned theme brief as conceptual scaffolding'}. Write a completely original CAT-style RC; do not quote or reproduce the source.
 
 Theme: "${currentArticle.title}"
 Reading world: ${rcConfig.topicLabel}
-Theme brief: ${sourceMaterial}
+${publisherGrounded?'Verified source material':'Theme brief'}: ${sourceMaterial}
 
 Student selected: ${rcConfig.focusLabel}.
 Question mix: ${getRCQuestionBlueprint(rcConfig)}.
@@ -12031,7 +12080,7 @@ Each question must have exactly four distinct plausible options and one defensib
         type:'rc', source:'rc-lab-daily-cache', title:currentArticle.title,
         purpose:rcConfig.mode === 'diagnose' ? 'Evidence-based CAT RC diagnosis' : 'Targeted CAT RC skill practice',
         validationVerdict:{ status:'independently_verified', verification:{ mode:'same-day-verified-cache' } },
-        content:{ exerciseText:cachedReply, answerKey:buildArticleRCAnswerMemory(cachedRCData), structuredData:cachedRCData, article:{ title:currentArticle.title, source:'Marg Original', url:'' }, rcLab:rcConfig }
+        content:{ exerciseText:cachedReply, answerKey:buildArticleRCAnswerMemory(cachedRCData), structuredData:cachedRCData, article:{ title:currentArticle.title, source:currentArticle.source||'Marg Original', url:currentArticle.url||'' }, rcLab:rcConfig }
       });
       addArticleRCAttemptMessage(activeGeneratedExercise);
       conversationHistory.push({ role:'assistant', content:cachedReply });
@@ -12039,7 +12088,7 @@ Each question must have exactly four distinct plausible options and one defensib
       return;
     }
     articleRCStage = 'theme_selection';
-    articleText = currentArticle.content || currentArticle.preview;
+    articleText = currentRCSource==='aeon' ? await getGroundedArticleSourceBrief(currentArticle) : (currentArticle.content || currentArticle.preview);
     prompt = buildArticleRCPrompt(articleText);
     prompt += '\nPASSAGE TARGET OVERRIDE: write 500-520 words, four paragraphs of approximately 125-130 words each. Do not aim at the lower limit. Use a complete question ending in ? or an explicit forced-choice task ending in :. Each private check must be a specific evidence sentence, never a label.';
     var rcData = null;
@@ -12170,7 +12219,7 @@ Each question must have exactly four distinct plausible options and one defensib
         exerciseText:visibleReply,
         answerKey:buildArticleRCAnswerMemory(rcData),
         structuredData:rcData,
-        article:{ title:currentArticle.title, source:'Marg Original', url:'' },
+        article:{ title:currentArticle.title, source:currentArticle.source||'Marg Original', url:currentArticle.url||'' },
         rcLab:rcConfig
       }
     });
@@ -12178,7 +12227,7 @@ Each question must have exactly four distinct plausible options and one defensib
     conversationHistory.push({ role:'assistant', content:visibleReply });
     saveChatMessage('assistant', visibleReply);
     rememberCachedRCLabExercise(rcConfig, currentArticle, rcData);
-    localStorage.setItem('marg_rc_article', JSON.stringify({ title:currentArticle.title, source:'Marg Original', content:articleText, configuration:rcConfig }));
+    localStorage.setItem('marg_rc_article', JSON.stringify({ title:currentArticle.title, source:currentArticle.source||'Marg Original', url:currentArticle.url||'', content:articleText, configuration:rcConfig }));
   } catch(e) {
     hideTyping();
     console.error('RC Lab generation failed:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
@@ -13374,6 +13423,7 @@ async function submitMockScores() {
   }
 
   switchTab('chat');
+  if(typeof ensurePurposeTopicChat==='function')ensurePurposeTopicChat('mock-analysis','Mock analysis',true);
 
   const mockMsg = `I just completed a mock. My scores are: VARC: ${varc}, DILR: ${dilr}, QA: ${qa}. Help me find the decision that cost me marks, but do not infer the cause from the scores alone.`;
 
@@ -14526,7 +14576,7 @@ function validateDILRPracticeSet(data, expectedSetCount) {
   return data.sets.every(function(setObj) {
     var setupWords = countPracticeWords(setObj && setObj.setup);
     var reasoningTypes = setObj && Array.isArray(setObj.questions) ? setObj.questions.map(function(q) { return String(q.reasoning_type || '').toLowerCase(); }) : [];
-    return setObj && /^hard$/i.test(String(setObj.difficulty || '').trim()) &&
+    return setObj && /^(?:hard|medium[–-]hard)$/i.test(String(setObj.difficulty || '').trim()) &&
       Number(setObj.estimated_solve_minutes) >= 14 &&
       Array.isArray(setObj.constraint_types) && setObj.constraint_types.length >= 2 &&
       Array.isArray(setObj.derived_constraints) && setObj.derived_constraints.length >= 3 &&
@@ -14561,7 +14611,12 @@ function collectArticleRCStructureIssues(data, expectedQuestionCount) {
     if (!question || String(question.q || '').trim().length < 20 || !questionHasExplicitTask(question.q)) issues.push(label + ' has an incomplete stem');
     if (!question || !Array.isArray(question.options) || question.options.length !== 4 || question.options.some(function(option) { return String(option || '').trim().length < 3; })) issues.push(label + ' needs four complete options');
     if (!question || !Number.isInteger(question.correct) || question.correct < 0 || question.correct > 3) issues.push(label + ' has an invalid answer index');
+    if(question&&Array.isArray(question.options)){
+      var extremeCount=question.options.filter(function(option){return /\b(?:always|never|completely|entirely|impossible|abolish|flawless|nothing but|all forms?)\b/i.test(String(option||''));}).length;
+      if(extremeCount>=3)issues.push(label+' has too many obviously extreme distractors');
+    }
   });
+  if(/\b(?:unconditionally hostiles|subjecting domain like|they are structured reflection|deliberately deliberate)\b/i.test(JSON.stringify(setObj)))issues.push('The RC contains a visible grammar error');
   return issues;
 }
 
@@ -15307,7 +15362,14 @@ function normalizeGeneratedGrammar(value) {
       // A narrow deterministic repair for an error repeatedly seen in
       // generated QA stems. Avoid a broad a/an rule because English words such
       // as “university” and “one” do not follow their first letter.
-      value[key] = value[key].replace(/\bA auditorium\b/g, 'An auditorium').replace(/\ba auditorium\b/g, 'an auditorium');
+      value[key] = value[key]
+        .replace(/\bA auditorium\b/g, 'An auditorium').replace(/\ba auditorium\b/g, 'an auditorium')
+        .replace(/\bpricing mechanism coordinates\b/gi, 'the pricing mechanism coordinates')
+        .replace(/\bsubjecting domain like\b/gi, 'subjecting domains like')
+        .replace(/\bthey are structured reflection\b/gi, 'they are a structured reflection')
+        .replace(/\bunconditionally hostiles\b/gi, 'unconditionally hostile')
+        .replace(/\bdeliberately deliberate\b/gi, 'deliberate carefully')
+        .replace(/\b(\w{4,})\s+\1\b/gi, '$1');
     } else if (value[key] && typeof value[key] === 'object') normalizeGeneratedGrammar(value[key]);
   });
   return value;
@@ -16153,9 +16215,7 @@ function startTimedTestTimer() {
 }
 
 function confirmExitTimedTest() {
-  // Nothing has been answered during loading/recovery. Abort immediately;
-  // a blocking browser dialog here has no progress to protect.
-  if (timedTestSubmitted || !timedTestQuestions.length || !timedTestAnswers.some(function(answer) { return answer != null; })) { closeTimedTest(); return; }
+  if (timedTestSubmitted || !timedTestQuestions.length) { closeTimedTest(); return; }
   if (confirm('Leave this test? Your progress will be lost.')) {
     closeTimedTest();
   }
@@ -16308,6 +16368,11 @@ async function reviewLatestPracticeWithMarg() {
   window._practiceCompleteSummary = null;
   window._practiceReviewDispatching = true;
   switchTab('chat');
+  if(typeof ensurePurposeTopicChat==='function'){
+    var reviewSection=activeGeneratedExercise&&activeGeneratedExercise.type||'practice';
+    var reviewTitle=reviewSection==='qa'?'QA practice':reviewSection==='dilr'?'DILR practice':'RC practice';
+    ensurePurposeTopicChat('practice-'+reviewSection,reviewTitle,true);
+  }
   var input = document.getElementById('user-input');
   if (input) {
     input.value = summary;
@@ -17023,11 +17088,12 @@ async function loadReferralChallengeStats() {
     if (!response.ok) return false;
     var payload = await response.json();
     var stats = Array.isArray(payload) ? payload[0] : payload;
-    if (!stats || Number(stats.challenges_created || 0) < 1) { card.style.display = 'none'; return false; }
+    var engagedChallenges=Math.max(Number(stats.friends_opened||0),Number(stats.friends_answered||0));
+    if (!stats || engagedChallenges < 1) { card.style.display = 'none'; return false; }
     var created = document.getElementById('referral-stat-created');
     var opened = document.getElementById('referral-stat-opened');
     var success = document.getElementById('referral-stat-success');
-    if (created) created.textContent = Number(stats.challenges_created || 0);
+    if (created) created.textContent = engagedChallenges;
     if (opened) opened.textContent = Number(stats.friends_opened || 0);
     if (success) success.textContent = Number(stats.friends_answered || stats.successful_referrals || 0);
     card.style.display = 'block';
@@ -17052,7 +17118,9 @@ function getProgressJourneyData() {
     return item && item.status !== 'superseded';
   });
   var activeDiagnoses = diagnoses.filter(function(item) { return item.status !== 'rejected'; });
-  var diagnosis = latestByTimestamp(activeDiagnoses.length ? activeDiagnoses : diagnoses);
+  // A rejected read is historical evidence, never the student's current
+  // pattern. Falling back to it made Progress contradict the conversation.
+  var diagnosis = latestByTimestamp(activeDiagnoses);
   var memoryEntry = null;
 
   if (diagnosis) memoryEntry = diagnosticMemory[normalizeExecutionSection(diagnosis.section)] || null;
@@ -17208,12 +17276,16 @@ async function loadProgressDashboard() {
   renderMockChart(mockHistory);
   renderProgressJourney();
 
-  var varcEl = document.getElementById('varc-pattern-display');
-  if (varcEl && studentProfile.varcPattern) varcEl.textContent = studentProfile.varcPattern;
-  var dilrEl = document.getElementById('dilr-pattern-display');
-  if (dilrEl && studentProfile.dilrPattern) dilrEl.textContent = studentProfile.dilrPattern;
-  var qaEl = document.getElementById('qa-pattern-display');
-  if (qaEl && studentProfile.qaPattern) qaEl.textContent = studentProfile.qaPattern;
+  function renderSectionPattern(section,element,legacy){
+    if(!element)return;
+    var entry=diagnosticMemory[section];
+    if(entry&&(entry.status==='rejected'||entry.doNotReuse)){element.textContent='The previous read was ruled out. Marg is collecting fresh evidence.';return;}
+    if(entry&&entry.confirmedDiagnosis){element.textContent=(entry.status==='hypothesis'?'Working read: ':'')+entry.confirmedDiagnosis;return;}
+    element.textContent=legacy||'No reliable pattern yet.';
+  }
+  renderSectionPattern('varc',document.getElementById('varc-pattern-display'),studentProfile.varcPattern);
+  renderSectionPattern('dilr',document.getElementById('dilr-pattern-display'),studentProfile.dilrPattern);
+  renderSectionPattern('qa',document.getElementById('qa-pattern-display'),studentProfile.qaPattern);
 
   if (mockHistory.length === 0 && !studentProfile.sessionsCount) {
     var empty = document.getElementById('progress-empty');
@@ -17272,12 +17344,11 @@ function generateWeeklyMentorReport(history) {
   if (qaChange > 0) improving.push('QA (+' + qaChange + ')');
   else if (qaChange < 0) declining.push('QA (' + qaChange + ')');
 
-  var weakest = latest.varc/72 < latest.dilr/60 && latest.varc/72 < latest.qa/60 ? 'VARC' : latest.dilr/60 < latest.qa/60 ? 'DILR' : 'QA';
-
   var report = '';
   if (improving.length) report += '<strong>Improving:</strong> ' + improving.join(', ') + '<br>';
-  if (declining.length) report += '<strong>Needs work:</strong> ' + declining.join(', ') + '<br>';
-  report += '<br><strong>This week — fix ONE thing:</strong> Your ' + weakest + ' score relative to max is the biggest leak.';
+  if (declining.length) report += '<strong>Moved down:</strong> ' + declining.join(', ') + '<br>';
+  report += '<br><strong>What this does not prove:</strong> Two raw scores cannot tell us whether the change came from difficulty, selection, accuracy or pace.';
+  report += '<br><br><strong>Next decision:</strong> Review the section whose process felt most different, then inspect the exact costly decisions before changing your plan.';
 
   var bodyEl = document.getElementById('weekly-mentor-body');
   var cardEl = document.getElementById('weekly-mentor-card');

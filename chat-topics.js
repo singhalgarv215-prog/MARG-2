@@ -6,14 +6,14 @@ var margThreadOwner = null, margThreadStates = {}, topicChatDeletionInFlight = f
 function decodeTopicChatRow(row) {
   var content=String(row.content||''),meta=null,match=content.match(/\n\[MARG_THREAD:([^\]]+)\]$/);
   if(match)try{var candidate=JSON.parse(decodeURIComponent(match[1]));if(candidate&&/^(?:legacy|[a-f0-9-]{36})$/.test(candidate.id)&&typeof candidate.title==='string'&&candidate.title.length<=80){meta=candidate;content=content.slice(0,match.index);}}catch(e){}
-  return {id:row.id||null,role:row.role,content:content,createdAt:row.created_at||row.createdAt||null,threadId:meta?meta.id:'legacy',threadTitle:meta?meta.title:'Earlier conversation'};
+  return {id:row.id||null,role:row.role,content:content,createdAt:row.created_at||row.createdAt||null,threadId:meta?meta.id:'legacy',threadTitle:meta?meta.title:'Earlier conversation',threadPurpose:meta&&meta.purposeKey||''};
 }
 
 function encodeTopicChatContent(content,item) {
   var id=item&&item.threadId||margActiveThreadId,title=item&&item.threadTitle;
   var thread=margChatThreads.find(function(t){return t.id===id;});
   title=title||thread&&thread.title||'CAT conversation';
-  return String(content)+'\n[MARG_THREAD:'+encodeURIComponent(JSON.stringify({id:id,title:title.slice(0,80)}))+']';
+  return String(content)+'\n[MARG_THREAD:'+encodeURIComponent(JSON.stringify({id:id,title:title.slice(0,80),purposeKey:thread&&thread.purposeKey||''}))+']';
 }
 
 function topicChatStorageKey(){return 'marg_chat_topics_'+(currentUser&&currentUser.id||'guest');}
@@ -51,7 +51,7 @@ function initialiseTopicChats(rows) {
   var saved={};try{saved=JSON.parse(localStorage.getItem(topicChatStorageKey())||'{}')||{};}catch(e){}
   margThreadStates=saved.states&&typeof saved.states==='object'?saved.states:{};
   margChatThreads=Array.isArray(saved.threads)?saved.threads.filter(function(t){return t&&/^(?:legacy|[a-f0-9-]{36})$/.test(t.id)&&typeof t.title==='string';}):[];
-  margAllChatMessages.forEach(function(item){if(!margChatThreads.some(function(t){return t.id===item.threadId;}))margChatThreads.push({id:item.threadId,title:item.threadTitle});});
+  margAllChatMessages.forEach(function(item){if(!margChatThreads.some(function(t){return t.id===item.threadId;}))margChatThreads.push({id:item.threadId,title:item.threadTitle,purposeKey:item.threadPurpose||''});});
   if(!margChatThreads.length)margChatThreads=[{id:'legacy',title:'CAT conversation'}];
   var latest=margAllChatMessages[margAllChatMessages.length-1];
   margActiveThreadId=margChatThreads.some(function(t){return t.id===saved.active;})?saved.active:latest?latest.threadId:margChatThreads[0].id;
@@ -204,6 +204,25 @@ function createQuickTopicChat() {
   var id=crypto.randomUUID(),title=count?'New chat '+(count+1):'New chat';
   margChatThreads.push({id:id,title:title});
   closeTopicChatCreator();return switchTopicChat(id);
+}
+
+/* Product flows must not inject mock reviews, practice reviews or generated
+ * exercises into whichever personal conversation happened to be open. Keep
+ * one durable, user-owned chat per product purpose and preserve the draft in
+ * the chat the student is leaving. */
+function ensurePurposeTopicChat(purposeKey, title, clearTargetDraft) {
+  purposeKey=String(purposeKey||'').trim().slice(0,60);
+  title=String(title||'MARG conversation').trim().slice(0,80);
+  if(!purposeKey||isLoading||responseRegenerationInFlight||topicChatDeletionInFlight)return false;
+  saveCurrentChatDraft();captureActiveTopicChat();
+  var thread=margChatThreads.find(function(item){return item.purposeKey===purposeKey;});
+  if(!thread){thread={id:crypto.randomUUID(),title:title,purposeKey:purposeKey};margChatThreads.push(thread);}
+  if(thread.id!==margActiveThreadId)applyTopicChatState(thread.id);
+  if(clearTargetDraft){
+    var input=document.getElementById('user-input');if(input){input.value='';input.style.height='auto';}
+    try{localStorage.removeItem(getChatDraftStorageKey());}catch(e){}
+  }
+  persistTopicChatIndex();renderTopicChatToolbar();return true;
 }
 
 function maybeRenameActiveTopicFromMessage(message) {
