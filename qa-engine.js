@@ -14,6 +14,11 @@ var MargQAEngine = (function () {
       if(k===0){q='A class has '+(a*10)+' students. '+(a*4)+' are women. After '+(b*10)+' men join and nobody leaves, what percentage of the class consists of women?';v=40*a/(a+b);w='Women remain '+(a*4)+'. New total = '+((a+b)*10)+'. Percentage = '+(a*4)+' / '+((a+b)*10)+' × 100 = '+fmt(v)+'.';insight='Track the unchanged count before changing the percentage base.';}
       if(k===1){q='A shop raises a price by '+(a*5)+'% and then reduces the new price by '+(b*5)+'%. The final price is Rs. '+((20+a)*(20-b)*c)+'. What was the original price in rupees?';v=400*c;w='Final multiplier = '+(1+a/20)+' × '+(1-b/20)+'. Divide the stated final price by this product to get '+v+'.';insight='Successive percentages act on different bases.';}
       if(k===2){q='An alloy of '+(10*a)+' kg contains 30% copper. How many kg of pure copper must be added to make the resulting alloy 50% copper?';v=4*a;w='If x kg is added, copper = '+(3*a)+' + x and total = '+(10*a)+' + x. Set copper to half the total: x = '+v+'.';insight='Conserve the original metal while the denominator grows.';}
+      if(k===3){q='In an election, 12% of the ballots are invalid. The winner receives 55% of the valid ballots and defeats the only other candidate by '+(880*a)+' votes. How many ballots were cast in all?';v=10000*a;w='The winning margin is 10% of the valid ballots, and valid ballots are 88% of the total. Thus 8.8% of the total equals '+(880*a)+', giving '+v+' ballots.';insight='Convert the vote margin into a percentage of all ballots before dividing.';}
+      if(k===4){q='A tank is 35% full. After '+(6*a)+' litres are added, it becomes 50% full. What is the tank’s capacity in litres?';v=40*a;w='The added '+(6*a)+' litres represent 15% of capacity. Capacity = '+(6*a)+' / 0.15 = '+v+' litres.';insight='The change in amount corresponds to the change in percentage points.';}
+      if(k===5){var oldSpend=50+5*a,incomeRise=10+5*b,expenseRise=5+5*c,newIncome=100+incomeRise,newSpend=oldSpend*(1+expenseRise/100);q='A household spends '+oldSpend+'% of its income. Its income rises by '+incomeRise+'%, while its expenditure rises by '+expenseRise+'%. Savings are now what percentage of the new income?';v=(newIncome-newSpend)/newIncome*100;w='Take old income as 100: expenditure is '+oldSpend+'. New income is '+newIncome+' and expenditure is '+fmt(newSpend)+', so savings are '+fmt(newIncome-newSpend)+'. As a percentage of the new income this is '+fmt(v)+'%.';insight='Income and expenditure grow from different starting bases.';}
+      if(k===6){q='The population of a town increases by 20% in one year and decreases by 10% in the next. If the population after the second year is '+(1080*a)+', what was it originally?';v=1000*a;w='The combined multiplier is 1.20 × 0.90 = 1.08. Original population = '+(1080*a)+' / 1.08 = '+v+'.';insight='Successive percentage changes multiply; they do not cancel additively.';}
+      if(k===7){var incomeGap=10+5*a;q='A’s income is '+incomeGap+'% more than B’s income. B’s income is what percentage less than A’s income?';v=incomeGap/(100+incomeGap)*100;w='Take B as 100, so A is '+(100+incomeGap)+'. The shortfall is '+incomeGap+' on A’s base of '+(100+incomeGap)+', hence the required percentage is '+fmt(v)+'%.';insight='The comparison reverses the percentage base.';}
       break;
     case 1:
       if(k===0){q='A and B share Rs. '+(120*a)+' in the ratio 2:3. B gives one fourth of B’s initial share to A. What is A’s final share in rupees?';v=66*a;w='A initially gets '+(48*a)+' and B gets '+(72*a)+'. The transfer is '+(18*a)+', so A finishes with '+v+'.';insight='Apply the fraction to the correct person’s share.';}
@@ -93,7 +98,16 @@ var MargQAEngine = (function () {
   }
   // Independent calculations from the visible construction parameters.
   function solve(s){var t=topics.indexOf(s.topic),k=s.kind,a=s.p[0],b=s.p[1],c=s.p[2],i,j,n=0;
-    if(t===0)return k===0?(4*a)/((a+b)*10)*100:k===1?((20+a)*(20-b)*c)*20/(20+a)*20/(20-b):(5*a-3*a)/.5;
+    if(t===0){
+      if(k===0)return (4*a)/((a+b)*10)*100;
+      if(k===1)return ((20+a)*(20-b)*c)*20/(20+a)*20/(20-b);
+      if(k===2)return (5*a-3*a)/.5;
+      if(k===3)return (880*a)/.088;
+      if(k===4)return (6*a)/.15;
+      if(k===5){var oldSpend=50+5*a,incomeRise=10+5*b,expenseRise=5+5*c,newIncome=100+incomeRise,newSpend=oldSpend*(1+expenseRise/100);return (newIncome-newSpend)/newIncome*100;}
+      if(k===6)return (1080*a)/1.08;
+      if(k===7){var incomeGap=10+5*a;return incomeGap/(100+incomeGap)*100;}
+    }
     if(t===1)return k===0?120*a*(2/5+3/20):k===1?2*(2*a):100*3*(a+1);
     if(t===2)return k===0?2/(1/(10*a)+1/(10*(a+2))):k===1?(12*a*b)/(3*a+3*b)*Math.max(3*a,3*b):(8*a*b)/(3*a-a)+(8*a*b)/(3*a+a);
     if(t===3)return k===0?80*(10+a)*b-1000*b:k===1?(1000*a)*1.2/(10*a-2):(1000*a)*1.08/(.9*.8);
@@ -117,7 +131,7 @@ var MargQAEngine = (function () {
     var ordered=spec.order.map(function(i){return vals[i];}),correct=spec.order.indexOf(0);
     return {topic:spec.topic,q:item.q,options:ordered.map(function(x,i){return 'ABCD'[i]+'. '+fmt(x);}),correct:correct,solution:item.solution,sufficiency_check:'The stated counts, domain and relationships determine the requested value without any extra assumptions.',option_check:'Only option '+ 'ABCD'[correct]+' equals the independently calculated value '+fmt(v)+'. The other three distinct values do not satisfy the calculation.',common_mistake:item.insight,concept_check:item.insight,marg_insight:item.insight};
   }
-  function kindCount(topic){return topic==='Quadratic Equations'?5:3;}
+  function kindCount(topic){return topic==='Percentages'?8:topic==='Quadratic Equations'?5:3;}
   function create(topic,seed,count){if(topic&&topics.indexOf(topic)<0)throw new Error('Unsupported QA topic: '+topic);count=Number(count)||3;if(count<1||count>22||count%1)throw new Error('Invalid QA count');var r=rng(seed),specs=[],questions=[],offset=r(topic?kindCount(topic):5),used=new Set();
     for(var i=0;i<count;i++){var t=topic||topics[(r(topics.length)+i)%topics.length],s,q,tries=0;do{var order=[0,1,2,3];for(var j=3;j>0;j--){var swap=r(j+1),tmp=order[j];order[j]=order[swap];order[swap]=tmp;}s={topic:t,kind:(offset+i)%kindCount(t),p:params(t,r),delta:1+r(9),order:order};q=render(s);if(++tries>100)throw new Error('No fresh distinct QA item');}while(used.has(q.q));used.add(q.q);specs.push(s);questions.push(q);}
     return {difficulty:'Mixed',topics_combined:topic?[topic]:Array.from(new Set(specs.map(function(s){return s.topic;}))),questions:questions,_margQAConstruction:{version:'arithmetic-1',specs:specs}};

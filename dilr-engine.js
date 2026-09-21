@@ -55,10 +55,23 @@ var MargDILREngine = (function() {
     } while(true);
     return out;
   }
-  function context(topic, scale) {
+  function context(topic, scale, variant) {
+    variant=Math.abs(Number(variant)||0)%3;
     var labels=['A','B','C','D','E','F','G','H'];
-    var unit='position', title='Exhibition order', preamble='Eight exhibits, labelled A to H, occupy positions 1 to 8 in one row, from left to right.';
-    if(topic===TOPICS[1]) { unit='slot'; title='Workshop schedule'; preamble='Eight workshops, labelled A to H, run in eight consecutive slots numbered 1 to 8. There is one workshop in each slot; a smaller slot number means an earlier workshop.'; }
+    var arrangementContexts=[
+      {unit:'position',title:'Exhibition order',preamble:'Eight exhibits, labelled A to H, occupy positions 1 to 8 in one row, from left to right.'},
+      {unit:'rank',title:'Research fellowship ranking',preamble:'Eight applicants, labelled A to H, receive distinct ranks 1 to 8 in a fellowship selection. Rank 1 is the highest and no two applicants share a rank.'},
+      {unit:'shelf position',title:'Archive shelf order',preamble:'Eight archive boxes, labelled A to H, are placed in shelf positions 1 to 8 from left to right, with one box in each position.'}
+    ];
+    var base=arrangementContexts[variant],unit=base.unit,title=base.title,preamble=base.preamble;
+    if(topic===TOPICS[1]) {
+      var schedules=[
+        {title:'Workshop schedule',preamble:'Eight workshops, labelled A to H, run in eight consecutive slots numbered 1 to 8. There is one workshop in each slot; a smaller slot number means an earlier workshop.'},
+        {title:'Interview timetable',preamble:'Eight interviews, labelled A to H, occupy consecutive slots 1 to 8. Exactly one interview occurs in each slot and a smaller number is earlier.'},
+        {title:'Festival performance order',preamble:'Eight performances, labelled A to H, are scheduled in consecutive slots 1 to 8, with exactly one performance per slot.'}
+      ];
+      unit='slot';title=schedules[variant].title;preamble=schedules[variant].preamble;
+    }
     if(topic===TOPICS[2]) { unit='load';title='Warehouse allocation';preamble='Eight shipments, labelled A to H, receive different loads. The available loads are '+[1,2,3,4,5,6,7,8].map(function(n){return n*scale;}).join(', ')+' crates. Each load is used once. Shipments A to D go to the north warehouse and E to H to the south warehouse.'; }
     if(topic===TOPICS[3]) { unit='score';title='Quiz league scorecard';preamble='Eight teams, labelled A to H, finish a quiz league with distinct total scores. The eight scores are '+[1,2,3,4,5,6,7,8].map(function(n){return n*scale;}).join(', ')+' points, each used once. Each team’s total is the sum of its quiz-round points; there is no assumption about wins, draws or head-to-head results.'; }
     if(topic===TOPICS[4]) { unit='stop';title='Delivery route';preamble='A vehicle visits eight delivery nodes, labelled A to H, exactly once each, in stops 1 to 8. It starts at the first node and ends at the eighth; there is no return trip. Roads connect every pair of nodes in both directions. The restrictions below apply to the order of visits, not to distances.'; }
@@ -177,7 +190,7 @@ var MargDILREngine = (function() {
       common_mistake:'Using a partial case as if it were the only case',marg_insight:'Check all remaining cases before committing to an answer.'};
   }
   function material(proof,cases) {
-    var ctx=context(proof.topic,proof.scale);
+    var ctx=context(proof.topic,proof.scale,proof.variant);
     var setup=ctx.preamble+' Every value must be used exactly once: two labels cannot receive the same value. All the following conditions hold simultaneously. Do not assume any alphabetical order or any relationship not stated. For a conditional question, apply its extra condition to that question only; it does not change the base cases for the others.\n\n'+proof.clues.map(function(c,i){return (i+1)+'. '+clueText(c,ctx);}).join('\n');
     return {set_title:ctx.title,difficulty:'Medium–Hard',estimated_solve_minutes:16,
       constraint_types:[proof.topic,'Distinct values with interacting order, gap, parity and sum restrictions'],
@@ -201,7 +214,7 @@ var MargDILREngine = (function() {
         if(clues.some(function(c,i){return constructCases(clues.filter(function(_,j){return j!==i;})).length===cases.length;})) continue;
         var deductions=deduce(cases,clues,rng), specs=questionSpecs(cases,clues,rng);
         if(deductions.length<3 || !specs) continue;
-        var proof={version:VERSION,topic:chosen,scale:1+rng(5),clues:clues,deductions:deductions,questions:specs};
+        var proof={version:VERSION,topic:chosen,variant:set%3,scale:1+rng(5),clues:clues,deductions:deductions,questions:specs};
         sets.push(material(proof,cases));proofs.push(proof);completed=true;
       }
       if(!completed) throw new Error('Could not construct a nonredundant DILR set within the bound');
@@ -214,7 +227,7 @@ var MargDILREngine = (function() {
       if(!proof || proof.version!==VERSION || !Array.isArray(proof.sets) || proof.sets.length!==data.sets.length || proof.sets.length<1 || proof.sets.length>3) throw new Error('Missing construction certificate');
       var answers=[], counts=[], witnesses=[], checked=[];
       proof.sets.forEach(function(p,index){
-        if(p.version!==VERSION || TOPICS.indexOf(p.topic)<0 || !Number.isInteger(p.scale)||p.scale<1||p.scale>5 || !Array.isArray(p.clues)||p.clues.length<7||p.clues.length>10 || !Array.isArray(p.questions)||p.questions.length!==4 || !Array.isArray(p.deductions)||p.deductions.length!==3) throw new Error('Invalid certificate shape');
+        if(p.version!==VERSION || TOPICS.indexOf(p.topic)<0 || !Number.isInteger(p.variant)||p.variant<0||p.variant>2 || !Number.isInteger(p.scale)||p.scale<1||p.scale>5 || !Array.isArray(p.clues)||p.clues.length<7||p.clues.length>10 || !Array.isArray(p.questions)||p.questions.length!==4 || !Array.isArray(p.deductions)||p.deductions.length!==3) throw new Error('Invalid certificate shape');
         if(expectedTopic && TOPICS.indexOf(expectedTopic)>=0 && p.topic!==expectedTopic) throw new Error('Wrong DILR topic');
         p.clues.concat(p.deductions).forEach(function(c){if(!c || ['before','gap','apart','sum','parity','opposite-parity','range'].indexOf(c.op)<0||!Number.isInteger(c.a)||c.a<0||c.a>7||!Number.isInteger(c.b)||c.b<0||c.b>7||c.a===c.b) throw new Error('Invalid constraint');});
         var cases=independentlySolve(p.clues);
@@ -223,7 +236,7 @@ var MargDILREngine = (function() {
         if(JSON.stringify(rendered)!==JSON.stringify(data.sets[index])) throw new Error('Displayed material or key differs from the solved certificate');
         answers=answers.concat(rendered.questions.map(function(q){return q.correct;}));
         counts.push(cases.length);checked.push(p.clues.length);
-        witnesses.push(cases[0].map(function(v,i){return 'ABCDEFGH'[i]+'='+v*context(p.topic,p.scale).scale;}).join(', '));
+        witnesses.push(cases[0].map(function(v,i){return 'ABCDEFGH'[i]+'='+v*context(p.topic,p.scale,p.variant).scale;}).join(', '));
       });
       return {valid:true,issues:[],verification:{answer_indices:answers,feasible_base_case_counts:counts,base_case_witnesses:witnesses,checked_constraint_counts:checked,method:'exhaustive-code-solver',version:VERSION}};
     } catch(e) {return {valid:false,issues:[String(e.message||e)]};}

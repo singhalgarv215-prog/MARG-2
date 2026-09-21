@@ -2835,7 +2835,7 @@ async function ensureQAEngine() {
   if (!qaEngineLoadPromise) qaEngineLoadPromise = new Promise(function(resolve,reject) {
     var script=document.createElement('script');
     var timer=setTimeout(function(){qaEngineLoadPromise=null;script.remove();reject(new Error('QA solver loading timed out'));},12000);
-    script.src='/qa-engine.js?v=20260920-coreloop1';
+    script.src='/qa-engine.js?v=20260921-reliability2';
     script.onload=function(){clearTimeout(timer);if(typeof MargQAEngine!=='undefined')resolve(MargQAEngine);else{qaEngineLoadPromise=null;reject(new Error('QA solver did not load'));}};
     script.onerror=function(){clearTimeout(timer);qaEngineLoadPromise=null;script.remove();reject(new Error('QA solver could not load'));};
     document.body.appendChild(script);
@@ -2862,7 +2862,7 @@ async function ensureDILREngine() {
   if (!dilrEngineLoadPromise) dilrEngineLoadPromise = new Promise(function(resolve,reject) {
     var script = document.createElement('script');
     var timer = setTimeout(function(){dilrEngineLoadPromise=null;script.remove();reject(new Error('DILR solver loading timed out'));},12000);
-    script.src = '/dilr-engine.js?v=20260920-coreloop1';
+    script.src = '/dilr-engine.js?v=20260921-reliability2';
     script.onload = function() {
       clearTimeout(timer);
       if (typeof MargDILREngine !== 'undefined') resolve(MargDILREngine);
@@ -5449,13 +5449,31 @@ function guardHintOnlyResponse(response) {
 
 function guardMissingExerciseControl(response) {
   var text = String(response || '');
-  if (!/\b(?:click|press|tap)\s+(?:the\s+)?Start\b|\bI (?:have |just )?(?:launched|opened) (?:the |this |your )?(?:check|test|passage)\b/i.test(text)) return text;
+  var claimsLaunch = /\b(?:click|press|tap)\s+(?:the\s+)?Start\b|\bI (?:have |just )?(?:launched|opened) (?:the |this |your )?(?:check|test|passage)\b|\b(?:starting|opening|launching|setting up)\b[^.!?\n]{0,100}\b(?:check|test|set|passage)\s+now\b|\bhere is your\s+(?:timed |targeted |mixed )?(?:\d+[- ]question\s+)?(?:QA|DILR)\s+(?:check|test|set)\b/i.test(text);
+  if (!claimsLaunch) return text;
   if (/\[START_TEST:[^\]]*\]/.test(text)) return text; // The real renderer consumes this command.
+  var section = diagnosisSectionFromResponse(text);
+  if (section === 'qa' || section === 'dilr') {
+    var countMatch = text.match(/\b(\d{1,2})[- ]question\b/i);
+    var count = countMatch ? Number(countMatch[1]) : section === 'qa' ? 3 : 4;
+    count = Math.max(section === 'qa' ? 3 : 4, Math.min(section === 'qa' ? 10 : 12, count));
+    var topic = section === 'qa' ? 'Mixed QA' : 'Diagnostic Set';
+    return text + '\n[START_TEST: ' + section + '|' + topic + '|' + count + '|auto]';
+  }
+  if (section === 'rc') return text; // The RC launcher runs after the mentor bubble is rendered.
   var visibleCard = typeof document !== 'undefined' && typeof document.querySelector === 'function' && document.querySelector('.test-module, .article-rc-attempt');
   if (!visibleCard) return 'The passage card isn’t visible here yet. Want me to generate a fresh RC with four clickable questions here?';
   // RC cards have choices and Next/Submit, not a fictional Start button.
   if (activeGeneratedExercise && /^rc-lab-/.test(activeGeneratedExercise.source || '')) return text.replace(/[^.!?\n]*\b(?:click|press|tap)\s+(?:the\s+)?Start\b[^.!?\n]*[.!]?/gi, 'Use the clickable choices in the RC card, then Next and Submit answers.');
   return text;
+}
+
+function diagnosisSectionFromResponse(text) {
+  var value = String(text || '');
+  if (/\b(?:QA|quant|quantitative aptitude|algebra|arithmetic|geometry|number system)\b/i.test(value)) return 'qa';
+  if (/\b(?:DILR|LRDI|data interpretation|logical reasoning)\b/i.test(value)) return 'dilr';
+  if (/\b(?:VARC|RC|reading comprehension|passage)\b/i.test(value)) return 'rc';
+  return '';
 }
 
 function guardAnswerVerdictConsistency(response, diagnosis) {
@@ -8823,9 +8841,23 @@ function isReasonedExternalQuestionChallenge(message) {
   return asksValidity && showsReasoning;
 }
 
+function isMentoringQuestionUsingAnExample(message) {
+  var text = String(message || '').trim();
+  var asksForDecisionHelp = /\b(?:how|what|when)\b[\s\S]{0,90}\b(?:should i|do i|can i|to decide|to identify|to start|to open|approach|handle)\b/i.test(text) ||
+    /\b(?:help me|teach me|explain)\b[\s\S]{0,80}\b(?:how|approach|method|strategy|open|start|decide)\b/i.test(text);
+  var describesOwnDifficulty = /\b(?:i (?:often|usually|sometimes|generally|keep|don['’]?t|cannot|can['’]?t)|my (?:problem|issue|difficulty|confusion)|for example|like when|suppose)\b/i.test(text);
+  var explicitMentoringFrame = /\b(?:not asking (?:you )?to solve|don['’]?t solve|do not solve|general method|in general|what should i look for)\b/i.test(text);
+  var optionMarkers = text.match(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+/gm) || [];
+  var labelledQuestion = /(?:^|\n)\s*(?:Q(?:uestion)?\s*\d*\s*[:.)]|Problem\s*:)/im.test(text);
+  // A student's short clue or equation can be evidence inside a mentoring
+  // question. It is not automatically a pasted CAT problem. Require the
+  // stronger full-question signals before activating the attempt gate.
+  return (explicitMentoringFrame || asksForDecisionHelp && describesOwnDifficulty) && optionMarkers.length < 3 && !labelledQuestion;
+}
+
 function looksLikeFreshExternalCatQuestion(message) {
   var text = String(message || '').trim();
-  if (text.length < 70 || hasDeclaredQuestionAttempt(text) || hasExplicitNoAttemptDeclaration(text) || isReasonedExternalQuestionChallenge(text)) return false;
+  if (text.length < 70 || hasDeclaredQuestionAttempt(text) || hasExplicitNoAttemptDeclaration(text) || isReasonedExternalQuestionChallenge(text) || isMentoringQuestionUsingAnExample(text)) return false;
   var optionMarkers = text.match(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+/gm) || [];
   var hasQuestionCue = /\b(?:question|which of the following|what is|what was|how many|find|determine|calculate|solve|work out|best captures|can be inferred|valid|invalid|solvable|unsolvable)\b/i.test(text) || /\?\s*(?:\n|$)/.test(text);
   if (optionMarkers.length >= 3 && hasQuestionCue) return true;
@@ -9516,7 +9548,7 @@ function guardSectionAlignment(text, diagnosis) {
 
 function guardUnlabelledNumericPrescription(text, diagnosis) {
   var value = String(text || '');
-  if (!diagnosis || !/^(?:varc|dilr|qa|pacing)_diagnosis$/.test(diagnosis.intent)) return value;
+  if (!diagnosis || diagnosis.intent === 'planning' || diagnosis.intent === 'answer_review' || diagnosis.intent === 'privacy_request') return value;
   var userText = String(diagnosis.submittedAnswerText || '');
   var hasNewThreshold = /\b(?:within|by|after|at)\s+\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?)\b/i.test(value) &&
     !/\b(?:within|by|after|at)\s+\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?)\b/i.test(userText);
@@ -9575,13 +9607,26 @@ function buildConversationMomentumClose(diagnosis) {
   return 'What would help most next?\n[OPTIONS: Explain this more simply|Show me an example|Help me apply it][CONTEXT: conversation_momentum]';
 }
 
+function responseAlreadyNeedsStudentInput(value) {
+  var text = String(value || '');
+  // Do not paste a generic mentor close underneath an exercise, an explicit
+  // submission instruction, or a concrete action that is already in flight.
+  // Those flows have their own next step and their own controls.
+  if (/\[(?:OPTIONS|START_TEST|PRACTICE_LOG):/i.test(text)) return true;
+  if (/(?:^|\n)\s*(?:PASSAGE|QUESTIONS|Practice Check)\b/i.test(text)) return true;
+  if (/(?:^|\n)\s*[A-D]\s*[).:\-]\s+[^\n]+/m.test(text)) return true;
+  if (/\b(?:reply|write|share|give me|tell me)\b[^.!?\n]{0,150}\b(?:answer|choice|label|function|summary|reasoning|one sentence|one line)\b/i.test(text)) return true;
+  if (/\b(?:read|try|solve|attempt)\b[^.!?\n]{0,120}\b(?:passage|paragraph|question|set|exercise)\b/i.test(text) && /\b(?:then|after|before)\b/i.test(text)) return true;
+  return false;
+}
+
 function ensureConversationMomentumClose(text, diagnosis) {
   var value = String(text || '').trim();
   if (!value || !diagnosis) return value;
   var userText = String(diagnosis.submittedAnswerText || '').trim();
   if (/\b(?:bye|goodbye|good night|goodnight|stop here|pause here|that(?:'|’)s all|no follow[- ]?up|don'?t ask|do not ask|answer only|just the answer)\b/i.test(userText)) return value;
   if (diagnosis.intent === 'privacy_request' || diagnosis.intent === 'seamless_continuation' || diagnosis.hintOnly || diagnosis.committedAction) return value;
-  if (/\[(?:OPTIONS|START_TEST|PRACTICE_LOG):/i.test(value)) return value;
+  if (responseAlreadyNeedsStudentInput(value)) return value;
   if (/\b(?:Retry response|Finish this answer|couldn’t finish the response|could not finish the response)\b/i.test(value)) return value;
 
   var visible = value
@@ -9592,7 +9637,33 @@ function ensureConversationMomentumClose(text, diagnosis) {
   if (/\?\s*(?:$|\n)/.test(tail)) return value;
   if (/\b(?:start|open|begin)\s+(?:the|this|a|one)?\s*(?:test|check|set|passage|exercise)\b[^.!?]*[.!]?\s*$/i.test(tail)) return value;
 
+  if (typeof isRCFunctionMappingReply === 'function' && isRCFunctionMappingReply(userText)) {
+    return (value + '\n\n' + buildRCFunctionProgressionClose(false)).replace(/\n{3,}/g, '\n\n').trim();
+  }
   return (value + '\n\n' + buildConversationMomentumClose(diagnosis)).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function guardUnsupportedCausalCertainty(text, diagnosis) {
+  var value = String(text || '');
+  var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
+  // Reaching or viewing questions is not the same as attempting all of them.
+  if (!/\b(?:attempted|tried to solve|committed to)\s+(?:all|nearly all|most|\d+)\b/i.test(userText)) {
+    value = value.replace(/Reaching nearly all\s+\d+\s+questions[^.!?\n]*(?:means|shows|proves)[^.!?\n]*[.!?]?/gi,
+      'Reaching most questions tells us you scanned broadly; it does not show how many you committed time to.');
+    value = value.replace(/[^.!?\n]*\battempting all\s+\d+\s+questions\b[^.!?\n]*[.!?]?/gi, '');
+  }
+  value = value.replace(/second[- ]guessing answers?[^.!?\n]*\bis almost always anxiety[^.!?\n]*[.!?]?/gi,
+    'Changing an answer can come from anxiety, but it can also be valid proof-checking when a missed condition or textual clue caused the change.');
+  value = value.replace(/Freezing right after reading points directly to selection[^.!?\n]*[.!?]?/gi,
+    'Freezing immediately after reading suggests the difficulty appears before the setup; a few concrete questions are still needed to separate method recognition from selection pressure.');
+  value = value.replace(/That freeze happens when practice is done purely topic-by-topic\.?/gi,
+    'Topic-wise practice may be contributing because it supplies the chapter label in advance, but one example cannot establish that as the only cause.');
+  value = value.replace(/\b(?:This|That)\s+(?:proves|shows)\s+you\s+(?:followed your setup rules|represented the logic cleanly)[^.!?\n]*[.!?]?/gi,
+    'The answers show which choices were correct; they do not reveal the unseen setup or working unless you recorded it.');
+  value = value.replace(/You followed your setup rules\s*,?\s*represented the logic cleanly[^.!?\n]*[.!?]?/gi,
+    'The answers show which choices were correct; they do not reveal the unseen setup or working unless you recorded it.');
+  value = value.replace(/\bZero skipping discipline\b/gi, 'No skipped questions in this short check');
+  return value.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function applyMentorResponseGuard(response, diagnosis) {
@@ -9638,17 +9709,13 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardNaturalProfileClose(text, diagnosis);
   text = guardForcedReportBackClose(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
+  text = guardUnsupportedCausalCertainty(text, diagnosis);
   text = guardUnlabelledNumericPrescription(text, diagnosis);
   text = guardModulusGraphOverclaim(text, diagnosis);
   text = ensureConversationMomentumClose(text, diagnosis);
-  var quoteCount=(text.match(/["“”]/g)||[]).length;
-  if(quoteCount%2===1){
-    var lastQuote=Math.max(text.lastIndexOf('"'),text.lastIndexOf('“'),text.lastIndexOf('”'));
-    if(lastQuote>Math.max(0,text.length-260)){
-      var boundary=Math.max(text.lastIndexOf('.',lastQuote),text.lastIndexOf('\n',lastQuote));
-      if(boundary>0)text=text.slice(0,boundary+1).trim()+'\n\nThat example was incomplete, so I have left it out rather than asking you to rely on a broken sentence.';
-    }
-  }
+  // Never discard an otherwise complete answer merely because natural prose
+  // contains an unmatched quotation mark. The old quote-count heuristic
+  // falsely removed valid RC exercises and appended an internal-sounding note.
   // Do not mechanically slice model output. The prompt controls normal reply
   // length; hard word caps were capable of manufacturing mid-answer cutoffs.
   if (!text) text = buildMentorFallbackReply(diagnosis);
@@ -10318,7 +10385,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
       if (!mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(userMessage)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
 
       var cleanResponse = response
-        .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
+        .replace(/\[OPTIONS:[^\n]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
         .replace(/\[CONTEXT:[^\]]*\]/g, '').replace(/\[REMINDER_CONTEXT:[^\]]*\]/g, '')
         .replace(/\[HYPOTHESIS_VERDICT:[^\]]*\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
 
@@ -10329,6 +10396,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
 
       checkAndRenderMargOptions(response);
       checkAndRenderTestPrompt(response);
+      await maybeLaunchPromisedRCFromResponse(response);
       checkAndLogPracticeVolume(response);
       completePendingExternalQuestionTurn();
       await maybeScheduleChatGroundedReminder(userMessage, context);
@@ -10468,10 +10536,17 @@ async function sendPatternFallbackQuestion() {
 }
 
 function checkAndRenderMargOptions(response) {
-
-  var optMatch = response.match(/\[OPTIONS:\s*([^\]]+)\]/);
+  // The alternatives themselves can legitimately contain brackets, e.g.
+  // sentence-placement choices [1], [2], [3], [4]. Stop at the control tag,
+  // not at the first closing bracket inside an option.
+  var optMatch = response.match(/\[OPTIONS:\s*([\s\S]*?)\]\s*\[CONTEXT:/i) || response.match(/\[OPTIONS:\s*([^\n]*)\]\s*$/im);
   if (optMatch) {
     var options = optMatch[1].split('|').map(function(o) { return o.trim(); });
+    var visibleQuestion = String(response || '').replace(/\[OPTIONS:[^\n]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').trim();
+    if (/(?:does|did) (?:that|this|it) (?:match|fit|sound|feel)|is (?:that|this) (?:accurate|right|close)/i.test(visibleQuestion) &&
+        !options.some(function(option) { return /^(?:yes|exactly|mostly|partly|no|not)/i.test(option); })) {
+      options = ['Yes, that matches', 'Partly', 'No, that is different'];
+    }
     var contextMatch = response.match(/\[CONTEXT:\s*([^\]]+)\]/);
     var ctx = contextMatch ? contextMatch[1].trim() : 'general';
     showConversationalOptions(options, ctx);
@@ -10486,7 +10561,13 @@ function checkAndRenderTestPrompt(response) {
   var section = (parts[0] || '').toLowerCase();
   var topic = parts[1] || '';
   var questionCount = parseInt(parts[2], 10) || (section === 'qa' ? 10 : 12);
+  var autoStart = String(parts[3] || '').toLowerCase() === 'auto';
   if ((section !== 'qa' && section !== 'dilr') || !topic) return;
+
+  if (autoStart) {
+    startTimedTest(section, topic, questionCount, null, 0);
+    return;
+  }
 
   var container = document.getElementById('messages');
   var wrap = document.createElement('div');
@@ -10501,6 +10582,26 @@ function checkAndRenderTestPrompt(response) {
   wrap.appendChild(btn);
   container.appendChild(wrap);
   container.scrollTop = container.scrollHeight;
+}
+
+async function maybeLaunchPromisedRCFromResponse(response) {
+  var text = String(response || '');
+  if (!/\b(?:starting|opening|launching|setting up|here is|I(?:'m| am) starting)\b[\s\S]{0,100}\b(?:VARC|RC|reading comprehension|passage)\b/i.test(text)) return false;
+  if (!/\b(?:timed|full|fresh|new|\d+[- ]question|set|check|passage)\b/i.test(text)) return false;
+  if (articleRCGenerating) return true;
+  // A completed RC card remains in the transcript. It must not block the next
+  // RC promised later in the conversation. Only an unfinished active RC does.
+  if (activeGeneratedExercise && /^(?:rc|varc)/i.test(String(activeGeneratedExercise.type || '')) && activeGeneratedExercise.awaitingAnswers !== false) {
+    if (typeof renderActiveArticleRCWidget === 'function') renderActiveArticleRCWidget();
+    return true;
+  }
+  currentRCMode = 'diagnose';
+  currentRCNeed = 'time';
+  currentRCSkill = 'mixed';
+  currentRCDifficulty = 'cat';
+  if (!currentArticle) await loadVarcCard('surprise');
+  await createRCPassage();
+  return true;
 }
 
 var practiceTopicDisplayName = {};
@@ -12050,6 +12151,10 @@ function updateRCLabCard() {
   setActiveRCControl('[data-rc-topic]', currentTopic);
   var summary = document.getElementById('varc-preview');
   if (summary) summary.textContent = config.focusLabel + ' · ' + config.difficultyLabel + ' · ' + config.topicLabel;
+  var sourceBadge = document.getElementById('rc-lab-source-badge');
+  if (sourceBadge) sourceBadge.textContent = currentArticle && /^Aeon/i.test(String(currentArticle.source || ''))
+    ? '📖 Today’s VARC · original RC based on Aeon'
+    : '📖 Today’s VARC · Marg Original';
   var theme = document.getElementById('rc-lab-theme');
   if (theme && currentArticle) theme.textContent = (/^Aeon/i.test(String(currentArticle.source||''))?'Today’s Aeon essay: ':'Today’s theme: ') + currentArticle.title + '.';
 }
@@ -14460,7 +14565,20 @@ function openPreviousMockAnalysis(index) {
   }, 160);
 }
 
-function startSectionalFromHub(section) {
+async function startSectionalFromHub(section) {
+  if (section === 'varc') {
+    var varcSelect = document.getElementById('home-varc-sectional-topic');
+    currentRCMode = 'diagnose';
+    currentRCNeed = 'time';
+    currentRCSkill = 'mixed';
+    currentRCDifficulty = 'cat';
+    currentTopic = varcSelect ? varcSelect.value : 'surprise';
+    saveRCLabPreferences();
+    switchTab('chat');
+    await loadVarcCard(currentTopic);
+    await createRCPassage();
+    return;
+  }
   var isDilr = section === 'dilr';
   var select = document.getElementById(isDilr ? 'home-dilr-sectional-topic' : 'home-qa-sectional-topic');
   var topic = select ? select.value : (isDilr ? 'Mixed Set Selection' : 'Percentages');
@@ -14698,6 +14816,11 @@ function normalizePracticeTopicName(topic) {
   return String(topic || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function isMixedQATopic(topic) {
+  return /^(?:mixed qa|diagnostic(?: qa)?|qa|method recognition)$/i.test(String(topic || '').trim()) ||
+    /arithmetic[^\n]{0,30}algebra|algebra[^\n]{0,30}arithmetic/i.test(String(topic || ''));
+}
+
 var QA_TOPIC_SEMANTIC_RULES = {
   'percentages': /(?:%|percent|percentage|increas|decreas|more than|less than|profit|loss|discount|mixture|composition|pass rate|saving|expenditure)/i,
   'ratios and proportions': /(?:\bratios?\b|\bproportion(?:al|s)?\b|direct(?:ly)?\s+var(?:y|ies|iation)|inverse(?:ly)?\s+var(?:y|ies|iation)|\bshares?\b|\bparts?\b|\d+\s*:\s*\d+)/i,
@@ -14897,7 +15020,13 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
 
   if (section === 'qa') {
     var n = questionCount || 10;
-    return 'Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions. TOPIC LOCK: every question must have the exact primary topic "' + topic + '"; do not include any standalone question from Geometry, Algebra, Number Systems, or another topic. A secondary technique is allowed only when the central tested idea remains ' + topic + '. The question statement and solution must visibly demonstrate why ' + topic + ' is central; merely putting that value in the topic field is an automatic failure. Set topics_combined to ["' + topic + '"] and every question.topic exactly to "' + topic + '".' + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics appropriate to ' + topic + ' so no two questions share the same solution skeleton. Include roughly 30% medium, 50% medium-hard and 20% hard questions. At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently solve every item; verify topic purity, feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Every item must include a specific sufficiency_check showing that the visible stem supplies every required fact and an option_check showing why exactly one option survives. Silently replace any flawed or off-topic draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"Mixed","topics_combined":["' + topic + '"],"questions":[{"topic":"' + topic + '","q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","sufficiency_check":"why the visible stem is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
+    var mixedQA = isMixedQATopic(topic);
+    var topicContract = mixedQA
+      ? 'MIXED SET: use distinct primary topics across Arithmetic, Algebra, Number Systems, Geometry and Modern Math where possible. Set each question.topic to its real primary topic and list those real topics in topics_combined. Never use "Mixed QA" as a question topic.'
+      : 'TOPIC LOCK: every question must have the exact primary topic "' + topic + '"; do not include a standalone question from another topic. A secondary technique is allowed only when the central tested idea remains ' + topic + '. Set topics_combined to ["' + topic + '"] and every question.topic exactly to "' + topic + '".';
+    var topicShape = mixedQA ? '"topics_combined":["real topic 1","real topic 2"]' : '"topics_combined":["' + topic + '"]';
+    var questionTopicShape = mixedQA ? 'real primary topic' : topic;
+    return 'Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions. ' + topicContract + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics so no two questions share the same solution skeleton. Include roughly 30% medium, 50% medium-hard and 20% hard questions. At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently solve every item; verify topic accuracy, feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Every item must include a specific sufficiency_check showing that the visible stem supplies every required fact and an option_check showing why exactly one option survives. Silently replace any flawed or off-topic draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"Mixed",' + topicShape + ',"questions":[{"topic":"' + questionTopicShape + '","q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","sufficiency_check":"why the visible stem is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
   }
 
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
@@ -16108,6 +16237,11 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   var qnavEl = document.getElementById('tt-qnav');
   var timerEl = document.getElementById('tt-timer');
   var isShortTimedCheck = timedTestRequestedCount <= (section === 'qa' ? 5 : 4);
+  var mixedQARequested = section === 'qa' && (typeof isMixedQATopic === 'function'
+    ? isMixedQATopic(topic)
+    : /^(?:mixed qa|diagnostic(?: qa)?|qa|method recognition)$/i.test(String(topic || '').trim()) ||
+      /arithmetic[^\n]{0,30}algebra|algebra[^\n]{0,30}arithmetic/i.test(String(topic || '')));
+  var expectedQATopic = mixedQARequested ? null : topic;
 
   overlay.classList.add('visible');
   qnavEl.style.display = 'none';
@@ -16120,13 +16254,13 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   // independently verified pack already exists. This avoids spending a model
   // call and audit delay merely to validate a working hypothesis.
   if (isShortTimedCheck) {
-    var instantExpectedTopic = topic;
+    var instantExpectedTopic = expectedQATopic;
     var instantDiagnostic = getUnseenVerifiedFallbackPractice(section, timedTestRequestedCount, topic);
     if (!instantDiagnostic && !timedTestDiagnosticEntry) {
       var readyShortCandidate = getReliablePracticeCandidate(section, timedTestRequestedCount, topic, true);
       instantDiagnostic = readyShortCandidate && readyShortCandidate.data;
     }
-    if (!instantDiagnostic && section === 'qa' && /(?:^mixed qa$|^diagnostic(?: qa)?$|^qa$|arithmetic[^\n]{0,30}algebra|algebra[^\n]{0,30}arithmetic|method recognition)/i.test(String(topic || ''))) {
+    if (!instantDiagnostic && mixedQARequested) {
       instantExpectedTopic = null;
       instantDiagnostic = getUnseenVerifiedFallbackPractice('qa', timedTestRequestedCount, null) || getVerifiedFallbackPractice('qa', timedTestRequestedCount, null);
     }
@@ -16209,7 +16343,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var expectedQuestionCount = section === 'qa' ? (questionCount || 10) : Math.max(1, Math.round((questionCount || 12) / 4)) * 4;
     var expectedSetCount = section === 'dilr' ? expectedQuestionCount / 4 : null;
     var sectionalShapeValid = section === 'qa'
-      ? validateQASetShape(parsed, topic, expectedQuestionCount)
+      ? validateQASetShape(parsed, expectedQATopic, expectedQuestionCount)
       : validateDILRPracticeSet(parsed, expectedSetCount);
     if (wasPracticeRecentlySeen(section, parsed)) throw new Error('Generated test repeated a recently shown exercise');
     timedTestQuestions = flattenTimedTestQuestions(section, parsed);
@@ -16218,7 +16352,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       parsed = await repairCATDraftBeforeAudit(section, parsed, ['The requested count, complete task statements or four distinct options failed structural checks'].concat(collectGeneratedPracticeCompletenessIssues(parsed, section)), { deadlineMs:timedFlowDeadlineMs, signal:generationController.signal, maxTokens:maxTokens, expectedQuestionCount:expectedQuestionCount });
       timedDraftRepaired = true;
       if (!isCurrentGeneration()) return;
-      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, topic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
+      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, expectedQATopic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
       timedTestQuestions = flattenTimedTestQuestions(section, parsed);
     }
     if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion)) {
@@ -16233,7 +16367,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       parsed = await repairCATDraftBeforeAudit(section, parsed, knownTimedIssues, { deadlineMs:timedFlowDeadlineMs, signal:generationController.signal, maxTokens:maxTokens, expectedQuestionCount:expectedQuestionCount });
       if (!isCurrentGeneration()) return;
       knownTimedIssues = collectSolutionPresentationIssues(parsed, section).concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
-      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, topic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
+      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, expectedQATopic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
       timedTestQuestions = flattenTimedTestQuestions(section, parsed);
       if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion) || wasPracticeRecentlySeen(section, parsed)) throw new Error('Repaired timed test failed structural or freshness checks');
     }
@@ -16244,7 +16378,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var semanticAudit = await auditGeneratedCATContent(
       section,
       parsed,
-      topic,
+      expectedQATopic,
       knownTimedIssues,
       { timeoutMs:timedAuditTimeoutMs, maxTokens:section === 'dilr' ? 24576 : 18432, signal:generationController.signal }
     );
@@ -16252,11 +16386,11 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     if (!semanticAudit.valid && semanticAudit.failureType !== 'technical' && !timedDraftRepaired && timedFlowDeadlineMs - Date.now() >= 33000) {
       parsed = await repairCATDraftBeforeAudit(section, parsed, semanticAudit.issues, { deadlineMs:timedFlowDeadlineMs, signal:generationController.signal, maxTokens:maxTokens, expectedQuestionCount:expectedQuestionCount });
       if (!isCurrentGeneration()) return;
-      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, topic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
+      sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, expectedQATopic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
       timedTestQuestions = flattenTimedTestQuestions(section, parsed);
       if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion) || wasPracticeRecentlySeen(section, parsed)) throw new Error('Repaired timed test failed structural or freshness checks');
       knownTimedIssues = collectSolutionPresentationIssues(parsed, section).concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
-      semanticAudit = await auditGeneratedCATContent(section, parsed, topic, knownTimedIssues, { timeoutMs:Math.max(8000,Math.min(30000,timedFlowDeadlineMs-Date.now())), maxTokens:18432, signal:generationController.signal, technicalRetry:false });
+      semanticAudit = await auditGeneratedCATContent(section, parsed, expectedQATopic, knownTimedIssues, { timeoutMs:Math.max(8000,Math.min(30000,timedFlowDeadlineMs-Date.now())), maxTokens:18432, signal:generationController.signal, technicalRetry:false });
       if (!isCurrentGeneration()) return;
     }
     if (!semanticAudit.valid) {
@@ -16289,7 +16423,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var verifiedFallback = fallbackCandidate && fallbackCandidate.data;
     var fallbackQuestions = verifiedFallback ? flattenTimedTestQuestions(section, verifiedFallback) : [];
     var verifiedFallbackValid = verifiedFallback && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
-      ? validateQASetShape(verifiedFallback, topic, expectedFallbackCount)
+      ? validateQASetShape(verifiedFallback, expectedQATopic, expectedFallbackCount)
       : validateDILRPracticeSet(verifiedFallback, Math.max(1, expectedFallbackCount / 4)));
     if (!verifiedFallbackValid) {
       fallbackCandidate = getReliablePracticeCandidate(section, expectedFallbackCount, null, true);
