@@ -2635,13 +2635,13 @@ STUDENT-SPECIFIC DECISIONS
 Silently require: "Because this student showed X, recommend Y instead of generic Z." X must come from their message, verified result or reliable memory.
 
 ADAPTIVE FORMATTING CONTRACT
-Format for readability: headings for long parts, bullets for parallel points, numbers for order; bold at most three short spans. CAPS only for warnings; ✅/❌ only for checked results. Short replies stay plain. Space answers clearly; no decorative tables or emojis.
+Format for readability: headings for long parts, bullets for parallel points and numbers for order; bold at most three short spans. CAPS only for warnings; ✅/❌ only for checked results. Brief replies stay plain; no decorative tables/emojis.
 
 TRUSTED VISUAL EXPLANATIONS
-Use one visual only if it clarifies structure: DILR, geometry, cube, number line, sequence, comparison or chart. Never add decorative visuals; text stands alone. Emit JSON, not HTML: [[MARG_VISUAL]]{"type":"flow|comparison|grid|bars|number_line|cube|geometry","title":"...",...}[[/MARG_VISUAL]]. Keys: flow items; comparison columns(title/items); grid headers/rows; bars items(label/value/display); number_line min/max/points; cube size/cutout; geometry shape/labels. Omit inaccurate visuals; not to scale.
+Never add decorative visuals. Use one accurate visual only for structural DILR, geometry, cubes, number lines, sequences or comparisons; text stands alone. Emit JSON, not HTML: [[MARG_VISUAL]]{"type":"flow|comparison|grid|bars|number_line|cube|geometry","title":"...",...}[[/MARG_VISUAL]]. Use matching items, columns, rows, points, size or labels fields.
 
 EVIDENCE BEFORE REASSURANCE
-A score is an outcome, not a capability verdict. Examine attempts, accuracy, selection, timing, errors and the student's account before diagnosing. Separate observation from hypothesis; reassure only from evidence.
+A score is an outcome, not capability. Examine attempts, accuracy, selection, timing, errors and the student's account. If they forbid score inference, carry it through follow-ups: state only where marks landed, then ask for one observable attempt event before causes or praise. Label hypotheses; reassure only from evidence.
 
 MOCK SCORE ARITHMETIC
 Never infer attempts, correct/wrong counts or time per question from a score and approximate accuracy. Ask for actual attempts, MCQ/TITA split and whether accuracy is from that same mock. Wrong MCQ→correct gains 4 marks; wrong TITA→correct gains 3; wrong→skip saves only its penalty. Mock providers have no fixed score conversion or guaranteed gain.
@@ -9276,11 +9276,53 @@ function guardTimeAllocationArithmetic(text) {
   return 'That split adds up to ' + actualMinutes + ' minutes, not ' + targetMinutes + '. I’m not going to hand you a timing rule that fails its own arithmetic. We need to trim ' + Math.round(Math.abs(issue.actualSeconds - issue.targetSeconds) / 6) / 10 + ' minutes from the blocks before using it.';
 }
 
+function cleanMentorOpeningPunctuation(text) {
+  // Model replies occasionally begin with an orphan full stop after a greeting
+  // or hidden tag is removed (". Let's look at QA").  Clean only punctuation
+  // that cannot meaningfully open a reply; preserve bullets, quotes and maths.
+  return String(text || '').replace(/^\s*[.,;:]+\s*/, '').trim();
+}
+
 function stripInternalMentorTags(text) {
-  return String(text || '')
+  return cleanMentorOpeningPunctuation(String(text || '')
     .replace(/\s*\[HYPOTHESIS_VERDICT:\s*(?:supported|rejected|inconclusive)\s*\]\s*/gi, '\n')
     .replace(/\s*\[REMINDER_CONTEXT:\s*[^\]]+\]\s*/gi, '\n')
-    .replace(/\n{3,}/g, '\n\n').trim();
+    .replace(/\n{3,}/g, '\n\n'));
+}
+
+function recentUserRequestedEvidenceBeforeScoreInference(diagnosis) {
+  var messages = [];
+  if (diagnosis && diagnosis.submittedAnswerText) messages.push(String(diagnosis.submittedAnswerText));
+  (conversationHistory || []).slice(-10).forEach(function(item) {
+    if (item && item.role === 'user') messages.push(String(item.content || ''));
+  });
+  return messages.some(function(message) {
+    return /\b(?:do not|don['’]?t|dont|without)\s+(?:infer(?:ring)?|assum(?:e|ing)|guess(?:ing)?|diagnos(?:e|ing))\b[^.!?\n]{0,100}\b(?:scores?|marks?)\b/i.test(message) ||
+      /\b(?:scores?|marks?)\b[^.!?\n]{0,100}\b(?:do not|don['’]?t|dont)\s+(?:infer|assume|guess|diagnose)\b/i.test(message);
+  });
+}
+
+function guardExplicitEvidenceFirstRequest(text, diagnosis) {
+  var value = String(text || '');
+  if (!recentUserRequestedEvidenceBeforeScoreInference(diagnosis)) return value;
+  var removedInference = false;
+  value = value.replace(/[^.!?\n]*(?:solid|strong|stable)\s+(?:foundation|scoring|score|base)[^.!?\n]*[.!?]?\s*/gi, function() {
+    removedInference = true;
+    return '';
+  });
+  value = value.replace(/[^.!?\n]*\blost marks\b[^.!?\n]*\b(?:usually|typically|probably|likely|come down to)\b[^.!?\n]*[.!?]?\s*/gi, function() {
+    removedInference = true;
+    return '';
+  });
+  value = value.replace(/[^.!?\n]*\b(?:score|marks?)\b[^.!?\n]*\b(?:proves?|confirms?|shows? that|means? that|points? directly to)\b[^.!?\n]*[.!?]?\s*/gi, function() {
+    removedInference = true;
+    return '';
+  });
+  value = value.replace(/\n{3,}/g, '\n\n').trim();
+  if (removedInference && !/scores? (?:show|tell us)[^.!?\n]*(?:not|cannot)[^.!?\n]*(?:why|cause)/i.test(value)) {
+    value = 'These scores show where the marks landed, not why they were lost.\n\n' + value;
+  }
+  return value.trim();
 }
 
 function guardNaturalProfileClose(text, diagnosis) {
@@ -9677,6 +9719,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
+  text = guardExplicitEvidenceFirstRequest(text, diagnosis);
   text = guardUnusableExerciseEvidence(text, diagnosis);
   text = guardVagueMentorAdvice(text, diagnosis);
   text = guardMalformedChatExercise(text);
@@ -9713,6 +9756,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardUnlabelledNumericPrescription(text, diagnosis);
   text = guardModulusGraphOverclaim(text, diagnosis);
   text = ensureConversationMomentumClose(text, diagnosis);
+  text = cleanMentorOpeningPunctuation(text);
   // Never discard an otherwise complete answer merely because natural prose
   // contains an unmatched quotation mark. The old quote-count heuristic
   // falsely removed valid RC exercises and appended an internal-sounding note.
@@ -14575,6 +14619,24 @@ async function startSectionalFromHub(section) {
     currentTopic = varcSelect ? varcSelect.value : 'surprise';
     saveRCLabPreferences();
     switchTab('chat');
+    // A sectional button must open a test, not begin a long article-generation
+    // workflow. Use the independently checked rotating RC bank immediately;
+    // Today’s VARC remains the separate article-grounded experience.
+    var readyVarc = getVerifiedArticleRCFallback('sectional|' + currentTopic + '|' + getTodayDate());
+    if (validateRCPracticeSet(readyVarc, 4)) {
+      var readySet = readyVarc.sets[0];
+      var readyReply = formatStructuredArticleRC(readyVarc);
+      var readyConfig = Object.assign({}, getRCLabConfiguration(), { fallback:true, focusLabel:'Verified timed RC' });
+      storeActiveGeneratedExercise({
+        type:'rc', source:'varc-sectional-verified-ready', title:readySet.topic || 'Verified timed RC',
+        purpose:'Reliable timed CAT VARC sectional', validationVerdict:{ status:'preverified', verification:{ mode:'local-verified-bank' } },
+        content:{ exerciseText:readyReply, answerKey:buildArticleRCAnswerMemory(readyVarc), structuredData:readyVarc, article:{ title:readySet.topic || 'Verified timed RC', source:'Marg Original', url:'' }, rcLab:readyConfig }
+      });
+      addArticleRCAttemptMessage(activeGeneratedExercise);
+      conversationHistory.push({ role:'assistant', content:readyReply });
+      if (!isGuestMode) saveChatMessage('assistant', readyReply);
+      return true;
+    }
     await loadVarcCard(currentTopic);
     await createRCPassage();
     return;
@@ -16297,15 +16359,27 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   var timedGenerationTimeoutMs = isCompactTimedCheck ? (section === 'dilr' ? 35000 : 30000) : (section === 'dilr' ? 70000 : 55000);
   var timedStatusTimers = [
     setTimeout(function() {
+      if (!isCurrentGeneration() || section !== 'dilr') return;
+      var loading = contentEl.querySelector && contentEl.querySelector('.practice-loading');
+      if (!loading || contentEl.querySelector('.timed-safe-alternative')) return;
+      var readyButton = document.createElement('button');
+      readyButton.type = 'button';
+      readyButton.className = 'pcard-nav-btn secondary timed-safe-alternative';
+      readyButton.style.cssText = 'margin-top:12px;max-width:260px;';
+      readyButton.textContent = 'Start a checked DILR set now';
+      readyButton.onclick = openCheckedTimedRecovery;
+      loading.appendChild(readyButton);
+    }, 5000),
+    setTimeout(function() {
       if (!isCurrentGeneration()) return;
       var label = contentEl.querySelector && contentEl.querySelector('.practice-loading-text');
       if (label) label.textContent = 'Building your test. This is taking a little longer than usual…';
-    }, 12000),
+    }, 8000),
     setTimeout(function() {
       if (!isCurrentGeneration()) return;
       var label = contentEl.querySelector && contentEl.querySelector('.practice-loading-text');
       if (label) label.textContent = 'Still getting your test ready. You can keep this screen open.';
-    }, 32000)
+    }, 20000)
   ];
   var clearTimedStatus = function() { timedStatusTimers.forEach(function(timer) { clearTimeout(timer); }); };
 
@@ -16787,12 +16861,12 @@ async function loadDailyPractice() {
         recoveryButton.onclick = useVerifiedPracticeRecovery;
         content.querySelector('.practice-loading').appendChild(recoveryButton);
       }
-    }, 10000),
+    }, 4000),
     setTimeout(function() {
       if (!practiceLoadInFlight || mySeq !== practiceLoadSeq) return;
       var label = content.querySelector && content.querySelector('.practice-loading-text');
       if (label) label.textContent = 'Still preparing your set. You can use the ready option above without losing your topic.';
-    }, 26000)
+    }, 14000)
   ];
   var clearGenerationStatus = function() { generationStatusTimers.forEach(function(timer) { clearTimeout(timer); }); };
   var totalPracticeBudgetMs = currentPracticeType === 'dilr' ? 100000 : currentPracticeType === 'rc' ? 85000 : 75000;
