@@ -3,6 +3,18 @@
 var MargQAEngine = (function () {
   'use strict';
   var topics=['Percentages','Ratios & Proportions','Time-Speed-Distance','Profit & Loss','Linear Equations','Quadratic Equations','Functions & Inequalities','Logarithms & Exponents','Geometry (Triangles, Circles)','Mensuration (2D & 3D)','Coordinate Geometry','Number Systems','Permutation & Combination','Probability','Set Theory'];
+  var topicGroups={
+    'Arithmetic':topics.slice(0,4),
+    'Algebra':topics.slice(4,8),
+    'Geometry & Mensuration':topics.slice(8,11),
+    'Geometry':topics.slice(8,11),
+    'Number Systems':[topics[11]],
+    'Modern Math':topics.slice(12,15),
+    'Algebra and Arithmetic':topics.slice(0,8),
+    'Arithmetic and Algebra':topics.slice(0,8),
+    'Arithmetic + Algebra method recognition':topics.slice(0,8)
+  };
+  function allowedTopics(topic){if(!topic)return topics.slice();if(topics.indexOf(topic)>=0)return[topic];return topicGroups[topic]?topicGroups[topic].slice():null;}
   function rng(seed){var s=seed>>>0;return function(n){s=(Math.imul(s,1664525)+1013904223)>>>0;return s%n;};}
   function fmt(v){if(Math.abs(v-Math.round(v))<1e-8)return String(Math.round(v));for(var d=2;d<=10000;d++){var n=Math.round(v*d);if(Math.abs(v-n/d)<1e-10)return n+'/'+d;}return String(Math.round(v*1000000)/1000000);}
   function choose(n,k){if(k<0||k>n)return 0;var a=1;for(var i=1;i<=k;i++)a=a*(n-i+1)/i;return Math.round(a);}
@@ -132,14 +144,14 @@ var MargQAEngine = (function () {
     return {topic:spec.topic,q:item.q,options:ordered.map(function(x,i){return 'ABCD'[i]+'. '+fmt(x);}),correct:correct,solution:item.solution,sufficiency_check:'The stated counts, domain and relationships determine the requested value without any extra assumptions.',option_check:'Only option '+ 'ABCD'[correct]+' equals the independently calculated value '+fmt(v)+'. The other three distinct values do not satisfy the calculation.',common_mistake:item.insight,concept_check:item.insight,marg_insight:item.insight};
   }
   function kindCount(topic){return topic==='Percentages'?8:topic==='Quadratic Equations'?5:3;}
-  function create(topic,seed,count){if(topic&&topics.indexOf(topic)<0)throw new Error('Unsupported QA topic: '+topic);count=Number(count)||3;if(count<1||count>22||count%1)throw new Error('Invalid QA count');var r=rng(seed),specs=[],questions=[],offset=r(topic?kindCount(topic):5),used=new Set();
-    for(var i=0;i<count;i++){var t=topic||topics[(r(topics.length)+i)%topics.length],s,q,tries=0;do{var order=[0,1,2,3];for(var j=3;j>0;j--){var swap=r(j+1),tmp=order[j];order[j]=order[swap];order[swap]=tmp;}s={topic:t,kind:(offset+i)%kindCount(t),p:params(t,r),delta:1+r(9),order:order};q=render(s);if(++tries>100)throw new Error('No fresh distinct QA item');}while(used.has(q.q));used.add(q.q);specs.push(s);questions.push(q);}
+  function create(topic,seed,count){var allowed=allowedTopics(topic);if(!allowed)throw new Error('Unsupported QA topic: '+topic);count=Number(count)||3;if(count<1||count>22||count%1)throw new Error('Invalid QA count');var r=rng(seed),specs=[],questions=[],offset=r(5),used=new Set();
+    for(var i=0;i<count;i++){var t=allowed[(r(allowed.length)+i)%allowed.length],s,q,tries=0;do{var order=[0,1,2,3];for(var j=3;j>0;j--){var swap=r(j+1),tmp=order[j];order[j]=order[swap];order[swap]=tmp;}s={topic:t,kind:(offset+i)%kindCount(t),p:params(t,r),delta:1+r(9),order:order};q=render(s);if(++tries>100)throw new Error('No fresh distinct QA item');}while(used.has(q.q));used.add(q.q);specs.push(s);questions.push(q);}
     return {difficulty:'Mixed',topics_combined:topic?[topic]:Array.from(new Set(specs.map(function(s){return s.topic;}))),questions:questions,_margQAConstruction:{version:'arithmetic-1',specs:specs}};
   }
   function verify(data,expectedTopic){try{var cert=data&&data._margQAConstruction;if(!cert||cert.version!=='arithmetic-1'||!Array.isArray(cert.specs)||!Array.isArray(data.questions)||data.questions.length!==cert.specs.length)throw Error('Missing QA certificate');
-    var keys=[];cert.specs.forEach(function(s,i){if(topics.indexOf(s.topic)<0||!Number.isInteger(s.kind)||s.kind<0||s.kind>=kindCount(s.topic)||!Array.isArray(s.p)||s.p.length!==3||s.p.some(function(x){return !Number.isInteger(x)||x<1||x>20;})||expectedTopic&&s.topic!==expectedTopic)throw Error('Topic or domain mismatch');if(!Array.isArray(s.order)||s.order.slice().sort().join()!=='0,1,2,3'||!Number.isInteger(s.delta)||s.delta<1||s.delta>9)throw Error('Option contract mismatch');var q=render(s),answer=solve(s);if(!Number.isFinite(answer)||fmt(answer)!==q.options[q.correct].slice(3)||JSON.stringify(q)!==JSON.stringify(data.questions[i])||new Set(q.options.map(function(x){return x.slice(3);})).size!==4)throw Error('Arithmetic or content mismatch');keys.push(q.correct);});
+    var allowed=allowedTopics(expectedTopic);if(!allowed)throw Error('Unsupported expected topic');var keys=[];cert.specs.forEach(function(s,i){if(topics.indexOf(s.topic)<0||!Number.isInteger(s.kind)||s.kind<0||s.kind>=kindCount(s.topic)||!Array.isArray(s.p)||s.p.length!==3||s.p.some(function(x){return !Number.isInteger(x)||x<1||x>20;})||expectedTopic&&allowed.indexOf(s.topic)<0)throw Error('Topic or domain mismatch');if(!Array.isArray(s.order)||s.order.slice().sort().join()!=='0,1,2,3'||!Number.isInteger(s.delta)||s.delta<1||s.delta>9)throw Error('Option contract mismatch');var q=render(s),answer=solve(s);if(!Number.isFinite(answer)||fmt(answer)!==q.options[q.correct].slice(3)||JSON.stringify(q)!==JSON.stringify(data.questions[i])||new Set(q.options.map(function(x){return x.slice(3);})).size!==4)throw Error('Arithmetic or content mismatch');keys.push(q.correct);});
     return {valid:true,issues:[],verification:{answer_indices:keys,answer_explanations:data.questions.map(function(q){return q.solution;}),method:'independent-numeric-code-solver'}};
   }catch(e){return {valid:false,issues:[e.message],failureType:'verification'};}}
-  return {topics:topics,create:create,verify:verify};
+  return {topics:topics,topicGroups:topicGroups,create:create,verify:verify};
 })();
 if(typeof module!=='undefined')module.exports=MargQAEngine;

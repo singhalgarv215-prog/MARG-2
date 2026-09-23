@@ -1274,20 +1274,55 @@ const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
 const LOGO_ICON = 'https://raw.githubusercontent.com/singhalgarv215-prog/MARG-2/main/logo-icon.png';
 let SUPABASE_TOKEN = null;
 var supabaseRefreshPromise = null;
+var lastSupabaseRefreshFailure = '';
+
+function fetchWithDeadline(url, options, timeoutMs) {
+  var controller = new AbortController();
+  var requestOptions = Object.assign({}, options || {});
+  var externalSignal = requestOptions.signal;
+  var relay = function() { controller.abort(); };
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener('abort', relay, { once:true });
+  }
+  requestOptions.signal = controller.signal;
+  var timer = setTimeout(function() { controller.abort(); }, Math.max(1000, Number(timeoutMs) || 15000));
+  return fetch(url, requestOptions).finally(function() {
+    clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', relay);
+  });
+}
+
+function clearStoredSupabaseSession() {
+  SUPABASE_TOKEN = null;
+  try {
+    localStorage.removeItem('marg_token');
+    localStorage.removeItem('marg_refresh_token');
+    localStorage.removeItem('marg_token_expiry');
+    localStorage.removeItem('marg_user');
+  } catch(e) {}
+}
 
 async function refreshSupabaseSession() {
   if (supabaseRefreshPromise) return supabaseRefreshPromise;
   supabaseRefreshPromise = (async function() {
+    lastSupabaseRefreshFailure = '';
     var refreshToken = '';
     try { refreshToken = localStorage.getItem('marg_refresh_token') || ''; } catch(e) {}
     if (!refreshToken) return false;
     try {
-      var refreshRes = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+      var refreshRes = await fetchWithDeadline(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
         method:'POST',
         headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_ANON_KEY },
         body:JSON.stringify({ refresh_token:refreshToken })
-      });
-      if (!refreshRes.ok) return false;
+      }, 12000);
+      if (!refreshRes.ok) {
+        if (refreshRes.status === 400 || refreshRes.status === 401 || refreshRes.status === 403) {
+          lastSupabaseRefreshFailure = 'invalid';
+          clearStoredSupabaseSession();
+        } else lastSupabaseRefreshFailure = 'transient';
+        return false;
+      }
       var refreshData = await refreshRes.json();
       if (!refreshData.access_token) return false;
       SUPABASE_TOKEN = refreshData.access_token;
@@ -1297,6 +1332,7 @@ async function refreshSupabaseSession() {
       return true;
     } catch(error) {
       console.error('Supabase session refresh failed:', error);
+      lastSupabaseRefreshFailure = 'transient';
       return false;
     }
   })();
@@ -1306,17 +1342,19 @@ async function refreshSupabaseSession() {
 
 async function authenticatedSupabaseFetch(url, options) {
   var requestOptions = Object.assign({}, options || {});
+  var timeoutMs = Number(requestOptions.margTimeoutMs) || 15000;
+  delete requestOptions.margTimeoutMs;
   var headers = new Headers(requestOptions.headers || {});
   if (!headers.has('apikey')) headers.set('apikey', SUPABASE_ANON_KEY);
   if (SUPABASE_TOKEN) headers.set('Authorization', 'Bearer ' + SUPABASE_TOKEN);
   requestOptions.headers = headers;
-  var response = await fetch(url, requestOptions);
+  var response = await fetchWithDeadline(url, requestOptions, timeoutMs);
   if (response.status !== 401 || !await refreshSupabaseSession()) return response;
   headers = new Headers(requestOptions.headers || {});
   headers.set('apikey', SUPABASE_ANON_KEY);
   headers.set('Authorization', 'Bearer ' + SUPABASE_TOKEN);
   requestOptions.headers = headers;
-  return fetch(url, requestOptions);
+  return fetchWithDeadline(url, requestOptions, timeoutMs);
 }
 
 async function sbFetch(path, method, body) {
@@ -2835,7 +2873,7 @@ async function ensureQAEngine() {
   if (!qaEngineLoadPromise) qaEngineLoadPromise = new Promise(function(resolve,reject) {
     var script=document.createElement('script');
     var timer=setTimeout(function(){qaEngineLoadPromise=null;script.remove();reject(new Error('QA solver loading timed out'));},12000);
-    script.src='/qa-engine.js?v=20260921-reliability2';
+    script.src='/qa-engine.js?v=20260922-backendrel1';
     script.onload=function(){clearTimeout(timer);if(typeof MargQAEngine!=='undefined')resolve(MargQAEngine);else{qaEngineLoadPromise=null;reject(new Error('QA solver did not load'));}};
     script.onerror=function(){clearTimeout(timer);qaEngineLoadPromise=null;script.remove();reject(new Error('QA solver could not load'));};
     document.body.appendChild(script);
@@ -2862,7 +2900,7 @@ async function ensureDILREngine() {
   if (!dilrEngineLoadPromise) dilrEngineLoadPromise = new Promise(function(resolve,reject) {
     var script = document.createElement('script');
     var timer = setTimeout(function(){dilrEngineLoadPromise=null;script.remove();reject(new Error('DILR solver loading timed out'));},12000);
-    script.src = '/dilr-engine.js?v=20260921-reliability2';
+    script.src = '/dilr-engine.js?v=20260922-backendrel1';
     script.onload = function() {
       clearTimeout(timer);
       if (typeof MargDILREngine !== 'undefined') resolve(MargDILREngine);
@@ -2895,13 +2933,16 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   // DILR construction is finite-domain code, not an upstream AI draft. It
   // remains usable during Google quota, location and service failures. The
   // same path covers Practice, full sectionals and diagnosis/re-tests.
+  var parsedWorkerRequest = null;
   if (url === WORKER_URL && options && typeof options.body === 'string') {
     var localRequest = null;
     try { localRequest = JSON.parse(options.body); } catch(e) {}
+    parsedWorkerRequest = localRequest;
     if (localRequest && localRequest.margAction === 'construct_dilr') return constructVerifiedDILRResponse(localRequest, options.signal);
     if (localRequest && localRequest.margAction === 'construct_qa') return constructVerifiedQAResponse(localRequest, options.signal);
   }
-  if (url === WORKER_URL && Date.now() < geminiRetryBlockedUntil) {
+  var usesGeminiUpstream = !(parsedWorkerRequest && parsedWorkerRequest.margAction === 'daily_article');
+  if (url === WORKER_URL && usesGeminiUpstream && Date.now() < geminiRetryBlockedUntil) {
     var cooldownError = new Error('A controlled retry already failed; waiting before another Gemini request');
     cooldownError.name = 'GeminiAPIError';
     cooldownError.status = geminiRetryBlockedStatus;
@@ -2922,7 +2963,24 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   // seconds; larger generation flows pass their own longer budgets.
   var requestedTimeout = Number(timeoutMs);
   var effectiveTimeout = Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? requestedTimeout : 60000;
-  if (url === WORKER_URL) options = Object.assign({}, options, { headers:Object.assign({}, options && options.headers, {'X-Marg-Timeout-Ms':String(Math.max(1000,effectiveTimeout-1500))}) });
+  if (url === WORKER_URL) {
+    // Headers exists in every supported browser, but retaining a plain-object
+    // fallback keeps the request path usable in embedded webviews and tests.
+    var workerHeaders = typeof Headers === 'function'
+      ? new Headers(options && options.headers || {})
+      : Object.assign({}, options && options.headers || {});
+    var setWorkerHeader = function(name, value) {
+      if (workerHeaders && typeof workerHeaders.set === 'function') workerHeaders.set(name, value);
+      else workerHeaders[name] = value;
+    };
+    setWorkerHeader('X-Marg-Timeout-Ms', String(Math.max(1000,effectiveTimeout-1500)));
+    if (typeof SUPABASE_TOKEN !== 'undefined' && SUPABASE_TOKEN) setWorkerHeader('Authorization', 'Bearer ' + SUPABASE_TOKEN);
+    try {
+      var clientId = typeof getAcquisitionVisitorId === 'function' ? getAcquisitionVisitorId() : '';
+      if (clientId) setWorkerHeader('X-Marg-Client-Id', String(clientId).slice(0, 120));
+    } catch(e) {}
+    options = Object.assign({}, options, { headers:workerHeaders });
+  }
   var timeoutId = setTimeout(function() { controller.abort(); }, effectiveTimeout);
   try {
     var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
@@ -4798,18 +4856,25 @@ async function reconcileInterruptedMentorTasks() {
 async function loadMentorExecutionLoop() {
   if (!canUseMentorExecutionLoop()) return false;
   try {
-    var responses = await Promise.all([
+    var settledResponses = await Promise.allSettled([
       authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_diagnoses?select=*&user_id=eq.' + currentUser.id + '&order=updated_at.desc&limit=20', { headers:executionLoopHeaders() }),
       authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?select=*&user_id=eq.' + currentUser.id + '&order=updated_at.desc&limit=30', { headers:executionLoopHeaders() }),
       authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_task_attempts?select=*&user_id=eq.' + currentUser.id + '&order=completed_at.desc&limit=30', { headers:executionLoopHeaders() })
     ]);
-    if (responses.some(function(response) { return !response.ok; })) {
-      responses.forEach(function(response) { markExecutionLoopUnavailable(response, 'load'); });
-      return false;
+    var collections = ['diagnoses','tasks','attempts'];
+    var loadedAny = false;
+    for (var responseIndex = 0; responseIndex < settledResponses.length; responseIndex++) {
+      var settled = settledResponses[responseIndex];
+      if (settled.status === 'fulfilled' && settled.value.ok) {
+        mentorExecutionLoop[collections[responseIndex]] = await settled.value.json();
+        loadedAny = true;
+      } else if (settled.status === 'fulfilled') {
+        markExecutionLoopUnavailable(settled.value, collections[responseIndex]);
+      } else {
+        console.error('Mentor ' + collections[responseIndex] + ' load failed:', settled.reason);
+      }
     }
-    mentorExecutionLoop.diagnoses = await responses[0].json();
-    mentorExecutionLoop.tasks = await responses[1].json();
-    mentorExecutionLoop.attempts = await responses[2].json();
+    if (!loadedAny) return false;
     try {
       var evidenceResponse = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_diagnosis_evidence?select=*&user_id=eq.' + currentUser.id + '&order=occurred_at.desc&limit=80', { headers:executionLoopHeaders() });
       if (evidenceResponse.ok) mentorExecutionLoop.evidence = await evidenceResponse.json();
@@ -4906,9 +4971,32 @@ function recordProductIncident(kind, error, details) {
     issues:(error && error.practiceAudit && Array.isArray(error.practiceAudit.issues) ? error.practiceAudit.issues : []).slice(0, 3).map(function(issue) { return String(issue).slice(0, 180); }),
     visibleMessage:String(safeDetails.visible_message || '').slice(0, 240)
   };
-  // Store only technical metadata. Never copy the student's message, image,
-  // scorecard or answer into an incident row.
-  saveInternalMemoryMessage('INCIDENT', payload);
+  // Store only technical metadata in the incident ledger. Never put system
+  // diagnostics into the student's conversation. Never copy the student's message, image,
+  // scorecard, answer or other study content into this table.
+  authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/product_incidents', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'apikey':SUPABASE_ANON_KEY,
+      'Authorization':'Bearer ' + SUPABASE_TOKEN,
+      'Prefer':'return=minimal'
+    },
+    body:JSON.stringify({
+      user_id:currentUser.id,
+      kind:payload.kind,
+      code:payload.code,
+      request_id:payload.requestId || null,
+      surface:payload.surface || null,
+      details:payload,
+      occurred_at:payload.occurredAt
+    }),
+    margTimeoutMs:10000
+  }).then(function(response) {
+    if (!response.ok) console.error('Product incident persistence failed:', response.status);
+  }).catch(function(incidentError) {
+    console.error('Product incident persistence error:', incidentError);
+  });
 }
 
 function storeActiveGeneratedExercise(exercise) {
@@ -6624,18 +6712,41 @@ function startLogin(options) {
 }
 
 async function logout() {
-  if (SUPABASE_TOKEN) {
-    await fetch(SUPABASE_URL + '/auth/v1/logout', { method: 'POST', headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN } });
+  var token = SUPABASE_TOKEN;
+  clearStoredSupabaseSession();
+  try {
+    if (token) await fetchWithDeadline(SUPABASE_URL + '/auth/v1/logout?scope=local', {
+      method:'POST', headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + token }
+    }, 7000);
+  } catch(error) {
+    console.warn('Remote sign out did not finish; local session was still cleared.', error);
+  } finally {
+    location.href = window.location.origin;
   }
-  localStorage.removeItem('marg_token');
-  localStorage.removeItem('marg_refresh_token');
-  localStorage.removeItem('marg_token_expiry');
-  localStorage.removeItem('marg_user');
-  location.href = window.location.origin;
 }
 
 var chatOutboxFlushes = {};
+var chatOutboxRetryTimers = {};
+var chatOutboxRetryCounts = {};
 var lastChatLocalTimestamp = 0;
+
+function scheduleChatOutboxRetry(userId) {
+  if (typeof setTimeout !== 'function' || !userId || chatOutboxRetryTimers[userId] || !readChatOutbox(userId).length) return;
+  var attempt = chatOutboxRetryCounts[userId] || 0;
+  var delay = Math.min(30000, 1200 * Math.pow(2, Math.min(attempt, 5)));
+  chatOutboxRetryCounts[userId] = attempt + 1;
+  chatOutboxRetryTimers[userId] = setTimeout(function() {
+    delete chatOutboxRetryTimers[userId];
+    if (navigator.onLine !== false && currentUser && currentUser.id === userId) flushChatOutbox(userId);
+    else scheduleChatOutboxRetry(userId);
+  }, delay);
+}
+
+function clearChatOutboxRetry(userId) {
+  if (chatOutboxRetryTimers[userId]) clearTimeout(chatOutboxRetryTimers[userId]);
+  delete chatOutboxRetryTimers[userId];
+  chatOutboxRetryCounts[userId] = 0;
+}
 
 function readChatOutbox(userId) {
   try {
@@ -6698,7 +6809,12 @@ function flushChatOutbox(userId) {
       if (!writeChatOutbox(userId, rows)) return false;
     }
     return false;
-  })().finally(function() { delete chatOutboxFlushes[userId]; });
+  })().finally(function() {
+    delete chatOutboxFlushes[userId];
+    if (readChatOutbox(userId).length) {
+      if (typeof scheduleChatOutboxRetry === 'function') scheduleChatOutboxRetry(userId);
+    } else if (typeof clearChatOutboxRetry === 'function') clearChatOutboxRetry(userId);
+  });
   return chatOutboxFlushes[userId];
 }
 
@@ -6729,6 +6845,9 @@ async function saveChatMessage(role, msgContent) {
 }
 
 window.addEventListener('online', function() { if (currentUser) flushChatOutbox(currentUser.id); });
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible' && currentUser) flushChatOutbox(currentUser.id);
+});
 async function saveUserEmail(email) {
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
@@ -6780,39 +6899,47 @@ async function ensureAuthenticatedProfile() {
   }
 }
 
+async function fetchOwnedChatRows(userId) {
+  var rows = [];
+  var pageSize = 500;
+  var maxRows = 20000;
+  for (var offset = 0; offset < maxRows; offset += pageSize) {
+    var result = await sbFetch('chats?select=*&user_id=eq.' + encodeURIComponent(userId) + '&order=created_at.desc,id.desc&limit=' + pageSize + '&offset=' + offset, 'GET');
+    if (result.error) throw new Error('Chat history request failed (' + result.error + ')');
+    var page = Array.isArray(result.data) ? result.data : [];
+    rows = rows.concat(page);
+    if (page.length < pageSize) return rows;
+  }
+  console.warn('Chat history exceeded the safety cap; newest 20,000 rows were loaded.');
+  return rows;
+}
+
 async function loadUserData() {
   if (!currentUser || !SUPABASE_TOKEN) return false;
   var loadingUserId = currentUser.id;
-  try {
-    const { data: profiles } = await sbFetch('profiles?select=*&user_id=eq.' + currentUser.id, 'GET');
-    if (!currentUser || currentUser.id !== loadingUserId) return false;
-    const profile = profiles && profiles.length ? profiles[0] : null;
-    var profileHasOnboardingData = false;
+  var profileHasOnboardingData = false;
+  var remoteChats = [];
 
+  // Profile and history are independent resources. A slow profile request must
+  // never prevent recent messages (including the local outbox) from opening.
+  try {
+    var profileResult = await sbFetch('profiles?select=*&user_id=eq.' + encodeURIComponent(loadingUserId), 'GET');
+    var profiles = profileResult.data;
+    if (!currentUser || currentUser.id !== loadingUserId) return false;
+    var profile = profiles && profiles.length ? profiles[0] : null;
     if (profile) {
       profileHasOnboardingData = !!(profile.attempt_number || profile.months_left || profile.weakest_section || profile.daily_hours || profile.situation);
       studentProfile = {
-        attemptNumber: profile.attempt_number,
-        monthsLeft: profile.months_left,
-        weakestSection: profile.weakest_section,
-        dailyHours: profile.daily_hours,
-        situation: profile.situation,
-        varcPattern: profile.varc_cognitive_pattern || null,
-        dilrPattern: profile.dilr_cognitive_pattern || null,
-        qaPattern: profile.qa_cognitive_pattern || null,
-        mockHistory: profile.mock_history || null,
-        sessionsCount: profile.sessions_count || 0,
-        lastTask: profile.last_task || null,
-        lastInsight: profile.last_insight || null,
-        lastSessionDate: profile.last_session_date || null,
-        sessionSummary: profile.session_summary || null
+        attemptNumber:profile.attempt_number, monthsLeft:profile.months_left,
+        weakestSection:profile.weakest_section, dailyHours:profile.daily_hours,
+        situation:profile.situation, varcPattern:profile.varc_cognitive_pattern || null,
+        dilrPattern:profile.dilr_cognitive_pattern || null, qaPattern:profile.qa_cognitive_pattern || null,
+        mockHistory:profile.mock_history || null, sessionsCount:profile.sessions_count || 0,
+        lastTask:profile.last_task || null, lastInsight:profile.last_insight || null,
+        lastSessionDate:profile.last_session_date || null, sessionSummary:profile.session_summary || null
       };
-      loadDiagnosticMemory();
-
       var savedTopicLog = profile.practice_topic_log || {};
-      practiceTopicLog = {};
-      practiceTopicDisplayName = {};
-      practiceTopicFlagged = {};
+      practiceTopicLog = {}; practiceTopicDisplayName = {}; practiceTopicFlagged = {};
       loadTopicProgression();
       for (var key in savedTopicLog) {
         var entry = savedTopicLog[key] || {};
@@ -6824,36 +6951,32 @@ async function loadUserData() {
       }
       saveTopicProgression();
     }
-
-    // Request the newest rows first; PostgREST's row cap must not drop recent turns.
-    const chatResult = await sbFetch('chats?select=*&user_id=eq.' + loadingUserId + '&order=created_at.desc&limit=1000', 'GET');
-    if (!currentUser || currentUser.id !== loadingUserId) return false;
-    const chats = mergePendingChatWrites(chatResult.data || [], loadingUserId);
-    if (chats && chats.length > 0) {
-      if(typeof initialiseTopicChats==='function')initialiseTopicChats(chats);
-      else conversationHistory = chats.map(function(c) { return { id:c.id || null, role:c.role, content:c.content, createdAt:c.created_at || null }; });
-    }
-    if(!chats.length&&typeof initialiseTopicChats==='function')initialiseTopicChats([]);
-    loadDiagnosticMemory();
-    hydrateDiagnosticMemoryFromHistory();
-    loadMentorMemory();
-    sanitizeLoadedContinuityMemory();
-    flushChatOutbox(loadingUserId);
-    return !!(profileHasOnboardingData || (chats && chats.length));
-  } catch(e) {
-    // A failed profile request must not strand the locally backed-up turns.
-    if (!currentUser || currentUser.id !== loadingUserId) return false;
-    var pending = readChatOutbox(loadingUserId);
-    if (pending.length) {
-      if(typeof captureActiveTopicChat==='function')captureActiveTopicChat();
-      var backedUpHistory = typeof margAllChatMessages!=='undefined'&&typeof margThreadOwner!=='undefined' ? (margThreadOwner===loadingUserId ? margAllChatMessages : []) : conversationHistory;
-      var existingRows = backedUpHistory.map(function(item) { return {id:item.id,role:item.role,content:typeof encodeTopicChatContent==='function'?encodeTopicChatContent(item.content,item):item.content,created_at:item.createdAt}; });
-      if(typeof initialiseTopicChats==='function')initialiseTopicChats(mergePendingChatWrites(existingRows, loadingUserId));
-      else conversationHistory = mergePendingChatWrites(existingRows, loadingUserId).map(function(row) { return {id:row.id,role:row.role,content:row.content,createdAt:row.created_at}; });
-      return true;
-    }
-    return false;
+  } catch(profileError) {
+    console.error('Profile load failed without blocking chat history:', profileError);
   }
+
+  try {
+    remoteChats = await fetchOwnedChatRows(loadingUserId);
+  } catch(chatError) {
+    console.error('Remote chat history load failed; using durable local rows:', chatError);
+    if (typeof captureActiveTopicChat === 'function') captureActiveTopicChat();
+    var localHistory = typeof margAllChatMessages !== 'undefined' && typeof margThreadOwner !== 'undefined'
+      ? (margThreadOwner === loadingUserId ? margAllChatMessages : []) : conversationHistory;
+    remoteChats = localHistory.map(function(item) {
+      return { id:item.id, role:item.role, content:typeof encodeTopicChatContent === 'function' ? encodeTopicChatContent(item.content, item) : item.content, created_at:item.createdAt };
+    });
+  }
+
+  if (!currentUser || currentUser.id !== loadingUserId) return false;
+  var chats = mergePendingChatWrites(remoteChats, loadingUserId);
+  if (typeof initialiseTopicChats === 'function') initialiseTopicChats(chats);
+  else conversationHistory = chats.map(function(c) { return { id:c.id || null, role:c.role, content:c.content, createdAt:c.created_at || null }; });
+  loadDiagnosticMemory();
+  hydrateDiagnosticMemoryFromHistory();
+  loadMentorMemory();
+  sanitizeLoadedContinuityMemory();
+  flushChatOutbox(loadingUserId);
+  return !!(profileHasOnboardingData || chats.length);
 }
 
 function updateUserUI(user) {
@@ -6862,9 +6985,19 @@ function updateUserUI(user) {
   document.getElementById('user-name').textContent = name;
   const headerAvatar = document.getElementById('user-avatar');
   const welcomeAvatar = document.getElementById('welcome-avatar');
-  if (avatarUrl) {
-    headerAvatar.innerHTML = '<img src="' + avatarUrl + '" alt="avatar">';
-    welcomeAvatar.innerHTML = '<img src="' + avatarUrl + '" alt="avatar">';
+  var safeAvatar = '';
+  try {
+    var parsedAvatar = avatarUrl ? new URL(avatarUrl, window.location.origin) : null;
+    if (parsedAvatar && parsedAvatar.protocol === 'https:') safeAvatar = parsedAvatar.href;
+  } catch(e) {}
+  if (safeAvatar) {
+    [headerAvatar, welcomeAvatar].forEach(function(container) {
+      var image = document.createElement('img');
+      image.src = safeAvatar;
+      image.alt = 'avatar';
+      image.referrerPolicy = 'no-referrer';
+      container.replaceChildren(image);
+    });
   } else {
     headerAvatar.textContent = name[0].toUpperCase();
     welcomeAvatar.textContent = name[0].toUpperCase();
@@ -6909,6 +7042,27 @@ function showLanding() {
   document.getElementById('landing-page').style.display = 'flex';
   restoreHomepageIntentToLanding();
   observeHomepageComposerVisibility();
+}
+
+function showSessionRecoveryState() {
+  var loading = document.getElementById('loading-screen');
+  if (!loading) { showLanding(); return; }
+  document.getElementById('landing-page').style.display = 'none';
+  loading.style.display = 'flex';
+  var quote = document.getElementById('loading-quote');
+  var author = document.getElementById('loading-author');
+  if (quote) quote.textContent = 'Marg could not reach your account just now. Your sign-in and saved chats are still intact.';
+  if (author) author.textContent = 'Check your connection, then retry.';
+  var retry = document.getElementById('marg-session-retry');
+  if (!retry) {
+    retry = document.createElement('button');
+    retry.id = 'marg-session-retry';
+    retry.type = 'button';
+    retry.textContent = 'Retry connection';
+    retry.style.cssText = 'border:1px solid rgba(201,168,76,.45);border-radius:10px;background:rgba(201,168,76,.1);color:#E8C96A;padding:10px 16px;font:600 12px DM Sans,sans-serif;cursor:pointer;';
+    retry.onclick = function() { retry.disabled = true; location.reload(); };
+    loading.appendChild(retry);
+  }
 }
 
 var chatScrollFrameId = 0;
@@ -13005,49 +13159,53 @@ async function initSession() {
   const expiry = localStorage.getItem('marg_token_expiry');
   const refreshToken = localStorage.getItem('marg_refresh_token');
 
-  // If token expired or about to expire, refresh it
+  SUPABASE_TOKEN = token;
+  // If token expired or about to expire, refresh it. A timeout is transient:
+  // keep the stored session so a reconnect can recover instead of logging out.
   if (token && refreshToken && expiry && Date.now() > (parseInt(expiry) - 300000)) {
-    try {
-      const refreshRes = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
-        body: JSON.stringify({ refresh_token: refreshToken })
-      });
-      const refreshData = await refreshRes.json();
-      if (refreshData.access_token) {
-        token = refreshData.access_token;
-        localStorage.setItem('marg_token', token);
-        if (refreshData.refresh_token) localStorage.setItem('marg_refresh_token', refreshData.refresh_token);
-        if (refreshData.expires_in) localStorage.setItem('marg_token_expiry', Date.now() + (refreshData.expires_in * 1000));
-      }
-    } catch(e) { console.log('Token refresh failed:', e); }
+    var refreshed = await refreshSupabaseSession();
+    if (refreshed) token = SUPABASE_TOKEN;
+    else if (lastSupabaseRefreshFailure === 'invalid') token = null;
   }
 
   if (!token) { showLanding(); return; }
   try {
-    const res = await fetch(SUPABASE_URL + '/auth/v1/user', { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token } });
-    if (!res.ok) { localStorage.removeItem('marg_token'); showLanding(); return; }
+    SUPABASE_TOKEN = token;
+    var res = await fetchWithDeadline(SUPABASE_URL + '/auth/v1/user', { headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + token } }, 12000);
+    if (res.status === 401 || res.status === 403) {
+      var recovered = await refreshSupabaseSession();
+      if (recovered) {
+        token = SUPABASE_TOKEN;
+        res = await fetchWithDeadline(SUPABASE_URL + '/auth/v1/user', { headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + token } }, 12000);
+      }
+    }
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) { clearStoredSupabaseSession(); showLanding(); }
+      else showSessionRecoveryState();
+      return;
+    }
     const user = await res.json();
     SUPABASE_TOKEN = token;
     currentUser = user;
     updateUserUI(user);
-    await ensureAuthenticatedProfile();
-    await initializeEngagementTracking();
-    // Opening Marg is real preparation activity. Load it immediately so a new
-    // user's first day and a returning user's consecutive days appear without
-    // requiring the retired manual check-in overlay.
-    await loadStreakData();
-    await claimPendingReferralSignup();
+    // Do not hold the whole app behind four independent non-critical writes.
+    // They settle in the background while history and the composer open.
+    Promise.allSettled([
+      ensureAuthenticatedProfile(),
+      initializeEngagementTracking(),
+      loadStreakData(),
+      claimPendingReferralSignup()
+    ]).catch(function() {});
     if (arrivedFromOAuthCallback) {
       var authIntent = loadHomepageIntent();
       var authDestination = loadPendingHomepageDestination();
       trackAuthenticatedHomepageStage('auth_completed', authIntent || authDestination || { source:'direct_login' });
     }
     showWelcome(async function() {
-      const hasHistory = await loadUserData();
-      // These are durable product records, not generated memory. Loading them
-      // here lets Home continue the exact diagnosis/task thread across devices.
-      await loadMentorExecutionLoop();
+      // Chat/profile history and the durable diagnosis loop are independent;
+      // load them together so one slow table cannot serially hold the product.
+      var startupLoads = await Promise.allSettled([loadUserData(), loadMentorExecutionLoop()]);
+      const hasHistory = startupLoads[0].status === 'fulfilled' && !!startupLoads[0].value;
       syncGrantedBrowserPushSubscription();
       const onboardingKey2 = 'marg_onboarding_done_' + (currentUser ? currentUser.id : 'guest');
       const prevOnboarded2 = localStorage.getItem(onboardingKey2);
@@ -13109,7 +13267,12 @@ async function initSession() {
       var isFreshAccount = !!(accountCreatedAt && Date.now() - accountCreatedAt < 30 * 60 * 1000);
       if (!prevOnboarded2 && (isFreshAccount || !hasHistory)) checkAndShowTour({ newUser:true, delayMs:700 });
     });
-  } catch(e) { localStorage.removeItem('marg_token'); showLanding(); }
+  } catch(e) {
+    console.error('Session bootstrap failed:', e);
+    // Abort/timeouts and network failures do not invalidate a Supabase session.
+    // Keep both tokens and offer an explicit retry rather than a false logout.
+    showSessionRecoveryState();
+  }
 }
 function getDaysUntilCAT() {
   var today = getIndiaCalendarDate(0).iso;
@@ -13523,37 +13686,22 @@ async function saveMockScore(varc, dilr, qa) {
   recordTopicProgress('qa', 'Mock performance', { mockPerformance:qa });
   if (!currentUser || !SUPABASE_TOKEN) return;
   try {
-
-    const res = await fetch(
-      SUPABASE_URL + '/rest/v1/profiles?select=mock_history,sessions_count&user_id=eq.' + currentUser.id,
-      { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_TOKEN } }
-    );
-    const data = await res.json();
-    const existing = data[0]?.mock_history || [];
-    const sessionsCount = (data[0]?.sessions_count || 0) + 1;
-
-    const newEntry = {
-      date: getTodayDate(),
-      varc: varc, dilr: dilr, qa: qa,
-      total: varc + dilr + qa
-    };
-    const updated = [...existing, newEntry].slice(-20);
-    studentProfile.mockHistory = updated;
-
-    await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/profiles', {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/rpc/append_my_mock_history', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'apikey': SUPABASE_ANON_KEY,
-        'Authorization': 'Bearer ' + SUPABASE_TOKEN,
-        'Prefer': 'resolution=merge-duplicates'
+        'Authorization': 'Bearer ' + SUPABASE_TOKEN
       },
       body: JSON.stringify({
-        user_id: currentUser.id,
-        mock_history: updated,
-        sessions_count: sessionsCount
-      })
+        p_varc:Number(varc), p_dilr:Number(dilr), p_qa:Number(qa), p_date:getTodayDate()
+      }),
+      margTimeoutMs:12000
     });
+    if (!response.ok) throw new Error('Mock history save failed (' + response.status + ')');
+    var saved = await response.json();
+    studentProfile.mockHistory = saved && saved.mock_history || studentProfile.mockHistory || [];
+    studentProfile.sessionsCount = saved && saved.sessions_count || studentProfile.sessionsCount || 0;
   } catch(e) { console.error('saveMockScore error:', e); }
 }
 
@@ -14883,6 +15031,19 @@ function isMixedQATopic(topic) {
     /arithmetic[^\n]{0,30}algebra|algebra[^\n]{0,30}arithmetic/i.test(String(topic || ''));
 }
 
+function getQACategoryTopics(topic) {
+  var normalized = normalizePracticeTopicName(topic);
+  var categories = {
+    'arithmetic':['Percentages','Ratios & Proportions','Time-Speed-Distance','Profit & Loss'],
+    'algebra':['Linear Equations','Quadratic Equations','Functions & Inequalities','Logarithms & Exponents'],
+    'geometry':['Geometry (Triangles, Circles)','Mensuration (2D & 3D)','Coordinate Geometry'],
+    'geometry and mensuration':['Geometry (Triangles, Circles)','Mensuration (2D & 3D)','Coordinate Geometry'],
+    'number systems':['Number Systems'],
+    'modern math':['Permutation & Combination','Probability','Set Theory']
+  };
+  return categories[normalized] || null;
+}
+
 var QA_TOPIC_SEMANTIC_RULES = {
   'percentages': /(?:%|percent|percentage|increas|decreas|more than|less than|profit|loss|discount|mixture|composition|pass rate|saving|expenditure)/i,
   'ratios and proportions': /(?:\bratios?\b|\bproportion(?:al|s)?\b|direct(?:ly)?\s+var(?:y|ies|iation)|inverse(?:ly)?\s+var(?:y|ies|iation)|\bshares?\b|\bparts?\b|\d+\s*:\s*\d+)/i,
@@ -14904,11 +15065,15 @@ var QA_TOPIC_SEMANTIC_RULES = {
 function questionMatchesQATopic(question, expectedTopic) {
   if (!expectedTopic) return true;
   var expected = normalizePracticeTopicName(expectedTopic);
-  if (normalizePracticeTopicName(question && question.topic) !== expected) return false;
+  var allowedCategoryTopics = getQACategoryTopics(expectedTopic);
+  var actual = normalizePracticeTopicName(question && question.topic);
+  if (allowedCategoryTopics) {
+    if (!allowedCategoryTopics.some(function(topic) { return normalizePracticeTopicName(topic) === actual; })) return false;
+  } else if (actual !== expected) return false;
   var content = [question && question.q, question && question.solution, question && question.concept_check, question && question.marg_insight]
     .concat(question && Array.isArray(question.options) ? question.options : [])
     .filter(Boolean).join(' ');
-  var semanticRule = QA_TOPIC_SEMANTIC_RULES[expected];
+  var semanticRule = QA_TOPIC_SEMANTIC_RULES[actual] || QA_TOPIC_SEMANTIC_RULES[expected];
   return !semanticRule || semanticRule.test(content);
 }
 
@@ -14975,7 +15140,7 @@ function collectArticleRCStructureIssues(data, expectedQuestionCount) {
     ? setObj.passage.split(/\n\s*\n/).filter(function(paragraph) { return paragraph.trim(); })
     : [];
   var requiredQuestions = Number(expectedQuestionCount) || 4;
-  if (passageWords < 450 || passageWords > 550) issues.push('The passage has ' + passageWords + ' words; it needs 450-550');
+  if (passageWords < 420 || passageWords > 600) issues.push('The passage has ' + passageWords + ' words; it needs 420-600');
   if (paragraphs.length < 3) issues.push('The passage has ' + paragraphs.length + ' readable paragraphs; it needs at least 3');
   if (!Array.isArray(setObj.questions) || setObj.questions.length !== requiredQuestions) {
     issues.push('The RC has ' + (Array.isArray(setObj.questions) ? setObj.questions.length : 0) + ' questions; it needs exactly ' + requiredQuestions);
@@ -15001,7 +15166,7 @@ function validateRCPracticeSet(data, expectedQuestionCount) {
   var requiredQuestions = Number(expectedQuestionCount) || 3;
   var passageWords = countPracticeWords(setObj && setObj.passage);
   var paragraphs = setObj && typeof setObj.passage === 'string' ? setObj.passage.split(/\n\s*\n/).filter(function(p) { return p.trim(); }) : [];
-  return setObj && passageWords >= 450 && passageWords <= 550 && paragraphs.length >= 3 &&
+  return setObj && passageWords >= 420 && passageWords <= 600 && paragraphs.length >= 3 &&
     Array.isArray(setObj.questions) && setObj.questions.length === requiredQuestions &&
     setObj.questions.every(isValidTimedTestQuestion);
 }
@@ -15591,7 +15756,7 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
   }
   var topicAudit = section === 'qa' && expectedTopic ? ' TOPIC PURITY: every question must centrally test exactly "' + expectedTopic + '" and carry that exact topic field; using an unrelated Geometry, Algebra, Number Systems or other question is an automatic failure.' : '';
   var levelAudit = section === 'rc'
-    ? ' RC LEVEL: the application has already counted and confirmed 450-550 passage words, so do not estimate or reject its length again. A question anchored in a specific detail is valid when it asks for that detail’s role, implication or relationship to the argument; reject only mechanical copy-the-line retrieval. Reject fewer than three paragraphs. Judge distractor quality, but do not mark an otherwise coherent and uniquely answerable RC invalid merely because one distractor is easier than ideal.'
+    ? ' RC LEVEL: the application has already counted and confirmed 420-600 passage words, so do not estimate or reject its length again. A question anchored in a specific detail is valid when it asks for that detail’s role, implication or relationship to the argument; reject only mechanical copy-the-line retrieval. Reject fewer than three paragraphs. Judge distractor quality, but do not mark an otherwise coherent and uniquely answerable RC invalid merely because one distractor is easier than ideal.'
     : section === 'dilr'
       ? ' DILR LEVEL: flag purely direct-lookup puzzles without interacting constraints as unsuitable. Do not guess solve time or reject a valid set for an unmeasured 12-minute threshold. Fatal failures are contradictions, missing data or ambiguous answers.'
       : ' QA LEVEL: flag single-step formula drills as unsuitable. Redundant context or an easier-than-ideal distractor is a quality note, not proof of an unsolvable question. Fatal failures are missing data, contradictions or multiple defensible answers.';
