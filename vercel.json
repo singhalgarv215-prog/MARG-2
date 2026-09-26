@@ -9,7 +9,7 @@
     { "src": "/landing/?", "dest": "/marg-community-landing.html" },
     { "src": "/privacy", "dest": "/privacy.html" },
     { "src": "/cat-percentile-predictor", "dest": "/cat-percentile-predictor.html" },
-    { "src": "/mock-analysis", "dest": "/mock-analysis.html" },
+    { "src": "/mock-analysis", "dest": "/?tab=mock" },
     { "src": "/daily-rc/?", "dest": "/daily-rc.html" },
     { "src": "/daily-dilr/?", "dest": "/daily-dilr/index.html" },
     { "src": "/daily-qa/?", "dest": "/daily-qa.html" },
