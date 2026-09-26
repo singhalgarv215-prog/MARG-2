@@ -428,7 +428,7 @@ async function generateRC() {
         systemInstruction: { parts:[{ text:'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.' }] },
         generationConfig: {
           maxOutputTokens: 8192,
-          responseFormat: { text:{ mimeType:'application/json' } },
+          responseMimeType: 'application/json',
           thinkingConfig: { thinkingLevel:'minimal' }
         }
       })
@@ -456,22 +456,28 @@ async function generateRC() {
   }
 }
 
+function dailyEscapeHtml(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function renderRC(data) {
   const container = document.getElementById('practice-container');
   
   var questionsHtml = data.questions.map(function(q, qi) {
     var optionsHtml = q.options.map(function(opt, oi) {
-      return '<button class="option" onclick="selectOption(' + qi + ',' + oi + ',' + q.correct + ',this)" id="opt-' + qi + '-' + oi + '">' + opt + '</button>';
+      return '<button class="option" onclick="selectOption(' + qi + ',' + oi + ',' + q.correct + ',this)" id="opt-' + qi + '-' + oi + '">' + dailyEscapeHtml(opt) + '</button>';
     }).join('');
     
     var divider = qi < data.questions.length - 1 ? '<div class="question-divider"></div>' : '';
     
-    return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="question-text">' + q.q + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Answer & Analysis</div><div class="explanation-text">' + q.explanation + (q.trap_type ? '<br><br><strong>Trap type:</strong> ' + q.trap_type : '') + '</div></div></div>' + divider;
+    return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="question-text">' + dailyEscapeHtml(q.q) + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Answer & Analysis</div><div class="explanation-text">' + dailyEscapeHtml(q.explanation) + (q.trap_type ? '<br><br><strong>Trap type:</strong> ' + dailyEscapeHtml(q.trap_type) : '') + '</div></div></div>' + divider;
   }).join('');
   
-  var recovery = data.recoveryNote ? '<div style="padding:11px 14px;color:var(--text-dim);font-size:12px;border-bottom:1px solid var(--border);">' + data.recoveryNote + '</div>' : '';
-  var passage = String(data.passage || '').split(/\n\s*\n/).map(function(p) { return '<p style="margin:0 0 16px;">' + p + '</p>'; }).join('');
-  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">📖 Reading Comprehension · RC #' + dayNum + '</div><div class="card-meta">' + (data.difficulty || 'Medium') + ' · ' + (data.topic || 'General') + '</div></div>' + recovery + '<div class="card-body"><div class="passage-text">' + passage + '</div>' + questionsHtml + '</div></div>';
+  var recovery = data.recoveryNote ? '<div style="padding:11px 14px;color:var(--text-dim);font-size:12px;border-bottom:1px solid var(--border);">' + dailyEscapeHtml(data.recoveryNote) + '</div>' : '';
+  var passage = String(data.passage || '').split(/\n\s*\n/).map(function(p) { return '<p style="margin:0 0 16px;">' + dailyEscapeHtml(p) + '</p>'; }).join('');
+  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">📖 Reading Comprehension · RC #' + dayNum + '</div><div class="card-meta">' + dailyEscapeHtml(data.difficulty || 'Medium') + ' · ' + dailyEscapeHtml(data.topic || 'General') + '</div></div>' + recovery + '<div class="card-body"><div class="passage-text">' + passage + '</div>' + questionsHtml + '</div></div>';
 }
 
 function selectOption(qIndex, optIndex, correct, btn) {

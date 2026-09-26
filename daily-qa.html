@@ -205,19 +205,25 @@ async function generateQA() {
   }
 }
 
+function dailyEscapeHtml(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function renderQA(data) {
   const container = document.getElementById('practice-container');
   var questionsHtml = data.questions.map(function(q, qi) {
-    var topicsHtml = (q.topics || []).map(function(t) { return '<span class="topic-chip">' + t + '</span>'; }).join('');
+    var topicsHtml = (q.topics || []).map(function(t) { return '<span class="topic-chip">' + dailyEscapeHtml(t) + '</span>'; }).join('');
     var optionsHtml = q.options.map(function(opt, oi) {
-      return '<button class="option" onclick="selectOption(' + qi + ',' + oi + ',' + q.correct + ')" id="opt-' + qi + '-' + oi + '">' + opt + '</button>';
+      return '<button class="option" onclick="selectOption(' + qi + ',' + oi + ',' + q.correct + ')" id="opt-' + qi + '-' + oi + '">' + dailyEscapeHtml(opt) + '</button>';
     }).join('');
     var divider = qi < data.questions.length - 1 ? '<div class="question-divider"></div>' : '';
-    return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="topics-badge">' + topicsHtml + '</div><div class="question-text">' + q.q + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Solution</div><div class="explanation-text">' + q.solution + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + q.common_mistake : '') + (q.concept_check ? '<br><br><strong>Concept tested:</strong> ' + q.concept_check : '') + '</div></div></div>' + divider;
+    return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="topics-badge">' + topicsHtml + '</div><div class="question-text">' + dailyEscapeHtml(q.q) + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Solution</div><div class="explanation-text">' + dailyEscapeHtml(q.solution) + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + dailyEscapeHtml(q.common_mistake) : '') + (q.concept_check ? '<br><br><strong>Concept tested:</strong> ' + dailyEscapeHtml(q.concept_check) : '') + '</div></div></div>' + divider;
   }).join('');
   
-  var recovery = data.recoveryNote ? '<div style="padding:11px 14px;color:var(--text-dim);font-size:12px;border-bottom:1px solid var(--border);">' + data.recoveryNote + '</div>' : '';
-  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">🔢 Quantitative · QA #' + dayNum + '</div><div class="card-meta">' + (data.difficulty || 'Medium') + ' · Multi-topic</div></div>' + recovery + '<div class="card-body">' + questionsHtml + '</div></div>';
+  var recovery = data.recoveryNote ? '<div style="padding:11px 14px;color:var(--text-dim);font-size:12px;border-bottom:1px solid var(--border);">' + dailyEscapeHtml(data.recoveryNote) + '</div>' : '';
+  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">🔢 Quantitative · QA #' + dayNum + '</div><div class="card-meta">' + dailyEscapeHtml(data.difficulty || 'Medium') + ' · Multi-topic</div></div>' + recovery + '<div class="card-body">' + questionsHtml + '</div></div>';
 }
 
 function selectOption(qIndex, optIndex, correct) {

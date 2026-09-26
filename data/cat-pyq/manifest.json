@@ -1,0 +1,567 @@
+{
+  "schema_version": 1,
+  "exam": "CAT",
+  "source_scope": "User-supplied CAT papers, 2017-2025",
+  "duplicate_note": "CAt-2023-Question-Paper-slot-03 (1).pdf is byte-identical to Slot 03 and is intentionally not indexed twice.",
+  "student_facing_rule": "Only answer_key_ready records may be considered for direct use, and RC/DILR still require verified shared context before display.",
+  "totals": {
+    "documents": 23,
+    "questions_indexed": 1636,
+    "answer_key_ready": 149,
+    "quarantined": 1487
+  },
+  "papers": [
+    {
+      "id": "cat-2017-slot-1",
+      "exam": "CAT",
+      "year": 2017,
+      "slot": 1,
+      "source_filename": "CAT-2017-SLOT-1.pdf",
+      "source_sha256": "8a145f8ec74dad9d90927485c6cc285bc036f977a72d0e051b42e96862162080",
+      "page_count": 61,
+      "expected_question_count": 100,
+      "indexed_question_count": 100,
+      "section_counts": {
+        "varc": 34,
+        "dilr": 32,
+        "qa": 34
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 1
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2017-slot-1.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2017-slot-2",
+      "exam": "CAT",
+      "year": 2017,
+      "slot": 2,
+      "source_filename": "CAT-2017-SLOT-2.pdf",
+      "source_sha256": "5cbbf3be45c529fdeda04b247e2bb21467287c1bccb8bc04f5f4fbe902ed7682",
+      "page_count": 62,
+      "expected_question_count": 100,
+      "indexed_question_count": 100,
+      "section_counts": {
+        "varc": 34,
+        "dilr": 32,
+        "qa": 34
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 2
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2017-slot-2.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2018-slot-1",
+      "exam": "CAT",
+      "year": 2018,
+      "slot": 1,
+      "source_filename": "CAT-2018SLOT-1.pdf",
+      "source_sha256": "7c683a21f89c0edebe00046c9e6b0f822d0ec13c0de3ec1cc64a8d997f306347",
+      "page_count": 83,
+      "expected_question_count": 100,
+      "indexed_question_count": 100,
+      "section_counts": {
+        "varc": 34,
+        "dilr": 32,
+        "qa": 34
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 0
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2018-slot-1.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2018-slot-2",
+      "exam": "CAT",
+      "year": 2018,
+      "slot": 2,
+      "source_filename": "CAT-2018-SLOT-2.pdf",
+      "source_sha256": "781dcc024d08b0182d7b671f3cb8e6321b3b1b440c295b83c6d76fe26b8d91a5",
+      "page_count": 87,
+      "expected_question_count": 100,
+      "indexed_question_count": 100,
+      "section_counts": {
+        "varc": 34,
+        "dilr": 32,
+        "qa": 34
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 0
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2018-slot-2.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2019-slot-1",
+      "exam": "CAT",
+      "year": 2019,
+      "slot": 1,
+      "source_filename": "CAT-2019-OFFICIAL-question-paper-solution-slot-1-Bodheeprep.pdf",
+      "source_sha256": "754cf54cd3b36702b828a4286f7525d00231f045d9dca74199fe8c83718017a3",
+      "page_count": 81,
+      "expected_question_count": 100,
+      "indexed_question_count": 100,
+      "section_counts": {
+        "varc": 34,
+        "dilr": 32,
+        "qa": 34
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 15
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2019-slot-1.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2019-slot-2",
+      "exam": "CAT",
+      "year": 2019,
+      "slot": 2,
+      "source_filename": "CAT-2019-OFFICIAL-question-paper-solution-slot-2-Bodheeprep.pdf",
+      "source_sha256": "96e25e5b010f9a2df56484e58e1ad294db40a20f5648d515c6433adeeb1775c2",
+      "page_count": 87,
+      "expected_question_count": 100,
+      "indexed_question_count": 100,
+      "section_counts": {
+        "varc": 34,
+        "dilr": 32,
+        "qa": 34
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 14
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2019-slot-2.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2020-slot-1",
+      "exam": "CAT",
+      "year": 2020,
+      "slot": 1,
+      "source_filename": "CAT-2020-Question-paper-with-Solutions-Slot-1-Bodhee-Prep.pdf",
+      "source_sha256": "47c3199ec6dc5024274012bcc63e47c33696850f4f7a70b8d61ea8aee7babc7d",
+      "page_count": 68,
+      "expected_question_count": 76,
+      "indexed_question_count": 76,
+      "section_counts": {
+        "varc": 26,
+        "dilr": 24,
+        "qa": 26
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 0
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2020-slot-1.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2020-slot-2",
+      "exam": "CAT",
+      "year": 2020,
+      "slot": 2,
+      "source_filename": "CAT-2020-Question-paper-with-Solutions-Slot-2-Bodhee-Prep.pdf",
+      "source_sha256": "27e64d73bb4565282f2b57f040c444c113e859cbd5df971ec2c7e987d5254e1b",
+      "page_count": 62,
+      "expected_question_count": 76,
+      "indexed_question_count": 76,
+      "section_counts": {
+        "varc": 26,
+        "dilr": 24,
+        "qa": 26
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 1
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2020-slot-2.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2020-slot-3",
+      "exam": "CAT",
+      "year": 2020,
+      "slot": 3,
+      "source_filename": "CAT-2020-Question-paper-with-Solutions-Slot-3-Bodhee-Prep.pdf",
+      "source_sha256": "a3b5926e935ef2715a978b904ea3adc627e2f20e3bf0dfe9c50b57c1968571f5",
+      "page_count": 56,
+      "expected_question_count": 76,
+      "indexed_question_count": 76,
+      "section_counts": {
+        "varc": 26,
+        "dilr": 24,
+        "qa": 26
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 0
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2020-slot-3.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2021-slot-1",
+      "exam": "CAT",
+      "year": 2021,
+      "slot": 1,
+      "source_filename": "CAT-2021-paper-slot-1-with-answer-keys.pdf",
+      "source_sha256": "f0a3d8985146216d60d8a7d8889eb7dd58e258e7c3dc9de119826d75bb37f5ab",
+      "page_count": 28,
+      "expected_question_count": 66,
+      "indexed_question_count": 61,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 15,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 10
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2021-slot-1.json",
+      "complete_index": false
+    },
+    {
+      "id": "cat-2021-slot-2",
+      "exam": "CAT",
+      "year": 2021,
+      "slot": 2,
+      "source_filename": "CAT-2021-paper-slot-2-with-answer-keys.pdf",
+      "source_sha256": "c2bf95d494c89a603fe299019c2404e397f2a0e8e7d78c12460eb3cd1c95d210",
+      "page_count": 27,
+      "expected_question_count": 66,
+      "indexed_question_count": 49,
+      "section_counts": {
+        "varc": 7,
+        "dilr": 20,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 5
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2021-slot-2.json",
+      "complete_index": false
+    },
+    {
+      "id": "cat-2021-slot-3",
+      "exam": "CAT",
+      "year": 2021,
+      "slot": 3,
+      "source_filename": "CAT-2021-paper-slot-3-with-answer-keys.pdf",
+      "source_sha256": "119d4e3fba5c40d13982aa3a199a35a516c5985450b047e66479d7af66d30013",
+      "page_count": 28,
+      "expected_question_count": 66,
+      "indexed_question_count": 66,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 20,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 7
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2021-slot-3.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2022-slot-1",
+      "exam": "CAT",
+      "year": 2022,
+      "slot": 1,
+      "source_filename": "CAT-2022-Question-Paper-Slot-1-with-Answer-Keys-Bodhee-Prep.pdf",
+      "source_sha256": "02e7b718b846758f8256d49ebd8b1a86c2b873a6d300f7a4b724cdc7ca4e4202",
+      "page_count": 24,
+      "expected_question_count": 66,
+      "indexed_question_count": 66,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 20,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 10
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2022-slot-1.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2022-slot-2",
+      "exam": "CAT",
+      "year": 2022,
+      "slot": 2,
+      "source_filename": "CAT-2022-Question-Paper-slot-2-with-Answer-Keys-by-Bodhee-Prep.pdf",
+      "source_sha256": "029079e74fee509d3bd1ca13de306672f8a2415ca4801a902cb8eb032aa5f92f",
+      "page_count": 25,
+      "expected_question_count": 66,
+      "indexed_question_count": 11,
+      "section_counts": {
+        "varc": 2,
+        "dilr": 0,
+        "qa": 9
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 2
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2022-slot-2.json",
+      "complete_index": false
+    },
+    {
+      "id": "cat-2022-slot-3",
+      "exam": "CAT",
+      "year": 2022,
+      "slot": 3,
+      "source_filename": "CAT-2022-Question-Paper-slot-3-with-Answer-Keys-by-Bodhee-Prep.pdf",
+      "source_sha256": "94cd8be0940021a769759e719198d43680b48bcd1dbb1d228386dc9fa886b8ed",
+      "page_count": 31,
+      "expected_question_count": 66,
+      "indexed_question_count": 34,
+      "section_counts": {
+        "varc": 12,
+        "dilr": 0,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 13
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2022-slot-3.json",
+      "complete_index": false
+    },
+    {
+      "id": "cat-2023-slot-1",
+      "exam": "CAT",
+      "year": 2023,
+      "slot": 1,
+      "source_filename": "CAt-2023-Question-Paper-slot-01-answer-keys-Bodheeprep.pdf",
+      "source_sha256": "35c97645bf892a127a0522d707972f2d664c7e99783a23f83747c4d62b930481",
+      "page_count": 26,
+      "expected_question_count": 66,
+      "indexed_question_count": 49,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 20,
+        "qa": 5
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 2
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2023-slot-1.json",
+      "complete_index": false
+    },
+    {
+      "id": "cat-2023-slot-2",
+      "exam": "CAT",
+      "year": 2023,
+      "slot": 2,
+      "source_filename": "CAt-2023-Question-Paper-slot-02-answer-keys-Bodheeprep.pdf",
+      "source_sha256": "c9de0a06ccdb74185edc8dd2b65b4634d253aaded2beeaef83a2db97976ef34f",
+      "page_count": 25,
+      "expected_question_count": 66,
+      "indexed_question_count": 66,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 20,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 9
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2023-slot-2.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2023-slot-3",
+      "exam": "CAT",
+      "year": 2023,
+      "slot": 3,
+      "source_filename": "CAt-2023-Question-Paper-slot-03.pdf",
+      "source_sha256": "49f6c54dae491e806ff3c37940dcd15a50d07275d7b714ecbbedd75e0ee64a9d",
+      "page_count": 27,
+      "expected_question_count": 66,
+      "indexed_question_count": 66,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 20,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 9
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2023-slot-3.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2024-slot-1",
+      "exam": "CAT",
+      "year": 2024,
+      "slot": 1,
+      "source_filename": "CAT-2024-Slot-01-Final-with-Answer-Keys.pdf",
+      "source_sha256": "d343eac7d3a0e1e1193d4845593348dc4b5cdfe930ee4d860e1ace2aee28b65f",
+      "page_count": 27,
+      "expected_question_count": 68,
+      "indexed_question_count": 68,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 22,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 6
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2024-slot-1.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2024-slot-2",
+      "exam": "CAT",
+      "year": 2024,
+      "slot": 2,
+      "source_filename": "CAT-2024-Slot-02-Final-with-Answer-Keys.pdf",
+      "source_sha256": "1010360e969555fb14b048eafd2f478f109e12743f758c1dddf149e70d212e4b",
+      "page_count": 28,
+      "expected_question_count": 68,
+      "indexed_question_count": 68,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 22,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 7
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2024-slot-2.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2025-slot-1",
+      "exam": "CAT",
+      "year": 2025,
+      "slot": 1,
+      "source_filename": "CAT-2025-Slot-01.pdf",
+      "source_sha256": "3b28e40403fe1aec8dd23b4552c53bb76f2325a0186aa41e6cb6686a9a976baf",
+      "page_count": 15,
+      "expected_question_count": 68,
+      "indexed_question_count": 68,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 22,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 10
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2025-slot-1.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2025-slot-2",
+      "exam": "CAT",
+      "year": 2025,
+      "slot": 2,
+      "source_filename": "CAT-2025-Slot-02.pdf",
+      "source_sha256": "d6afc447b2cb47aeb09b8287a2a4fabee4c9bfc0cefe536e8289a45ba1541198",
+      "page_count": 14,
+      "expected_question_count": 68,
+      "indexed_question_count": 68,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 22,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 13
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2025-slot-2.json",
+      "complete_index": true
+    },
+    {
+      "id": "cat-2025-slot-3",
+      "exam": "CAT",
+      "year": 2025,
+      "slot": 3,
+      "source_filename": "CAT-2025-Slot-03.pdf",
+      "source_sha256": "53ebf3477a67b3b6923ef05489cdf67c3e4a7b8141626621930a7345e1e53e3c",
+      "page_count": 14,
+      "expected_question_count": 68,
+      "indexed_question_count": 68,
+      "section_counts": {
+        "varc": 24,
+        "dilr": 22,
+        "qa": 22
+      },
+      "answer_key_ready_counts": {
+        "varc": 0,
+        "dilr": 0,
+        "qa": 13
+      },
+      "source_policy": "Question text and answer key only; third-party solution prose excluded.",
+      "asset": "papers/cat-2025-slot-3.json",
+      "complete_index": true
+    }
+  ]
+}

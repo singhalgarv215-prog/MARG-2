@@ -107,7 +107,7 @@
 
   <div class="cta-card">
     <div class="cta-title">Marg tracks your DILR decisions.</div>
-    <div class="cta-body">When you sign up, Marg learns whether you stay too long on hard sets, leave too early on easy ones, or misread constraints. Tomorrow's practice targets your specific decision-making pattern — not generic DILR.</div>
+    <div class="cta-body">When you sign up, Marg can compare your set choices and results across attempts. It treats one set as one observation—not a confirmed decision-making pattern.</div>
     <a href="https://trymarg.com" class="cta-btn">Start personalised practice — free →</a>
     <div class="cta-note">No credit card. Takes 60 seconds.</div>
   </div>
@@ -139,7 +139,17 @@ var answered = {};
 
 var isGenerating = false;
 
+function dilrEscapeHtml(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 async function generateDILR() {
+  // This legacy generator used an unverified 5-6 entity arrangement template.
+  // Route every request through the main app's audited timed DILR pathway.
+  window.location.replace('/?q=' + encodeURIComponent('Start a verified CAT-level DILR practice set'));
+  return;
   if (isGenerating) return;
   isGenerating = true;
   const container = document.getElementById('practice-container');
@@ -166,7 +176,7 @@ async function generateDILR() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        max_tokens: 16384,
         system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.',
         messages: [{ role: 'user', content: prompt }]
       })
@@ -192,8 +202,8 @@ async function generateDILR() {
   } catch(e) {
     isGenerating = false;
     localStorage.removeItem(cacheKey);
-    console.error('DILR Error:', e.message);
-    container.innerHTML = '<div class="loading"><div style="color:var(--text-dim)">Error: ' + e.message + ' <span onclick="generateDILR()" style="color:#C9A84C;cursor:pointer;">Retry</span></div></div>';
+    console.error('DILR generation failed');
+    container.innerHTML = '<div class="loading"><div style="color:var(--text-dim)">The set could not be prepared safely. <span onclick="generateDILR()" style="color:#C9A84C;cursor:pointer;">Retry</span></div></div>';
   }
 }
 
@@ -201,13 +211,13 @@ function renderDILR(data) {
   const container = document.getElementById('practice-container');
   var questionsHtml = data.questions.map(function(q, qi) {
     var optionsHtml = q.options.map(function(opt, oi) {
-      return '<button class="option" onclick="selectOption(' + qi + ',' + oi + ',' + q.correct + ',this)" id="opt-' + qi + '-' + oi + '">' + opt + '</button>';
+      return '<button class="option" onclick="selectOption(' + qi + ',' + oi + ',' + Number(q.correct) + ',this)" id="opt-' + qi + '-' + oi + '">' + dilrEscapeHtml(opt) + '</button>';
     }).join('');
     var divider = qi < data.questions.length - 1 ? '<div class="question-divider"></div>' : '';
-    return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="question-text">' + q.q + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Solution & Analysis</div><div class="explanation-text">' + q.explanation + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + q.common_mistake : '') + '</div></div></div>' + divider;
+    return '<div class="question-block"><div class="question-number">Question ' + (qi+1) + ' of ' + data.questions.length + '</div><div class="question-text">' + dilrEscapeHtml(q.q) + '</div><div class="options">' + optionsHtml + '</div><div class="explanation" id="exp-' + qi + '"><div class="explanation-label">Solution & Analysis</div><div class="explanation-text">' + dilrEscapeHtml(q.explanation) + (q.common_mistake ? '<br><br><strong>Common mistake:</strong> ' + dilrEscapeHtml(q.common_mistake) : '') + '</div></div></div>' + divider;
   }).join('');
   
-  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">🧩 DILR Set · #' + dayNum + '</div><div class="card-meta">' + (data.difficulty || 'Medium') + ' · ' + (data.constraint_types || []).join(' + ') + '</div></div><div class="card-body"><div class="two-min-tip">⏱ <strong>2-minute rule:</strong> Spend the first 2 minutes understanding the set structure only. If you can\'t see how to begin after 2 minutes — leave it. That\'s the CAT DILR skill.</div><div class="set-text"><strong>The Set:</strong><br><br>' + data.setup + '</div>' + questionsHtml + '</div></div>';
+  container.innerHTML = '<div class="practice-card"><div class="card-header"><div class="card-label">🧩 DILR Set · #' + dayNum + '</div><div class="card-meta">' + dilrEscapeHtml(data.difficulty || 'Medium') + ' · ' + dilrEscapeHtml((data.constraint_types || []).join(' + ')) + '</div></div><div class="card-body"><div class="two-min-tip">⏱ <strong>2-minute rule:</strong> Spend the first 2 minutes understanding the set structure only. If you can\'t see how to begin after 2 minutes — leave it. That\'s the CAT DILR skill.</div><div class="set-text"><strong>The Set:</strong><br><br>' + dilrEscapeHtml(data.setup) + '</div>' + questionsHtml + '</div></div>';
 }
 
 function selectOption(qIndex, optIndex, correct, btn) {
@@ -292,7 +302,7 @@ function showSignupPrompt(answeredObj, total) {
 
   var msg = correct === total
     ? 'You got all ' + total + ' right. Marg noticed something about how you approached this set.'
-    : 'You got ' + correct + ' out of ' + total + '. Marg has identified the pattern behind your mistakes.';
+    : 'You got ' + correct + ' out of ' + total + '. This attempt gives Marg one observation to review—not a confirmed pattern yet.';
 
   var div = document.createElement('div');
   div.id = 'marg-signup-prompt';
@@ -307,7 +317,7 @@ function showSignupPrompt(answeredObj, total) {
   
   var subDiv = document.createElement('div');
   subDiv.style.cssText = 'font-size:13px;color:#888880;margin-bottom:20px;line-height:1.6;';
-  subDiv.textContent = 'Sign up free — Marg builds practice around your specific mistake pattern. The longer you use Marg, the better it knows your brain.';
+  subDiv.textContent = 'Sign up free — Marg can compare this attempt with later evidence and test whether the same decision issue repeats.';
   
   var link = document.createElement('a');
   link.href = 'https://trymarg.com';

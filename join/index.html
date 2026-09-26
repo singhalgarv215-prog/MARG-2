@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,follow">
+  <title>Opening Marg…</title>
+  <script>
+    (function() {
+      var destination = '/' + window.location.search + window.location.hash;
+      window.location.replace(destination);
+    })();
+  </script>
+</head>
+<body style="margin:0;background:#0d0d0d;color:#c8c4bc;font-family:system-ui,sans-serif;display:grid;min-height:100vh;place-items:center;">
+  <p>Opening Marg… <a id="continue-link" href="/" style="color:#c9a84c;">Continue</a></p>
+  <script>
+    document.getElementById('continue-link').href = '/' + window.location.search + window.location.hash;
+  </script>
+</body>
+</html>

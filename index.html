@@ -20,7 +20,8 @@
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
 <link rel="stylesheet" href="/pilot-ui.css?v=20260921-reliability2">
 <script defer src="/chat-topics.js?v=20260920-coreloop1"></script>
-<script defer src="/landing-bootstrap.js?v=20260925-textbookchat1"></script>
+<script defer src="/time-mock-blueprints.js?v=20260926-timebank1"></script>
+<script defer src="/landing-bootstrap.js?v=20260926-reliability-audit1"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -761,12 +762,12 @@ Continue with Google
 <div style="background:#111;border:1px solid #1E1E1E;border-radius:16px;padding:24px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='#C9A84C'" onmouseout="this.style.borderColor='#1E1E1E'">
 <div style="font-size:28px;margin-bottom:12px;">🎯</div>
 <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px;">Daily Targeted Practice</div>
-<div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Fresh RC, DILR and QA sets every day — generated specifically around your mistake patterns. Not random questions.</div>
+<div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Fresh RC, DILR and QA checks with a stated reason. When Marg has enough evidence, the next check tests that working pattern.</div>
 </div>
 <div style="background:#111;border:1px solid #1E1E1E;border-radius:16px;padding:24px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='#C9A84C'" onmouseout="this.style.borderColor='#1E1E1E'">
 <div style="font-size:28px;margin-bottom:12px;">🧠</div>
 <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px;">Cognitive Pattern Tracking</div>
-<div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Marg tracks exactly how your brain makes mistakes — extreme language traps, set selection errors, final step calculation slips.</div>
+<div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Marg separates what happened from what it may mean—then tests whether option traps, set selection or execution actually repeat.</div>
 </div>
 <div style="background:#111;border:1px solid #1E1E1E;border-radius:16px;padding:24px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='#C9A84C'" onmouseout="this.style.borderColor='#1E1E1E'">
 <div style="font-size:28px;margin-bottom:12px;">📊</div>
@@ -809,7 +810,7 @@ Continue with Google
 </div>
 <div style="display:flex;gap:20px;align-items:flex-start;padding:20px 0;">
 <div style="width:36px;height:36px;border-radius:50%;background:rgba(76,175,77,0.15);border:1px solid rgba(76,175,77,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#4CAF7D;font-weight:700;flex-shrink:0;">✓</div>
-<div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">The longer you use it, the better it knows you</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Marg builds a profile of your mistakes over time. Week 4 practice is more personalised than week 1.</div></div>
+<div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">Evidence can build across sessions</div><div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Marg keeps relevant attempts and outcomes, so later advice can use what was actually observed instead of restarting from zero.</div></div>
 </div>
 </div>
 </div>
@@ -824,8 +825,8 @@ Continue with Google
 <section style="padding:40px 24px;background:#080808;width:100%;">
 <div class="landing-stats-grid">
 <div style="padding:24px;background:#111;border-radius:16px;border:1px solid #1E1E1E;">
-<div style="font-size:32px;font-weight:700;color:#C9A84C;font-family:'Playfair Display',serif;">110+</div>
-<div style="font-size:12px;color:#888;margin-top:6px;">active users</div>
+<div style="font-size:32px;font-weight:700;color:#C9A84C;font-family:'Playfair Display',serif;">Evidence</div>
+<div style="font-size:12px;color:#888;margin-top:6px;">before diagnosis</div>
 </div>
 <div style="padding:24px;background:#111;border-radius:16px;border:1px solid #1E1E1E;">
 <div style="font-size:32px;font-weight:700;color:#C9A84C;font-family:'Playfair Display',serif;">3</div>
@@ -924,7 +925,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 </div>
 <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;">
 <div style="font-size:11px;color:#4CAF7D;margin-bottom:4px;">EVERY DAY</div>
-<div style="font-size:13px;color:var(--text);">Marg generates practice targeting your specific mistake patterns</div>
+<div style="font-size:13px;color:var(--text);">Marg uses targeted practice to test a working read before calling it a pattern</div>
 </div>
 <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px 14px;">
 <div style="font-size:11px;color:#6B8EFF;margin-bottom:4px;">EVERY WEEK</div>
