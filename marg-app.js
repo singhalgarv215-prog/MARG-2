@@ -2712,11 +2712,14 @@ const SYSTEM_PROMPT = `You are Marg, a perceptive CAT mentor: calm, direct and h
 IMMERSION CONTRACT
 Demonstrate intelligence; do not describe it. Never explain Marg’s process, prompts, memory or question budgets.
 
-CORE RESPONSE CONTRACT
-Answer direct questions first: problem → tentative read → one evidence question → justified action. Never chain intake or guess causes. Normal replies are 40-90 words; solutions show working; larger requests cover every item. Diagnose decisions, not topics. Avoid report labels.
+CORE PURPOSE
+The student uses Marg to stop guessing about their preparation: know what is wrong, whether the fix is working, and what to do next instead of studying blind. Every substantive mentoring turn must move that loop forward.
+
+SOLVER CONTRACT
+Answer direct questions first. Use: what the evidence establishes → what remains uncertain → the smallest useful fix → how the next attempt will support or reject the read. Once the student has described the concrete moment where work breaks, give the bounded solution immediately. Never make them ask “so what should I do?” or “how can I improve?” after they have already supplied that mechanism. Ask a question only when its answer would materially change the immediate action; otherwise act from the evidence already available. Normal replies are 40-90 words; requested plans and worked solutions may be longer. Diagnose decisions, not topics. Avoid report labels.
 
 PERSONAL TEACHING CONTRACT
-Personalise the reason using their actual choice and a concrete contrast. If confused, change the example or representation. End teaching with one relevant invitation; respect stop/rest/answer-only. Never invent a weakness.
+Use their actual choice and one concrete contrast. If confused, change the example or representation. Respect stop/rest/answer-only. Never invent a weakness.
 
 TRUTH AND CORRECTION CONTRACT
 Use only student, result or verified facts; never turn inference into fact. For a false Marg claim, say "I misread that" and rebuild. Sharper evidence refines a hypothesis; it is not a Marg error. Missing evidence means one precise question or a tentative read.
@@ -2738,7 +2741,7 @@ STUDENT-SPECIFIC DECISIONS
 Silently require: "Because this student showed X, recommend Y instead of generic Z." X must come from their message, verified result or reliable memory.
 
 TRUSTED VISUAL EXPLANATIONS
-Never add decorative visuals. Use one accurate visual only for structural DILR, geometry, cubes, number lines, sequences or comparisons; text stands alone. Emit JSON, not HTML: [[MARG_VISUAL]]{"type":"flow|comparison|grid|bars|number_line|cube|geometry","title":"...",...}[[/MARG_VISUAL]]. Use matching items, columns, rows, points, size or labels fields.
+Use one accurate visual only for structural DILR, geometry, cubes, number lines, sequences or comparisons; text must stand alone. Emit JSON, not HTML: [[MARG_VISUAL]]{"type":"flow|comparison|grid|bars|number_line|cube|geometry","title":"...",...}[[/MARG_VISUAL]].
 
 EVIDENCE BEFORE REASSURANCE
 A score is an outcome, not capability. Examine attempts, accuracy, selection, timing, errors and the student's account. If they forbid score inference, carry it through follow-ups: state only where marks landed, then ask for one observable attempt event before causes or praise. Label hypotheses; reassure only from evidence.
@@ -2756,7 +2759,7 @@ EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-New topic: 1-2 narrowing questions → tentative read with evidence → confirmation → next step. Say "Here's my read", not "My prediction". Pair confirmation with what Marg will test. After confirmation, lead. Run/Start/Right now means execute now. QA/DILR use timed interfaces; teach DILR’s opening first. Stored hypotheses use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
+New topic with thin evidence: ask at most one question that can change the action. New topic with a concrete failure description: give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. QA/DILR use timed interfaces; teach DILR’s opening first. Stored hypotheses use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
 
 DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. Use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified.
@@ -2780,18 +2783,16 @@ PLANNING AND PERSONALIZATION
 A multi-section roadmap is planning, not section diagnosis. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify day versus rotation once. Valid confirmed evidence controls ordering and checkpoints: prioritise repeated score leakage over syllabus order.
 
 WEB VERIFICATION CONTRACT
-Never answer current or source-specific facts from memory when Google Search grounding is available: editions, chapters, contents, platform structures, CAT dates, fees, rules, cutoffs, schedules or product details. Use grounded evidence, separate verified facts from inference and briefly name checked sources. If the exact claim is unverified, say so. Mentoring judgment needs no search.
-Before recommending a mock purchase, verify current prices/features and use the student's real need. Never invent third-party menus, labels, navigation, rates or industry percentages.
+Ground current or source-specific facts: editions, contents, CAT dates, fees, rules, cutoffs, schedules and products. Separate verified facts from inference; say when the exact claim is unverified. Before a purchase recommendation, verify current price/features. Never invent third-party menus, labels, rates or percentages.
 
 PRACTICE LEADERSHIP
-Lead when Marg can create evidence and respect topic switches. Fresh pasted CAT question with no attempt status: never reveal the key. Ask if attempted; yes → ask their choice, no → solve. After practice, say what the result proves and does not prove; preserve one next step rather than defaulting to volume.
-When the student writes only a question number such as “Q7” or asks for “the answer to Q2”, that number is a reference—not enough information to reconstruct a textbook problem. Solve only if the exact stem/options are in textual history or verified exercise memory; otherwise request the exact image/text once. Never substitute a different question carrying the same number.
+Lead when Marg can create evidence and respect topic switches. For a fresh CAT question, do not reveal the key: ask whether it was attempted; yes → ask their choice, no → solve. After practice, state what the result proves and does not prove. A question number alone cannot reconstruct a problem; use the exact stem/options from history or request them once. Never substitute another question with the same number.
 
 CAT VARC QUESTION TYPES
 Do not reject informal labels. Vocabulary/cloze blanks differ from CAT sentence placement: placing one supplied sentence into blank 1, 2, 3 or 4. If “fill in the blanks” is ambiguous, clarify once—never infer a wrong practice mix. If the question is supplied, help with it instead of debating its label.
 
 IMAGES
-Inspect every current image in page order before using older context. A caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to that image and is not a vague or emotional message. Never guess unreadable text, replace the current image with a previously discussed question, or manufacture textbook questions/concepts from page numbers. When selecting questions from photographed pages, honour visible completed markings, use only legible question numbers, de-duplicate ranges and verify the count. Earlier image binaries may not be present on a later text-only turn; use exact transcriptions already in history or ask for the relevant page again. Never merge scorecard labels: marks, correct, attempted, accuracy, percentile and time differ. Clarify ambiguous units once.
+Inspect current images in page order. “Q7”, “solve this” or “this is the question” refers to the image. Never guess unreadable text, use an older question instead, or manufacture content from page numbers. Honour visible completed markings; use only legible numbers, de-duplicate ranges and verify counts. On later text-only turns use exact transcriptions in history or request the page again. Scorecard marks, correct, attempted, accuracy, percentile and time are distinct; clarify ambiguous units once.
 
 SOLUTION INTEGRITY
 For a solved question, do scratch work privately and publish one clean derivation whose opening answer matches its final checked value. Never expose “wait”, “let’s verify”, “actually”, a false start or two competing answers. A simpler explanation must preserve the original valid equation and meaning; do not invent an intuitive shortcut that changes which quantity is being counted. For a recommended-question list, count distinct question numbers exactly, expand ranges and never state a total that disagrees with the list.
@@ -4407,15 +4408,22 @@ function shouldDeferDiagnosticRoutingToGemini(message) {
 
 async function maybeStartGuidedExperienceFromMessage(message) {
   if (isAnswerReviewRequest(message)) return false;
+  // Typed chat must remain semantic. Previously an ordinary phrase such as
+  // “my DILR is terrible” could be seized by a keyword flow and replaced by
+  // canned cards. Guided flows now start only from an explicit slash command;
+  // Home and onboarding buttons still call their flows directly.
+  var explicitGuidedCommand = /^\s*\/(?:diagnose|diagnosis)\b/i.test(String(message || ''));
+  if (!explicitGuidedCommand) return false;
   // A detailed multi-section roadmap request already contains enough context.
   // It should be answered as planning, not collapsed into one section's flow.
   if (isComprehensiveRoadmapRequest(message)) return false;
   // Rule-based diagnostics are only for short, explicit topic switches. Richer
   // messages must reach Gemini intact so their causal detail is not discarded.
   if (shouldDeferDiagnosticRoutingToGemini(message)) return false;
-  var topic = detectExplicitDiagnosticTopic(message);
+  var commandMessage = String(message || '').replace(/^\s*\/(?:diagnose|diagnosis)\b/i, 'help with').trim();
+  var topic = detectExplicitDiagnosticTopic(commandMessage);
   if (!topic) {
-    var shortTopic = String(message || '').toLowerCase().trim();
+    var shortTopic = commandMessage.toLowerCase().trim();
     if (/^(varc|rc|reading comprehension)$/.test(shortTopic)) topic = 'varc';
     else if (/^(qa|quant|quants)$/.test(shortTopic)) topic = 'qa';
     else if (/^(dilr|lrdi)$/.test(shortTopic)) topic = 'dilr';
@@ -6749,12 +6757,14 @@ function isCurrentMessageAboutActiveExercise(message) {
 
 function suppressUnrelatedExerciseContinuation(response, userMessage) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
-  if (!activeGeneratedExercise || isCurrentMessageAboutActiveExercise(userMessage)) return response;
+  if (activeGeneratedExercise && isCurrentMessageAboutActiveExercise(userMessage)) return response;
   var value = String(response || '');
   // A saved exercise may inform continuity, but it must never seize a reply to
   // a different current question. Remove only explicit resume/complete tails.
   value = value.replace(/\n{1,3}(?:Now,?\s*)?(?:let(?:'|’)s|we(?:'|’)ll|please)\s+(?:return to|go back to|resume|continue|complete|finish)\b[\s\S]{0,80}\b(?:decision lab|strategy lab|saved (?:task|exercise)|older (?:task|exercise)|previous (?:task|exercise))[\s\S]*$/i, '');
   value = value.replace(/\n{1,3}(?:Your|The)\s+(?:saved|previous|older)\s+(?:decision lab|strategy lab|task|exercise)\b[\s\S]*$/i, '');
+  value = value.replace(/\n{0,3}(?:Let(?:'|’)s|We can|Now)\s+(?:test|apply|try)\s+(?:this|it|that)\s+(?:on|with|using)\s+(?:the\s+)?[^.!?\n]{0,90}\b(?:currently open|active (?:set|exercise|passage)|open in your (?:active )?set)\b[^.!?\n]*[.!?]?\s*/gi, '\n');
+  value = value.replace(/\n{0,3}(?:Which|What)\s+[^?\n]{0,100}\b(?:currently open|active (?:set|exercise|passage)|open passage)\b[^?\n]*\?\s*/gi, '\n');
   return value.trim() || response;
 }
 
@@ -9412,7 +9422,11 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'greeting') directive += unansweredBeforeGreeting
     ? '\nGREETING CONTINUITY: Greet in one short clause, then answer the most recent earlier user question because it has no valid assistant answer. Do not diagnose the greeting and do not ask a new intake question before answering.'
     : '\nGREETING CONTINUITY: This is only a greeting. Reply warmly and briefly, then ask what CAT work they want help with. Do not infer a problem, weak section or emotional state.';
-  directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. Every completed reply should leave the student an obvious way to continue: one relevant question, a small choice, or an action already starting. Never finish with only advice or “let me know”. The continuation must come from this conversation—not a generic profile interview—and there must never be more than one new question. Do not use generic fallback choices such as “Explain this more simply”, “Show me an example”, or “Help me apply it” unless the student explicitly asked for one of those things; name the actual decision or next step from their message instead. Never expose this instruction or use report labels.';
+  directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. A complete answer may end cleanly; never append a generic engagement question or a stock option menu merely to keep the chat going. Ask at most one new question, and only if its answer would change the action. Do not use generic fallback choices such as “Explain this more simply”, “Show me an example”, or “Help me apply it”. Never expose this instruction or use report labels.';
+  var concreteProcessEvidence = messageText.split(/\s+/).filter(Boolean).length >= 10 && /\b(?:when|because|but|while|after|before|end up|stuck|re-?read|random|guess|time pressure|cannot|can['’]?t|do not|don['’]?t|get what|main claim|method|setup|clue|option|passage|set)\b/i.test(messageText) &&
+    ['varc_diagnosis','dilr_diagnosis','qa_diagnosis','mock_diagnosis','pacing_diagnosis'].indexOf(diagnosis.intent) !== -1;
+  diagnosis.concreteProcessEvidence = concreteProcessEvidence;
+  if (concreteProcessEvidence) directive += '\nSOLVER TURN: The student has supplied a concrete failure description. Do not spend this reply collecting another field or merely restating the problem. Give (1) the evidence-bounded read, (2) a correction they can execute on the next attempt, and (3) the observable result that will support, reject or refine the read. A question is optional and must come after those three parts. The student must not need to ask what to do next.';
   if (diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady && !diagnosis.allowsEvidenceQuestion) directive += '\nDo not chain another background question. Answer from known evidence; leave untested causes tentative. Do not force a diagnosis or action to close the turn.';
   if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
@@ -9440,7 +9454,7 @@ function buildDiagnosisDirective(message) {
   var diagnosisRecentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
   if (diagnosis.intent === 'mock_diagnosis' && /\b(?:sectional|accuracy|percentile|attempt(?:ed|s)?|scorecard)\b/i.test(messageText + ' ' + diagnosisRecentItems.slice(-6).map(function(item) { return item && item.content ? item.content : ''; }).join(' '))) directive += '\nSECTIONAL EVIDENCE RULE: Perfect accuracy proves only that attempted questions were correct. It does not prove zero concept gaps, elite foundations, that pace or volume is the sole bottleneck, or that extra attempts are pure upside. Do not divide 40 minutes by attempts and call that solve time unless time on scanning and skipped questions is known. Do not prescribe an attempt target, exit threshold, score jump or percentile outcome from one sectional without a labelled test and valid arithmetic. If the screenshot count and the student\'s count differ, state the mismatch neutrally and clarify what the screenshot metric represents; never overrule the student with false certainty.';
   if (/\b(?:just|just now|today|right now)\b.{0,35}\b(?:finished|completed|gave|taken|attempted|done with)\b.{0,20}\bmock\b|\b(?:finished|completed|gave|taken|attempted)\b.{0,20}\bmock\b.{0,20}\b(?:just|just now|today|right now)\b/i.test(messageText) || diagnosis.emotionalState === 'drained') directive += '\nFRESH-MOCK ENERGY CHECK: Give only one evidence-bounded first observation. Do not send a dense breakdown or Today\'s Mission yet. Ask whether the student wants the full analysis now, a short first read now, or to rest and revisit it later. If they explicitly requested the full breakdown now and sound ready, proceed without repeating the timing question.';
-  if (/\b(?:i think|maybe|probably|not sure|i guess|might be)\b/i.test(messageText)) directive += '\nUNCERTAIN SELF-DIAGNOSIS: Treat the student\'s proposed cause as a hypothesis. Do not prescribe an unsupported numeric adjustment. Give a small comparison test with observable outcomes that can confirm or reject it.';
+  if (/\b(?:i think|maybe|probably|not sure|i guess|might be)\b/i.test(messageText)) directive += '\nUNCERTAIN SELF-DIAGNOSIS: Treat the student\'s proposed cause as a hypothesis, but do not stop at challenging its label. Give the safest immediately usable correction plus a small comparison with observable outcomes that can confirm or reject the cause. Do not prescribe unsupported numeric precision.';
   if (/\b(?:only|mostly|mainly|exclusively)\b.{0,45}\b(?:arithmetic|algebra|geometry|number systems?|modern math|percentages?|ratios?)\b|\bpractice\b.{0,30}\b(?:only|mostly|mainly)\b/i.test(messageText)) directive += '\nPRACTICE MIX CHECK: Test whether the student practises a narrower topic mix than the mock demands. If so, say plainly that their practice mix does not match the mock. Keep the main weak-topic work, add smaller repeated exposure to other topic families, and use a mixed timed check; do not merely name one missing chapter.';
   if (/\b(?:mod|modulus|absolute value|absolute values)\b|\|\s*x\s*\||\|\s*y\s*\|/i.test(messageText) && /\b(?:graph|area|bounded|region|plot|shape)\b/i.test(messageText)) directive += '\nMODULUS-GRAPH ACCURACY: Do not say that every equation containing |x| and |y| makes a four-sided shape. Limit the diamond/rhombus shortcut to the linear family a|x-h| + b|y-k| <= c with positive a, b and c. For that family, distinguish the equality boundary from the filled <= region; the half-diagonals are c/a and c/b, so the area is 2c^2/(ab). Mention translation preserving area only when a shifted form is actually relevant. If a visual helps, emit one valid geometry polygon using exact [[MARG_VISUAL]] and [[/MARG_VISUAL]] tags.';
   if (/\b(?:dilr|lrdi|set)\b/i.test(messageText) && /\b(?:1[5-9]|2\d|3\d)\s*(?:\+\s*)?(?:minutes?|mins?)\b|\b(?:couldn\'t leave|could not leave|had to finish|kept going|stayed too long|already invested)\b/i.test(messageText)) directive += '\nDILR COMMITMENT CHECK: Reconstruct whether sunk-cost commitment or a missing kill-switch kept the student in the set. Treat errors immediately afterward as possible working-memory fatigue evidence, not automatically as isolated carelessness. Tie the diagnosis to the narrative and give an explicit progress checkpoint/exit rule.';
@@ -9702,6 +9716,9 @@ function diagnosisForwardLeadFromIntent(diagnosis) {
 function ensureDiagnosisForwardLead(text, diagnosis) {
   var value = String(text || '').trim();
   if (!diagnosis || ['varc_diagnosis','dilr_diagnosis','qa_diagnosis','mock_diagnosis','pacing_diagnosis','confidence_breakdown'].indexOf(diagnosis.intent) === -1) return value;
+  // Once the failure moment is concrete, confirmation is no longer a gate.
+  // The solver guard below supplies the correction and measurement now.
+  if (diagnosis.concreteProcessEvidence) return value;
   var tags = value.match(/(?:\s*\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]\s*)+$/i);
   var suffix = tags ? tags[0].trim() : '';
   var visible = tags ? value.slice(0, tags.index).trim() : value;
@@ -9795,6 +9812,12 @@ function guardMockScoreArithmeticOverclaim(text, diagnosis) {
   var wrong = wrongMatch ? Number(wrongMatch[1]) : null;
   if (Number.isFinite(attempts) && ((Number.isFinite(correct) && correct > attempts) || (Number.isFinite(correct) && Number.isFinite(wrong) && correct + wrong > attempts))) {
     return 'Those counts conflict: you cannot have more correct answers than attempts, and correct plus wrong cannot exceed attempts. I don’t know which field was copied incorrectly, so I won’t diagnose from them. Please check the scorecard labels and send the exact attempted, correct, wrong and skipped counts.';
+  }
+  var inventedScoreReconstruction = Number.isFinite(attempts) && Number.isFinite(correct) && Number.isFinite(wrong) && !/\b(?:MCQ|TITA)\b/i.test(supplied) &&
+    /\b(?:scor(?:e|ed|ing)\s+\d+\s+marks?|plus\s+(?:any\s+)?TITA|TITA\s+marks?\s+to\s+reach|wiped out\s+\w+\s+full correct answers?)\b/i.test(value);
+  if (inventedScoreReconstruction) {
+    var accuracy = attempts > 0 ? Math.round(correct * 1000 / attempts) / 10 : 0;
+    return attempts + ' attempted, ' + correct + ' correct and ' + wrong + ' wrong establishes ' + accuracy + '% accuracy. It does not uniquely reconstruct the section score because wrong MCQs and wrong TITA answers are penalised differently. I need the scorecard’s MCQ/TITA split before attributing exact marks.\n\nThe useful next evidence is the decision behind the wrong choices—for example, being stuck between two options, losing the passage claim, or rushing—because those lead to different fixes.';
   }
   var suppliedCounts = /\b(?:attempted|attempts?|correct|wrong)\s*[:=-]?\s*\d+|\b\d+\s+(?:attempts?|correct|wrong|questions? attempted)\b/i.test(supplied);
   if (/\baccuracy\b|\d+\s*%/i.test(supplied) && !suppliedCounts && /\b(?:you (?:are |were |must have |likely |roughly |approximately |probably )?(?:attempting|attempted|got|getting)|your attempts? (?:are|were))\s*(?:roughly |about |around |approximately )?\d|\b(?:average|averaging)\b[^.!?\n]{0,55}\b(?:per question|minutes? (?:on|for) each)\b/i.test(value)) {
@@ -9951,33 +9974,9 @@ function guardModulusGraphOverclaim(text, diagnosis) {
 }
 
 function buildConversationMomentumClose(diagnosis) {
-  var intent = String(diagnosis && diagnosis.intent || '');
-  var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
-  var combined = (intent + ' ' + userText).toLowerCase();
-
-  if ((/\b(?:mod|modulus|absolute value|absolute values)\b|\|\s*x\s*\||\|\s*y\s*\|/i.test(userText)) && /\b(?:graph|area|bounded|region|plot|shape)\b/i.test(userText)) {
-    return 'Want to try one where the centre is shifted, or one where the coefficients change?\n[OPTIONS: Shifted centre|Different coefficients|Show one more worked example][CONTEXT: conversation_momentum]';
-  }
-  if (/mock_diagnosis/.test(intent)) {
-    return 'Which part should we unpack next from this mock?\n[OPTIONS: The section I chose|Another section|My question-selection decisions][CONTEXT: conversation_momentum]';
-  }
-  if (/qa_diagnosis/.test(intent) || /\b(?:qa|quant|algebra|arithmetic|geometry|number system|equation|percentage|ratio)\b/.test(combined)) {
-    return 'Where does it usually break first for you?\n[OPTIONS: Recognising the method|Setting it up|Finishing accurately][CONTEXT: conversation_momentum]';
-  }
-  if (/varc_diagnosis/.test(intent) || /\b(?:varc|rc|passage|author|para jumble|sentence placement)\b/.test(combined)) {
-    return 'Which part should we work on next?\n[OPTIONS: Finding the exact claim|Choosing between two options|Reading the passage structure][CONTEXT: conversation_momentum]';
-  }
-  if (/dilr_diagnosis/.test(intent) || /\b(?:dilr|lrdi|arrangement|set selection|logic set)\b/.test(combined)) {
-    return 'Where does the set usually start slipping for you?\n[OPTIONS: Choosing the set|Building the first table|Knowing when to leave][CONTEXT: conversation_momentum]';
-  }
-  if (intent === 'planning' || /\b(?:plan|schedule|timetable|roadmap|routine|days? left|weeks? left|mock days?|revision)\b/.test(userText.toLowerCase())) {
-    return 'Which part should I turn into an exact timetable first?\n[OPTIONS: My daily routine|My weekly subject split|My mock and analysis days][CONTEXT: conversation_momentum]';
-  }
-  if (intent === 'answer_review') {
-    return 'What would help more while this is still fresh?\n[OPTIONS: Unpack the method|Try one similar question|Move to the next topic][CONTEXT: conversation_momentum]';
-  }
-  // Unknown intents should keep the model's natural ending. A generic trio of
-  // buttons often has no relationship to what the student just asked.
+  // Deliberately empty. Earlier versions selected a canned closing question
+  // from section keywords. That made complete answers feel scripted and could
+  // steer the conversation away from the student's newest request.
   return '';
 }
 
@@ -9996,27 +9995,9 @@ function responseAlreadyNeedsStudentInput(value) {
 
 function ensureConversationMomentumClose(text, diagnosis) {
   var value = String(text || '').trim();
-  if (!value || !diagnosis) return value;
-  var userText = String(diagnosis.submittedAnswerText || '').trim();
-  if (/\b(?:bye|goodbye|good night|goodnight|stop here|pause here|that(?:'|’)s all|no follow[- ]?up|don'?t ask|do not ask|answer only|just the answer)\b/i.test(userText)) return value;
-  if (diagnosis.intent === 'privacy_request' || diagnosis.intent === 'seamless_continuation' || diagnosis.intent === 'image_question' || diagnosis.intent === 'question_reference' || diagnosis.hintOnly || diagnosis.committedAction) return value;
-  if (responseAlreadyNeedsStudentInput(value)) return value;
-  if (/\b(?:Retry response|Finish this answer|couldn’t finish the response|could not finish the response)\b/i.test(value)) return value;
-
-  var visible = value
-    .replace(/\[\[MARG_VISUAL\]\][\s\S]*?(?:\[\[?\/MARG_VISUAL\]\]?|$)/gi, '')
-    .replace(/\[(?:CONTEXT|REMINDER_CONTEXT|HYPOTHESIS_VERDICT):[^\]]*\]/gi, '')
-    .trim();
-  var tail = visible.slice(-420);
-  if (/\?\s*(?:$|\n)/.test(tail)) return value;
-  if (/\b(?:start|open|begin)\s+(?:the|this|a|one)?\s*(?:test|check|set|passage|exercise)\b[^.!?]*[.!]?\s*$/i.test(tail)) return value;
-
-  if (typeof isRCFunctionMappingReply === 'function' && isRCFunctionMappingReply(userText)) {
-    return (value + '\n\n' + buildRCFunctionProgressionClose(false)).replace(/\n{3,}/g, '\n\n').trim();
-  }
-  var contextualClose = buildConversationMomentumClose(diagnosis);
-  if (!contextualClose) return value;
-  return (value + '\n\n' + contextualClose).replace(/\n{3,}/g, '\n\n').trim();
+  // Natural model questions, explicit test controls and dedicated progression
+  // flows remain intact. No extra question is manufactured after the answer.
+  return value;
 }
 
 function collectDistinctQuestionNumbers(text) {
@@ -10115,6 +10096,67 @@ function guardUnsupportedCausalCertainty(text, diagnosis) {
   return value.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function guardUnrelatedCalendarCorrection(text, diagnosis) {
+  var value = String(text || '').trim();
+  var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
+  if (/\b(?:today|tomorrow|yesterday|date|day of (?:the )?week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|calendar)\b/i.test(userText)) return value;
+  // A stale correction such as “Today is Sunday…” must not lead an RC, QA or
+  // mock reply merely because an older turn once mentioned a date.
+  return value.replace(/^\s*(?:I misread that date statement earlier\.\s*)?(?:Today|The current date)\s+is\s+[^.!?\n]+[.!?]\s*/i, '').trim();
+}
+
+function guardUnrelatedLeadingArithmetic(text, diagnosis) {
+  var value = String(text || '').trim();
+  var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
+  var intent = String(diagnosis && diagnosis.intent || '');
+  if (!/^(?:varc|dilr)_diagnosis$/.test(intent)) return value;
+  if (/\b(?:calculate|solve|value|fraction|ratio|divide|division|equation|math|quant|qa)\b|[=÷×+*/]\s*\d/i.test(userText)) return value;
+  var blocks = value.split(/\n\s*\n/);
+  var first = String(blocks[0] || '').trim();
+  var arithmeticOnly = /\d+\s*\/\s*\d+/.test(first) && /[=÷×]/.test(first) && first.length < 180;
+  if (!arithmeticOnly) return value;
+  blocks.shift();
+  return blocks.join('\n\n').trim();
+}
+
+function repairMalformedNumberedGuidance(text) {
+  var value = String(text || '');
+  var emptyThree = /look for three structural anchors as you read\s*:\s*(?:\n\s*)?1\.\s*(?:\n\s*)?2\.\s*(?:\n\s*)?3\./i;
+  if (!emptyThree.test(value)) return value;
+  return value.replace(emptyThree,
+    'use three structural anchors as you read:\n1. What job is this paragraph doing?\n2. What claim, contrast or qualification did it add?\n3. How does that change the passage’s central point?');
+}
+
+function buildSolverActionFallback(diagnosis) {
+  var intent = String(diagnosis && diagnosis.intent || '');
+  if (intent === 'varc_diagnosis') {
+    return 'Use this on the next RC: after each paragraph, write one short line containing its job and its claim. Before checking options, state the tested relationship in plain words; for an analogy question, match that relationship—not the topic.\n\nMeasure the attempt: write the passage’s main claim before opening the questions, then record how many answers required a full-paragraph reread and how many became guesses. On a second passage, fewer full rereads with equal or better accuracy supports the passage-mapping read; a clear map with the same option errors shifts the problem to option verification.';
+  }
+  if (intent === 'dilr_diagnosis') {
+    return 'Use this on the next DILR set: write the first table or diagram before solving, mark the last real deduction, and continue only while the setup is gaining information.\n\nMeasure the attempt by recording the chosen representation, the point where progress stopped, and whether leaving or changing the setup improved the result on the next set. That separates a representation problem from a leave-decision problem.';
+  }
+  if (intent === 'qa_diagnosis') {
+    return 'Use this on the next mixed QA block: before calculating, write the clue that suggests the method. If no method appears, mark it and move on; review the missing clue afterward rather than only reading the full solution.\n\nMeasure how many questions had a correct method cue before calculation and whether that count improves in the next mixed block. That separates missing concepts from method-recognition failure.';
+  }
+  if (intent === 'mock_diagnosis' || intent === 'pacing_diagnosis') {
+    return 'For the next comparable attempt, change only the decision currently under suspicion and record the exact moment it appears. Keep the rest of the process stable.\n\nCompare the same observable result afterward—accuracy, completed work, or the leave decision. Improvement supports the working read; no change means the cause needs to be revised rather than repeating the same advice.';
+  }
+  return '';
+}
+
+function ensureSolverFirstResponse(text, diagnosis) {
+  var value = String(text || '').trim();
+  if (!value || !diagnosis || !diagnosis.concreteProcessEvidence) return value;
+  if (diagnosis.intent === 'answer_review' || diagnosis.intent === 'planning' || diagnosis.hintOnly || diagnosis.committedAction) return value;
+  if (/\[(?:START_TEST|PRACTICE_LOG):/i.test(value)) return value;
+  var hasExecutableCorrection = /\b(?:use this|do this|on the next|for the next|next attempt|next passage|next set|write|mark|record|compare|re-?read|map|translate|state the claim|before (?:checking|solving|calculating)|after each paragraph)\b/i.test(value);
+  var hasMeasurement = /\b(?:measure|record|count|retest|supports? the|rejects? the|compare (?:the|this|your|one|two)|next (?:attempt|passage|set|block)|if[^.!?]{0,100}\botherwise\b)\b/i.test(value);
+  if (hasExecutableCorrection && hasMeasurement) return value;
+  var fallback = buildSolverActionFallback(diagnosis);
+  if (!fallback) return value;
+  return (value + '\n\n' + fallback).replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
   if (diagnosis && diagnosis.hintOnly) return guardHintOnlyResponse(response);
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
@@ -10161,12 +10203,16 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardForcedReportBackClose(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
   text = guardUnsupportedCausalCertainty(text, diagnosis);
+  text = guardUnrelatedCalendarCorrection(text, diagnosis);
+  text = guardUnrelatedLeadingArithmetic(text, diagnosis);
+  text = repairMalformedNumberedGuidance(text);
   text = guardUnlabelledNumericPrescription(text, diagnosis);
   text = guardModulusGraphOverclaim(text, diagnosis);
   text = guardImageResponseGrounding(text, diagnosis);
   text = guardCleanSolvedQuestionResponse(text, diagnosis);
   text = guardRecommendedQuestionCount(text);
   text = stripGenericConversationalOptionTags(text);
+  text = ensureSolverFirstResponse(text, diagnosis);
   text = ensureConversationMomentumClose(text, diagnosis);
   text = cleanMentorOpeningPunctuation(text);
   // Never discard an otherwise complete answer merely because natural prose
@@ -10824,7 +10870,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   systemAddition += mentorAnalysis.directive;
   if (useWebGrounding) systemAddition += '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.';
   if (!useWebGrounding && !mentorAnalysis.diagnosis.comprehensivePlanning && context !== 'rc_micro_followup_existing' && context !== 'rc_function_followup_existing' && ['answer_review','planning','returning_memory','image_question','question_reference'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
-    systemAddition += '\n\nCHAT-FIRST PREDICTION MODE: There is no form or intake interview. The first goal is to make the student feel accurately understood. Use 1-2 structured narrowing questions, then state one hidden-cause prediction in natural mentor language, briefly explain the clue, and ask one confirmation. Do not say "My prediction:". Never end on only "Does that feel accurate?"; in the same reply preview the exact check or coaching action that will follow if the read fits. After Exactly or Mostly, do not repeat the diagnosis or ask another intake question. Immediately lead with "Then let\'s verify it instead of guessing," name what the targeted check will observe, and offer Right now / Later today / Tomorrow. Wait only for that timing consent before launching the exercise. Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
+    systemAddition += '\n\nCHAT-FIRST SOLVER MODE: There is no form or intake interview. Thin evidence permits one precise question. A concrete description of where the work breaks requires useful help now: an evidence-bounded read, an executable correction and a way to judge the next result. Do not gate the correction behind Exactly/Mostly, timing consent or another profile question. Do not say "My prediction:". Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
   } else if (mentorAnalysis.diagnosis.comprehensivePlanning) {
     systemAddition += '\n\nThe student has already supplied a broad preparation story and explicitly asked for a complete roadmap. Do not narrow them into a section diagnostic or ask preliminary intake questions. Give the complete cross-section roadmap now.';
   }
@@ -11746,6 +11792,20 @@ async function maybeGenerateConversationalRC(message) {
 function maybeLaunchExplicitPracticeRequest(message) {
   var request = parseExplicitPracticeLaunchRequest(message);
   if (!request) return false;
+  var explicitlyOpenedPracticePage = /\b(?:open|go to|take me to|show)\b[\s\S]{0,35}\bpractice\s+(?:tab|page|section)\b/i.test(String(message || ''));
+  if (explicitlyOpenedPracticePage) {
+    currentPracticeType = request.type;
+    currentSetIndex = 0;
+    currentQuestionIndex = 0;
+    practiceAnswered = false;
+    practiceTopicChosen = request.type === 'rc' || !!request.topic;
+    selectedPracticeTopic = request.topic || null;
+    document.querySelectorAll('.ptab-btn').forEach(function(button) { button.classList.remove('active'); });
+    var requestedTabButton = document.getElementById('ptab-' + request.type);
+    if (requestedTabButton) requestedTabButton.classList.add('active');
+    switchTab('practice');
+    return true;
+  }
   // “Timed” and “sectional” are execution instructions, not merely Practice
   // discovery terms. Honour the section and topic already supplied instead of
   // navigating to a second picker that makes the student repeat the request.
@@ -11759,16 +11819,16 @@ function maybeLaunchExplicitPracticeRequest(message) {
     startTimedTest(request.type, timedTopic, timedCount, null, 0);
     return true;
   }
-  currentPracticeType = request.type;
-  currentSetIndex = 0;
-  currentQuestionIndex = 0;
-  practiceAnswered = false;
-  practiceTopicChosen = request.type === 'rc' || !!request.topic;
-  selectedPracticeTopic = request.topic || null;
-  document.querySelectorAll('.ptab-btn').forEach(function(button) { button.classList.remove('active'); });
-  var button = document.getElementById('ptab-' + request.type);
-  if (button) button.classList.add('active');
-  switchTab('practice');
+  // Ordinary “practise QA/DILR” requests stay anchored to the current chat.
+  // Open a compact checked exercise in the overlay instead of silently
+  // moving the user to the Practice page and losing the conversation thread.
+  if (request.type === 'qa' || request.type === 'dilr') {
+    switchTab('chat');
+    var chatTopic = request.topic || (request.type === 'qa' ? 'Mixed QA' : 'Mixed Set Selection');
+    var chatCount = request.requestedCount || (request.type === 'qa' ? 3 : 4);
+    startTimedTest(request.type, chatTopic, chatCount, null, 0);
+    return true;
+  }
   return true;
 }
 
