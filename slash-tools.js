@@ -35,6 +35,16 @@
     return String(value || '').toLowerCase().replace(/^\s*\//, '').trim();
   }
 
+  function updateActiveCommandRows() {
+    var menu = menuElement();
+    if (!menu) return;
+    Array.prototype.forEach.call(menu.querySelectorAll('.slash-command-row'), function (row, index) {
+      var active = index === activeIndex;
+      row.classList.toggle('active', active);
+      row.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+  }
+
   function renderSlashCommandMenu(search) {
     var menu = menuElement();
     var button = buttonElement();
@@ -69,7 +79,9 @@
       title.appendChild(code); title.appendChild(document.createTextNode(' ' + item.title));
       var description = document.createElement('span'); description.className = 'slash-command-description'; description.textContent = item.description;
       copy.appendChild(title); copy.appendChild(description); row.appendChild(icon); row.appendChild(copy);
-      row.addEventListener('mouseenter', function () { activeIndex = index; renderSlashCommandMenu(query); });
+      // Never rebuild the menu on pointer entry. Replacing the hovered button
+      // before mouseup cancels the click in real browsers.
+      row.addEventListener('mouseenter', function () { activeIndex = index; updateActiveCommandRows(); });
       row.addEventListener('click', function () { openMargTool(item.id); });
       menu.appendChild(row);
     });
@@ -302,7 +314,7 @@
       event.preventDefault(); event.stopImmediatePropagation();
       var delta = event.key === 'ArrowDown' ? 1 : -1;
       activeIndex = visibleCommands.length ? (activeIndex + delta + visibleCommands.length) % visibleCommands.length : 0;
-      renderSlashCommandMenu(inputElement() ? inputElement().value : '');
+      updateActiveCommandRows();
     } else if (event.key === 'Enter' && !event.shiftKey && visibleCommands[activeIndex]) {
       event.preventDefault(); event.stopImmediatePropagation(); openMargTool(visibleCommands[activeIndex].id);
     } else if (event.key === 'Escape') {
