@@ -18,11 +18,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<link rel="stylesheet" href="/pilot-ui.css?v=20260928-question-context1">
+<link rel="stylesheet" href="/pilot-ui.css?v=20260928-slash-tools1">
 <script defer src="/chat-topics.js?v=20260928-question-context1"></script>
 <script defer src="/question-library.js?v=20260928-question-context1"></script>
+<script defer src="/marg-training.js?v=20260928-training1"></script>
+<script defer src="/slash-tools.js?v=20260928-slash-tools1"></script>
 <script defer src="/time-mock-blueprints.js?v=20260926-timebank1"></script>
-<script defer src="/landing-bootstrap.js?v=20260928-question-context1"></script>
+<script defer src="/landing-bootstrap.js?v=20260928-slash-training1"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -245,23 +247,30 @@ gtag('config', 'G-VZ0N5RH912');
 </div>
 
 
-<div id="feedback-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;">
-<div style="background:#111;border:1px solid #222;border-radius:16px;padding:28px 24px;max-width:360px;width:90%;position:relative;">
-<button onclick="closeFeedback()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#555;font-size:20px;cursor:pointer;">×</button>
-<div style="font-size:16px;color:#F0EDE6;font-weight:600;margin-bottom:6px;">Before you go 👋</div>
-<div style="font-size:13px;color:#888;margin-bottom:16px;">Quick feedback helps us improve Marg for you.</div>
-<div style="font-size:13px;color:#C8C4BC;margin-bottom:10px;">What could be better?</div>
+<div id="feedback-modal">
+<div class="feedback-dialog">
+<button class="feedback-close" onclick="closeFeedback()">×</button>
+<div class="feedback-title">Before you go 👋</div>
+<div class="feedback-sub">Quick feedback helps us improve Marg for you.</div>
+<div class="feedback-question">What could be better?</div>
 <div id="feedback-options" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
-<button class="fb-opt" onclick="selectFeedback(this)">Marg didn't understand my problem</button>
+<button class="fb-opt" onclick="selectFeedback(this)">The answer was incorrect</button>
+<button class="fb-opt" onclick="selectFeedback(this)">Marg ignored my question</button>
+<button class="fb-opt" onclick="selectFeedback(this)">Marg lost the conversation context</button>
+<button class="fb-opt" onclick="selectFeedback(this)">The response felt generic</button>
+<button class="fb-opt" onclick="selectFeedback(this)">The diagnosis had no evidence</button>
+<button class="fb-opt" onclick="selectFeedback(this)">The next step was not useful</button>
 <button class="fb-opt" onclick="selectFeedback(this)">Responses were too long or confusing</button>
-<button class="fb-opt" onclick="selectFeedback(this)">I wanted more practice questions</button>
-<button class="fb-opt" onclick="selectFeedback(this)">Marg kept pushing me away</button>
-<button class="fb-opt" onclick="selectFeedback(this)">I just came to explore</button>
+<button class="fb-opt" onclick="selectFeedback(this)">The tone felt wrong</button>
 <button class="fb-opt" onclick="selectFeedback(this)">Something else</button>
 </div>
-<textarea id="feedback-text" placeholder="Any other thoughts? (optional)" style="width:100%;background:#1A1A1A;border:1px solid #2A2A2A;border-radius:10px;padding:10px;color:#C8C4BC;font-size:13px;resize:none;height:72px;box-sizing:border-box;font-family:DM Sans,sans-serif;"></textarea>
-<button onclick="submitFeedback()" style="width:100%;margin-top:12px;background:linear-gradient(135deg,#4CAF7D,#2D7A55);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;cursor:pointer;font-family:DM Sans,sans-serif;font-weight:600;">Send feedback</button>
-<button onclick="closeFeedback()" style="width:100%;margin-top:8px;background:none;border:none;color:#555;font-size:13px;cursor:pointer;padding:6px;">Skip</button>
+<textarea id="feedback-text" placeholder="Any other thoughts? (optional)"></textarea>
+<label id="feedback-training-consent-row">
+<input id="feedback-training-consent" type="checkbox" checked>
+<span>Allow the Marg team to review this response and use a de-identified version in quality tests. Feedback still sends if unchecked.</span>
+</label>
+<button class="feedback-submit" onclick="submitFeedback()">Send feedback</button>
+<button class="feedback-skip" onclick="closeFeedback()">Skip</button>
 </div>
 </div>
 <style>
@@ -864,7 +873,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="legal-title">Privacy Policy</div>
 <div class="legal-date">Last updated: May 2026</div>
 <h3>What we collect</h3><p>Google sign-in gives us your name, email and profile photo. Across sessions we may store chats, study profile, cognitive and behavioural patterns, diagnoses, mentor tasks, attempts and results, mock history, practice progress, check-ins, and product-engagement milestones. Question images may be stored privately with extracted text, section/topic and numbered-question metadata so you can refer to them later. If you allow notifications, we store the browser subscription, twice-daily setting and delivery records; browser permission stays under your control. A community-invite number is stored only when submitted, in Supabase—not Gemini or chat. Friend challenges store the question and anonymous open, answer, help, reshare and signup events; the creator stays private.</p>
-<h3>How we use it</h3><p>Your data is used solely to provide and improve Marg's mentoring experience.</p>
+<h3>How we use it</h3><p>Your data is used solely to provide and improve Marg's mentoring experience. Reported response text enters quality tests only when you keep the separate review permission selected; feedback still sends if you decline.</p>
 <h3>Data storage</h3><p>Your data is stored securely on Supabase servers. We do not sell, share, or trade your personal information with any third parties.</p>
 <h3>Deleting your data</h3><p>Individual question images can be deleted from Question Library, and deleting a chat removes its linked images and extracted questions. To request deletion of your account and all associated data, including stored images, email <a href="mailto:support@trymarg.com">support@trymarg.com</a> from the email linked to your Marg account. We will process the request within 7 business days. Clearing a chat or browser storage alone does not delete records stored in Supabase; use Question Library or chat deletion for those linked records, or contact us for account-wide deletion.</p>
 <h3>Contact</h3><p>support@trymarg.com</p>
@@ -1125,9 +1134,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="desktop-nav-items">
 <button class="desktop-nav-btn" id="dnav-home" type="button" onclick="switchTab('home')"><span class="desktop-nav-icon">⌂</span>Home</button>
 <button class="desktop-nav-btn" id="dnav-chat" type="button" onclick="switchTab('chat')"><span class="desktop-nav-icon">💬</span>Ask MARG</button>
-<button class="desktop-nav-btn" id="dnav-practice" type="button" onclick="switchTab('practice')"><span class="desktop-nav-icon">✍️</span>Practice</button>
-<button class="desktop-nav-btn" id="dnav-mock" type="button" onclick="switchTab('mock')"><span class="desktop-nav-icon">📊</span>Mock Analysis</button>
-<button class="desktop-nav-btn" id="dnav-progress" type="button" onclick="switchTab('progress')"><span class="desktop-nav-icon">↗</span>Progress</button>
+<button class="desktop-nav-btn" id="dnav-tools" type="button" onclick="openSlashCommandMenuFromMenu()"><span class="desktop-nav-icon">/</span>Tools</button>
 </div>
 <div class="desktop-nav-secondary">
 <button class="desktop-nav-btn" type="button" onclick="openAppMenu()"><span class="desktop-nav-icon">•••</span>More</button>
@@ -1278,9 +1285,11 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button id="attach-image-btn" type="button" onclick="openImagePicker()" aria-label="Add photos" title="Add photos from camera or library">
 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13" r="4"/></svg>
 </button>
+<button id="slash-tools-btn" type="button" onclick="toggleSlashCommandMenu()" aria-label="Open Marg tools" aria-expanded="false" aria-controls="slash-command-menu" title="Marg tools">/</button>
 <textarea id="user-input" rows="1" placeholder="Ask Marg anything about CAT..." disabled></textarea>
 <button id="send-btn" onclick="sendMessage()" disabled><svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
 </div>
+<div id="slash-command-menu" role="listbox" aria-label="Marg tools" hidden></div>
 <div id="composer-status" role="status" aria-live="polite"></div>
 <div id="hint">Press Enter to send · Shift+Enter for new line</div>
 </div>
@@ -1477,9 +1486,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="app-menu-section-label">Navigate</div>
 <button class="app-menu-item" type="button" onclick="appMenuSwitchTab('home')"><span class="app-menu-item-icon">⌂</span>Home</button>
 <button class="app-menu-item" type="button" onclick="appMenuSwitchTab('chat')"><span class="app-menu-item-icon">💬</span>Ask MARG</button>
-<button class="app-menu-item" type="button" onclick="appMenuSwitchTab('practice')"><span class="app-menu-item-icon">✍️</span>Practice</button>
-<button class="app-menu-item" type="button" onclick="appMenuSwitchTab('mock')"><span class="app-menu-item-icon">📊</span>Mock Analysis</button>
-<button class="app-menu-item" type="button" onclick="appMenuSwitchTab('progress')"><span class="app-menu-item-icon">↗</span>Progress</button>
+<button class="app-menu-item" type="button" onclick="openSlashCommandMenuFromMenu()"><span class="app-menu-item-icon">/</span>Practice, mocks &amp; progress</button>
 <div class="app-menu-section-label">Chats</div>
 <button class="app-menu-item app-menu-new-chat" type="button" onclick="closeAppMenu();createQuickTopicChat()"><span class="app-menu-item-icon">＋</span>New chat</button>
 <div class="sidebar-chat-list mobile-chat-list" id="mobile-chat-list" aria-label="Previous chats"></div>

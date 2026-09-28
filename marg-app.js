@@ -293,11 +293,9 @@ function openPendingHomepageDestination() {
   // Clear before navigation so a refresh does not keep forcing the student away
   // from the place they deliberately choose next.
   try { localStorage.removeItem(HOMEPAGE_DESTINATION_STORAGE_KEY); } catch(e) {}
-  if (destination.destination === 'chat') {
-    openHomeDestination('chat');
-    return true;
-  }
-  switchTab(destination.destination);
+  if (destination.destination === 'chat') openHomeDestination('chat');
+  else if (typeof openMargTool === 'function') openMargTool(destination.destination === 'sectionals' ? 'sectional' : destination.destination);
+  else switchTab(destination.destination);
   return true;
 }
 
@@ -7441,7 +7439,16 @@ async function recordInlineMessageFeedback(kind, text) {
       page:'marg_chat_message',
       sessions:studentProfile ? studentProfile.sessionsCount || 0 : 0
     });
-    return !!(result && result.ok);
+    var saved = !!(result && result.ok);
+    if (saved && typeof captureMargResponseReview === 'function') {
+      captureMargResponseReview({
+        source:kind === 'helpful' ? 'helpful' : 'not_helpful',
+        assistantText:text,
+        failureLabel:kind === 'helpful' ? null : 'other',
+        allowModelImprovement:false
+      });
+    }
+    return saved;
   } catch(e) { return false; }
   finally { delete inlineFeedbackInFlight[lockKey]; }
 }
@@ -15582,7 +15589,13 @@ function openHomeDestination(destination) {
     keepChatInteractive();
     return;
   }
-  if (['home','practice','mock','sectionals','progress'].indexOf(destination) !== -1) switchTab(destination);
+  if (destination === 'home') { switchTab('home'); return; }
+  if (['practice','mock','sectionals','progress'].indexOf(destination) !== -1 && typeof openMargTool === 'function') {
+    switchTab('chat');
+    openMargTool(destination === 'sectionals' ? 'sectional' : destination);
+    return;
+  }
+  if (['practice','mock','sectionals','progress'].indexOf(destination) !== -1) switchTab(destination);
 }
 
 function openMockScorecardUpload() {
@@ -19202,6 +19215,8 @@ async function submitFeedback() {
   if (feedbackSubmitInFlight) return false;
   var input = document.getElementById('feedback-text');
   var text = String(input && input.value || '').trim();
+  var consentInput = document.getElementById('feedback-training-consent');
+  var allowModelImprovement = !!(consentInput && consentInput.checked);
   if (!text && (!feedbackSelected || feedbackSelected === 'none')) {
     setFeedbackSaveStatus('Choose an option or write a few words first.');
     return false;
@@ -19221,6 +19236,9 @@ async function submitFeedback() {
       body: JSON.stringify({ user_id: currentUser.id, selected: feedbackSelected || 'none', text: text, page: 'marg_chat', sessions: studentProfile ? studentProfile.sessionsCount : 0 })
     });
     if (!response || !response.ok) throw new Error('Feedback was not saved');
+    if (typeof captureDetailedMargFeedback === 'function') {
+      await captureDetailedMargFeedback(feedbackSelected || 'Something else', text, allowModelImprovement);
+    }
     closeFeedback();
     if (input) input.value = '';
     feedbackSelected = '';
