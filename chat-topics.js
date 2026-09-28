@@ -28,7 +28,8 @@ function persistTopicChatIndex() {
       mockPriority:state.mockPriority||'',
       mockSource:state.mockSource||'',
       diagnosticTopic:state.diagnosticTopic||null,
-      optionsState:state.optionsState||null
+      optionsState:state.optionsState||null,
+      questionContext:state.questionContext||null
     };
   });
   try{localStorage.setItem(topicChatStorageKey(),JSON.stringify({active:margActiveThreadId,threads:margChatThreads,states:states}));}catch(e){}
@@ -43,6 +44,7 @@ function captureActiveTopicChat() {
   margThreadStates[margActiveThreadId].mockSource=typeof activeMockReviewSource!=='undefined'?activeMockReviewSource:'';
   margThreadStates[margActiveThreadId].diagnosticTopic=typeof activeDiagnosticTopic!=='undefined'?activeDiagnosticTopic:null;
   margThreadStates[margActiveThreadId].optionsState=typeof margPendingConversationOptions!=='undefined'?margPendingConversationOptions:null;
+  margThreadStates[margActiveThreadId].questionContext=typeof margActiveQuestionContext!=='undefined'?margActiveQuestionContext:null;
   persistTopicChatIndex();
 }
 
@@ -57,6 +59,7 @@ function initialiseTopicChats(rows) {
   margActiveThreadId=margChatThreads.some(function(t){return t.id===saved.active;})?saved.active:latest?latest.threadId:margChatThreads[0].id;
   conversationHistory=margAllChatMessages.filter(function(item){return item.threadId===margActiveThreadId;});
   renderTopicChatToolbar();
+  if(typeof loadConversationQuestionState==='function')loadConversationQuestionState().catch(function(){});
 }
 
 function renderTopicChatToolbar() {
@@ -89,10 +92,13 @@ function applyTopicChatState(id) {
   if(typeof pendingExternalQuestionTurnMode!=='undefined')pendingExternalQuestionTurnMode='';
   if(typeof guidedGenerationState!=='undefined')guidedGenerationState=null;
   if(typeof margPendingConversationOptions!=='undefined')margPendingConversationOptions=state.optionsState||null;
+  if(typeof margActiveQuestionContext!=='undefined')margActiveQuestionContext=state.questionContext||null;
   pendingImageAttachments=[];queuedOutgoingMessage=null;
   if(typeof renderPendingImageAttachments==='function')renderPendingImageAttachments();
   var messages=document.getElementById('messages');if(messages)messages.innerHTML='';
-  captureActiveTopicChat();restoreConversation();renderTopicChatToolbar();return true;
+  captureActiveTopicChat();restoreConversation();renderTopicChatToolbar();
+  if(typeof loadConversationQuestionState==='function')loadConversationQuestionState().catch(function(){});
+  return true;
 }
 
 function switchTopicChat(id) {
@@ -160,6 +166,7 @@ async function deleteTopicChat(id) {
   topicChatDeletionInFlight=true;renderTopicChatToolbar();
   try {
     var userId=currentUser&&currentUser.id||'guest';
+    if(typeof deleteQuestionImagesForConversation==='function')await deleteQuestionImagesForConversation(id);
     await deleteOwnedTopicChatRows(userId,id);
     var wasActive=id===margActiveThreadId,oldIndex=margChatThreads.findIndex(function(thread){return thread.id===id;});
     if(!wasActive)captureActiveTopicChat();

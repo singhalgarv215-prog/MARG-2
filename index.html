@@ -18,10 +18,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<link rel="stylesheet" href="/pilot-ui.css?v=20260921-reliability2">
-<script defer src="/chat-topics.js?v=20260920-coreloop1"></script>
+<link rel="stylesheet" href="/pilot-ui.css?v=20260928-question-context1">
+<script defer src="/chat-topics.js?v=20260928-question-context1"></script>
+<script defer src="/question-library.js?v=20260928-question-context1"></script>
 <script defer src="/time-mock-blueprints.js?v=20260926-timebank1"></script>
-<script defer src="/landing-bootstrap.js?v=20260927-adversarial-fix1"></script>
+<script defer src="/landing-bootstrap.js?v=20260928-question-context1"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -862,10 +863,10 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button class="legal-back" onclick="showLandingMain()">← Back</button>
 <div class="legal-title">Privacy Policy</div>
 <div class="legal-date">Last updated: May 2026</div>
-<h3>What we collect</h3><p>Google sign-in gives us your name, email and profile photo. Across sessions we may store chats, study profile, cognitive and behavioural patterns, diagnoses, mentor tasks, attempts and results, mock history, practice progress, check-ins, and product-engagement milestones. If you allow notifications, we store the browser subscription, twice-daily setting and delivery records; browser permission stays under your control. A community-invite number is stored only when submitted, in Supabase—not Gemini or chat. Friend challenges store the question and anonymous open, answer, help, reshare and signup events; the creator stays private.</p>
+<h3>What we collect</h3><p>Google sign-in gives us your name, email and profile photo. Across sessions we may store chats, study profile, cognitive and behavioural patterns, diagnoses, mentor tasks, attempts and results, mock history, practice progress, check-ins, and product-engagement milestones. Question images may be stored privately with extracted text, section/topic and numbered-question metadata so you can refer to them later. If you allow notifications, we store the browser subscription, twice-daily setting and delivery records; browser permission stays under your control. A community-invite number is stored only when submitted, in Supabase—not Gemini or chat. Friend challenges store the question and anonymous open, answer, help, reshare and signup events; the creator stays private.</p>
 <h3>How we use it</h3><p>Your data is used solely to provide and improve Marg's mentoring experience.</p>
 <h3>Data storage</h3><p>Your data is stored securely on Supabase servers. We do not sell, share, or trade your personal information with any third parties.</p>
-<h3>Deleting your data</h3><p>To request deletion of your account and associated data, email <a href="mailto:support@trymarg.com">support@trymarg.com</a> from the email linked to your Marg account. We will process the request within 7 business days. Clearing a chat or browser storage alone does not delete records stored in Supabase.</p>
+<h3>Deleting your data</h3><p>Individual question images can be deleted from Question Library, and deleting a chat removes its linked images and extracted questions. To request deletion of your account and all associated data, including stored images, email <a href="mailto:support@trymarg.com">support@trymarg.com</a> from the email linked to your Marg account. We will process the request within 7 business days. Clearing a chat or browser storage alone does not delete records stored in Supabase; use Question Library or chat deletion for those linked records, or contact us for account-wide deletion.</p>
 <h3>Contact</h3><p>support@trymarg.com</p>
 </section>
 <section class="legal-section" id="terms-section">
@@ -1484,6 +1485,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="sidebar-chat-list mobile-chat-list" id="mobile-chat-list" aria-label="Previous chats"></div>
 <div class="app-menu-section-label">More</div>
 <button class="app-menu-item" type="button" onclick="appMenuOpenVarc()"><span class="app-menu-item-icon">📖</span>Today’s VARC</button>
+<button class="app-menu-item" type="button" onclick="openQuestionLibrary()"><span class="app-menu-item-icon">▧</span>Question Library</button>
 <button class="app-menu-item" type="button" onclick="appMenuCommunity()"><span class="app-menu-item-icon">👥</span>Community access</button>
 <button class="app-menu-item" type="button" onclick="appMenuPushReminders()"><span class="app-menu-item-icon">🔔</span>Study reminders</button>
 <button class="app-menu-item" type="button" onclick="appMenuFeedback()"><span class="app-menu-item-icon">💬</span>Send feedback</button>
@@ -1491,6 +1493,13 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button class="app-menu-item danger" type="button" onclick="closeAppMenu();logout()"><span class="app-menu-item-icon">↪</span>Sign out</button>
 </div>
 </aside>
+</div>
+
+<div id="question-library-backdrop" onclick="handleQuestionLibraryBackdrop(event)" aria-hidden="true">
+<section class="question-library-panel" role="dialog" aria-modal="true" aria-label="Question Library">
+<div class="question-library-head"><div><h2>Question Library</h2><p>Your saved pages and the questions Marg found in them.</p></div><button class="question-library-close" type="button" onclick="closeQuestionLibrary()" aria-label="Close Question Library">×</button></div>
+<div id="question-library-grid" class="question-library-grid"></div>
+</section>
 </div>
 
 </body>

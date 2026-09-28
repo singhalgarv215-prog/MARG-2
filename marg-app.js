@@ -2621,7 +2621,7 @@ For one suggested next action, let the student choose: right now, later today or
 
 Your replies run one to three sentences by default. You go longer only when someone's actually asked for an explanation or a full plan — if you're writing four sentences and two of them aren't doing anything, cut them.
 
-LENGTH CONTRACT: Make ordinary mentoring replies roughly 35-80 words. This is a WhatsApp conversation, not an essay. Use short sentences and line breaks. A requested complete roadmap, full timetable, multi-question answer check, or concept explanation may exceed 100 words because completeness matters more than artificial brevity there. Even then, remove introductions, repetition and generic encouragement. Never stop mid-component or mid-sentence merely to satisfy the usual short-response target.
+LENGTH CONTRACT: Normal replies are 40-90 words when that is sufficient. Use short sentences and line breaks. A requested complete roadmap, full timetable, multi-question answer check, worked solution, or concept explanation may be longer because completeness matters more than artificial brevity. Even then, remove introductions, repetition and generic encouragement. Never stop mid-component or mid-sentence merely to satisfy the usual short-response target.
 
 PLAIN LANGUAGE CONTRACT: A CAT student must understand every reply on the first read. Use everyday English, short sentences and one idea at a time. Prefer "mental tiredness" to "cognitive fatigue", "the clue that gives you a starting point" to "entry anchor", "the reason" to "mechanism", "spotting the method" to "retrieval", and "your practice mix does not match the mock" to "distribution mismatch". Avoid clinical or consultant-like language such as execution cascade, cognitive load, working-memory degradation, commitment escalation, constraint density, calibration and cognitive contamination. If a technical CAT term is genuinely useful, explain it immediately with a tiny example. Never use impressive wording when a simpler sentence says the same thing.
 
@@ -2679,7 +2679,7 @@ You always know what day it is — it's handed to you at the start of every sing
 
 This holds for anything else objectively checkable too — not opinions, not their own experience of their own prep, but hard facts like dates, numbers you were given, or something you calculated. If a student states one confidently and it contradicts what you actually know, hold your position and ask for clarification instead of folding just because they sounded sure. Being agreeable isn't the same as being right, and a mentor who caves under pushback isn't useful to anyone.
 
-You can receive one or several images in the same message. Inspect every image, not only the first. Multiple images normally represent ordered pages of one continuous RC passage, DILR set, scorecard or question, so reconstruct and analyse them in page order unless the student says they are separate. Use only what is genuinely visible; never pretend an unreadable number is clear. For a mock or sectional screenshot, identify the provider/header when visible, then extract VARC, DILR and QA values together with their exact displayed meaning: marks/score, correct, attempted, accuracy, percentile, or time. Do not convert one into another and do not assume that the largest-looking number is a score. If the labels are ambiguous, state the legible values, give one useful first observation, and ask only whether they represent marks, correct counts, or attempts before completing the diagnosis. For photographed questions, passages, workings or schedules, answer from the visible material and explicitly flag any cropped or unreadable part.
+For image messages, inspect every page in order and use only legible evidence. Never invent cropped text, numbers, labels or answer choices. Keep score, marks, attempts, accuracy, percentile and time distinct. If a material label is ambiguous, identify the exact uncertainty before diagnosing. For photographed questions, answer the requested item from the visible source and flag only the missing detail that truly blocks a reliable answer.
 
 The other direction matters just as much: when a student corrects you and you actually were wrong, that correction is now the truth for the rest of this conversation — don't drift back to your old assumption on the next calculation just because it's the default in your head. Acknowledging a correction and then repeating the same mistake two messages later is worse than never acknowledging it at all, because it teaches the student you weren't actually listening. If you catch yourself about to restate something a student already corrected, stop and use what they told you instead.
 
@@ -2732,7 +2732,13 @@ CORE PURPOSE
 The student uses Marg to stop guessing about their preparation: know what is wrong, whether the fix is working, and what to do next instead of studying blind. Every substantive mentoring turn must move that loop forward.
 
 SOLVER CONTRACT
-Answer direct questions first. Use: what the evidence establishes → what remains uncertain → the smallest useful fix → how the next attempt will support or reject the read. Once the student has described the concrete moment where work breaks, give the bounded solution immediately. Never make them ask “so what should I do?” or “how can I improve?” after they have already supplied that mechanism. Ask a question only when its answer would materially change the immediate action; otherwise act from the evidence already available. Normal replies are 40-90 words; requested plans and worked solutions may be longer. Diagnose decisions, not topics. Avoid report labels.
+Answer direct questions first. Use: evidence → uncertainty → smallest useful fix → how the next attempt tests it. Once the student describes where work breaks, give the bounded solution immediately. Never make them ask “so what should I do?”. Ask only when the answer changes the action. Match length to the job and make requested explanations complete. Diagnose decisions, not topics. Avoid report labels.
+
+LENGTH CONTRACT
+Normal replies are 40-90 words. Go longer only for a requested complete explanation, answer review, worked solution or plan; never cut required reasoning to hit a word count.
+
+CONTENT-HELP CONTRACT
+Keep solutions separate from diagnosis. When asked for an answer, solution or explanation, identify the question, state the answer and show one clean derivation. Unless answer-only was requested, add the useful CAT shortcut/trap; for an MCQ, explain why each wrong option fails. Never withhold a solution to force coaching. Behavioural claims remain evidence-bound.
 
 PERSONAL TEACHING CONTRACT
 Use their actual choice and one concrete contrast. If confused, change the example or representation. Respect stop/rest/answer-only. Never invent a weakness.
@@ -2775,7 +2781,7 @@ EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-New topic with thin evidence: ask at most one question that can change the action. New topic with a concrete failure description: give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. QA/DILR use timed interfaces; teach DILR’s opening first. Stored hypotheses use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
+With thin evidence, ask at most one question that changes the action. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. QA/DILR use timed interfaces. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
 
 DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. Use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified.
@@ -2793,16 +2799,16 @@ Never call Marg session-only. Account data can persist in Supabase; drafts/plans
 If the user says only "continue", "go on" or equivalent after an incomplete reply, resume from the exact endpoint. Do not restart, summarize, repeat, re-derive, apologize or add an introduction.
 
 ANSWER REVIEWS
-Separate answers with blank lines; show choice, key and exact mismatch. For one wrong RC answer, state the trap without a reflective question. After two micro-checks, offer one same-passage question, then a full RC—conversationally. Preserve pasted choices; clarify whether ambiguous labels are choices or keys. One passage is one observation, not proof. Across verified errors, group only repeated mechanisms: inference jump, scope inflation, mixed speakers, outside knowledge or missed connectors. Cite exact choices; never paste a generic checklist.
+Separate answers with blank lines; show choice, key and exact mismatch. State an RC trap without a reflective question. Preserve pasted choices and clarify ambiguous choice/key labels. One passage is one observation, not proof. Group only repeated verified mechanisms and cite exact choices; never paste a generic checklist.
 
 PLANNING AND PERSONALIZATION
 A multi-section roadmap is planning, not section diagnosis. Cover every named section, topic, phase, sectional, mock and review; explain any genuine omission. Clarify day versus rotation once. Valid confirmed evidence controls ordering and checkpoints: prioritise repeated score leakage over syllabus order.
 
 WEB VERIFICATION CONTRACT
-Ground current or source-specific facts: editions, contents, CAT dates, fees, rules, cutoffs, schedules and products. Separate verified facts from inference; say when the exact claim is unverified. Before a purchase recommendation, verify current price/features. Never invent third-party menus, labels, rates or percentages.
+Ground current or source-specific facts such as CAT dates, fees, rules and products. Separate verified fact from inference. Before a purchase recommendation, verify current price/features. Never invent third-party menus, labels, rates or percentages.
 
 PRACTICE LEADERSHIP
-Lead when Marg can create evidence and respect topic switches. For a fresh CAT question, do not reveal the key: ask whether it was attempted; yes → ask their choice, no → solve. After practice, state what the result proves and does not prove. A question number alone cannot reconstruct a problem; use the exact stem/options from history or request them once. Never substitute another question with the same number.
+Lead when Marg can create evidence and respect topic switches. For a fresh CAT question, do not reveal the key before the student has either asked for the answer/solution or stated their attempt status. With no solution request you may ask whether it was attempted; an explicit answer, solution, explanation, “why”, or worked-method request must be answered immediately. After practice, state what the result proves and does not prove. A question number alone cannot reconstruct a problem; resolve it through the structured question index or request the source once. Never substitute another question with the same number.
 
 CAT VARC QUESTION TYPES
 Do not reject informal labels. Vocabulary/cloze blanks differ from CAT sentence placement: placing one supplied sentence into blank 1, 2, 3 or 4. If “fill in the blanks” is ambiguous, clarify once—never infer a wrong practice mix. If the question is supplied, help with it instead of debating its label.
@@ -3546,6 +3552,7 @@ var lastFailedOutgoingMessage = null;
 var pendingImageAttachments = [];
 var MAX_IMAGE_ATTACHMENTS = 4;
 var MAX_TOTAL_IMAGE_BASE64_LENGTH = 18 * 1024 * 1024;
+var imagePreparationInFlight = 0;
 var queuedOutgoingMessage = null;
 var composerStatusTimer = null;
 var mobileViewportBaselineHeight = 0;
@@ -3681,7 +3688,7 @@ function showComposerStatus(message, type, persist) {
 
 function composerHasContent() {
   var input = document.getElementById('user-input');
-  return !!((input && input.value.trim()) || pendingImageAttachments.length);
+  return !!((input && input.value.trim()) || pendingImageAttachments.some(function(item) { return item && item.data; }));
 }
 
 function updateComposerControls() {
@@ -3698,8 +3705,9 @@ function updateComposerControls() {
       delete input.dataset.queueLocked;
     }
   }
-  if (sendButton) sendButton.disabled = queueLocked || !composerHasContent();
-  if (attachButton) attachButton.disabled = queueLocked || pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS;
+  var imageBusy = imagePreparationInFlight > 0 || pendingImageAttachments.some(function(item) { return item && (item.status === 'preparing' || item.status === 'uploading'); });
+  if (sendButton) sendButton.disabled = queueLocked || imageBusy || !composerHasContent();
+  if (attachButton) attachButton.disabled = queueLocked || imageBusy || pendingImageAttachments.length >= MAX_IMAGE_ATTACHMENTS;
 }
 
 function queueCurrentComposerMessage() {
@@ -3780,12 +3788,15 @@ async function prepareImageAttachment(file) {
   if (!file || !/^image\//i.test(file.type || '')) throw new Error('Choose an image file');
   if (file.size > 15 * 1024 * 1024) throw new Error('That image is too large. Choose one under 15 MB.');
   var originalUrl = await readImageFileAsDataUrl(file);
-  var mimeType = file.type || 'image/jpeg';
-  var supportedDirectly = /^image\/(?:jpeg|jpg|png|webp)$/i.test(mimeType);
+  var mimeType = String(file.type || '').toLowerCase() || (/\.hei[cf]$/i.test(file.name || '') ? (/\.heif$/i.test(file.name || '') ? 'image/heif' : 'image/heic') : 'image/jpeg');
+  var supportedDirectly = /^image\/(?:jpeg|jpg|png|webp|heic|heif)$/i.test(mimeType);
   var finalUrl = originalUrl;
+  var finalWidth = null, finalHeight = null;
   // Preserve screenshots exactly when practical. Large camera photos are
   // resized client-side so the Worker request remains fast and reliable.
-  if (!supportedDirectly || file.size > 4 * 1024 * 1024) {
+  // Gemini accepts HEIC/HEIF directly; many browsers cannot decode them into
+  // a canvas, so keep those originals and enforce the combined request limit.
+  if (!/^image\/(?:heic|heif)$/i.test(mimeType) && (!supportedDirectly || file.size > 4 * 1024 * 1024)) {
     var image = await loadImageForResize(originalUrl);
     var maxSide = 2400;
     var scale = Math.min(1, maxSide / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
@@ -3798,11 +3809,33 @@ async function prepareImageAttachment(file) {
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     finalUrl = canvas.toDataURL('image/jpeg', 0.9);
     mimeType = 'image/jpeg';
+    finalWidth = canvas.width;
+    finalHeight = canvas.height;
+  } else if (!/^image\/(?:heic|heif)$/i.test(mimeType)) {
+    try {
+      var measuredImage = await loadImageForResize(originalUrl);
+      finalWidth = measuredImage.naturalWidth || measuredImage.width || null;
+      finalHeight = measuredImage.naturalHeight || measuredImage.height || null;
+    } catch(error) {}
   }
   var comma = finalUrl.indexOf(',');
   var base64Data = comma >= 0 ? finalUrl.substring(comma + 1) : '';
   if (!base64Data || base64Data.length > 14 * 1024 * 1024) throw new Error('The processed image is still too large. Try a screenshot or a closer photo.');
-  return { name:file.name || 'photo', mimeType:mimeType, data:base64Data, previewUrl:finalUrl };
+  var thumbnailData = '', thumbnailMimeType = 'image/jpeg';
+  if (!/^image\/(?:heic|heif)$/i.test(mimeType)) {
+    try {
+      var thumbnailImage = await loadImageForResize(finalUrl);
+      var thumbnailScale = Math.min(1, 360 / Math.max(thumbnailImage.naturalWidth || thumbnailImage.width, thumbnailImage.naturalHeight || thumbnailImage.height));
+      var thumbnailCanvas = document.createElement('canvas');
+      thumbnailCanvas.width = Math.max(1, Math.round((thumbnailImage.naturalWidth || thumbnailImage.width) * thumbnailScale));
+      thumbnailCanvas.height = Math.max(1, Math.round((thumbnailImage.naturalHeight || thumbnailImage.height) * thumbnailScale));
+      var thumbnailContext = thumbnailCanvas.getContext('2d');
+      thumbnailContext.fillStyle = '#ffffff'; thumbnailContext.fillRect(0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
+      thumbnailContext.drawImage(thumbnailImage, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
+      thumbnailData = thumbnailCanvas.toDataURL('image/jpeg', 0.78).split(',')[1] || '';
+    } catch(error) {}
+  }
+  return { name:file.name || 'photo', mimeType:mimeType, data:base64Data, previewUrl:finalUrl, byteSize:file.size || Math.floor(base64Data.length * 3 / 4), width:finalWidth, height:finalHeight, thumbnailData:thumbnailData, thumbnailMimeType:thumbnailMimeType, status:'prepared' };
 }
 
 async function handleImageSelection(event) {
@@ -3814,25 +3847,42 @@ async function handleImageSelection(event) {
     return;
   }
   var selectedFiles = files.slice(0, remainingSlots);
-  var attachButton = document.getElementById('attach-image-btn');
-  if (attachButton) attachButton.disabled = true;
   var errors = [];
+  var queuedItems = selectedFiles.map(function(file) {
+    return { name:file.name || 'Image', mimeType:file.type || '', data:'', previewUrl:'', byteSize:file.size || 0, status:'preparing', error:'', sourceFile:file };
+  });
+  pendingImageAttachments = pendingImageAttachments.concat(queuedItems);
+  imagePreparationInFlight += queuedItems.length;
+  renderPendingImageAttachments();
   try {
-    for (var i = 0; i < selectedFiles.length; i++) {
+    for (var i = 0; i < queuedItems.length; i++) {
+      var placeholder = queuedItems[i];
       try {
         var preparedAttachment = await prepareImageAttachment(selectedFiles[i]);
-        var currentPayloadSize = pendingImageAttachments.reduce(function(total, item) { return total + item.data.length; }, 0);
+        var currentPayloadSize = pendingImageAttachments.reduce(function(total, item) { return total + String(item.data || '').length; }, 0);
         if (currentPayloadSize + preparedAttachment.data.length > MAX_TOTAL_IMAGE_BASE64_LENGTH) {
           throw new Error('The combined images are too large. Use screenshots or lower-resolution photos.');
         }
-        pendingImageAttachments.push(preparedAttachment);
+        Object.assign(placeholder, preparedAttachment, { status:'uploading', sourceFile:null });
+        renderPendingImageAttachments();
+        if (typeof persistPreparedQuestionImage === 'function') {
+          try { await persistPreparedQuestionImage(placeholder, pendingImageAttachments.indexOf(placeholder) + 1); }
+          catch(uploadError) {
+            placeholder.status = 'local_ready';
+            placeholder.error = uploadError && uploadError.message || 'Library sync failed.';
+          }
+        } else placeholder.status = 'local_ready';
       } catch(error) {
-        errors.push((selectedFiles[i].name || 'Image') + ': ' + (error && error.message ? error.message : 'Could not prepare this image.'));
+        placeholder.status = 'failed';
+        placeholder.error = error && error.message ? error.message : 'Could not prepare this image.';
+        errors.push((selectedFiles[i].name || 'Image') + ': ' + placeholder.error);
+      } finally {
+        imagePreparationInFlight = Math.max(0, imagePreparationInFlight - 1);
+        renderPendingImageAttachments();
       }
     }
-    renderPendingImageAttachments();
     if (files.length > selectedFiles.length) errors.push('Only the first ' + remainingSlots + ' additional image' + (remainingSlots === 1 ? '' : 's') + ' could be added.');
-    if (errors.length) alert(errors.join('\n'));
+    if (errors.length) showComposerStatus(errors.join(' '), 'error', true);
   } finally {
     if (event && event.target) event.target.value = '';
     updateComposerControls();
@@ -3845,14 +3895,19 @@ function renderPendingImageAttachments() {
   var title = document.getElementById('image-attachment-title');
   if (list) {
     list.innerHTML = pendingImageAttachments.map(function(attachment, index) {
+      var status = attachment.status === 'preparing' ? 'Preparing…' : attachment.status === 'uploading' ? 'Uploading…' : attachment.status === 'processing' ? 'Reading questions…' : attachment.status === 'failed' ? 'Failed' : attachment.status === 'local_ready' && attachment.error ? 'Ready · library retry needed' : 'Attached';
+      var statusClass = attachment.status === 'failed' ? 'failed' : attachment.status === 'attached' || attachment.status === 'local_ready' ? 'ready' : '';
+      var preview = attachment.previewUrl ? '<img class="image-attachment-thumbnail" src="' + attachment.previewUrl + '" alt="Selected page ' + (index + 1) + '">' : '<div class="image-attachment-thumbnail" aria-label="Preparing page ' + (index + 1) + '"></div>';
+      var retry = attachment.data && (attachment.status === 'failed' || attachment.status === 'local_ready' && attachment.error) ? '<button class="retry-image-btn" type="button" onclick="retryQuestionImageUpload(' + index + ')">Retry save</button>' : '';
       return '<div class="image-attachment-item">' +
-        '<img class="image-attachment-thumbnail" src="' + attachment.previewUrl + '" alt="Selected page ' + (index + 1) + '">' +
+        preview +
         '<span class="image-attachment-page">Page ' + (index + 1) + '</span>' +
         '<button class="remove-image-btn" type="button" onclick="removePendingImageAttachment(' + index + ')" aria-label="Remove page ' + (index + 1) + '">×</button>' +
+        '<span class="image-attachment-status ' + statusClass + '">' + status + '</span>' + retry +
       '</div>';
     }).join('');
   }
-  if (title) title.textContent = pendingImageAttachments.length + ' photo' + (pendingImageAttachments.length === 1 ? '' : 's') + ' ready to send';
+  if (title) title.textContent = imagePreparationInFlight ? 'Preparing your photo' + (pendingImageAttachments.length === 1 ? '' : 's') + '…' : pendingImageAttachments.length + ' photo' + (pendingImageAttachments.length === 1 ? '' : 's') + ' attached';
   if (preview) preview.classList.toggle('visible', pendingImageAttachments.length > 0);
   updateComposerControls();
 }
@@ -3876,7 +3931,7 @@ function buildImageUserMessageHtml(text, attachments) {
 
 function buildHistoryWithImageAttachment(history, attachments, userText) {
   var requestHistory = cleanHistory(history || []).slice();
-  var list = Array.isArray(attachments) ? attachments : attachments ? [attachments] : [];
+  var list = (Array.isArray(attachments) ? attachments : attachments ? [attachments] : []).filter(function(item) { return item && item.data; });
   if (!list.length) return requestHistory;
   var imageParts = list.map(function(attachment) {
     return { inlineData:{ mimeType:attachment.mimeType, data:attachment.data } };
@@ -3946,7 +4001,7 @@ function anchorMentorAnalysisToImageContext(mentorAnalysis, userMessage, imageAt
   }
   if (refersToEarlierUploadedMaterial(userMessage)) {
     diagnosis.priorImageReference = true;
-    analysis.directive += '\n\nEARLIER-IMAGE CONTINUITY: Earlier image binaries are not automatically available in this request. Use exact question details already transcribed in the visible conversation, but never pretend to reread an old page or invent unseen questions. If the request needs markings, untranscribed questions or exact wording that is not in textual history, ask the student to reattach only the relevant page(s). Do not say all chat context is unavailable, and do not replace the request with generated questions.';
+    analysis.directive += '\n\nEARLIER-IMAGE CONTINUITY: Earlier image binaries are not automatically available unless the private source resolver reopens a user-owned saved image and provides it on this turn. Use it only when the structured active-question context identifies the source. If no saved source was resolved, use exact question details already transcribed in this conversation or ask for the relevant page once. Never pretend to reread an old page or invent unseen questions, and never replace the request with generated material.';
   }
   return analysis;
 }
@@ -6129,6 +6184,10 @@ function ensureRCFunctionMappingProgressionClose(text, diagnosis) {
 function ensureRCProgressionClose(text, diagnosis) {
   var value = String(text || '').trim();
   if (!diagnosis || !diagnosis.rcProgressionReady) return value;
+  // Uploaded/indexed questions own their section per question. Never append an
+  // RC coaching tail to a QA/DILR solution because an older RC drill remains
+  // active in conversation memory.
+  if (diagnosis.hasImage || diagnosis.intent === 'image_question' || diagnosis.intent === 'question_reference') return value;
   if (/\[CONTEXT:\s*rc_(?:full_)?progression_timing\]/i.test(value)) return value;
   // Honour an already concrete next offer instead of appending a second,
   // contradictory prescription. Only close an actual micro-check dead end.
@@ -10178,6 +10237,31 @@ function guardUnlabelledNumericPrescription(text, diagnosis) {
   return value.replace(/\s+$/, '') + '\n\nTreat that timing as a starting trial, not a proven rule. Keep it only if the next attempt shows that it protects time without damaging accuracy.';
 }
 
+function buildLinearModulusPolygonVisual(text) {
+  var compact = String(text || '').replace(/[−–—]/g, '-').replace(/\s+/g, '');
+  var match = compact.match(/(?:(\d+(?:\.\d+)?)\*?)?\|x\|\+(?:(\d+(?:\.\d+)?)\*?)?\|y\|(?:<=|≤)(\d+(?:\.\d+)?)/i);
+  if (!match) return null;
+  var a = Number(match[1] || 1), b = Number(match[2] || 1), c = Number(match[3]);
+  if (!(a > 0 && b > 0 && c > 0)) return null;
+  var xIntercept = c / a, yIntercept = c / b;
+  var formatCoordinate = function(value) {
+    return Number.isInteger(value) ? String(value) : String(Math.round(value * 1000) / 1000);
+  };
+  var xLabel = formatCoordinate(xIntercept), yLabel = formatCoordinate(yIntercept);
+  return {
+    type:'geometry',
+    title:(match[1] ? match[1] : '') + '|x| + ' + (match[2] ? match[2] : '') + '|y| <= ' + formatCoordinate(c),
+    shape:'polygon',
+    labels:[
+      { text:'(0,' + yLabel + ')', x:0, y:yIntercept },
+      { text:'(' + xLabel + ',0)', x:xIntercept, y:0 },
+      { text:'(0,-' + yLabel + ')', x:0, y:-yIntercept },
+      { text:'(-' + xLabel + ',0)', x:-xIntercept, y:0 }
+    ],
+    note:'The inequality fills the diamond; the equality is its boundary.'
+  };
+}
+
 function guardModulusGraphOverclaim(text, diagnosis) {
   var value = String(text || '');
   var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
@@ -10196,6 +10280,27 @@ function guardModulusGraphOverclaim(text, diagnosis) {
   var shiftedInQuestion = /\|\s*x\s*[-+]\s*[^|]+\||\|\s*y\s*[-+]\s*[^|]+\|/i.test(userText);
   if (!shiftedInQuestion) {
     value = value.replace(/(?:^|\n)\s*The total bounded area stays exactly[^.\n]*because shifting the cent(?:er|re)[^.\n]*\.?\s*/i, '\n');
+  }
+  // A generic geometry payload renders a triangle even when the prose is
+  // about a linear absolute-value region. Derive the four exact intercepts
+  // from the student's equation and replace the model-controlled geometry
+  // payload deterministically before it reaches the renderer.
+  var polygon = buildLinearModulusPolygonVisual(userText);
+  if (polygon) {
+    var polygonBlock = '[[MARG_VISUAL]]' + JSON.stringify(polygon) + '[[/MARG_VISUAL]]';
+    var replacedGeometry = false;
+    value = value.replace(/\[\[MARG_VISUAL\]\]([\s\S]*?)\[\[?\/MARG_VISUAL\]\]?/gi, function(block, json) {
+      if (replacedGeometry) return block;
+      try {
+        var spec = JSON.parse(String(json || '').trim());
+        if (String(spec && spec.type || '').toLowerCase() !== 'geometry') return block;
+      } catch(e) {
+        return block;
+      }
+      replacedGeometry = true;
+      return polygonBlock;
+    });
+    if (!replacedGeometry) value = value.replace(/\s+$/, '') + '\n\n' + polygonBlock;
   }
   return value.replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -11154,7 +11259,7 @@ async function routeAdHocDILRRequestToVerifiedInterface(userMessage) {
   return true;
 }
 
-async function sendConversationalMessage(userMessage, context, imageAttachments) {
+async function sendConversationalMessage(userMessage, context, imageAttachments, questionResolution) {
   if (context !== 'typed' && context !== 'rc_micro_followup_existing') {
     conversationHistory.push({ role: 'user', content: userMessage });
     capturePersonalGoalDetails(userMessage);
@@ -11167,6 +11272,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     return routeAdHocDILRRequestToVerifiedInterface(userMessage);
   }
   var mentorAnalysis = anchorMentorAnalysisToImageContext(buildDiagnosisDirective(userMessage), userMessage, imageAttachments);
+  if (questionResolution && questionResolution.directive) mentorAnalysis.directive += questionResolution.directive;
   if (pendingExternalQuestionTurnMode === 'review') {
     mentorAnalysis.diagnosis.intent = 'answer_review';
     mentorAnalysis.directive += getPendingExternalQuestionContext();
@@ -11263,6 +11369,11 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
     if (response) response = stabilizeAndRememberMission(response, userMessage);
     if (response) response = suppressUnrelatedActivePlanReminder(response, userMessage);
     if (response) response = suppressUnrelatedExerciseContinuation(response, userMessage);
+    if (response && questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
+      response = await verifyQuestionResponseDraft(response, userMessage, imageAttachments, questionResolution);
+      response = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(response), mentorAnalysis.diagnosis);
+    }
+    if (response && typeof finaliseQuestionResponse === 'function') response = finaliseQuestionResponse(response, questionResolution);
     if (response) markPersonalGoalFollowUpIfAsked(response);
     if (response) markProgressiveProfileFollowUpIfAsked(response);
     hideTyping();
@@ -12297,7 +12408,7 @@ async function sendMessage(fromQueue, submissionOptions) {
   var reuseHomepageUserMessage = !!(homepageIntentForSend && submissionOptions && submissionOptions.reuseUserMessage);
   const input = document.getElementById('user-input');
   const typedText = input.value.trim();
-  const imageAttachments = pendingImageAttachments.slice();
+  const imageAttachments = pendingImageAttachments.filter(function(item) { return item && item.data; }).slice();
   const hasImages = imageAttachments.length > 0;
   const hasContent = !!(typedText || hasImages);
   const text = typedText || (imageAttachments.length > 1 ? 'Please analyze these images in page order.' : 'Please analyze this image.');
@@ -12315,6 +12426,17 @@ async function sendMessage(fromQueue, submissionOptions) {
     duplicate:duplicate,
     fromQueue:!!fromQueue
   });
+
+  if ((typeof imagePreparationInFlight !== 'undefined' && imagePreparationInFlight > 0) || pendingImageAttachments.some(function(item) { return item && (item.status === 'preparing' || item.status === 'uploading'); })) {
+    showComposerStatus('Please wait until every selected image says Attached before sending.', 'info', true);
+    updateComposerControls();
+    return;
+  }
+  var unusableImage = pendingImageAttachments.find(function(item) { return item && item.status === 'failed' && !item.data; });
+  if (unusableImage) {
+    showComposerStatus('Remove or retry the failed image before sending. Marg will not answer as if it received it.', 'error', true);
+    return;
+  }
 
   if (submissionDecision === 'queue' || submissionDecision === 'queue_full' || submissionDecision === 'loading_empty') {
     queueCurrentComposerMessage();
@@ -12360,6 +12482,10 @@ async function sendMessage(fromQueue, submissionOptions) {
       captureProgressiveProfileDetails(text);
       detectAndSaveMockScores(text);
       if (!isGuestMode) saveChatMessage('user', storedUserText);
+      if (hasImages && typeof linkQuestionImagesToMessage === 'function') {
+        var savedUserEntry = conversationHistory[conversationHistory.length - 1];
+        linkQuestionImagesToMessage(imageAttachments, savedUserEntry && savedUserEntry.id).catch(function() {});
+      }
       if (!hasImages && isMeaningfulCatSpecificMessage(text)) {
         recordEngagementEvent('meaningful_cat_question', {
           intent:detectMentorIntent(text),
@@ -12373,47 +12499,62 @@ async function sendMessage(fromQueue, submissionOptions) {
     if (homepageIntentForSend && typeof markHomepageIntentSubmitted === 'function') homepageIntentForSend = markHomepageIntentSubmitted(homepageIntentForSend) || homepageIntentForSend;
 
   loadActiveGeneratedExercise();
-  if (!hasImages && cancelActiveExerciseForChat(text)) {
+  if (hasImages) showComposerStatus('Image attached — Marg is reading and indexing the visible questions…', 'info', true);
+  var questionResolution = typeof prepareQuestionContextForTurn === 'function'
+    ? await prepareQuestionContextForTurn(text, imageAttachments)
+    : { blocked:false, attachments:imageAttachments, directive:'' };
+  if (questionResolution && questionResolution.blocked) {
+    var questionBlockReply = String(questionResolution.reply || 'I cannot identify that question safely. Please re-upload the complete question.');
+    addMessage('marg', renderMentorStructuredText(questionBlockReply));
+    conversationHistory.push({ role:'assistant', content:questionBlockReply });
+    if (!isGuestMode) saveChatMessage('assistant', questionBlockReply);
+    showComposerStatus('', 'info');
+    return;
+  }
+  if (hasImages) showComposerStatus('', 'info');
+  var effectiveImageAttachments = questionResolution && Array.isArray(questionResolution.attachments) ? questionResolution.attachments : imageAttachments;
+  var effectiveHasImages = effectiveImageAttachments.length > 0;
+  if (!effectiveHasImages && cancelActiveExerciseForChat(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && maybeHandlePrivacyRequest(text)) {
+  if (!effectiveHasImages && maybeHandlePrivacyRequest(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && maybeHandleCurrentChatScoreRecall(text)) {
+  if (!effectiveHasImages && maybeHandleCurrentChatScoreRecall(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && (maybeHandleStopSummary(text) || maybeHandleCatDurationQuestion(text))) {
+  if (!effectiveHasImages && (maybeHandleStopSummary(text) || maybeHandleCatDurationQuestion(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && maybeHandleAmbiguousShortInput(text)) {
+  if (!effectiveHasImages && maybeHandleAmbiguousShortInput(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && routePendingExternalQuestionReply(text)) {
+  if (!effectiveHasImages && routePendingExternalQuestionReply(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && gateFreshExternalQuestion(text)) {
+  if (!effectiveHasImages && gateFreshExternalQuestion(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && maybeHandleSectionChoicePrompt(text)) {
+  if (!effectiveHasImages && maybeHandleSectionChoicePrompt(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && maybeReplayActiveExercise(text)) {
+  if (!effectiveHasImages && maybeReplayActiveExercise(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -12421,32 +12562,33 @@ async function sendMessage(fromQueue, submissionOptions) {
   var predictionValidationReply = isPredictionValidationReply(text);
   if (!pendingExternalQuestionTurnMode && (isAnswerReviewRequest(text) || predictionValidationReply)) markActiveExerciseAttempt(text, predictionValidationReply);
 
-  if (!hasImages && maybeCompleteVerifiedAnswerReview(text)) {
+  if (!effectiveHasImages && maybeCompleteVerifiedAnswerReview(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!hasImages && (await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!effectiveHasImages && (await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
-  if (!hasImages && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
+  if (!effectiveHasImages && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
   if (!onboardingComplete && conversationHistory.length <= 10) {
-    var conversationalResponseCompleted = await sendConversationalMessage(text, 'typed', imageAttachments);
+    var conversationalResponseCompleted = await sendConversationalMessage(text, 'typed', effectiveImageAttachments, questionResolution);
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function' && conversationalResponseCompleted !== false) completeHomepageIntent(homepageIntentForSend);
     else if (homepageIntentForSend && typeof failHomepageIntent === 'function') failHomepageIntent(homepageIntentForSend);
     return;
   }
 
   const activitySummary = buildActivitySummary();
-  const mentorAnalysis = anchorMentorAnalysisToImageContext(buildDiagnosisDirective(text), text, imageAttachments);
+  const mentorAnalysis = anchorMentorAnalysisToImageContext(buildDiagnosisDirective(text), text, effectiveImageAttachments);
+  if (questionResolution && questionResolution.directive) mentorAnalysis.directive += questionResolution.directive;
   if (pendingExternalQuestionTurnMode === 'review') {
     mentorAnalysis.diagnosis.intent = 'answer_review';
     mentorAnalysis.directive += getPendingExternalQuestionContext();
@@ -12473,7 +12615,7 @@ async function sendMessage(fromQueue, submissionOptions) {
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
-    let requestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, text);
+    let requestHistory = buildHistoryWithImageAttachment(conversationHistory, effectiveImageAttachments, text);
     if (useWebGrounding) requestHistory = trimHistoryForGroundedRequest(requestHistory);
     const mentorRequest = buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens);
     enableWebGrounding(mentorRequest, useWebGrounding);
@@ -12483,6 +12625,11 @@ async function sendMessage(fromQueue, submissionOptions) {
     reply = stabilizeAndRememberMission(reply, text);
     reply = suppressUnrelatedActivePlanReminder(reply, text);
     reply = suppressUnrelatedExerciseContinuation(reply, text);
+    if (questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
+      reply = await verifyQuestionResponseDraft(reply, text, effectiveImageAttachments, questionResolution);
+      reply = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(reply), mentorAnalysis.diagnosis);
+    }
+    if (typeof finaliseQuestionResponse === 'function') reply = finaliseQuestionResponse(reply, questionResolution);
     finalizeMentorPlanCompletionReview(text, reply);
     markPersonalGoalFollowUpIfAsked(reply);
     markProgressiveProfileFollowUpIfAsked(reply);
@@ -13216,7 +13363,7 @@ function articleSourceBriefCacheKey(article) {
   return getUserScopedKey('marg_article_source_brief_v2_' + simpleStableHash(String(article && article.url || '') + '|' + String(article && article.title || '')));
 }
 
-async function getGroundedArticleSourceBrief(article) {
+async function getGroundedArticleSourceBrief(article, timeoutMs) {
   var fallbackText = String(article && (article.content || article.preview) || '').trim();
   if (!article) return fallbackText;
   var cacheKey = articleSourceBriefCacheKey(article);
@@ -13234,6 +13381,12 @@ async function getGroundedArticleSourceBrief(article) {
     return verifiedPublisherText;
   }
 
+  // The publisher feed excerpt is already tied to the selected Aeon article.
+  // It is sufficient conceptual scaffolding for an original RC and avoids a
+  // second, slow search request on every click. Search is reserved for feeds
+  // that contain too little material to identify the article's argument.
+  if (countPracticeWords(fallbackText) >= 80) return fallbackText.slice(0, 16000);
+
   try {
     var sourcePrompt = 'Find and inspect this exact article before answering.\nTitle: "' + article.title + '"\nPublisher: ' + article.source + '\nURL: ' + article.url + '\nRSS excerpt: ' + fallbackText + '\n\nReturn a faithful 180-260 word thematic brief for an original CAT RC writer. State the article\'s central issue, important tension, qualification and direction of argument. Do not copy sentences from the article. Do not invent details. If the exact article cannot be verified, return only SOURCE_UNAVAILABLE.';
     var sourceRequest = buildGeminiRequest(
@@ -13244,7 +13397,7 @@ async function getGroundedArticleSourceBrief(article) {
     enableWebGrounding(sourceRequest, true);
     var response = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(sourceRequest)
-    }, 30000);
+    }, Math.max(2500, Math.min(30000, Number(timeoutMs) || 4500)));
     if (!response.ok) throw new Error('Article source lookup returned ' + response.status);
     var payload = await response.json();
     var brief = stripGroundingSourceMarker(getGeminiText(payload)).trim();
@@ -13268,11 +13421,11 @@ async function createRCPassage() {
   var prompt = '';
   var rcConfig = getRCLabConfiguration();
 
-  function buildArticleRCPrompt(sourceMaterial) { var publisherGrounded=currentArticle&&/^Aeon/i.test(String(currentArticle.source||'')); return `${publisherGrounded?'Use the verified Aeon article material below as conceptual scaffolding':'Use this Marg-owned theme brief as conceptual scaffolding'}. Write a completely original CAT-style RC; do not quote or reproduce the source.
+  function buildArticleRCPrompt(sourceMaterial) { var publisherMaterial=currentArticle&&/^Aeon/i.test(String(currentArticle.source||'')); var publisherGrounded=publisherMaterial&&currentArticle.contentVerified; return `${publisherGrounded?'Use the verified Aeon article material below as conceptual scaffolding':publisherMaterial?'Use the selected Aeon publisher excerpt below as conceptual scaffolding':'Use this Marg-owned theme brief as conceptual scaffolding'}. Write a completely original CAT-style RC; do not quote or reproduce the source.
 
 Theme: "${currentArticle.title}"
 Reading world: ${rcConfig.topicLabel}
-${publisherGrounded?'Verified source material':'Theme brief'}: ${sourceMaterial}
+${publisherGrounded?'Verified source material':publisherMaterial?'Publisher excerpt':'Theme brief'}: ${sourceMaterial}
 
 Student selected: ${rcConfig.focusLabel}.
 Question mix: ${getRCQuestionBlueprint(rcConfig)}.
@@ -13286,10 +13439,13 @@ Each question must have exactly four distinct plausible options and one defensib
   showTyping();
   profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   var articleRCStage = 'generation_request';
-  var articleRCDeadline = Date.now() + 90000;
+  // Bound the whole foreground wait. If generation or independent checking
+  // cannot finish promptly, the preverified local bank is delivered in this
+  // same click rather than making the student wait through serial retries.
+  var articleRCDeadline = Date.now() + 16000;
   function remainingRCBudget(limit) {
     var remaining = articleRCDeadline - Date.now();
-    if (remaining < 8000) throw new Error('RC preparation reached its time budget');
+    if (remaining < 2500) throw new Error('RC preparation reached its time budget');
     return Math.min(limit, remaining);
   }
   try {
@@ -13311,7 +13467,7 @@ Each question must have exactly four distinct plausible options and one defensib
       return;
     }
     articleRCStage = 'theme_selection';
-    articleText = currentRCSource==='aeon' ? await getGroundedArticleSourceBrief(currentArticle) : (currentArticle.content || currentArticle.preview);
+    articleText = currentRCSource==='aeon' ? await getGroundedArticleSourceBrief(currentArticle, 4500) : (currentArticle.content || currentArticle.preview);
     prompt = buildArticleRCPrompt(articleText);
     prompt += '\nPASSAGE TARGET OVERRIDE: write 500-520 words, four paragraphs of approximately 125-130 words each. Do not aim at the lower limit. Use a complete question ending in ? or an explicit forced-choice task ending in :. Each private check must be a specific evidence sentence, never a label.';
     var rcData = null;
@@ -13338,7 +13494,7 @@ Each question must have exactly four distinct plausible options and one defensib
             'application/json',
             getPracticeGenerationJsonSchema('rc', 4)
           ))
-        }, remainingRCBudget(35000));
+        }, remainingRCBudget(9500));
         if (!response.ok) throw new Error('Worker status ' + response.status);
         articleRCStage = 'generation_response';
         const data = await response.json();
@@ -13453,7 +13609,6 @@ Each question must have exactly four distinct plausible options and one defensib
     localStorage.setItem('marg_rc_article', JSON.stringify({ title:currentArticle.title, source:currentArticle.source||'Marg Original', url:currentArticle.url||'', content:articleText, configuration:rcConfig }));
   } catch(e) {
     hideTyping();
-    console.error('RC Lab generation failed:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
     recordProductIncident('rc_lab_generation_failed', e, { surface:'today_varc', section:'rc', topic:currentArticle && currentArticle.title || '', stage:articleRCStage, configuration:rcConfig });
     // A student should not need two or three clicks because a fresh draft or
     // its independent audit failed. Serve a fully checked Marg-owned RC from
@@ -13481,7 +13636,9 @@ Each question must have exactly four distinct plausible options and one defensib
       addArticleRCAttemptMessage(activeGeneratedExercise);
       conversationHistory.push({ role:'assistant', content:fallbackReply });
       if (!isGuestMode) saveChatMessage('assistant', fallbackReply);
+      console.warn('Fresh RC generation recovered with the verified local bank at stage ' + articleRCStage + '.');
     } else {
+      console.error('RC Lab generation failed without a valid fallback:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
       var failureText = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem right now. Your RC setup is saved; retrying it immediately will not fix the connection.' : 'I couldn’t finish checking a fresh RC this time, and I won’t send you a passage you’ve already seen as if it were new. Your RC setup is saved.';
       addMessage('marg', failureText, true);
       conversationHistory.push({ role:'assistant', content:failureText });
@@ -13570,14 +13727,22 @@ function ensureArticleRCState(exercise) {
   return exercise.articleRCState;
 }
 
-function persistArticleRCState() {
-  if (!activeGeneratedExercise) return;
-  try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+function persistArticleRCState(exercise) {
+  exercise = exercise || activeGeneratedExercise;
+  if (!exercise) return;
+  if (activeGeneratedExercise && activeGeneratedExercise.id === exercise.id) {
+    try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(exercise)); } catch(e) {}
+  }
   try {
     var archiveKey = getUserScopedKey('marg_exercise_archive');
     var archive = JSON.parse(localStorage.getItem(archiveKey) || '[]');
     if (Array.isArray(archive)) {
-      archive = archive.map(function(item) { return item && item.id === activeGeneratedExercise.id ? activeGeneratedExercise : item; });
+      var found = false;
+      archive = archive.map(function(item) {
+        if (item && item.id === exercise.id) { found = true; return exercise; }
+        return item;
+      });
+      if (!found) archive.push(exercise);
       localStorage.setItem(archiveKey, JSON.stringify(archive.slice(-12)));
     }
   } catch(e) {}
@@ -13628,27 +13793,31 @@ function buildArticleRCAttemptHtml(exercise) {
     '<div class="article-rc-submit-note' + (submitted ? ' done' : '') + '">' + note + '</div>';
 }
 
-function renderActiveArticleRCWidget() {
-  if (!activeGeneratedExercise) return false;
-  var widget = document.querySelector('.article-rc-attempt[data-exercise-id="' + activeGeneratedExercise.id + '"]');
+function renderArticleRCWidget(exercise) {
+  exercise = exercise || activeGeneratedExercise;
+  if (!exercise) return false;
+  var widget = document.querySelector('.article-rc-attempt[data-exercise-id="' + exercise.id + '"]');
   if (!widget) return false;
-  widget.innerHTML = buildArticleRCAttemptHtml(activeGeneratedExercise);
-  persistArticleRCState();
-  startArticleRCTimer();
+  widget.innerHTML = buildArticleRCAttemptHtml(exercise);
+  persistArticleRCState(exercise);
+  if (activeGeneratedExercise && activeGeneratedExercise.id === exercise.id) startArticleRCTimer(exercise);
   return true;
 }
+
+function renderActiveArticleRCWidget() { return renderArticleRCWidget(activeGeneratedExercise); }
 
 var articleRCTimerHandle = null;
 function stopArticleRCTimer() {
   if (articleRCTimerHandle) clearInterval(articleRCTimerHandle);
   articleRCTimerHandle = null;
 }
-function startArticleRCTimer() {
+function startArticleRCTimer(exercise) {
   stopArticleRCTimer();
-  if (!activeGeneratedExercise) return;
-  var exerciseId = activeGeneratedExercise.id;
-  var state = ensureArticleRCState(activeGeneratedExercise);
-  if (state.submitted || activeGeneratedExercise.awaitingAnswers === false) return;
+  exercise = exercise || activeGeneratedExercise;
+  if (!exercise) return;
+  var exerciseId = exercise.id;
+  var state = ensureArticleRCState(exercise);
+  if (state.submitted || exercise.awaitingAnswers === false) return;
   articleRCTimerHandle = setInterval(function() {
     if (!activeGeneratedExercise || activeGeneratedExercise.id !== exerciseId) { stopArticleRCTimer(); return; }
     var timer = document.querySelector('.article-rc-attempt[data-exercise-id="' + exerciseId + '"] [data-rc-timer]');
@@ -13669,13 +13838,43 @@ function addArticleRCAttemptMessage(exercise) {
   return wrap;
 }
 
-function isCurrentArticleRCControl(button) {
-  if (!activeGeneratedExercise) return false;
-  if (!button) return true; // Internal calls already operate on the active artifact.
+function findArticleRCExerciseById(exerciseId) {
+  if (!exerciseId) return null;
+  if (activeGeneratedExercise && activeGeneratedExercise.id === exerciseId) return activeGeneratedExercise;
+  var candidates = [];
+  try {
+    var archive = JSON.parse(localStorage.getItem(getUserScopedKey('marg_exercise_archive')) || '[]');
+    if (Array.isArray(archive)) candidates = candidates.concat(archive.slice().reverse());
+  } catch(e) {}
+  for (var i = (conversationHistory || []).length - 1; i >= 0; i--) {
+    var stored = parseInternalMemoryMessage(conversationHistory[i], 'EXERCISE');
+    if (stored) candidates.push(stored);
+  }
+  var currentThread = typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy';
+  return candidates.find(function(exercise) {
+    return exercise && exercise.id === exerciseId && getArticleRCExerciseData(exercise) &&
+      (exercise.threadId || 'legacy') === currentThread;
+  }) || null;
+}
+
+function activateArticleRCExerciseForControl(button) {
+  if (!button) return activeGeneratedExercise;
   var card = button.closest('.article-rc-attempt');
-  var matches = card && card.getAttribute('data-exercise-id') === activeGeneratedExercise.id;
-  if (!matches && typeof showComposerStatus === 'function') showComposerStatus('This is an older RC card. Use the latest card below; your older answers are unchanged.', 'info');
-  return !!matches;
+  var exerciseId = card && card.getAttribute('data-exercise-id');
+  var exercise = findArticleRCExerciseById(exerciseId);
+  if (!exercise) return null;
+  if (!activeGeneratedExercise || activeGeneratedExercise.id !== exercise.id) {
+    activeGeneratedExercise = exercise;
+    studentProfile.activeGeneratedExercise = exercise;
+    try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(exercise)); } catch(e) {}
+  }
+  return exercise;
+}
+
+function isCurrentArticleRCControl(button) {
+  var exercise = activateArticleRCExerciseForControl(button);
+  if (!exercise && typeof showComposerStatus === 'function') showComposerStatus('This RC could not be restored. Generate a fresh checked passage.', 'info');
+  return !!exercise;
 }
 
 function chooseArticleRCOption(optionIndex, button) {
@@ -13825,7 +14024,15 @@ function getVerifiedArticleRCFallback(selectionKey) {
     if (seen.some(function(item) { return item.signature === signature || fingerprint && item.fingerprint === fingerprint; })) continue;
     return JSON.parse(JSON.stringify(candidate));
   }
-  return getCachedVerifiedPractice('rc', 4, null, false);
+  var cached = getCachedVerifiedPractice('rc', 4, null, false);
+  if (cached && validateRCPracticeSet(cached, 4)) return cached;
+  // Availability wins after every checked passage has been seen. Rotate the
+  // local bank instead of returning null and leaving the student at a dead end.
+  var rotation = 0;
+  try { rotation = Number(localStorage.getItem(articleFallbackRotationKey()) || 0); } catch(e) {}
+  var rotated = bank[(index + rotation) % bank.length];
+  try { localStorage.setItem(articleFallbackRotationKey(), String((rotation + 1) % bank.length)); } catch(e) {}
+  return JSON.parse(JSON.stringify(rotated));
 }
 
 async function checkVarcShownToday() {
