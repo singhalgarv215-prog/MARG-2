@@ -6,8 +6,7 @@
   var commands = [
     { id:'diagnose', command:'/diagnose', title:'Find what is holding me back', description:'Investigate one real problem before deciding the fix.', icon:'⌖' },
     { id:'practice', command:'/practice', title:'Practice VARC, DILR or QA', description:'Start a checked practice session from this chat.', icon:'✍' },
-    { id:'mock', command:'/mock', title:'Analyse a recent mock', description:'Enter scores or attach a scorecard without leaving the chat.', icon:'▥' },
-    { id:'sectional', command:'/sectional', title:'Take a timed sectional', description:'Choose the section and topic, then start the timed interface.', icon:'◴' },
+    { id:'mock-analysis', command:'/analyse-mock', title:'Analyse a mock I already took', description:'Enter existing scores or attach a scorecard. Marg does not provide a mock test.', icon:'▥' },
     { id:'today-varc', command:'/today-varc', title:'Open Today’s VARC', description:'Turn the current Aeon article into an RC experience.', icon:'▤' },
     { id:'progress', command:'/progress', title:'Review my evidence trail', description:'See the working pattern, evidence, intervention, result and next decision.', icon:'↗' }
   ];
@@ -15,6 +14,7 @@
   function inputElement() { return document.getElementById('user-input'); }
   function menuElement() { return document.getElementById('slash-command-menu'); }
   function buttonElement() { return document.getElementById('slash-tools-btn'); }
+  function surfaceElement() { return document.getElementById('slash-tool-surface'); }
 
   function isMenuOpen() {
     var menu = menuElement();
@@ -82,12 +82,22 @@
     else { renderSlashCommandMenu(''); if (inputElement()) inputElement().focus(); }
   }
 
+  function closeMargToolSurface() {
+    var surface = surfaceElement();
+    if (!surface) return;
+    surface.hidden = true;
+    surface.classList.remove('visible');
+    surface.innerHTML = '';
+  }
+
   function makeToolCard(id, title, subtitle) {
-    var messages = document.getElementById('messages');
-    if (!messages) return null;
-    Array.prototype.forEach.call(messages.querySelectorAll('[data-marg-tool-card]'), function (card) {
-      if (card.dataset.margToolCard === id) card.remove();
-    });
+    var surface = surfaceElement();
+    if (!surface) return null;
+    var varcCard = document.getElementById('varc-card');
+    if (varcCard) { varcCard.classList.remove('visible'); varcCard.style.display = 'none'; }
+    surface.innerHTML = '';
+    surface.hidden = false;
+    surface.classList.add('visible');
     var wrap = document.createElement('div');
     wrap.className = 'slash-tool-wrap fade-in';
     wrap.dataset.margToolCard = id;
@@ -97,11 +107,11 @@
     var label = document.createElement('div'); label.className = 'slash-tool-label'; label.textContent = '/' + id;
     var heading = document.createElement('h3'); heading.textContent = title;
     var sub = document.createElement('p'); sub.textContent = subtitle;
-    var close = document.createElement('button'); close.type = 'button'; close.className = 'slash-tool-close'; close.setAttribute('aria-label', 'Close tool'); close.textContent = '×'; close.addEventListener('click', function () { wrap.remove(); });
+    var close = document.createElement('button'); close.type = 'button'; close.className = 'slash-tool-close'; close.setAttribute('aria-label', 'Close tool'); close.textContent = 'Close ×'; close.addEventListener('click', closeMargToolSurface);
     headCopy.appendChild(label); headCopy.appendChild(heading); headCopy.appendChild(sub); head.appendChild(headCopy); head.appendChild(close);
     var body = document.createElement('div'); body.className = 'slash-tool-body';
-    card.appendChild(head); card.appendChild(body); wrap.appendChild(card); messages.appendChild(wrap);
-    if (typeof scrollChatToLatest === 'function') scrollChatToLatest(); else messages.scrollTop = messages.scrollHeight;
+    card.appendChild(head); card.appendChild(body); wrap.appendChild(card); surface.appendChild(wrap);
+    if (typeof surface.scrollIntoView === 'function') surface.scrollIntoView({ behavior:'smooth', block:'nearest' });
     return { wrap:wrap, card:card, body:body };
   }
 
@@ -122,6 +132,7 @@
   }
 
   function openTodaysVarc() {
+    closeMargToolSurface();
     if (requireFunction('closeAppMenu')) window.closeAppMenu();
     if (requireFunction('switchTab')) window.switchTab('chat');
     var card = document.getElementById('varc-card');
@@ -132,68 +143,38 @@
     if (requireFunction('toggleVarcCard')) window.toggleVarcCard(); else showUnavailable();
   }
 
+  function showDiagnosisCard() {
+    var view = makeToolCard('diagnose', 'What should Marg investigate?', 'Choose the area. Marg will use one real behaviour before deciding what is actually holding you back.');
+    if (!view) return;
+    var grid = document.createElement('div'); grid.className = 'slash-tool-grid slash-tool-grid-three';
+    ['VARC','DILR','QA','Mock Analysis','Confidence','Strategy'].forEach(function (topic) {
+      grid.appendChild(toolButton(topic, topic === 'Mock Analysis' ? 'Investigate a decision from a mock you already took.' : 'Start with evidence from your real experience.', function () {
+        closeMargToolSurface();
+        if (requireFunction('dispatchConversationalQuickReply')) window.dispatchConversationalQuickReply(topic, 'home_diagnosis_topic', null);
+        else if (requireFunction('launchHomeDiagnosis')) window.launchHomeDiagnosis();
+        else showUnavailable();
+      }));
+    });
+    view.body.appendChild(grid);
+  }
+
   function showPracticeCard() {
     var view = makeToolCard('practice', 'Choose the work, not another page', 'Practice begins from this chat. Your result returns to the same evidence trail.');
     if (!view) return;
     var grid = document.createElement('div'); grid.className = 'slash-tool-grid';
     grid.appendChild(toolButton('RC Lab', 'Article-based RC with clickable questions.', function () {
-      view.wrap.remove();
+      closeMargToolSurface();
       openTodaysVarc();
     }));
-    grid.appendChild(toolButton('QA practice', 'Five mixed CAT-style questions with a timer.', function () {
-      view.wrap.remove();
+    grid.appendChild(toolButton('QA practice', 'Five checked CAT-style questions.', function () {
+      closeMargToolSurface();
       if (requireFunction('startTimedTest')) window.startTimedTest('qa', 'Mixed QA', 5); else showUnavailable();
     }));
     grid.appendChild(toolButton('DILR practice', 'One checked set focused on selection and representation.', function () {
-      view.wrap.remove();
+      closeMargToolSurface();
       if (requireFunction('startTimedTest')) window.startTimedTest('dilr', 'Mixed Set Selection', 4); else showUnavailable();
     }));
-    grid.appendChild(toolButton('Timed sectional', 'Choose a section and topic before starting.', function () { view.wrap.remove(); showSectionalCard(); }));
     view.body.appendChild(grid);
-  }
-
-  function createSelect(labelText, id, values) {
-    var group = document.createElement('label'); group.className = 'slash-tool-field'; group.setAttribute('for', id);
-    var label = document.createElement('span'); label.textContent = labelText;
-    var select = document.createElement('select'); select.id = id;
-    values.forEach(function (value) { var option = document.createElement('option'); option.value = value.value || value; option.textContent = value.label || value; select.appendChild(option); });
-    group.appendChild(label); group.appendChild(select); return { group:group, select:select };
-  }
-
-  function showSectionalCard() {
-    var view = makeToolCard('sectional', 'Start a timed sectional', 'Choose the section and focus. The existing checked test engine opens immediately.');
-    if (!view) return;
-    var section = createSelect('Section', 'slash-sectional-section', [
-      {value:'varc',label:'VARC · timed RC'}, {value:'qa',label:'QA · 10 questions'}, {value:'dilr',label:'DILR · 3 sets'}
-    ]);
-    var topic = createSelect('Focus', 'slash-sectional-topic', ['Mixed / surprise','Arithmetic','Algebra','Geometry','Arrangements & Rankings','Scheduling & Allocation','Science & Society','Ideas & Philosophy']);
-    function refreshTopics() {
-      var sets = {
-        varc:['Surprise theme','Ideas & Philosophy','Science & Society','Economics & Policy','History & Culture'],
-        qa:['Percentages','Ratios & Proportions','Time-Speed-Distance','Profit & Loss','Linear Equations','Quadratic Equations','Functions & Inequalities','Geometry (Triangles, Circles)','Number Systems','Probability'],
-        dilr:['Arrangements & Rankings','Scheduling & Allocation','Distribution & Grouping','Games & Tournaments','Routes & Networks','Tables, Charts & DI Caselets','Mixed Set Selection']
-      };
-      topic.select.innerHTML = '';
-      sets[section.select.value].forEach(function (value) { var option = document.createElement('option'); option.textContent = value; option.value = value; topic.select.appendChild(option); });
-    }
-    section.select.addEventListener('change', refreshTopics); refreshTopics();
-    var fields = document.createElement('div'); fields.className = 'slash-tool-fields'; fields.appendChild(section.group); fields.appendChild(topic.group);
-    var start = document.createElement('button'); start.type = 'button'; start.className = 'slash-tool-primary'; start.textContent = 'Start timed sectional →';
-    start.addEventListener('click', function () {
-      if (!requireFunction('startSectionalFromHub')) { showUnavailable(); return; }
-      var sectionValue = section.select.value;
-      var legacySelect = document.getElementById('home-' + sectionValue + '-sectional-topic');
-      if (legacySelect) {
-        var desired = topic.select.value;
-        Array.prototype.some.call(legacySelect.options, function (option) {
-          if (option.textContent === desired || option.value === desired) { legacySelect.value = option.value; return true; }
-          return false;
-        });
-      }
-      view.wrap.remove();
-      window.startSectionalFromHub(sectionValue);
-    });
-    view.body.appendChild(fields); view.body.appendChild(start);
   }
 
   function scoreInput(labelText, max) {
@@ -204,7 +185,7 @@
   }
 
   function showMockCard() {
-    var view = makeToolCard('mock', 'Analyse a mock in this conversation', 'A score locates the outcome. Marg will still ask for execution evidence before diagnosing the cause.');
+    var view = makeToolCard('mock-analysis', 'Analyse a mock you already took', 'Enter existing scores or attach the scorecard. This analyses your attempt; Marg does not provide a mock test.');
     if (!view) return;
     var scoreRow = document.createElement('div'); scoreRow.className = 'slash-score-row';
     var varc = scoreInput('VARC', 72), dilr = scoreInput('DILR', 60), qa = scoreInput('QA', 60);
@@ -221,11 +202,11 @@
       }
       var ids = ['mac-varc','mac-dilr','mac-qa'];
       values.forEach(function (value, index) { var target = document.getElementById(ids[index]); if (target) target.value = value; });
-      view.wrap.remove();
+      closeMargToolSurface();
       if (requireFunction('submitMockScores')) await window.submitMockScores(); else showUnavailable();
     });
     var upload = document.createElement('button'); upload.type = 'button'; upload.className = 'slash-tool-secondary'; upload.textContent = 'Attach scorecard';
-    upload.addEventListener('click', function () { view.wrap.remove(); if (requireFunction('openMockScorecardUpload')) window.openMockScorecardUpload(); else showUnavailable(); });
+    upload.addEventListener('click', function () { closeMargToolSurface(); if (requireFunction('openMockScorecardUpload')) window.openMockScorecardUpload(); else showUnavailable(); });
     actions.appendChild(analyse); actions.appendChild(upload);
     view.body.appendChild(scoreRow); view.body.appendChild(actions);
     appendPreviousMockAnalyses(view.body);
@@ -285,7 +266,7 @@
       }
       view.body.appendChild(progressLine('Next decision', recommendation.title || recommendation.copy || 'Continue with Marg', 'next'));
       var next = document.createElement('button'); next.type = 'button'; next.className = 'slash-tool-primary'; next.textContent = recommendation.cta || 'Continue with Marg →';
-      next.addEventListener('click', function () { view.wrap.remove(); if (requireFunction('runHomeRecommendation')) window.runHomeRecommendation(); });
+      next.addEventListener('click', function () { closeMargToolSurface(); if (requireFunction('runHomeRecommendation')) window.runHomeRecommendation(); });
       view.body.appendChild(next);
     } catch (error) {
       loading.textContent = 'Progress could not load. Your chat is unchanged; retry /progress.';
@@ -296,10 +277,9 @@
     closeSlashCommandMenu();
     var input = inputElement(); if (input && /^\s*\//.test(input.value)) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles:true })); }
     if (requireFunction('switchTab')) window.switchTab('chat');
-    if (id === 'diagnose') { if (requireFunction('launchHomeDiagnosis')) window.launchHomeDiagnosis(); else showUnavailable(); }
+    if (id === 'diagnose') showDiagnosisCard();
     else if (id === 'practice') showPracticeCard();
-    else if (id === 'mock') showMockCard();
-    else if (id === 'sectional' || id === 'sectionals') showSectionalCard();
+    else if (id === 'mock' || id === 'mock-analysis') showMockCard();
     else if (id === 'today-varc' || id === 'varc') openTodaysVarc();
     else if (id === 'progress') showProgressCard();
   }
@@ -339,7 +319,7 @@
     document.addEventListener('click', function (event) {
       if (!isMenuOpen()) return;
       var menu = menuElement(), button = buttonElement();
-      if (menu && !menu.contains(event.target) && button && !button.contains(event.target) && event.target !== input) closeSlashCommandMenu();
+      if (menu && !menu.contains(event.target) && (!button || !button.contains(event.target)) && event.target !== input) closeSlashCommandMenu();
     });
   }
 
@@ -348,5 +328,6 @@
   window.closeSlashCommandMenu = closeSlashCommandMenu;
   window.openSlashCommandMenuFromMenu = openSlashCommandMenuFromMenu;
   window.openMargTool = openMargTool;
+  window.closeMargToolSurface = closeMargToolSurface;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

@@ -272,7 +272,7 @@ function hasPendingHomepageIntent() {
 function loadPendingHomepageDestination() {
   try {
     var destination = JSON.parse(localStorage.getItem(HOMEPAGE_DESTINATION_STORAGE_KEY) || 'null');
-    if (!destination || ['practice','mock','sectionals','chat'].indexOf(destination.destination) === -1 || !destination.createdAt || Date.now() - Number(destination.createdAt) > HOMEPAGE_INTENT_MAX_AGE_MS) {
+    if (!destination || ['practice','mock','chat'].indexOf(destination.destination) === -1 || !destination.createdAt || Date.now() - Number(destination.createdAt) > HOMEPAGE_INTENT_MAX_AGE_MS) {
       localStorage.removeItem(HOMEPAGE_DESTINATION_STORAGE_KEY);
       return null;
     }
@@ -294,7 +294,7 @@ function openPendingHomepageDestination() {
   // from the place they deliberately choose next.
   try { localStorage.removeItem(HOMEPAGE_DESTINATION_STORAGE_KEY); } catch(e) {}
   if (destination.destination === 'chat') openHomeDestination('chat');
-  else if (typeof openMargTool === 'function') openMargTool(destination.destination === 'sectionals' ? 'sectional' : destination.destination);
+  else if (typeof openMargTool === 'function') openMargTool(destination.destination);
   else switchTab(destination.destination);
   return true;
 }
@@ -15300,12 +15300,12 @@ function buildHomeRecommendation() {
     };
   }
 
-  var sectional = bestSectionalRecommendation();
-  if (sectional) {
+  var practicedTopic = bestSectionalRecommendation();
+  if (practicedTopic) {
     return {
-      title:'You have practised ' + sectional.topic + ' enough to test it under pressure.',
-      copy:'You have completed ' + sectional.conceptQuestionsCompleted + ' concept questions. A timed check will now reveal whether that learning transfers when the topic label and extra time disappear.',
-      label:'Next useful test', cta:'Open the timed test →', action:{ destination:'sectionals', section:sectional.section, topic:sectional.topic }
+      title:'Continue with targeted ' + practicedTopic.topic + ' practice.',
+      copy:'You have completed ' + practicedTopic.conceptQuestionsCompleted + ' concept questions. Use one fresh checked attempt to see whether the same pattern is changing.',
+      label:'Next useful practice', cta:'Open targeted practice →', action:{ destination:'practice', section:practicedTopic.section, topic:practicedTopic.topic }
     };
   }
 
@@ -15419,21 +15419,12 @@ function runHomeRecommendation() {
   if (action.destination === 'resume_diagnostic') { resumePendingDiagnosticFromHome(); return; }
   if (action.destination === 'resume_plan') { resumeActiveMentorPlanFromHome(); return; }
   if (action.destination === 'durable_task') { resumeDurableMentorTask(action.taskId); return; }
-  if (action.destination === 'sectionals') {
-    switchTab('sectionals');
-    var selectId = action.section === 'dilr' ? 'home-dilr-sectional-topic' : 'home-qa-sectional-topic';
-    var select = document.getElementById(selectId);
-    if (select && action.topic) {
-      Array.prototype.some.call(select.options, function(option) {
-        if (option.value === action.topic || option.text === action.topic) { select.value = option.value; return true; }
-        return false;
-      });
-    }
-    return;
-  }
   if (action.destination === 'practice' && action.section) {
-    switchTab('practice');
-    switchPracticeTab(action.section === 'varc' ? 'rc' : action.section);
+    if (typeof openMargTool === 'function') openMargTool('practice');
+    else {
+      switchTab('practice');
+      switchPracticeTab(action.section === 'varc' ? 'rc' : action.section);
+    }
     return;
   }
   openHomeDestination(action.destination || 'diagnosis');
@@ -15590,12 +15581,12 @@ function openHomeDestination(destination) {
     return;
   }
   if (destination === 'home') { switchTab('home'); return; }
-  if (['practice','mock','sectionals','progress'].indexOf(destination) !== -1 && typeof openMargTool === 'function') {
+  if (['practice','mock','progress'].indexOf(destination) !== -1 && typeof openMargTool === 'function') {
     switchTab('chat');
-    openMargTool(destination === 'sectionals' ? 'sectional' : destination);
+    openMargTool(destination);
     return;
   }
-  if (['practice','mock','sectionals','progress'].indexOf(destination) !== -1) switchTab(destination);
+  if (['practice','mock','progress'].indexOf(destination) !== -1) switchTab(destination);
 }
 
 function openMockScorecardUpload() {
@@ -15792,6 +15783,7 @@ function switchTab(tab) {
   // screen after the student has moved elsewhere.
   if (currentTab === 'practice' && tab !== 'practice') cancelActivePracticeLoad();
   currentTab = tab;
+  if (tab !== 'chat' && typeof closeMargToolSurface === 'function') closeMargToolSurface();
   document.querySelectorAll('.tab-section').forEach(function(s) { s.classList.remove('active'); });
   document.querySelectorAll('.bnav-btn').forEach(function(b) { b.classList.remove('active'); });
   document.querySelectorAll('.desktop-nav-btn').forEach(function(b) { b.classList.remove('active'); });

@@ -18,13 +18,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"></noscript>
 <script>if(/^\/challenge\/?$/.test(location.pathname)){document.documentElement.classList.add('marg-challenge-route');}</script>
-<link rel="stylesheet" href="/pilot-ui.css?v=20260928-slash-tools1">
+<link rel="stylesheet" href="/pilot-ui.css?v=20260928-chat-tools2">
 <script defer src="/chat-topics.js?v=20260928-question-context1"></script>
 <script defer src="/question-library.js?v=20260928-question-context1"></script>
 <script defer src="/marg-training.js?v=20260928-training1"></script>
-<script defer src="/slash-tools.js?v=20260928-slash-tools1"></script>
+<script defer src="/slash-tools.js?v=20260928-chat-tools2"></script>
 <script defer src="/time-mock-blueprints.js?v=20260926-timebank1"></script>
-<script defer src="/landing-bootstrap.js?v=20260928-slash-training1"></script>
+<script defer src="/landing-bootstrap.js?v=20260928-chat-tools2"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -689,9 +689,6 @@ Continue with Google
 <button type="button" class="landing-entry-card" data-entry-key="mock" aria-pressed="false" onclick="chooseHomepageEntry('mock')">
 <span class="landing-entry-icon">📊</span><span class="landing-entry-copy"><span class="landing-entry-title">Analyse my mock</span><span class="landing-entry-desc">Separate the score from the execution failure.</span></span><span class="landing-entry-arrow">›</span>
 </button>
-<button type="button" class="landing-entry-card" data-entry-key="sectionals" aria-pressed="false" onclick="chooseHomepageEntry('sectionals')">
-<span class="landing-entry-icon">⏱</span><span class="landing-entry-copy"><span class="landing-entry-title">Take a sectional</span><span class="landing-entry-desc">Use the timed interface with submission and analysis.</span></span><span class="landing-entry-arrow">›</span>
-</button>
 </div>
 <div class="landing-destination-preview" id="landing-destination-preview" aria-live="polite">
 <div class="landing-destination-kicker" id="landing-destination-kicker">Your destination</div>
@@ -1134,7 +1131,6 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="desktop-nav-items">
 <button class="desktop-nav-btn" id="dnav-home" type="button" onclick="switchTab('home')"><span class="desktop-nav-icon">⌂</span>Home</button>
 <button class="desktop-nav-btn" id="dnav-chat" type="button" onclick="switchTab('chat')"><span class="desktop-nav-icon">💬</span>Ask MARG</button>
-<button class="desktop-nav-btn" id="dnav-tools" type="button" onclick="openSlashCommandMenuFromMenu()"><span class="desktop-nav-icon">/</span>Tools</button>
 </div>
 <div class="desktop-nav-secondary">
 <button class="desktop-nav-btn" type="button" onclick="openAppMenu()"><span class="desktop-nav-icon">•••</span>More</button>
@@ -1271,6 +1267,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button onclick="refreshArticle()" style="font-family:'DM Sans',sans-serif;font-size:11px;color:var(--text-dim);background:none;border:none;cursor:pointer;padding:4px;">↻ Show another theme</button>
 </div>
 </div>
+<section id="slash-tool-surface" aria-live="polite" hidden></section>
 <div id="messages"></div>
 <div id="input-area">
 <div id="image-attachment-preview" aria-live="polite">
@@ -1285,8 +1282,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button id="attach-image-btn" type="button" onclick="openImagePicker()" aria-label="Add photos" title="Add photos from camera or library">
 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13" r="4"/></svg>
 </button>
-<button id="slash-tools-btn" type="button" onclick="toggleSlashCommandMenu()" aria-label="Open Marg tools" aria-expanded="false" aria-controls="slash-command-menu" title="Marg tools">/</button>
-<textarea id="user-input" rows="1" placeholder="Ask Marg anything about CAT..." disabled></textarea>
+<textarea id="user-input" rows="1" placeholder="Ask Marg anything… Type / for tools" disabled></textarea>
 <button id="send-btn" onclick="sendMessage()" disabled><svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
 </div>
 <div id="slash-command-menu" role="listbox" aria-label="Marg tools" hidden></div>
@@ -1370,7 +1366,6 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 </div>
 <div class="practice-hub-actions" aria-label="Other practice modes">
 <button class="practice-hub-action" type="button" onclick="appMenuOpenVarc()">Today’s VARC</button>
-<button class="practice-hub-action" type="button" onclick="switchTab('sectionals')">Timed &amp; sectional tests</button>
 </div>
 <div class="practice-submit-note">Tap an option to submit your answer. Chat messages do not select an option in Practice.</div>
 </div>
@@ -1486,7 +1481,6 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <div class="app-menu-section-label">Navigate</div>
 <button class="app-menu-item" type="button" onclick="appMenuSwitchTab('home')"><span class="app-menu-item-icon">⌂</span>Home</button>
 <button class="app-menu-item" type="button" onclick="appMenuSwitchTab('chat')"><span class="app-menu-item-icon">💬</span>Ask MARG</button>
-<button class="app-menu-item" type="button" onclick="openSlashCommandMenuFromMenu()"><span class="app-menu-item-icon">/</span>Practice, mocks &amp; progress</button>
 <div class="app-menu-section-label">Chats</div>
 <button class="app-menu-item app-menu-new-chat" type="button" onclick="closeAppMenu();createQuickTopicChat()"><span class="app-menu-item-icon">＋</span>New chat</button>
 <div class="sidebar-chat-list mobile-chat-list" id="mobile-chat-list" aria-label="Previous chats"></div>

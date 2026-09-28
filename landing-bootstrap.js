@@ -3,7 +3,7 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20260928-slash-training1';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20260928-chat-tools2';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var HOMEPAGE_DESTINATION_STORAGE_KEY = 'marg_pending_homepage_destination_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
@@ -38,12 +38,6 @@
       title:'Separate the score from the execution problem.',
       copy:'Enter section scores or add the scorecard image. Marg will look for the decision pattern behind the collapse before changing your plan.',
       outcome:'After Google: Marg opens Mock Analysis inside chat with score and image inputs ready.'
-    },
-    sectionals:{
-      kicker:'Timed tests',
-      title:'Pressure-test a section properly.',
-      copy:'Use the timed QA or DILR interface with navigation, submission and analysis—not a long list of questions inside chat.',
-      outcome:'After Google: Marg opens the timed-test chooser inside chat.'
     },
     chat:{
       kicker:'Mentor chat',
