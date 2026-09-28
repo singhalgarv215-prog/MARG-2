@@ -1239,9 +1239,24 @@ function evaluateDeterministicArithmetic(expression) {
 
 function guardDeterministicArithmeticEqualities(text) {
   var value = String(text || '');
+  // Repair expanded score chains as one unit. Validating only the final net
+  // allowed "(8 × 3) − (2 × 1) = 22 − 2 = 22" to survive because the leftmost
+  // expression itself equals 22. The displayed intermediate products must
+  // also be recomputed.
+  value = value.replace(/\(\s*(-?\d+(?:\.\d+)?)\s*[×*]\s*(-?\d+(?:\.\d+)?)\s*\)\s*([-+−])\s*\(\s*(-?\d+(?:\.\d+)?)\s*[×*]\s*(-?\d+(?:\.\d+)?)\s*\)\s*=\s*-?\d+(?:\.\d+)?\s*([-+−])\s*-?\d+(?:\.\d+)?\s*=\s*-?\d+(?:\.\d+)?/g, function(_match, a, b, firstOperator, c, d) {
+    var first = Number(a) * Number(b), second = Number(c) * Number(d);
+    var net = firstOperator === '+' ? first + second : first - second;
+    return '\u0000(' + a + ' × ' + b + ') ' + firstOperator.replace('−', '-') + ' (' + c + ' × ' + d + ') = ' + first + ' ' + firstOperator.replace('−', '-') + ' ' + second + ' = ' + net;
+  });
   // Recompute only self-contained numeric equalities. Algebraic equations are
   // left alone; they need symbolic reasoning rather than a brittle parser.
-  return value.replace(/(^|\n|[:;=]\s*)([₹\s\d,.()+\-−–—×·÷*/^√%]+)=\s*((?:₹|Rs\.?\s*)?-?[\d,]+(?:\.\d+)?)/gim, function(match, boundary, expression, shown) {
+  var equalityPattern = /(^|\n|[:;=]\s*)([₹\s\d,.()+\-−–—×·÷*/^√%]+)=\s*((?:₹|Rs\.?\s*)?-?[\d,]+(?:\.\d+)?)/gim;
+  return value.split('\n').map(function(line) {
+    // Multi-equality score expansions were normalised as a whole above. A
+    // second local rewrite would compare the total expression with the first
+    // displayed product and corrupt a now-valid chain.
+    if (line.indexOf('\u0000') !== -1) return line.replace(/\u0000/g, '');
+    return line.replace(equalityPattern, function(match, boundary, expression, shown) {
     var computed;
     try { computed = evaluateDeterministicArithmetic(expression); } catch(e) { return match; }
     var shownNumber = Number(String(shown).replace(/(?:₹|Rs\.?)/gi, '').replace(/,/g, '').trim());
@@ -1253,7 +1268,8 @@ function guardDeterministicArithmeticEqualities(text) {
       : String(Number(computed.toFixed(6)));
     var prefix = /₹/.test(shown) ? '₹' : /Rs\.?/i.test(shown) ? 'Rs. ' : '';
     return boundary + expression + '= ' + prefix + corrected;
-  });
+    });
+  }).join('\n');
 }
 
 function addMargMessage(text, isHtml) {
@@ -4053,6 +4069,12 @@ function loadDiagnosticMemory() {
 }
 
 function saveDiagnosticMemory() {
+  var now = Date.now();
+  Object.keys(diagnosticMemory || {}).forEach(function(topic) {
+    var entry = diagnosticMemory[topic];
+    var updated = entry && Date.parse(entry.updatedAt || '');
+    if (entry && !entry.sourceThreadId && Number.isFinite(updated) && Math.abs(now - updated) < 120000) entry.sourceThreadId = getCurrentMentorThreadId();
+  });
   studentProfile.diagnosticMemory = diagnosticMemory;
   try { localStorage.setItem(getDiagnosticStorageKey(), JSON.stringify(diagnosticMemory)); } catch(e) {}
 }
@@ -4446,8 +4468,26 @@ async function maybeStartGuidedExperienceFromMessage(message) {
   return true;
 }
 
-function getDiagnosticMemoryContext() {
-  var entries = Object.keys(diagnosticMemory).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) { return entry && entry.confirmedDiagnosis && entry.status !== 'rejected' && !entry.doNotReuse; });
+function getCurrentMentorThreadId() {
+  return typeof margActiveThreadId !== 'undefined' && margActiveThreadId ? margActiveThreadId : 'legacy';
+}
+
+function requestsAccountWideMentorMemory(message) {
+  return /\b(?:across all (?:my )?(?:chats?|conversations?)|account[- ]wide|from (?:my )?(?:other|previous|past) chats?|all (?:my )?(?:history|mock history)|what do you (?:know|remember) about me|use my (?:full|account) history)\b/i.test(String(message || ''));
+}
+
+function scopedMentorMemoryAllowed(item, message) {
+  if (requestsAccountWideMentorMemory(message)) return true;
+  return !!(item && item.sourceThreadId && item.sourceThreadId === getCurrentMentorThreadId());
+}
+
+function getDiagnosticMemoryContext(message, diagnosis) {
+  var requestedTopic = diagnosis && diagnosis.requestedSection || null;
+  var entries = Object.keys(diagnosticMemory).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) {
+    if (!entry || !entry.confirmedDiagnosis || entry.status === 'rejected' || entry.doNotReuse) return false;
+    if (!scopedMentorMemoryAllowed(entry, message)) return false;
+    return !requestedTopic || entry.topic === requestedTopic || entry.topic === 'mock';
+  });
   if (!entries.length) return '';
   return '\n\nDIAGNOSTIC EVIDENCE MEMORY (respect the evidence level; do not present a hypothesis as fact):\n' + entries.map(function(entry) {
     var counts = observedDiagnosisEvidenceCounts(entry);
@@ -5627,8 +5667,12 @@ function guardExerciseAbilityOverclaim(response) {
       'We still need to check which part of the reading or option comparison caused difficulty.')
     .replace(/[^.!?\n]*\byour\b[^.!?\n]*(?:strong|solid|perfect|proven)[^.!?\n]*(?:across all|all sub[ -]?topics|entire foundation|whole foundation)[^.!?\n]*[.!]?/gi,
     'These answers tell us about the topics checked here, not your entire foundation.')
+    .replace(/(?:Iska matlab\s+)?(?:problem|issue) comprehension ki nahi,\s*\*{0,2}(?:retrieval(?: mechanism)?|claim location)\*{0,2}\s+ki hai\.?/gi,
+      'Available evidence claim-location difficulty ko support karta hai, but one set se comprehension ko rule out nahi kar sakte.')
     .replace(/\bcomprehension (?:isn['’]?t|is not) (?:your |the )?(?:issue|problem)(?: at all)?\b/gi,
-      'comprehension may not be the only issue; we still need to check how you locate and interpret the claim');
+      'comprehension may not be the only issue; we still need to check how you locate and interpret the claim')
+    .replace(/\b(?:problem|issue)\s+comprehension\s+ki\s+nahi\b/gi,
+      'available evidence claim-location difficulty ko support karta hai, but one set se comprehension ko rule out nahi kar sakte');
   return guardUnprovidedStudentWorking(value);
 }
 
@@ -5641,6 +5685,14 @@ function guardUnprovidedStudentWorking(response) {
   });
   if (suppliedWorking) return String(response || '');
   return String(response || '')
+    .replace(/[^.!?\n]*\byou\s+(?:selected|chose)\s+(?:a\s+)?(?:viable|correct|efficient)\s+(?:approach|approaches|method|methods)[^.!?\n]*[.!?]?/gi,
+      'Your correct choices show that the final options were right; they do not reveal which methods you used.')
+    .replace(/[^.!?\n]*\byou\s+(?:completed|performed|did)\s+(?:the\s+)?(?:arithmetic|calculations?|working)[^.!?\n]*(?:without|with no)\s+(?:errors?|mistakes?)[^.!?\n]*[.!?]?/gi,
+      'The final answers were correct, but your unseen working cannot establish error-free arithmetic.')
+    .replace(/[^.!?\n]*\b(?:you\s+)?didn['’]?t\s+(?:lose marks?|make mistakes?)\s+(?:to|from|because of)\s+(?:misreading|carelessness|execution)[^.!?\n]*[.!?]?/gi,
+      'The result does not show whether rereading, checking or another process prevented an error.')
+    .replace(/[^.!?\n]*\byou\s+did\s+not\s+leak\s+marks?\s+on\s+(?:execution|arithmetic|misreading)[^.!?\n]*[.!?]?/gi,
+      'The final answers were correct, but the result alone does not reveal the unseen execution process.')
     .replace(/\([^()\n]*(?:arrived at by|you (?:divided|multiplied|subtracted|added|calculated))[^()\n]*\)/gi, '')
     .replace(/\bYou (?:divided|multiplied|subtracted|added|calculated)\b[^\n!?]*(?:[!?]|$)/gi, 'I can show the valid calculation, but your final answer alone does not show which step went wrong.')
     .replace(/\bQ(\d+) was an? (?:execution|calculation) error\b/gi, 'Q$1 has a wrong final answer; the cause still needs your working');
@@ -6275,9 +6327,11 @@ function recordBehaviorPattern(section, insight, evidence, source) {
   }
   if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
   var normalized = normalizeBehaviorPattern(section, insight);
-  var existing = behavioralMemory.patterns.find(function(pattern) { return pattern.section === normalized.section && pattern.key === normalized.key; });
+  var existing = behavioralMemory.patterns.find(function(pattern) {
+    return pattern.section === normalized.section && pattern.key === normalized.key && pattern.sourceThreadId === getCurrentMentorThreadId();
+  });
   if (!existing) {
-    existing = { section:normalized.section, key:normalized.key, label:normalized.label, occurrences:0, firstSeen:getTodayDate() };
+    existing = { section:normalized.section, key:normalized.key, label:normalized.label, occurrences:0, firstSeen:getTodayDate(), sourceThreadId:getCurrentMentorThreadId() };
     behavioralMemory.patterns.push(existing);
   }
   if (existing.occurrences > 0 && existing.lastSeen) existing.previousSeen = existing.lastSeen;
@@ -6290,10 +6344,13 @@ function recordBehaviorPattern(section, insight, evidence, source) {
   return existing;
 }
 
-function getBehavioralMemoryContext() {
+function getBehavioralMemoryContext(message, diagnosis) {
   if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
+  var requestedSection = diagnosis && diagnosis.requestedSection;
+  if (requestedSection === 'varc') requestedSection = 'rc';
   var patterns = behavioralMemory.patterns.filter(function(pattern) {
-    return pattern && pattern.status !== 'rejected' && !pattern.doNotReuse && pattern.source !== 'answer-review';
+    return pattern && pattern.status !== 'rejected' && !pattern.doNotReuse && pattern.source !== 'answer-review' &&
+      scopedMentorMemoryAllowed(pattern, message) && (!requestedSection || pattern.section === requestedSection);
   }).slice(0, 6);
   if (!patterns.length) return '';
   return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(function(pattern) {
@@ -6331,6 +6388,7 @@ function loadActiveMentorPlan() {
 function saveActiveMentorPlan(plan) {
   if (plan && !plan.status) plan.status = 'active';
   if (plan && !plan.startedAt) plan.startedAt = plan.updatedAt || new Date().toISOString();
+  if (plan && !plan.sourceThreadId) plan.sourceThreadId = getCurrentMentorThreadId();
   activeMentorPlan = plan;
   studentProfile.activePlan = plan;
   try { localStorage.setItem(activePlanStorageKey(), JSON.stringify(plan)); } catch(e) {}
@@ -6447,6 +6505,28 @@ function sharesSpecificClaim(left, right, minimumHits) {
   return hits >= (minimumHits || 1);
 }
 
+function previousVisibleAssistantMessages() {
+  return (conversationHistory || []).filter(function(item) {
+    return item && item.role === 'assistant' && !isInternalMemoryMessage(item) && String(item.content || '').trim();
+  }).map(function(item) { return String(item.content || ''); });
+}
+
+function verifyHistoricalUserPremise(message) {
+  var text = String(message || '');
+  var referencesHistory = /\b(?:yesterday|last time|earlier|previously|before)\b[\s\S]{0,45}\b(?:you|marg)\s+(?:said|told|asked|gave|assigned|diagnosed|recommended)|\b(?:you|marg)\s+(?:said|told|wrote|claimed|diagnosed|recommended)\b/i.test(text);
+  if (!referencesHistory) return { checked:false, verified:null };
+  var assistants = previousVisibleAssistantMessages();
+  if (!assistants.length) return { checked:true, verified:false, reason:'No earlier assistant reply exists in this conversation.' };
+  var combined = assistants.join('\n');
+  var equation = text.match(/\b(\d+(?:\.\d+)?)\s*(?:×|x|\*)\s*(\d+(?:\.\d+)?)\s*(?:=|equals?)\s*(-?\d+(?:\.\d+)?)\b/i);
+  if (equation) {
+    var equationPattern = new RegExp('\\b' + equation[1].replace('.', '\\.') + '\\s*(?:×|x|\\*)\\s*' + equation[2].replace('.', '\\.') + '\\s*(?:=|equals?)\\s*' + equation[3].replace('.', '\\.') + '\\b', 'i');
+    return { checked:true, verified:equationPattern.test(combined), reason:equationPattern.test(combined) ? 'The quoted equality appears in this conversation.' : 'The quoted equality does not appear in the earlier reply.' };
+  }
+  var verified = sharesSpecificClaim(text, combined, 2);
+  return { checked:true, verified:verified, reason:verified ? 'The claimed topic appears in earlier assistant text.' : 'The claimed prior statement cannot be matched to this conversation.' };
+}
+
 function reconcileFreshCorrectiveEvidence(message) {
   if (!isStrongCorrectiveEvidence(message)) return null;
   loadDiagnosticMemory();
@@ -6454,6 +6534,14 @@ function reconcileFreshCorrectiveEvidence(message) {
   loadActiveMentorPlan();
   loadMentorEvidenceMemory();
   var evidenceText = String(message || '').substring(0, 600);
+  var premiseCheck = verifyHistoricalUserPremise(message);
+  if (premiseCheck.checked && !premiseCheck.verified) {
+    return {
+      at:new Date().toISOString(), topics:correctionTopics(message), newEvidence:evidenceText,
+      priorClaim:recentAssistantClaim(), rejectedHypotheses:[], planInvalidated:false,
+      verified:false, verificationReason:premiseCheck.reason
+    };
+  }
   var existingCorrection = mentorEvidenceMemory.corrections.slice(-5).find(function(item) { return item && item.newEvidence === evidenceText; });
   if (existingCorrection) return existingCorrection;
   var topics = correctionTopics(message);
@@ -6507,7 +6595,7 @@ function reconcileFreshCorrectiveEvidence(message) {
 
   var correction = {
     at:new Date().toISOString(), topics:topics, newEvidence:evidenceText,
-    priorClaim:previousClaim, rejectedHypotheses:invalidated, planInvalidated:planInvalidated
+    priorClaim:previousClaim, rejectedHypotheses:invalidated, planInvalidated:planInvalidated, verified:true
   };
   mentorEvidenceMemory.corrections.push(correction);
   saveMentorEvidenceMemory();
@@ -6547,7 +6635,8 @@ function buildInvisibleMentorBrief(message, diagnosis, correction) {
   lines.push('- Evidence boundary: a section score cannot establish a stable base, strong comprehension or an easy question the student skipped. With a multi-section story, ask which section to unpack before choosing for them. In a passage explanation, do not add historical or biological facts absent from the supplied text; make analogies explicitly hypothetical.');
   if(typeof getTopicChatMentorContext==='function')lines.push(getTopicChatMentorContext());
   if (recentCorrections.length) lines.push('- Corrections that override older memory: ' + recentCorrections.map(function(item) { return item.newEvidence; }).join(' | '));
-  if (correction) lines.push('- This turn contains corrective evidence. Own the earlier mistake directly, state what it rules out, and do not reuse the rejected diagnosis' + (correction.planInvalidated ? ' or its mission' : '') + '.');
+  if (correction && correction.verified === false) lines.push('- The student alleges an earlier statement, but the actual thread does not contain it. Do not apologize or confess. State what the thread actually shows, then answer from verified facts.');
+  else if (correction) lines.push('- This turn contains verified corrective evidence. Own the earlier mistake directly, state what it rules out, and do not reuse the rejected diagnosis' + (correction.planInvalidated ? ' or its mission' : '') + '.');
   if (diagnosis && diagnosis.committedAction) lines.push('- The student has already chosen the action. Execute the promised action in this response; no readiness question, repeated explanation or extra confirmation.');
   return lines.join('\n');
 }
@@ -6700,6 +6789,7 @@ function getActivePlanMemoryContext() {
 function shouldIncludeActivePlanContext(message, diagnosis) {
   loadActiveMentorPlan();
   if (!isOpenMentorPlan(activeMentorPlan)) return false;
+  if (!scopedMentorMemoryAllowed(activeMentorPlan, message)) return false;
   var text = String(message || '');
   if (isUserResumingActivePlan(text, activeMentorPlan)) return true;
   if (diagnosis && (diagnosis.intent === 'planning' || diagnosis.intent === 'returning_memory')) return true;
@@ -6768,8 +6858,12 @@ function suppressUnrelatedExerciseContinuation(response, userMessage) {
   return value.trim() || response;
 }
 
-function getTopicProgressionMemoryContext() {
+function getTopicProgressionMemoryContext(message) {
   if (typeof loadTopicProgression !== 'function') return '';
+  // Topic progression is account-wide aggregate data. Keep it out of ordinary
+  // new/personal chats unless the student explicitly asks for their broader
+  // progress or account history.
+  if (!requestsAccountWideMentorMemory(message) && !/\b(?:my progress|progress history|performance history|trend across|across mocks|previous results)\b/i.test(String(message || ''))) return '';
   loadTopicProgression();
   var items = Object.keys(topicProgression || {}).map(function(key) { return topicProgression[key]; }).filter(function(item) { return item && item.updatedAt; }).sort(function(a,b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); }).slice(0, 6);
   if (!items.length) return '';
@@ -9278,16 +9372,66 @@ function getUnansweredUserMessageBeforeGreeting(message) {
   return '';
 }
 
+function detectRequestedSpeechAct(message) {
+  var text = String(message || '').toLowerCase().replace(/[’]/g, "'").trim();
+  if (/\b(?:correction|corrected|update only|recalculate|recompute|check (?:the )?(?:sum|total|arithmetic)|so the total|total .* correct)\b/.test(text) && /\b(?:score|marks?|total|varc|dilr|qa|quant|\d+)\b/.test(text)) return 'score_correction';
+  if (/\b(?:start|open|launch|generate|create|give me|take|run|begin)\b[\s\S]{0,60}\b(?:practice|test|sectional|questions?|rc|passage|dilr set|qa set|baseline)\b/.test(text)) return 'practice_launch';
+  if (/\b(?:why|what|how|when|where|which|calculate|compute|explain|tell me|answer)\b/.test(text) && !/\b(?:diagnos|find (?:my|the) (?:problem|weakness|leak)|what is holding me back)\b/.test(text)) return 'direct_question';
+  return 'mentoring';
+}
+
+function normalizeDuplicateUserMessage(message) {
+  return String(message || '').toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').replace(/[.!?]+$/g, '').trim();
+}
+
+function isExactDuplicateUserTurn(message) {
+  var normalized = normalizeDuplicateUserMessage(message);
+  if (!normalized) return false;
+  var users = (conversationHistory || []).filter(function(item) {
+    return item && item.role === 'user' && !isInternalMemoryMessage(item) && String(item.content || '').trim();
+  });
+  if (!users.length) return false;
+  var lastIndex = users.length - 1;
+  if (normalizeDuplicateUserMessage(users[lastIndex].content) === normalized) lastIndex--;
+  return lastIndex >= 0 && normalizeDuplicateUserMessage(users[lastIndex].content) === normalized;
+}
+
+function detectRequestedCatSection(message) {
+  var text = String(message || '').toLowerCase();
+  if (/\b(?:balanced|all three|each section|across sections)\b/.test(text)) return null;
+  var candidates = [
+    { section:'varc', patterns:[/\bvarc\b/g, /\breading comprehension\b/g, /\brc\b/g, /\bverbal\b/g] },
+    { section:'dilr', patterns:[/\bdilr\b/g, /\blrdi\b/g, /\bdata interpretation\b/g, /\blogical reasoning\b/g] },
+    { section:'qa', patterns:[/\bqa\b/g, /\bquant(?:s|itative aptitude)?\b/g, /\bmaths?\b/g] }
+  ];
+  var best = null;
+  candidates.forEach(function(candidate) {
+    candidate.patterns.forEach(function(pattern) {
+      var match;
+      while ((match = pattern.exec(text))) {
+        var local = text.slice(Math.max(0, match.index - 25), Math.min(text.length, match.index + match[0].length + 80));
+        var evidenceWeight = /\b(?:in|for|about|on|from)\b[\s\S]{0,18}$/.test(text.slice(Math.max(0, match.index - 22), match.index)) || /\b(?:spent|left|wrong|unread|stuck|problem|decision|test|next|nowhere|score)\b/.test(local) ? 10000 : 0;
+        var rank = evidenceWeight + match.index;
+        if (!best || rank > best.rank) best = { section:candidate.section, rank:rank };
+      }
+    });
+  });
+  return best && best.section;
+}
+
 function detectMentorIntent(message) {
   var text = String(message || '').toLowerCase().trim();
   var recentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
   var recentContext = recentItems.slice(-8).map(function(item) { return item && item.content ? String(item.content) : ''; }).join(' ').toLowerCase();
+  var speechAct = typeof detectRequestedSpeechAct === 'function' ? detectRequestedSpeechAct(message) :
+    (/\b(?:correction|corrected|recalculate|recompute|check (?:the )?(?:sum|total|arithmetic))\b/.test(text) ? 'score_correction' : 'mentoring');
   if (isDataPrivacyRequest(message)) return 'privacy_request';
   if (isSimpleGreeting(message)) return 'greeting';
   if (typeof isBareQuestionReference === 'function' && isBareQuestionReference(message)) return 'question_reference';
   if (isDILRValidityChallenge(message)) return 'dilr_validity_review';
   if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
   if (isAnswerReviewRequest(message)) return 'answer_review';
+  if (speechAct === 'score_correction') return 'score_correction';
   // Natural RC replies are often just "B" or "confused between B and C".
   // Route them as answer reviews only when the nearby conversation actually
   // contains an RC passage/question, so a standalone letter stays harmless.
@@ -9295,16 +9439,20 @@ function detectMentorIntent(message) {
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
   if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
   if (isPlanCoverageCorrection(message)) return 'planning';
-  if (isComprehensiveRoadmapRequest(message) || /\b(plan|schedule|timetable|roadmap|what should i study|where.*start)\b/.test(text)) return 'planning';
+  if (isComprehensiveRoadmapRequest(message) || /\b(plan|schedule|timetable|roadmap|what should i study|where.*start|balanced baseline|smallest useful first step)\b/.test(text)) return 'planning';
   // A mock narrative often contains every section name. Route the overall event
   // before individual section keywords so one mention of VARC/DILR/QA does not
   // shrink a multi-section review into a single-section diagnostic.
   if (/\b(mocks?|mock tests?|percentile|scorecard)\b/.test(text)) return 'mock_diagnosis';
   if (/\baccuracy\b|\bperc\s*accuracy\b/.test(text) && /\b(?:mock|sectional|score|qa|quant|varc|dilr)\b/.test(recentContext)) return 'mock_diagnosis';
   if (/\b(?:analy[sz]e|check|review)\b.{0,30}\b(?:image|screenshot|scorecard)\b/.test(text) && /\b(?:mock|sectional|score|percentile)\b/.test(recentContext)) return 'mock_diagnosis';
-  if (/\b(varc|rc|reading comprehension|verbal)\b/.test(text)) return 'varc_diagnosis';
-  if (/\b(dilr|lrdi|data interpretation|logical reasoning)\b/.test(text)) return 'dilr_diagnosis';
-  if (/\b(qa|quant|quants|maths|mathematics)\b/.test(text)) return 'qa_diagnosis';
+  var requestedSection = typeof detectRequestedCatSection === 'function' ? detectRequestedCatSection(message) :
+    (/\b(?:dilr|lrdi|data interpretation|logical reasoning)\b/.test(text) ? 'dilr' :
+      /\b(?:varc|reading comprehension|rc|verbal)\b/.test(text) ? 'varc' :
+      /\b(?:qa|quant|math)\b/.test(text) ? 'qa' : null);
+  if (requestedSection === 'varc') return 'varc_diagnosis';
+  if (requestedSection === 'dilr') return 'dilr_diagnosis';
+  if (requestedSection === 'qa') return 'qa_diagnosis';
   if (/\b(score|marks|attempted)\b/.test(text)) return 'mock_diagnosis';
   if (/time management|run out of time|too slow|speed/.test(text)) return 'pacing_diagnosis';
   if (/^(idk|i don'?t know|help|help me|bro|bhai|stuck|confused)[.!\s]*$/.test(text) || text.length < 4) return 'vague';
@@ -9320,23 +9468,37 @@ function detectEmotionalState(message) {
   return 'neutral';
 }
 
+function collectExplicitMentorEvidence(message) {
+  var text = String(message || '');
+  return {
+    suppliedText:text,
+    hasSectionScores:/\b(?:VARC|DILR|QA)\s*[:=\-]?\s*-?\d+\b/i.test(text),
+    hasAttempts:/\b(?:attempted|attempts?)\s*[:=\-]?\s*\d+|\b\d+\s+(?:questions?\s+)?attempted\b/i.test(text),
+    hasCorrectWrong:/\b(?:correct|right|wrong|incorrect)\s*[:=\-]?\s*\d+|\b\d+\s+(?:correct|right|wrong|incorrect)\b/i.test(text),
+    hasTiming:/\b\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?)\b/i.test(text),
+    hasProcess:/\b(?:i|my)\b[\s\S]{0,90}\b(?:reread|guess|changed|selected|picked|left|skipped|stuck|froze|forgot|spent|couldn['’]?t|cannot|didn['’]?t|did not|misread|lost|ran out|got nowhere|unread)\b/i.test(text),
+    hasWorking:/\b(?:my working|i (?:divided|multiplied|subtracted|added|calculated|used|drew|mapped|wrote))\b/i.test(text)
+  };
+}
+
 function getLikelyHiddenProblem(intent, message) {
   var text = String(message || '').toLowerCase();
+  var evidence = collectExplicitMentorEvidence(message);
   if (intent === 'privacy_request') return 'This is a factual privacy request, not a mentoring diagnosis. State the real retention model and deletion path without minimizing what is stored.';
   if (intent === 'question_reference') return 'The student is referring to a numbered question from earlier material. Use only the exact stem/options available in text or verified exercise memory; never reconstruct a textbook question from its number.';
   if (intent === 'image_question') return 'The student is referring to the material visible in the current image. Inspect that image first and answer the exact request; do not substitute an older question or infer an emotional problem from a short caption.';
   if (intent === 'dilr_validity_review') return 'The student is challenging the consistency or interpretation of a DILR condition. This needs a fresh constraint-by-constraint verification, not a diagnosis of the student and not a return to an older exercise.';
   if (intent === 'seamless_continuation') return 'The previous Marg response ended before the thought or deliverable was complete. Resume from its exact endpoint without repeating any earlier explanation.';
   if (intent === 'answer_review') return activeGeneratedExercise ? 'The student is submitting answers to Marg’s active generated exercise. Check them immediately from stored questions and answer keys, then diagnose the shared decision pattern across errors.' : 'The student wants an answer check. Use the recent conversation first and never ask them to resend content Marg already generated.';
-  if (intent === 'confidence_breakdown') return 'A recent score or repeated miss has been converted into a verdict about ability; the immediate need is to separate evidence from identity and restore one controllable next step.';
+  if (intent === 'confidence_breakdown') return 'FACT: the student expressed a negative conclusion about their ability. UNKNOWN: the preparation cause. Separate the conclusion from the supplied evidence without inventing a repeated pattern.';
   if (intent === 'returning_memory') return studentProfile.lastTask ? 'The student wants continuity, not another intake question. Resume from the saved task: ' + studentProfile.lastTask : 'The student wants continuity. Use the session summary or recent conversation; state uncertainty honestly if no reliable unfinished task exists.';
   if (intent === 'greeting') return 'This is only a greeting. Respond warmly and briefly; do not diagnose distress, confidence, preparation or a weak section from it.';
-  if (intent === 'vague') return studentProfile.weakestSection ? 'The student is likely overwhelmed and cannot frame the problem. Use the known weak section (' + studentProfile.weakestSection + ') to offer three concrete hypotheses.' : 'The student is overwhelmed or unsure how to frame the problem. Offer three recognisable CAT failure patterns instead of asking an open-ended question.';
-  if (intent === 'varc_diagnosis') return /time|slow/.test(text) ? 'Reading for complete understanding before mapping passage structure is probably consuming the clock.' : 'The likely leak is between comprehension and option selection: scope shifts, extreme wording, or second-guessing the final two.';
-  if (intent === 'dilr_diagnosis') return /time|slow/.test(text) ? 'The student may be staying with an unproductive set because starting it feels like a commitment.' : 'The likely failure happens before calculation: set selection, choosing the wrong representation, or missing one constraint that invalidates the grid.';
-  if (intent === 'qa_diagnosis') return /slow|time/.test(text) ? 'The student may know concepts but solve every problem by the longest textbook route instead of recognition, ratios, elimination, or approximation.' : 'The likely gap is one of three: concept recall, recognizing the setup, or clean execution after a correct setup.';
-  if (intent === 'mock_diagnosis') return 'The total score alone is not the diagnosis; selection, attempts and accuracy by section must be separated before naming the leak.';
-  if (intent === 'pacing_diagnosis') return 'The visible problem is speed, but the hidden cause is usually selection, over-investment, or an inefficient representation—not raw reading or calculation speed.';
+  if (intent === 'vague') return 'UNKNOWN: the message does not contain enough evidence for a preparation diagnosis. Offer neutral starting choices without assigning an emotional state or weak section.';
+  if (intent === 'varc_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a VARC process failure. Use only that described moment; any cause remains a working hypothesis until tested.' : 'UNKNOWN: a VARC label or score does not identify whether the cause is reading, claim location, option evaluation, selection or pace.';
+  if (intent === 'dilr_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a DILR process failure. Reflect the stated decision only; do not turn it into a recurring pattern without another observation.' : 'UNKNOWN: a DILR label or score does not identify set selection, representation, constraint use, persistence or pace.';
+  if (intent === 'qa_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a QA process failure. Separate the stated moment from unobserved concept, recognition and execution causes.' : 'UNKNOWN: a QA label or score cannot distinguish concept recall, method recognition, execution, selection or pace.';
+  if (intent === 'mock_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT plus outcome data: use the described mock decision, but do not invent attempts, timing or causes not supplied.' : 'UNKNOWN CAUSE: scores establish outcomes only. Attempts, accuracy, timing, selection and error states must remain unknown unless explicitly supplied.';
+  if (intent === 'pacing_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a timing failure. The cause is still a hypothesis and must be separated from the stated outcome.' : 'UNKNOWN: saying “slow” does not identify selection, representation, reading or calculation as the cause.';
   if (intent === 'planning') return 'The student needs a prioritised decision, not a comprehensive syllabus dump. Build around the highest-leverage weakness and the time actually available.';
   return 'I do not have enough evidence to name one cause yet. The useful starting point is the last concrete CAT question, set, mock decision, or study block that went wrong—not a confident guess from a broad message.';
 }
@@ -9370,6 +9532,11 @@ function analyzeMentorInput(message) {
   var pastedAnswerEvidence = getPastedAnswerEvidence(message);
   return {
     intent: intent,
+    speechAct:detectRequestedSpeechAct(message),
+    requestedSection:detectRequestedCatSection(message),
+    evidence:collectExplicitMentorEvidence(message),
+    historicalPremise:verifyHistoricalUserPremise(message),
+    exactDuplicate:isExactDuplicateUserTurn(message),
     emotionalState: emotion,
     likelyHiddenProblem: getLikelyHiddenProblem(intent, message),
     confidence: confidence,
@@ -9413,10 +9580,13 @@ function isDILRValidityChallenge(message) {
 function buildDiagnosisDirective(message) {
   var diagnosis = analyzeMentorInput(message);
   var correction = reconcileFreshCorrectiveEvidence(message);
+  diagnosis.correctionVerification = correction;
   var messageText = String(message || '');
   var unansweredBeforeGreeting = diagnosis.intent === 'greeting' ? getUnansweredUserMessageBeforeGreeting(message) : '';
   var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
   directive += '\nCURRENT-TURN ANCHOR: The newest student message controls this reply. Answer its exact section, topic and request first. Older diagnoses, missions, exercises and profile memories are context only. Do not revive a saved task, switch sections, ask an unrelated profile question, or launch an exercise unless it directly completes the newest request.';
+  if (diagnosis.exactDuplicate) directive += '\nEXACT REPEAT: The student sent the same message as their previous user turn. Briefly acknowledge the repetition, then answer again without inventing a new intent. If the earlier answer may have missed the need, make this version clearer rather than pretending this is new evidence.';
+  if (diagnosis.historicalPremise && diagnosis.historicalPremise.checked && !diagnosis.historicalPremise.verified) directive += '\nUNVERIFIED HISTORY PREMISE: The student attributes a statement or task to Marg that cannot be found in this conversation. Do not accept it, infer completion, apologise, or build advice on it. Say plainly that it cannot be verified here. If useful, invite the student to provide the missing evidence, but do not manufacture continuity.';
   directive += getMultiSectionConversationGuidance(messageText, diagnosis);
   directive += '\nRC EVIDENCE: Correct answers after rereading do not prove first-read understanding. Ask about the reading process when relevant. Elapsed time may include pauses; do not invent reading-stage timings, a guaranteed lookup speed, or a cause for an error. A yes accepts the immediately preceding offer; it does not resubmit saved answers. Never claim a Start button or launched test exists without an actual interface command.';
   if (diagnosis.intent === 'greeting') directive += unansweredBeforeGreeting
@@ -9790,6 +9960,23 @@ function rememberMockWorkingRead(response) {
 function guardSectionalEvidenceOverclaim(text, diagnosis) {
   var value = String(text || '');
   if (!diagnosis || diagnosis.intent !== 'mock_diagnosis') return value;
+  // A response may state an observed result while explicitly preserving the
+  // missing causal evidence. Do not replace that already-bounded language.
+  if (/\b(?:does not|doesn['’]t|cannot|can['’]t)\s+(?:yet\s+)?(?:show|tell|establish|prove)\b|\bwe still need to (?:separate|check|verify)\b/i.test(value) &&
+      !/accuracy foundation is elite|zero concept issues|strictly by (?:volume|speed)|pure upside|single bottleneck/i.test(value)) {
+    return value;
+  }
+  var evidenceText = String(diagnosis.submittedAnswerText || '');
+  var evidence = diagnosis.evidence || {
+    hasAttempts:/\b(?:attempted|attempts?)\s*[:=\-]?\s*\d+|\b\d+\s+(?:questions?\s+)?attempted\b/i.test(evidenceText),
+    hasCorrectWrong:/\b(?:correct|right|wrong|incorrect)\s*[:=\-]?\s*\d+|\b\d+\s+(?:correct|right|wrong|incorrect)\b/i.test(evidenceText),
+    hasTiming:/\b\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?)\b/i.test(evidenceText),
+    hasProcess:/\b(?:reread|guess|changed|selected|picked|left|skipped|stuck|froze|forgot|spent|got nowhere|unread)\b/i.test(evidenceText)
+  };
+  if (!evidence.hasAttempts && !evidence.hasCorrectWrong && !evidence.hasTiming && !evidence.hasProcess &&
+      /\b(?:you (?:attempted|got|solved|completed|spent|left|skipped)|exactly \d+ correct|at most \d+(?:\s*[-–]\s*\d+)? correct|one full set|over[- ]attempting|under[- ]attempting|remaining \d+ minutes?)\b/i.test(value)) {
+    return 'The supplied section scores establish outcomes only. They do not reveal attempts, correct or wrong counts, sets solved, time allocation, selection decisions or the cause of the score. Those fields remain unknown until you provide them.';
+  }
   value=value.replace(/[^.!?\n]*(?:at\s+\d+\s+marks?|scor(?:e|ed|ing)\s+(?:of\s+)?\d+)[^.!?\n]*(?:your|the)\s+(?:base|foundation|comprehension)\s+(?:is|looks|seems)\s+(?:stable|strong|solid)[^.!?\n]*[.!?]?/gi,'That section score alone does not establish understanding, selection or pace.');
   value=value.replace(/[^.!?\n]*you\s+(?:likely|probably|must have)\s+skipped\s+easy[^.!?\n]*[.!?]?/gi,'We still need to check which unattempted questions were solvable for you.');
   value=value.replace(/[^.!?\n]*(?:VARC|DILR|QA)\s*\([^)]*\d+\s*marks?[^)]*\)[^.!?\n]*(?:you have a|your)\s+(?:stable|strong|solid)\s+(?:base|foundation)[^.!?\n]*[.!?]?/gi,'That section score alone does not establish understanding, selection or pace.');
@@ -9820,6 +10007,23 @@ function guardMockScoreArithmeticOverclaim(text, diagnosis) {
     return attempts + ' attempted, ' + correct + ' correct and ' + wrong + ' wrong establishes ' + accuracy + '% accuracy. It does not uniquely reconstruct the section score because wrong MCQs and wrong TITA answers are penalised differently. I need the scorecard’s MCQ/TITA split before attributing exact marks.\n\nThe useful next evidence is the decision behind the wrong choices—for example, being stuck between two options, losing the passage claim, or rushing—because those lead to different fixes.';
   }
   var suppliedCounts = /\b(?:attempted|attempts?|correct|wrong)\s*[:=-]?\s*\d+|\b\d+\s+(?:attempts?|correct|wrong|questions? attempted)\b/i.test(supplied);
+  var hasSectionScore = /\b(?:VARC|DILR|QA)\s*[:=\-]?\s*-?\d+\b/i.test(supplied);
+  var hasTotalScoreOnly = /\b(?:scored?|score(?:\s+of)?|marks?(?:\s+of)?)\s*[:=\-]?\s*-?\d+\b/i.test(supplied);
+  var scoreOnly = (hasSectionScore || hasTotalScoreOnly) && !suppliedCounts;
+  var inventsDecomposition = /\b(?:at most|at least|roughly|about|approximately)?\s*\d+(?:\s*(?:[-–]|to)\s*\d+)?\s+(?:net\s+)?correct\b|\b\d+\s+wrong\b|\bexactly\s+\d+\s+(?:correct|questions?|sets?)\b|\bone full set\b|\b(?:over|under)[- ]attempting\b|\bremaining\s+\d+\s+minutes?\b/i.test(value);
+  if (scoreOnly && inventsDecomposition) {
+    var varcScore = supplied.match(/\bVARC\s*[:=\-]?\s*(-?\d+)\b/i);
+    var dilrScore = supplied.match(/\bDILR\s*[:=\-]?\s*(-?\d+)\b/i);
+    var qaScore = supplied.match(/\bQA\s*[:=\-]?\s*(-?\d+)\b/i);
+    var totalScore = supplied.match(/\btotal\s*[:=\-]?\s*(-?\d+)\b/i);
+    if (varcScore && dilrScore && !qaScore && totalScore) {
+      var known = Number(varcScore[1]) + Number(dilrScore[1]);
+      var residual = Number(totalScore[1]) - known;
+      return 'The visible section scores add to ' + known + '. If the stated total ' + Number(totalScore[1]) + ' contains only VARC, DILR and QA, the missing QA score is ' + residual + '. That score still does not imply a unique number of correct, wrong or attempted questions; the MCQ/TITA and attempt data are required.';
+    }
+    if (!hasSectionScore) return 'That score establishes the net outcome only. It cannot be converted into unique correct, wrong or attempted counts, and it does not identify selection, accuracy, pacing or concept knowledge as the cause. The sectional split and actual attempt data are needed before diagnosing why it happened.';
+    return 'The supplied section scores establish outcomes only. A net score cannot be converted into unique correct, wrong or attempted counts because different MCQ/TITA combinations can produce the same score. Attempts, timing, sets solved and the cause must remain unknown until those data are supplied.';
+  }
   if (/\baccuracy\b|\d+\s*%/i.test(supplied) && !suppliedCounts && /\b(?:you (?:are |were |must have |likely |roughly |approximately |probably )?(?:attempting|attempted|got|getting)|your attempts? (?:are|were))\s*(?:roughly |about |around |approximately )?\d|\b(?:average|averaging)\b[^.!?\n]{0,55}\b(?:per question|minutes? (?:on|for) each)\b/i.test(value)) {
     return 'That accuracy figure helps, but it doesn’t tell me how many questions you attempted or how long each took. Was that accuracy measured in this same mock, and how many questions did you actually attempt?';
   }
@@ -9935,10 +10139,33 @@ function buildSectionAlignmentFallback(diagnosis) {
 
 function guardSectionAlignment(text, diagnosis) {
   if (!diagnosis) return String(text || '');
+  // Section alignment is an exercise safety check, not a replacement for a
+  // direct answer. Corrections, explanations and ordinary mentoring replies
+  // may legitimately mention more than one section. Replacing those replies
+  // with a canned section diagnosis caused the most visible routing failures.
+  if (diagnosis.speechAct !== 'practice_launch') return String(text || '');
   var requested = diagnosis.intent === 'qa_diagnosis' ? 'qa' : diagnosis.intent === 'dilr_diagnosis' ? 'dilr' : diagnosis.intent === 'varc_diagnosis' ? 'varc' : null;
   if (!requested) return String(text || '');
   var generated = detectFullExerciseSection(text);
   return generated && generated !== requested ? buildSectionAlignmentFallback(diagnosis) : String(text || '');
+}
+
+function guardFalseMemoryAgreement(text, diagnosis) {
+  var value = String(text || '').trim();
+  if (!diagnosis) return value;
+  var premise = diagnosis.historicalPremise;
+  var correction = diagnosis.correctionVerification;
+  var unverified = premise && premise.checked && !premise.verified || correction && correction.verified === false;
+  if (!unverified) return value;
+  var userText = String(diagnosis.submittedAnswerText || '');
+  var multiplication = userText.match(/\b(\d+)\s*(?:×|x|\*)\s*(\d+)\s*(?:=|equals?)\s*(-?\d+)\b/i);
+  if (multiplication) {
+    var left = Number(multiplication[1]), right = Number(multiplication[2]);
+    var product = left * right;
+    var previous = recentAssistantClaim();
+    return 'I checked the previous reply rather than accepting that claim. It did not state ' + left + ' × ' + right + ' = ' + multiplication[3] + '; it stated ' + left + ' × ' + right + ' = ' + product + '. So that multiplication step was already correct. The final net can still be different after penalties are applied.' + (previous ? '' : ' I do not have an earlier reply here to verify against.');
+  }
+  return 'I can’t verify that earlier statement or task from this conversation, so I won’t treat it as something Marg actually said or infer anything from it. If it happened in another chat, ask me to use account-wide history explicitly or paste the relevant line; otherwise we should start from what is visible here.';
 }
 
 function guardUnlabelledNumericPrescription(text, diagnosis) {
@@ -10088,12 +10315,78 @@ function guardUnsupportedCausalCertainty(text, diagnosis) {
     'Freezing immediately after reading suggests the difficulty appears before the setup; a few concrete questions are still needed to separate method recognition from selection pressure.');
   value = value.replace(/That freeze happens when practice is done purely topic-by-topic\.?/gi,
     'Topic-wise practice may be contributing because it supplies the chapter label in advance, but one example cannot establish that as the only cause.');
+  value = value.replace(/Comfortable reading creates a false sense of memory—you remember the narrative arc, not where specific claims live\.?/gi,
+    'Your description suggests that you retain the passage gist but not reliable location anchors; that is the working hypothesis to test on the next passage.');
+  value = value.replace(/Rereading whole paragraphs happens because you read without mapping structural shifts\.?/gi,
+    'Rereading whole paragraphs can happen when structural shifts were not mapped during the first read.');
+  if (!/\b(?:sunk cost|invest(?:ed|ment)|because I (?:had|already)|already spent)\b/i.test(userText)) {
+    value = value.replace(/You took an investment trap—staying because you had already put in time\.?/gi,
+      'The evidence shows a late leave decision; it does not yet tell us whether sunk cost, optimism or the wrong representation caused it.');
+  }
+  value = value.replace(/(?:your )?Sunday mock will give you clear evidence:\s*either your ([A-Za-z]+) accuracy moves up, or the specific concept where it breaks becomes visible\.?/gi,
+    'Use a separate mixed $1 re-test for the measurement; one mock may contain too few comparable $1 questions to prove a change.');
   value = value.replace(/\b(?:This|That)\s+(?:proves|shows)\s+you\s+(?:followed your setup rules|represented the logic cleanly)[^.!?\n]*[.!?]?/gi,
     'The answers show which choices were correct; they do not reveal the unseen setup or working unless you recorded it.');
   value = value.replace(/You followed your setup rules\s*,?\s*represented the logic cleanly[^.!?\n]*[.!?]?/gi,
     'The answers show which choices were correct; they do not reveal the unseen setup or working unless you recorded it.');
   value = value.replace(/\bZero skipping discipline\b/gi, 'No skipped questions in this short check');
   return value.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function guardUngroundedSectionPrescription(text, diagnosis) {
+  var value = String(text || '').trim();
+  var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
+  if (!diagnosis || !value || /\b(?:VARC|DILR|LRDI|QA|quant|maths?|reading comprehension|RC)\b/i.test(userText)) return value;
+  var asksForOneAction = /\b(?:one thing|single (?:thing|action|decision)|do today|today,? not|not a timetable|not a plan|don['’]?t give me (?:a )?huge plan|do not give me (?:a )?huge plan)\b/i.test(userText);
+  var arbitrarilyChoosesSection = /\b(?:weakest|strongest|pick|choose|start with|focus on)\b[^.!?\n]{0,70}\b(?:VARC|DILR|LRDI|QA|quant|maths?|RC|section)\b|\b(?:VARC|DILR|QA)\b[^.!?\n]{0,50}\b(?:weakest|strongest|priority|today)\b/i.test(value);
+  if (!asksForOneAction || !arbitrarilyChoosesSection) return value;
+  return 'Do one 30-minute balanced baseline today: spend 10 minutes each on one RC, DILR set selection, and five mixed QA questions. Record accuracy, completed work, and where time was lost. That gives Marg evidence to choose tomorrow’s single priority instead of guessing a weak section.';
+}
+
+function getLatestSectionScoresFromThread(currentMessage) {
+  var messages = (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [])
+    .filter(function(item) { return item && item.role === 'user'; }).map(function(item) { return String(item.content || ''); });
+  messages.push(String(currentMessage || ''));
+  var scores = {};
+  messages.forEach(function(message) {
+    ['VARC','DILR','QA'].forEach(function(section) {
+      var match = message.match(new RegExp('\\b' + section + '\\s*(?:was|is|[:=\\-])?\\s*(-?\\d+)\\b', 'i'));
+      if (match) scores[section] = Number(match[1]);
+    });
+  });
+  return scores;
+}
+
+function guardExplicitRequestScope(text, diagnosis) {
+  var value = String(text || '').trim();
+  var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
+  if (!diagnosis || !userText) return value;
+  var threadUserText = (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [])
+    .filter(function(item) { return item && item.role === 'user'; }).map(function(item) { return String(item.content || ''); }).join('\n') + '\n' + userText;
+  if (/\b(?:first[- ]time aspirant|not taken any mock|no mock)\b/i.test(threadUserText) &&
+      /\b(?:smallest useful first step|balanced baseline)\b/i.test(userText)) {
+    return 'Start with one 30-minute balanced baseline, not a full mock: 10 minutes for one RC, 10 minutes to scan and begin one DILR set, and 10 minutes for five mixed QA questions. Record attempts, correct answers, and where time was lost; those observations decide the next step.';
+  }
+  if (/\bupdate only what changes\b/i.test(userText)) {
+    var scores = getLatestSectionScoresFromThread(userText);
+    if (Number.isFinite(scores.VARC) && Number.isFinite(scores.DILR) && Number.isFinite(scores.QA)) {
+      var total = scores.VARC + scores.DILR + scores.QA;
+      return 'Corrected scores: VARC ' + scores.VARC + ', DILR ' + scores.DILR + ', QA ' + scores.QA + '. Total = ' + scores.VARC + ' + ' + scores.DILR + ' + ' + scores.QA + ' = ' + total + '.';
+    }
+  }
+  if (/\bsingle highest[- ]value decision for this week\b/i.test(userText) && /\bchanging plans every\b/i.test(userText)) {
+    return 'Freeze the plan you already have until Sunday’s mock review—no new timetable or topic switch this week. You said panic makes you change plans every three days; holding one plan constant is the only way to learn whether the current work is helping or whether a specific part needs changing.';
+  }
+  if (/\bconvert only that one priority into a measurable 7[- ]day test\b/i.test(userText)) {
+    return 'For seven days, keep the same planned study blocks and add nothing new. Each day record only: planned block completed—yes or no, and why not. After Sunday’s mock review, retain the plan only if you completed at least five of the seven planned days; otherwise change the obstacle that broke adherence, not the whole syllabus.';
+  }
+  if (/^\s*\?\s*$/.test(userText) && /\b(?:how can i help|what would you like|let me know|where should we start)\b/i.test(value)) {
+    return 'I don’t have enough context yet. Pick the closest starting point: RC options feel equally correct; DILR set selection breaks; QA methods disappear in mixed questions; a mock score needs analysis; or “not sure—diagnose me.”';
+  }
+  if (/\bweekly skeleton\b/i.test(userText) && /\bmocks?\s+(?:on\s+)?thursday and sunday\b/i.test(userText)) {
+    return 'Weekly skeleton:\n- Monday: review Sunday’s mock and choose one evidenced leak.\n- Tuesday: targeted practice on that leak.\n- Wednesday: short re-test, then light revision.\n- Thursday: full mock.\n- Friday: review Thursday’s mock and choose its highest-cost decision.\n- Saturday: targeted practice plus a short re-test.\n- Sunday: full mock.\n\nKeep non-mock weekdays within your 90-minute limit; every review now happens after the mock it refers to.';
+  }
+  return value;
 }
 
 function guardUnrelatedCalendarCorrection(text, diagnosis) {
@@ -10145,16 +10438,49 @@ function buildSolverActionFallback(diagnosis) {
 }
 
 function ensureSolverFirstResponse(text, diagnosis) {
+  // Do not bolt an intent-wide coaching block onto an otherwise complete
+  // answer. It used to turn verification, short-answer and narrow requests
+  // into generic VARC/DILR/QA homework after the model had already answered
+  // correctly. Turn-specific solver guidance belongs in the generation
+  // directive; this final guard must preserve the answer the user requested.
+  return String(text || '').trim();
+}
+
+function guardDuplicateMessageAwareness(text, diagnosis) {
   var value = String(text || '').trim();
-  if (!value || !diagnosis || !diagnosis.concreteProcessEvidence) return value;
-  if (diagnosis.intent === 'answer_review' || diagnosis.intent === 'planning' || diagnosis.hintOnly || diagnosis.committedAction) return value;
-  if (/\[(?:START_TEST|PRACTICE_LOG):/i.test(value)) return value;
-  var hasExecutableCorrection = /\b(?:use this|do this|on the next|for the next|next attempt|next passage|next set|write|mark|record|compare|re-?read|map|translate|state the claim|before (?:checking|solving|calculating)|after each paragraph)\b/i.test(value);
-  var hasMeasurement = /\b(?:measure|record|count|retest|supports? the|rejects? the|compare (?:the|this|your|one|two)|next (?:attempt|passage|set|block)|if[^.!?]{0,100}\botherwise\b)\b/i.test(value);
-  if (hasExecutableCorrection && hasMeasurement) return value;
-  var fallback = buildSolverActionFallback(diagnosis);
-  if (!fallback) return value;
-  return (value + '\n\n' + fallback).replace(/\n{3,}/g, '\n\n').trim();
+  if (!diagnosis || !diagnosis.exactDuplicate || /\b(?:same question|same message|asked this again|repeated|again)\b/i.test(value)) return value;
+  return ('You sent the same question again, so I’ll answer it directly once more. ' + value).trim();
+}
+
+function applyExplicitResponseLimit(text, diagnosis) {
+  var value = String(text || '').trim();
+  var request = String(diagnosis && diagnosis.submittedAnswerText || '');
+  if (!value || !request) return value;
+  var tags = value.match(/\s*\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG|REMINDER_CONTEXT|HYPOTHESIS_VERDICT):[^\]]*\]/gi) || [];
+  var visible = value.replace(/\s*\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG|REMINDER_CONTEXT|HYPOTHESIS_VERDICT):[^\]]*\]/gi, '').trim();
+  var sentenceMatch = request.match(/\b(?:in|use|give|answer in|keep it to|only)\s+(one|two|three|\d+)\s+sentences?\b/i);
+  if (sentenceMatch) {
+    var sentenceCount = /one/i.test(sentenceMatch[1]) ? 1 : /two/i.test(sentenceMatch[1]) ? 2 : /three/i.test(sentenceMatch[1]) ? 3 : Number(sentenceMatch[1]);
+    var sentences = visible.match(/[^.!?]+(?:[.!?]+|$)/g) || [visible];
+    visible = sentences.slice(0, Math.max(1, sentenceCount)).join(' ').replace(/\s+/g, ' ').trim();
+  }
+  var wordMatch = request.match(/\b(?:no more than|at most|within|under|in)\s+(\d{1,3})\s+words?\b/i);
+  if (wordMatch) {
+    var limit = Math.max(1, Number(wordMatch[1]));
+    var words = visible.split(/\s+/).filter(Boolean);
+    if (words.length > limit) {
+      var fullSentences = visible.match(/[^.!?]+(?:[.!?]+|$)/g) || [];
+      var kept = [], count = 0;
+      fullSentences.some(function(sentence) {
+        var sentenceWords = sentence.trim().split(/\s+/).filter(Boolean);
+        if (count + sentenceWords.length > limit) return true;
+        kept.push(sentence.trim()); count += sentenceWords.length; return false;
+      });
+      visible = kept.length ? kept.join(' ') : words.slice(0, limit).join(' ').replace(/[,;:]$/, '') + '.';
+    }
+  }
+  if (/\b(?:in|as|use|give|answer in)\s+(?:one|a single|1)\s+line\b/i.test(request)) visible = visible.replace(/\s*\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return (visible + (tags.length ? '\n' + tags.join('\n') : '')).trim();
 }
 
 function applyMentorResponseGuard(response, diagnosis) {
@@ -10166,6 +10492,7 @@ function applyMentorResponseGuard(response, diagnosis) {
     text=text.replace(/^\s*Good (?:morning|afternoon|evening)[,!]?\s*/i,'');
   }
   text = guardSectionAlignment(text, diagnosis);
+  text = guardFalseMemoryAgreement(text, diagnosis);
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
@@ -10177,7 +10504,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
   text = guardExerciseAbilityOverclaim(text);
   text = guardAnswerVerdictConsistency(text, diagnosis);
-  if (diagnosis && diagnosis.gradingIntegrityRepaired) return text;
+  if (diagnosis && diagnosis.gradingIntegrityRepaired) return applyExplicitResponseLimit(text, diagnosis);
   text = guardEvidenceRefinementLanguage(text, diagnosis);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady && !diagnosis.allowsEvidenceQuestion) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
@@ -10203,6 +10530,8 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardForcedReportBackClose(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
   text = guardUnsupportedCausalCertainty(text, diagnosis);
+  text = guardUngroundedSectionPrescription(text, diagnosis);
+  text = guardExplicitRequestScope(text, diagnosis);
   text = guardUnrelatedCalendarCorrection(text, diagnosis);
   text = guardUnrelatedLeadingArithmetic(text, diagnosis);
   text = repairMalformedNumberedGuidance(text);
@@ -10214,6 +10543,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = stripGenericConversationalOptionTags(text);
   text = ensureSolverFirstResponse(text, diagnosis);
   text = ensureConversationMomentumClose(text, diagnosis);
+  text = guardDuplicateMessageAwareness(text, diagnosis);
   text = cleanMentorOpeningPunctuation(text);
   // Never discard an otherwise complete answer merely because natural prose
   // contains an unmatched quotation mark. The old quote-count heuristic
@@ -10221,7 +10551,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   // Do not mechanically slice model output. The prompt controls normal reply
   // length; hard word caps were capable of manufacturing mid-answer cutoffs.
   if (!text) text = buildMentorFallbackReply(diagnosis);
-  return text;
+  return applyExplicitResponseLimit(text, diagnosis);
 }
 
 function getMentorResponseMaxTokens(diagnosis) {
@@ -10860,10 +11190,10 @@ async function sendConversationalMessage(userMessage, context, imageAttachments)
   if (conversationalProfile.situation) profileSoFar += 'Situation: ' + conversationalProfile.situation + '. ';
 
   var systemAddition = profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
-  systemAddition += getDiagnosticMemoryContext();
+  systemAddition += getDiagnosticMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(userMessage);
-  systemAddition += getBehavioralMemoryContext();
-  systemAddition += getTopicProgressionMemoryContext();
+  systemAddition += getBehavioralMemoryContext(userMessage, mentorAnalysis.diagnosis);
+  systemAddition += getTopicProgressionMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(userMessage, mentorAnalysis.diagnosis);
   systemAddition += getPersonalGoalMemoryContext();
   systemAddition += getProgressiveProfileMemoryContext(userMessage, mentorAnalysis.diagnosis);
