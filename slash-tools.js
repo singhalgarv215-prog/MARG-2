@@ -135,6 +135,30 @@
     return button;
   }
 
+  function selectField(labelText, options, selectedValue) {
+    var label = document.createElement('label'); label.className = 'slash-tool-field';
+    var span = document.createElement('span'); span.textContent = labelText;
+    var select = document.createElement('select');
+    (options || []).forEach(function (item) {
+      var option = document.createElement('option');
+      option.value = item.value;
+      option.textContent = item.label;
+      if (String(item.value) === String(selectedValue)) option.selected = true;
+      select.appendChild(option);
+    });
+    label.appendChild(span); label.appendChild(select);
+    return { label:label, select:select };
+  }
+
+  function appendPracticeBack(body) {
+    var back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'slash-tool-secondary slash-tool-back';
+    back.textContent = '← Change section';
+    back.addEventListener('click', showPracticeCard);
+    body.appendChild(back);
+  }
+
   function requireFunction(name) {
     return typeof window[name] === 'function';
   }
@@ -152,7 +176,9 @@
       if (typeof card.scrollIntoView === 'function') card.scrollIntoView({ behavior:'smooth', block:'nearest' });
       return;
     }
-    if (requireFunction('toggleVarcCard')) window.toggleVarcCard(); else showUnavailable();
+    if (requireFunction('openTodaysVarcExperience')) window.openTodaysVarcExperience();
+    else if (requireFunction('toggleVarcCard')) window.toggleVarcCard();
+    else showUnavailable();
   }
 
   function showDiagnosisCard() {
@@ -171,22 +197,144 @@
   }
 
   function showPracticeCard() {
-    var view = makeToolCard('practice', 'Choose the work, not another page', 'Practice begins from this chat. Your result returns to the same evidence trail.');
+    var view = makeToolCard('practice', 'What do you want to practise?', 'Choose a section first. Marg will ask for the focus and level before starting anything.');
     if (!view) return;
     var grid = document.createElement('div'); grid.className = 'slash-tool-grid';
-    grid.appendChild(toolButton('RC Lab', 'Article-based RC with clickable questions.', function () {
-      closeMargToolSurface();
-      openTodaysVarc();
-    }));
-    grid.appendChild(toolButton('QA practice', 'Five checked CAT-style questions.', function () {
-      closeMargToolSurface();
-      if (requireFunction('startTimedTest')) window.startTimedTest('qa', 'Mixed QA', 5); else showUnavailable();
-    }));
-    grid.appendChild(toolButton('DILR practice', 'One checked set focused on selection and representation.', function () {
-      closeMargToolSurface();
-      if (requireFunction('startTimedTest')) window.startTimedTest('dilr', 'Mixed Set Selection', 4); else showUnavailable();
-    }));
+    grid.appendChild(toolButton('VARC', 'Configure a targeted RC by weakness, question type, level and reading world.', function () { showPracticeConfigurator('varc'); }));
+    grid.appendChild(toolButton('DILR', 'Choose the set family and CAT difficulty before the timer begins.', function () { showPracticeConfigurator('dilr'); }));
+    grid.appendChild(toolButton('QA', 'Choose the exact topic, CAT difficulty and number of questions.', function () { showPracticeConfigurator('qa'); }));
     view.body.appendChild(grid);
+    var note = document.createElement('div'); note.className = 'slash-tool-note';
+    note.textContent = 'Today’s Aeon-based RC remains separate under /today-varc.';
+    view.body.appendChild(note);
+  }
+
+  function showPracticeConfigurator(section) {
+    if (section === 'varc') { showVARCPracticeConfigurator(); return; }
+    if (section === 'dilr') { showDILRPracticeConfigurator(); return; }
+    showQAPracticeConfigurator();
+  }
+
+  function showVARCPracticeConfigurator() {
+    var view = makeToolCard('practice · varc', 'Build a targeted RC', 'This is original targeted practice. It does not silently open Today’s VARC.');
+    if (!view) return;
+    var focus = selectField('What should this RC train?', [
+      { value:'need:diagnose', label:'Not sure — diagnose me' },
+      { value:'need:passage', label:'Passage structure and central claim' },
+      { value:'need:two_options', label:'Two options look correct' },
+      { value:'need:claim', label:'Finding the exact supporting claim' },
+      { value:'need:tone', label:'Author tone and purpose' },
+      { value:'need:time', label:'Pacing under a mixed RC' },
+      { value:'skill:main_idea', label:'Question type — main idea' },
+      { value:'skill:inference', label:'Question type — inference' },
+      { value:'skill:paragraph_role', label:'Question type — paragraph role' },
+      { value:'skill:detail', label:'Question type — detail/reference' },
+      { value:'skill:tone', label:'Question type — tone/purpose' }
+    ], 'need:diagnose');
+    var difficulty = selectField('Difficulty', [
+      { value:'build_up', label:'Build-up' },
+      { value:'cat', label:'CAT-level' },
+      { value:'hard', label:'Hard CAT' }
+    ], 'cat');
+    var topic = selectField('Reading world', [
+      { value:'surprise', label:'Surprise me' },
+      { value:'ideas', label:'Ideas & Philosophy' },
+      { value:'science', label:'Science & Society' },
+      { value:'economics', label:'Economics & Policy' },
+      { value:'history', label:'History & Culture' }
+    ], 'surprise');
+    var fields = document.createElement('div'); fields.className = 'slash-tool-fields slash-practice-fields';
+    fields.appendChild(focus.label); fields.appendChild(difficulty.label); fields.appendChild(topic.label);
+    var summary = document.createElement('div'); summary.className = 'slash-tool-summary';
+    summary.textContent = '1 original passage · 4 checked questions · answers stay hidden until submission';
+    var start = document.createElement('button'); start.type = 'button'; start.className = 'slash-tool-primary'; start.textContent = 'Start targeted RC →';
+    start.addEventListener('click', function () {
+      var parts = focus.select.value.split(':');
+      closeMargToolSurface();
+      if (requireFunction('startConfiguredRCPractice')) {
+        window.startConfiguredRCPractice({
+          mode:parts[0] === 'skill' ? 'specific' : 'diagnose',
+          focus:parts[1], difficulty:difficulty.select.value, topic:topic.select.value
+        });
+      } else showUnavailable();
+    });
+    appendPracticeBack(view.body); view.body.appendChild(fields); view.body.appendChild(summary); view.body.appendChild(start);
+  }
+
+  function showDILRPracticeConfigurator() {
+    var view = makeToolCard('practice · dilr', 'Configure one complete DILR set', 'Choose the structure and level before Marg builds the set.');
+    if (!view) return;
+    var topic = selectField('Set family', [
+      { value:'Mixed Set Selection', label:'Mixed — surprise me' },
+      { value:'Arrangements & Rankings', label:'Arrangements & Rankings' },
+      { value:'Scheduling & Allocation', label:'Scheduling & Allocation' },
+      { value:'Distribution & Grouping', label:'Distribution & Grouping' },
+      { value:'Games & Tournaments', label:'Games & Tournaments' },
+      { value:'Routes & Networks', label:'Routes & Networks' },
+      { value:'Tables, Charts & DI Caselets', label:'Tables, Charts & DI Caselets' },
+      { value:'Venn Diagrams & Set Data', label:'Venn Diagrams & Set Data' }
+    ], 'Mixed Set Selection');
+    var difficulty = selectField('Difficulty', [
+      { value:'cat', label:'CAT-level — medium to medium-hard' },
+      { value:'hard', label:'Hard CAT — difficult but fair' }
+    ], 'cat');
+    var fields = document.createElement('div'); fields.className = 'slash-tool-fields slash-practice-fields';
+    fields.appendChild(topic.label); fields.appendChild(difficulty.label);
+    var summary = document.createElement('div'); summary.className = 'slash-tool-summary';
+    summary.textContent = '1 complete set · 4 linked questions · 16-minute timer · independently checked';
+    var start = document.createElement('button'); start.type = 'button'; start.className = 'slash-tool-primary'; start.textContent = 'Build my DILR set →';
+    start.addEventListener('click', function () {
+      closeMargToolSurface();
+      if (requireFunction('startTimedTest')) window.startTimedTest('dilr', topic.select.value, 4, null, 0, { difficulty:difficulty.select.value, source:'slash-practice' });
+      else showUnavailable();
+    });
+    appendPracticeBack(view.body); view.body.appendChild(fields); view.body.appendChild(summary); view.body.appendChild(start);
+  }
+
+  function showQAPracticeConfigurator() {
+    var view = makeToolCard('practice · qa', 'Configure targeted QA practice', 'Choose the topic and level; Marg will not send an unrelated mixed set.');
+    if (!view) return;
+    var topic = selectField('Topic', [
+      { value:'Mixed QA', label:'Mixed QA — no chapter label' },
+      { value:'Arithmetic', label:'Arithmetic — mixed' },
+      { value:'Percentages', label:'Percentages' },
+      { value:'Ratios & Proportions', label:'Ratios & Proportions' },
+      { value:'Time-Speed-Distance', label:'Time, Speed & Distance' },
+      { value:'Profit & Loss', label:'Profit & Loss' },
+      { value:'Algebra', label:'Algebra — mixed' },
+      { value:'Linear Equations', label:'Linear Equations' },
+      { value:'Quadratic Equations', label:'Quadratic Equations' },
+      { value:'Functions & Inequalities', label:'Functions & Inequalities' },
+      { value:'Logarithms & Exponents', label:'Logarithms & Exponents' },
+      { value:'Geometry & Mensuration', label:'Geometry & Mensuration — mixed' },
+      { value:'Geometry (Triangles, Circles)', label:'Triangles & Circles' },
+      { value:'Mensuration (2D & 3D)', label:'Mensuration' },
+      { value:'Coordinate Geometry', label:'Coordinate Geometry' },
+      { value:'Number Systems', label:'Number Systems' },
+      { value:'Modern Math', label:'Modern Math — mixed' },
+      { value:'Permutation & Combination', label:'Permutation & Combination' },
+      { value:'Probability', label:'Probability' },
+      { value:'Set Theory', label:'Set Theory' }
+    ], 'Mixed QA');
+    var difficulty = selectField('Difficulty', [
+      { value:'cat', label:'CAT-level — mixed difficulty' },
+      { value:'hard', label:'Hard CAT — difficult but fair' }
+    ], 'cat');
+    var count = selectField('Session size', [
+      { value:'3', label:'3 questions · about 6 minutes' },
+      { value:'5', label:'5 questions · about 10 minutes' }
+    ], '5');
+    var fields = document.createElement('div'); fields.className = 'slash-tool-fields slash-practice-fields';
+    fields.appendChild(topic.label); fields.appendChild(difficulty.label); fields.appendChild(count.label);
+    var summary = document.createElement('div'); summary.className = 'slash-tool-summary';
+    summary.textContent = 'Questions stay locked to your chosen topic and are checked before they appear.';
+    var start = document.createElement('button'); start.type = 'button'; start.className = 'slash-tool-primary'; start.textContent = 'Build my QA practice →';
+    start.addEventListener('click', function () {
+      closeMargToolSurface();
+      if (requireFunction('startTimedTest')) window.startTimedTest('qa', topic.select.value, Number(count.select.value), null, 0, { difficulty:difficulty.select.value, source:'slash-practice' });
+      else showUnavailable();
+    });
+    appendPracticeBack(view.body); view.body.appendChild(fields); view.body.appendChild(summary); view.body.appendChild(start);
   }
 
   function scoreInput(labelText, max) {

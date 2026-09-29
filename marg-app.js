@@ -13279,6 +13279,32 @@ function selectRCDifficulty(difficulty) {
   updateRCLabCard();
 }
 
+async function startConfiguredRCPractice(options) {
+  options = options || {};
+  if (typeof switchTab === 'function') switchTab('chat');
+  currentRCMode = options.mode === 'specific' ? 'specific' : 'diagnose';
+  if (currentRCMode === 'specific' && RC_SKILL_LABELS[options.focus]) currentRCSkill = options.focus;
+  if (currentRCMode === 'diagnose' && RC_NEED_LABELS[options.focus]) currentRCNeed = options.focus;
+  if (RC_DIFFICULTY_LABELS[options.difficulty]) currentRCDifficulty = options.difficulty;
+  if (RC_TOPIC_LABELS[options.topic]) currentTopic = options.topic;
+  // Targeted /practice is Marg-owned. The daily Aeon experience remains the
+  // explicit /today-varc command instead of both entries opening one product.
+  currentRCSource = 'marg';
+  articleIndex = Math.max(0, Number(articleIndex) || 0);
+  currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  saveRCLabPreferences();
+  await createRCPassage();
+}
+window.startConfiguredRCPractice = startConfiguredRCPractice;
+
+async function openTodaysVarcExperience() {
+  currentRCSource = 'aeon';
+  currentArticle = null;
+  articleIndex = 0;
+  await loadVarcCard('surprise');
+}
+window.openTodaysVarcExperience = openTodaysVarcExperience;
+
 // Overrides the old publisher-card implementation above. The older fetch
 // helpers remain only for backward compatibility with saved sessions; this is
 // the live Today’s VARC path.
@@ -15143,6 +15169,7 @@ var timedTestSubmitted = false;
 var timedTestDiagnosticEntry = null;
 var timedTestRequestedCount = 0;
 var timedTestGenerationStartedAt = null;
+var timedTestDifficulty = 'cat';
 var topicProgression = {};
 
 function topicProgressionStorageKey() {
@@ -16224,7 +16251,14 @@ function validateGeneratedPracticeCompleteness(data, section) {
 function validateQASetShape(data, expectedTopic, expectedCount) {
   if (!data || !Array.isArray(data.questions)) return false;
   if (expectedCount ? data.questions.length !== expectedCount : (data.questions.length < 3 || data.questions.length > 5)) return false;
-  if (expectedTopic && (!Array.isArray(data.topics_combined) || data.topics_combined.length !== 1 || normalizePracticeTopicName(data.topics_combined[0]) !== normalizePracticeTopicName(expectedTopic))) return false;
+  if (expectedTopic) {
+    if (!Array.isArray(data.topics_combined) || !data.topics_combined.length) return false;
+    var categoryTopics = typeof getQACategoryTopics === 'function' ? getQACategoryTopics(expectedTopic) : null;
+    if (categoryTopics) {
+      var allowedTopics = categoryTopics.map(normalizePracticeTopicName);
+      if (!data.topics_combined.every(function(topic) { return allowedTopics.indexOf(normalizePracticeTopicName(topic)) !== -1; })) return false;
+    } else if (data.topics_combined.length !== 1 || normalizePracticeTopicName(data.topics_combined[0]) !== normalizePracticeTopicName(expectedTopic)) return false;
+  }
   return data.questions.every(function(q) {
     if (!q || typeof q.q !== 'string' || !q.q.trim() || !questionHasExplicitTask(q.q)) return false;
     if (!Array.isArray(q.options) || q.options.length !== 4) return false;
@@ -16235,8 +16269,11 @@ function validateQASetShape(data, expectedTopic, expectedCount) {
   });
 }
 
-function buildSectionalTestPrompt(section, topic, questionCount) {
-  var difficultyGuard = ' These questions must match or exceed actual CAT exam difficulty — under no circumstances generate simpler practice-level questions for this sectional test.';
+function buildSectionalTestPrompt(section, topic, questionCount, requestedDifficulty) {
+  var difficultyKey = requestedDifficulty === 'hard' ? 'hard' : 'cat';
+  var difficultyGuard = difficultyKey === 'hard'
+    ? ' DIFFICULTY LOCK: hard CAT, but fair. Require a non-obvious representation, constraint or insight; do not use olympiad ideas, obscure formulas, ugly arithmetic, missing information or artificial verbosity.'
+    : ' DIFFICULTY LOCK: authentic CAT medium to medium-hard. Do not generate school-level or direct-formula practice, and do not manufacture difficulty through excessive calculation or ambiguity.';
 
   if (section === 'qa') {
     var n = questionCount || 10;
@@ -16250,7 +16287,10 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
       : 'TOPIC LOCK: every question must have the exact primary topic "' + topic + '"; do not include a standalone question from another topic. A secondary technique is allowed only when the central tested idea remains ' + topic + '. Set topics_combined to ["' + topic + '"] and every question.topic exactly to "' + topic + '".';
     var topicShape = mixedQA || categoryTopics ? '"topics_combined":["real primary topic 1","real primary topic 2"]' : '"topics_combined":["' + topic + '"]';
     var questionTopicShape = mixedQA || categoryTopics ? 'real primary topic' : topic;
-    return getTimeMockPracticeBlueprintPrompt('qa', topic || 'mixed') + ' Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions. ' + topicContract + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics so no two questions share the same solution skeleton. Include roughly 30% medium, 50% medium-hard and 20% hard-but-fair questions. At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently solve every item; verify topic accuracy, feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Every item must include a specific sufficiency_check showing that the visible stem supplies every required fact and an option_check showing why exactly one option survives. Silently replace any flawed or off-topic draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"Mixed",' + topicShape + ',"questions":[{"topic":"' + questionTopicShape + '","q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","sufficiency_check":"why the visible stem is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
+    var qaDifficultyMix = difficultyKey === 'hard'
+      ? 'Every question must be hard-but-fair CAT level; each must require at least one non-obvious setup decision, restriction or insight before calculation.'
+      : 'Use a realistic mix weighted toward medium and medium-hard CAT questions, with at most one hard-but-fair item.';
+    return getTimeMockPracticeBlueprintPrompt('qa', topic || 'mixed') + ' Generate exactly ' + n + ' original, genuinely CAT-difficulty QA questions. ' + topicContract + difficultyGuard + ' Model the reasoning character of CAT QA PYQs without copying, paraphrasing, or changing only their numbers: concise statements, an implicit relationship or restriction to discover, and a useful representation or insight before calculation. Mix distinct mechanics so no two questions share the same solution skeleton. ' + qaDifficultyMix + ' At least one-third should reward a short non-obvious insight rather than long algebra. No direct substitution, routine formula chains, repeated percentage changes, redundant conditions, artificial alternate scenarios, or difficulty created by verbosity.' + QA_STRUCTURAL_REQUIREMENTS + QA_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: independently solve every item; verify topic accuracy, feasibility, necessity of every condition, four distinct options, exactly one correct option, the correct zero-based index, and a solution that reaches it. Every item must include a specific sufficiency_check showing that the visible stem supplies every required fact and an option_check showing why exactly one option survives. Silently replace any flawed or off-topic draft. Keep solution to at most 3 compact verifiable steps and each diagnostic field to one short phrase to preserve valid JSON. Return ONLY valid JSON, no markdown, exactly this shape with exactly ' + n + ' objects: {"difficulty":"' + (difficultyKey === 'hard' ? 'Hard' : 'CAT Mixed') + '",' + topicShape + ',"questions":[{"topic":"' + questionTopicShape + '","q":"full concise question","options":["A. val","B. val","C. val","D. val"],"correct":0,"solution":"at most 3 compact steps","sufficiency_check":"why the visible stem is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","concept_check":"short phrase","marg_insight":"short phrase"}]}';
   }
 
   var setsCount = Math.max(1, Math.round((questionCount || 12) / 4));
@@ -16258,7 +16298,8 @@ function buildSectionalTestPrompt(section, topic, questionCount) {
     ? 'Use structurally different set families. Make one look familiar but have a weak entry point, while another looks less familiar but has a clean representation and two interacting starting constraints; this must reveal set-selection quality.'
     : 'Center every set on ' + topic + ', while keeping the mechanics distinct.';
   dilrTopicInstruction = '[MARG_DILR_TOPIC: '+(topic || 'Mixed')+'] '+dilrTopicInstruction;
-  return getTimeMockPracticeBlueprintPrompt('dilr', topic || 'mixed') + ' Generate exactly ' + setsCount + ' independent CAT-level medium-hard DILR sets, each with 6-8 entities or equivalent data density, 6-9 interacting constraints, and exactly 4 questions. ' + dilrTopicInstruction + difficultyGuard + ' A prepared CAT student should need 12-16 minutes per set. Do not manufacture difficulty through ambiguity, missing conventions, excessive cases or ugly arithmetic. Each set must contain at least three genuine deductions that arise only by combining clues; direct one-clue-one-cell arrangements are forbidden. Multiple cases must remain until a decisive bound, conservation relationship, conditional split, or structural inference narrows them. Every question must require fresh reasoning after the base representation; use at least three distinct types across must/cannot, case count, optimization/exact value, and local hypothetical. No direct-lookup question.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure every condition is necessary, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Every question must include a specific sufficiency_check showing that the written setup supplies every required fact and an option_check showing why exactly one option survives. Store three genuine deductions in derived_constraints, not restated clues. Keep each setup between 120 and 280 words and explanations compact. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"Medium-Hard","estimated_solve_minutes":14,"constraint_types":["' + topic + '","secondary interacting structure"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete setup","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short verifiable sentence","sufficiency_check":"why the written setup is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
+  var dilrLevel = difficultyKey === 'hard' ? 'hard-but-fair CAT' : 'CAT medium to medium-hard';
+  return getTimeMockPracticeBlueprintPrompt('dilr', topic || 'mixed') + ' Generate exactly ' + setsCount + ' independent ' + dilrLevel + ' DILR sets, each with 6-8 entities or equivalent data density, 6-9 interacting constraints, and exactly 4 questions. ' + dilrTopicInstruction + difficultyGuard + ' A prepared CAT student should need 12-16 minutes per set. Do not manufacture difficulty through ambiguity, missing conventions, excessive cases or ugly arithmetic. Each set must contain at least three genuine deductions that arise only by combining clues; direct one-clue-one-cell arrangements are forbidden. Multiple cases must remain until a decisive bound, conservation relationship, conditional split, or structural inference narrows them. Every question must require fresh reasoning after the base representation; use at least three distinct types across must/cannot, case count, optimization/exact value, and local hypothetical. No direct-lookup question.' + DILR_CALIBRATION_EXAMPLE + CLEAN_SOLUTION_OUTPUT_REQUIREMENTS + ' FINAL INTERNAL AUDIT: enumerate or logically verify all feasible arrangements, ensure every condition is necessary, independently solve all four questions, verify four distinct options and exactly one correct answer, then silently repair any flaw. Every question must include a specific sufficiency_check showing that the written setup supplies every required fact and an option_check showing why exactly one option survives. Store three genuine deductions in derived_constraints, not restated clues. Keep each setup between 120 and 280 words and explanations compact. Return ONLY valid JSON, no markdown, with exactly ' + setsCount + ' set objects and exactly 4 questions per set: {"sets":[{"set_title":"title","difficulty":"' + (difficultyKey === 'hard' ? 'Hard' : 'Medium-Hard') + '","estimated_solve_minutes":14,"constraint_types":["' + topic + '","secondary interacting structure"],"derived_constraints":["derived inference 1","derived inference 2","derived inference 3"],"setup":"complete setup","questions":[{"q":"question text","reasoning_type":"must-cannot/case-count/optimization/local-hypothetical","options":["A. ans","B. ans","C. ans","D. ans"],"correct":0,"explanation":"one short verifiable sentence","sufficiency_check":"why the written setup is sufficient","option_check":"why exactly one option survives","common_mistake":"short phrase","marg_insight":"short phrase"}]}]}';
 }
 
 function getVerifiedRCFallback() {
@@ -17437,7 +17478,19 @@ async function generateGuidedMiniMock(diagnosticEntry) {
   return true;
 }
 
-async function startTimedTest(section, topic, questionCount, diagnosticEntry, generationAttempt) {
+async function startTimedTest(section, topic, questionCount, diagnosticEntry, generationAttempt, launchOptions) {
+  launchOptions = launchOptions || {};
+  function packMatchesRequestedDifficulty(data) {
+    if (timedTestDifficulty !== 'hard') return true;
+    if (!data) return false;
+    if (section === 'qa') return /\bhard\b/i.test(String(data.difficulty || ''));
+    if (section === 'dilr') {
+      return Array.isArray(data.sets) && data.sets.length > 0 && data.sets.every(function(setObj) {
+        return /\bhard\b/i.test(String(setObj && setObj.difficulty || ''));
+      });
+    }
+    return false;
+  }
   if (timedTestGenerationController) timedTestGenerationController.abort();
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
   var generationSequence = ++timedTestGenerationSequence;
@@ -17459,6 +17512,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   timedTestIndex = 0;
   timedTestSubmitted = false;
   timedTestGenerationStartedAt = new Date().toISOString();
+  timedTestDifficulty = launchOptions.difficulty === 'hard' ? 'hard' : 'cat';
 
   var overlay = document.getElementById('timed-test-overlay');
   var titleEl = document.getElementById('tt-title');
@@ -17476,8 +17530,9 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   qnavEl.style.display = 'none';
   timerEl.textContent = '--:--';
   timerEl.classList.remove('tt-timer-warning');
-  titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + (isShortTimedCheck ? ' Timed Check — ' : ' Sectional Test — ') + topic;
-  contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is building a timed ' + (section === 'qa' ? 'QA' : 'DILR') + ' test on ' + topic + ' — CAT-level difficulty...</div></div>';
+  var timedDifficultyLabel = timedTestDifficulty === 'hard' ? 'Hard CAT' : 'CAT-level';
+  titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + (isShortTimedCheck ? ' Timed Check — ' : ' Timed Practice — ') + topic;
+  contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is building ' + timedDifficultyLabel + ' ' + (section === 'qa' ? 'QA practice' : 'DILR practice') + ' on ' + topic + '...</div></div>';
 
   // Short diagnostic checks should open immediately whenever a matching,
   // independently verified pack already exists. This avoids spending a model
@@ -17493,7 +17548,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       instantExpectedTopic = null;
       instantDiagnostic = getUnseenVerifiedFallbackPractice('qa', timedTestRequestedCount, null) || getVerifiedFallbackPractice('qa', timedTestRequestedCount, null);
     }
-    var instantValid = instantDiagnostic && (section === 'qa'
+    var instantValid = instantDiagnostic && packMatchesRequestedDifficulty(instantDiagnostic) && (section === 'qa'
       ? validateQASetShape(instantDiagnostic, instantExpectedTopic, timedTestRequestedCount)
       : validateDILRPracticeSet(instantDiagnostic, 1));
     var instantQuestions = instantValid ? flattenTimedTestQuestions(section, instantDiagnostic) : [];
@@ -17518,7 +17573,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     }
   }
 
-  var prompt = getPredictionValidationFocus(timedTestDiagnosticEntry) + buildSectionalTestPrompt(section, topic, questionCount);
+  var prompt = getPredictionValidationFocus(timedTestDiagnosticEntry) + buildSectionalTestPrompt(section, topic, questionCount, timedTestDifficulty);
   var maxTokens = getSectionalTestMaxTokens(section, questionCount);
   var isCompactTimedCheck = !!(timedTestDiagnosticEntry && timedTestRequestedCount <= 4);
   var timedFlowBudgetMs = isCompactTimedCheck ? (section === 'dilr' ? 75000 : 60000) : (section === 'dilr' ? 140000 : 110000);
@@ -17663,14 +17718,14 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var fallbackCandidate = getReliablePracticeCandidate(section, expectedFallbackCount, topic, true);
     var verifiedFallback = fallbackCandidate && fallbackCandidate.data;
     var fallbackQuestions = verifiedFallback ? flattenTimedTestQuestions(section, verifiedFallback) : [];
-    var verifiedFallbackValid = verifiedFallback && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
+    var verifiedFallbackValid = verifiedFallback && packMatchesRequestedDifficulty(verifiedFallback) && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
       ? validateQASetShape(verifiedFallback, expectedQATopic, expectedFallbackCount)
       : validateDILRPracticeSet(verifiedFallback, Math.max(1, expectedFallbackCount / 4)));
     if (!verifiedFallbackValid) {
       fallbackCandidate = getReliablePracticeCandidate(section, expectedFallbackCount, null, true);
       verifiedFallback = fallbackCandidate && fallbackCandidate.data;
       fallbackQuestions = verifiedFallback ? flattenTimedTestQuestions(section, verifiedFallback) : [];
-      verifiedFallbackValid = verifiedFallback && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
+      verifiedFallbackValid = verifiedFallback && packMatchesRequestedDifficulty(verifiedFallback) && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
         ? validateQASetShape(verifiedFallback, null, expectedFallbackCount)
         : validateDILRPracticeSet(verifiedFallback, Math.max(1, expectedFallbackCount / 4)));
     }
@@ -17696,7 +17751,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     if (!isCurrentGeneration()) return;
     var shortRecovery = getReliablePracticeCandidate(section, section === 'qa' ? 3 : 4, topic, true);
     var shortRecoveryData = shortRecovery && shortRecovery.data;
-    var shortRecoveryValid = shortRecoveryData && (section === 'qa' ? validateQASetShape(shortRecoveryData, topic, 3) : validateDILRPracticeSet(shortRecoveryData, 1));
+    var shortRecoveryValid = shortRecoveryData && packMatchesRequestedDifficulty(shortRecoveryData) && (section === 'qa' ? validateQASetShape(shortRecoveryData, topic, 3) : validateDILRPracticeSet(shortRecoveryData, 1));
     var shortRecoveryButton = shortRecoveryValid ? '<button class="pcard-nav-btn secondary" onclick="openCheckedTimedRecovery()" style="margin-top:12px;">Open a checked ' + (section === 'qa' ? '3-question QA' : '4-question DILR') + ' check instead</button>' : '';
     var timedErrorMessage = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem. Your topic is saved; retrying immediately will not fix it.' : 'I could not open that timed set just now. Your section and topic are saved.';
     var timedRetryButton = isGeminiLocationError(e) ? '' : '<button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button>';
@@ -17705,11 +17760,11 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
 }
 
 function openCheckedTimedRecovery() {
-  startTimedTest(timedTestSection, timedTestTopic, timedTestSection === 'qa' ? 3 : 4, null, 0);
+  startTimedTest(timedTestSection, timedTestTopic, timedTestSection === 'qa' ? 3 : 4, null, 0, { difficulty:timedTestDifficulty, source:'timed-recovery' });
 }
 
 function retryTimedTest() {
-  startTimedTest(timedTestSection, timedTestTopic, timedTestRequestedCount || (timedTestSection === 'qa' ? 10 : 4), timedTestDiagnosticEntry, 0);
+  startTimedTest(timedTestSection, timedTestTopic, timedTestRequestedCount || (timedTestSection === 'qa' ? 10 : 4), timedTestDiagnosticEntry, 0, { difficulty:timedTestDifficulty, source:'timed-retry' });
 }
 
 function renderTimedTestQuestionNav() {
