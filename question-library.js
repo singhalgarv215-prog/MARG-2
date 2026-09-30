@@ -454,49 +454,35 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
   var attachments = Array.isArray(currentAttachments) ? currentAttachments.filter(function(item) { return item && item.data; }) : [];
   var reference = parseQuestionReference(message);
   if (attachments.length) {
-    var extracted;
-    try { extracted = await extractQuestionImageContext(attachments, message); }
-    catch(error) {
-      attachments.forEach(function(item) { item.status = item.libraryId ? 'attached' : 'local_ready'; item.error = error && error.message || 'Question indexing failed.'; });
-      // Indexing is an enhancement, not a gate. The main mentor request gets
-      // the original full-resolution image and can still inspect it directly.
-      return {
-        blocked:false,
-        attachments:attachments,
-        reference:reference,
-        question:null,
-        extraction:null,
-        indexStatus:'failed',
-        directive:'\n\nQUESTION IMAGE FALLBACK: The optional indexing pass did not complete. Inspect the original current-turn image directly and answer the user’s actual request. Do not mention indexing, OCR, JSON, storage or an internal failure. If and only if an exact symbol, condition or option is genuinely illegible in the original image, identify that specific part and request a closer crop.'
-      };
-    }
-    if (extracted.status === 'unreadable') {
-      // Give the answering model one direct look at the original rather than
-      // treating a conservative indexer's verdict as final.
-      return {
-        blocked:false,
-        attachments:attachments,
-        reference:reference,
-        question:null,
-        extraction:extracted.extraction,
-        indexStatus:'uncertain',
-        directive:'\n\nQUESTION IMAGE READABILITY CHECK: The preliminary pass was uncertain about: ' + String(extracted.extraction.summary || 'part of the question') + '. Inspect the original current-turn image yourself. Answer normally if the complete task is legible. Otherwise name only the exact missing symbol, line, diagram label or option and ask for a closer crop; do not claim the whole image failed.'
-      };
-    }
-    var questions = extracted.questions.length ? extracted.questions : extracted.extraction.questions;
-    var resolution = reference ? resolveQuestionCandidates(reference, questions, margActiveQuestionContext) : { status:questions.length === 1 ? 'resolved' : 'none', question:questions.length === 1 ? questions[0] : null };
-    if (resolution.status === 'ambiguous') {
-      return { blocked:true, reply:'I found more than one match: ' + resolution.candidates.map(questionCandidateLabel).join('; ') + '. Which one do you mean?', attachments:attachments };
-    }
-    if (reference && resolution.status === 'missing') {
-      return { blocked:true, reply:'I can read this upload, but I cannot find ' + (reference.number ? 'Q' + reference.number : 'that question') + ' in it. I can see: ' + questions.map(questionCandidateLabel).join('; ') + '.', attachments:attachments };
-    }
-    if (resolution.question) await saveConversationQuestionState(resolution.question);
+    // The current image is already included in the mentor request. Do not put
+    // a second vision/indexing request in front of the student's answer.
+    // Index in the background for later “explain Q4” references and Library
+    // search; its success or failure must not change this turn's latency.
+    Promise.resolve().then(function() {
+      return extractQuestionImageContext(attachments, message);
+    }).then(function(extracted) {
+      if (!extracted || extracted.status !== 'ready') return;
+      var questions = extracted.questions.length ? extracted.questions : extracted.extraction.questions;
+      var resolution = reference
+        ? resolveQuestionCandidates(reference, questions, margActiveQuestionContext)
+        : { status:questions.length === 1 ? 'resolved' : 'none', question:questions.length === 1 ? questions[0] : null };
+      if (resolution.question) return saveConversationQuestionState(resolution.question);
+    }).catch(function(error) {
+      attachments.forEach(function(item) {
+        item.status = item.libraryId ? 'attached' : 'local_ready';
+        item.error = error && error.message || 'Question indexing will retry later.';
+      });
+      console.warn('Background question indexing failed without delaying chat:', error);
+    });
+    var requestedIdentity = reference && reference.number ? ' The user refers to Q' + reference.number + ' on this current image; locate that visible question number before answering.' : '';
     return {
-      blocked:false, attachments:attachments, reference:reference,
-      question:resolution.question || null,
-      directive:resolution.question ? buildQuestionContextDirective(resolution.question, reference) : '',
-      confirmation:buildImageConfirmation(extracted.extraction), extraction:extracted.extraction
+      blocked:false,
+      attachments:attachments,
+      reference:reference,
+      question:null,
+      extraction:null,
+      indexStatus:'background',
+      directive:'\n\nCURRENT IMAGE DIRECT MODE: Inspect the original current-turn image and answer the user’s actual request now; do not wait for or mention Question Library indexing.' + requestedIdentity + ' If an exact symbol, condition, diagram label or option is genuinely illegible, identify only that part and ask for a closer crop.'
     };
   }
   if (!reference) return { blocked:false, attachments:[], directive:'' };

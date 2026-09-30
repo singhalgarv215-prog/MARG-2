@@ -3191,7 +3191,9 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
   // JSON does not inherently need a 16k floor. That old floor made a
   // three-question QA set as expensive and slow as a full sectional. Each
   // call site now owns the budget appropriate to the artifact it requests.
-  var minimumOutputTokens = 4096;
+  // Short mentor chat should not reserve a generation-sized response. Long
+  // plans and structured CAT artifacts request their own larger budgets.
+  var minimumOutputTokens = wantsJsonResponse ? 4096 : 1024;
   // Thinking consumes this same cap. Enough headroom must remain to finish
   // the JSON; an 8k cap with medium thinking left <1k for a QA set in testing.
   var effectiveOutputTokens = Math.min(32768, Math.max(requestedOutputTokens, isCATAnswerAudit || isDILRDraft ? 16384 : isCATStructuredTask ? 12288 : minimumOutputTokens));
@@ -3208,13 +3210,16 @@ function buildGeminiRequest(systemInstruction, messages, maxOutputTokens, respon
     } else contents.push({ role:role, parts:parts });
   });
   contents = normalizeGeminiConversationContents(contents);
+  var requestHasImages = contents.some(function(content) {
+    return (content.parts || []).some(function(part) { return part && part.inlineData; });
+  });
   var request = {
     contents:contents,
     generationConfig:{
       maxOutputTokens:effectiveOutputTokens,
       // Ordinary mentor chat is short and does not need paid medium reasoning.
       // Preserve medium reasoning for plans, images, answer reviews and content generation.
-      thinkingConfig:{ thinkingLevel:isCATAnswerAudit || isDILRDraft ? 'medium' : isCATStructuredTask ? 'low' : wantsJsonResponse && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
+      thinkingConfig:{ thinkingLevel:isCATAnswerAudit || isDILRDraft ? 'medium' : isCATStructuredTask || requestHasImages ? 'low' : wantsJsonResponse && requestedOutputTokens <= 8192 ? 'minimal' : requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
     }
   };
   if (responseMimeType) request.generationConfig.responseMimeType = wantsJsonResponse ? 'application/json' : responseMimeType;
@@ -10668,11 +10673,11 @@ function applyMentorResponseGuard(response, diagnosis) {
 
 function getMentorResponseMaxTokens(diagnosis) {
   if (diagnosis && diagnosis.comprehensivePlanning) return 16384;
-  if (diagnosis && diagnosis.hasImage) return 12288;
-  if (diagnosis && diagnosis.intent === 'seamless_continuation') return 12288;
-  if (diagnosis && diagnosis.intent === 'planning') return 8192;
   if (diagnosis && diagnosis.intent === 'answer_review') return Math.min(16384, Math.max(8192, 4096 + (diagnosis.answerCount || 3) * 800));
-  return 4096;
+  if (diagnosis && diagnosis.hasImage) return 4096;
+  if (diagnosis && diagnosis.intent === 'seamless_continuation') return 4096;
+  if (diagnosis && diagnosis.intent === 'planning') return 8192;
+  return 2048;
 }
 
 function getMentorRequestTimeout(diagnosis, useWebGrounding) {
