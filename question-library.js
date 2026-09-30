@@ -135,6 +135,42 @@ function parseQuestionExtractionPayload(raw) {
   } catch(error) { return null; }
 }
 
+function buildQuestionExtractionJsonSchema() {
+  var section = { type:'string', enum:['qa','dilr','varc','unknown'] };
+  return {
+    type:'object',
+    required:['readable','summary','pages','questions'],
+    properties:{
+      readable:{ type:'boolean' },
+      summary:{ type:'string' },
+      pages:{
+        type:'array',
+        items:{
+          type:'object',
+          required:['page_index','text','section','topic','confidence'],
+          properties:{
+            page_index:{ type:'integer' }, text:{ type:'string' }, section:section,
+            topic:{ type:'string' }, confidence:{ type:'number' }
+          }
+        }
+      },
+      questions:{
+        type:'array',
+        items:{
+          type:'object',
+          required:['page_index','question_number','ordinal','short_label','stem','options','section','topic','set_or_passage_key','confidence'],
+          properties:{
+            page_index:{ type:'integer' }, question_number:{ type:'string' }, ordinal:{ type:'integer' },
+            short_label:{ type:'string' }, stem:{ type:'string' },
+            options:{ type:'array', items:{ type:'string' } }, section:section,
+            topic:{ type:'string' }, set_or_passage_key:{ type:'string' }, confidence:{ type:'number' }
+          }
+        }
+      }
+    }
+  };
+}
+
 function dataUrlBytes(base64Data) {
   return Math.floor(String(base64Data || '').length * 3 / 4);
 }
@@ -265,10 +301,17 @@ async function extractQuestionImageContext(attachments, userText) {
   var extractionRequest = buildGeminiRequest(
     'You are a careful document indexer. Never invent obscured text, question numbers, options or section labels. JSON only.',
     buildHistoryWithImageAttachment([{ role:'user', content:prompt }], list, prompt),
-    8192
+    8192,
+    'application/json',
+    buildQuestionExtractionJsonSchema()
   );
   var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(extractionRequest) }, 75000);
-  var payload = await response.json();
+  var payload;
+  try { payload = await response.json(); }
+  catch(error) { throw new Error('The image-reading service returned an incomplete response.'); }
+  if (!response.ok || payload && payload.error) {
+    throw new Error(String(payload && payload.error && payload.error.message || 'The image-reading service is temporarily unavailable.'));
+  }
   var extraction = parseQuestionExtractionPayload(getGeminiText(payload));
   if (!extraction) throw new Error('Marg could not build a reliable question index from this image.');
   if (!extraction.readable) return { status:'unreadable', extraction:extraction, questions:[] };
@@ -286,29 +329,46 @@ async function extractQuestionImageContext(attachments, userText) {
       });
       continue;
     }
-    await sbFetch('question_images?id=eq.' + encodeURIComponent(attachment.libraryId), 'PATCH', {
-      status:'ready', ocr_text:String(page.text || '').slice(0, 50000),
-      detected_section:normaliseQuestionSection(page.section), detected_topic:String(page.topic || '').slice(0, 160),
-      extraction_confidence:Number(page.confidence || 0)
+    var localQuestions = questions.map(function(question) {
+      return Object.assign({}, question, {
+        id:'local-' + pageIndex + '-' + question.ordinal,
+        image_id:attachment.libraryId,
+        conversation_id:typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy'
+      });
     });
-    await sbFetch('image_questions?image_id=eq.' + encodeURIComponent(attachment.libraryId), 'DELETE');
-    if (questions.length) {
-      var rows = questions.map(function(question) {
-        return {
-          id:crypto.randomUUID(), image_id:attachment.libraryId, user_id:currentUser.id,
-          conversation_id:typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy',
-          question_number:question.question_number || null, ordinal:question.ordinal,
-          short_label:question.short_label, stem:question.stem, options:question.options,
-          section:question.section, topic:question.topic || null,
-          set_or_passage_key:question.set_or_passage_key || null,
-          extraction_confidence:question.confidence
-        };
+    try {
+      var imageUpdate = await sbFetch('question_images?id=eq.' + encodeURIComponent(attachment.libraryId), 'PATCH', {
+        status:'ready', ocr_text:String(page.text || '').slice(0, 50000),
+        detected_section:normaliseQuestionSection(page.section), detected_topic:String(page.topic || '').slice(0, 160),
+        extraction_confidence:Number(page.confidence || 0)
       });
-      var inserted = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/image_questions', {
-        method:'POST', headers:{ 'Content-Type':'application/json', 'Prefer':'return=representation' }, body:JSON.stringify(rows)
-      });
-      if (inserted.ok) savedQuestions = savedQuestions.concat(await inserted.json());
-      else throw new Error('The extracted question index could not be saved.');
+      if (imageUpdate && imageUpdate.error) throw new Error(imageUpdate.error.message || 'Image index update failed.');
+      var deleteResult = await sbFetch('image_questions?image_id=eq.' + encodeURIComponent(attachment.libraryId), 'DELETE');
+      if (deleteResult && deleteResult.error) throw new Error(deleteResult.error.message || 'Old image index cleanup failed.');
+      if (questions.length) {
+        var rows = questions.map(function(question) {
+          return {
+            id:crypto.randomUUID(), image_id:attachment.libraryId, user_id:currentUser.id,
+            conversation_id:typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy',
+            question_number:question.question_number || null, ordinal:question.ordinal,
+            short_label:question.short_label, stem:question.stem, options:question.options,
+            section:question.section, topic:question.topic || null,
+            set_or_passage_key:question.set_or_passage_key || null,
+            extraction_confidence:question.confidence
+          };
+        });
+        var inserted = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/image_questions', {
+          method:'POST', headers:{ 'Content-Type':'application/json', 'Prefer':'return=representation' }, body:JSON.stringify(rows)
+        });
+        if (!inserted.ok) throw new Error('The extracted question index could not be saved.');
+        savedQuestions = savedQuestions.concat(await inserted.json());
+      }
+    } catch(libraryError) {
+      // Saving to the reusable Question Library is secondary. The current
+      // image has already been read, so never block the student's answer.
+      attachment.error = 'Library sync will retry later.';
+      savedQuestions = savedQuestions.concat(localQuestions);
+      console.warn('Question Library sync failed without blocking image chat:', libraryError);
     }
   }
   margQuestionLibraryCache.loadedAt = 0;
@@ -398,10 +458,30 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
     try { extracted = await extractQuestionImageContext(attachments, message); }
     catch(error) {
       attachments.forEach(function(item) { item.status = item.libraryId ? 'attached' : 'local_ready'; item.error = error && error.message || 'Question indexing failed.'; });
-      return { blocked:true, reply:'I received the image, but I could not read and index it reliably. Please retry or send a closer crop containing the complete question and all options; I won’t guess what it says.', attachments:attachments };
+      // Indexing is an enhancement, not a gate. The main mentor request gets
+      // the original full-resolution image and can still inspect it directly.
+      return {
+        blocked:false,
+        attachments:attachments,
+        reference:reference,
+        question:null,
+        extraction:null,
+        indexStatus:'failed',
+        directive:'\n\nQUESTION IMAGE FALLBACK: The optional indexing pass did not complete. Inspect the original current-turn image directly and answer the user’s actual request. Do not mention indexing, OCR, JSON, storage or an internal failure. If and only if an exact symbol, condition or option is genuinely illegible in the original image, identify that specific part and request a closer crop.'
+      };
     }
     if (extracted.status === 'unreadable') {
-      return { blocked:true, reply:'I received the image, but this part is not readable enough to solve safely: ' + String(extracted.extraction.summary || 'the complete question or options') + '. Please send a closer crop.', attachments:attachments };
+      // Give the answering model one direct look at the original rather than
+      // treating a conservative indexer's verdict as final.
+      return {
+        blocked:false,
+        attachments:attachments,
+        reference:reference,
+        question:null,
+        extraction:extracted.extraction,
+        indexStatus:'uncertain',
+        directive:'\n\nQUESTION IMAGE READABILITY CHECK: The preliminary pass was uncertain about: ' + String(extracted.extraction.summary || 'part of the question') + '. Inspect the original current-turn image yourself. Answer normally if the complete task is legible. Otherwise name only the exact missing symbol, line, diagram label or option and ask for a closer crop; do not claim the whole image failed.'
+      };
     }
     var questions = extracted.questions.length ? extracted.questions : extracted.extraction.questions;
     var resolution = reference ? resolveQuestionCandidates(reference, questions, margActiveQuestionContext) : { status:questions.length === 1 ? 'resolved' : 'none', question:questions.length === 1 ? questions[0] : null };

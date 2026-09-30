@@ -12477,7 +12477,9 @@ async function sendMessage(fromQueue, submissionOptions) {
     // Quick replies are choices for the immediately preceding mentor turn.
     // Once the student types a normal message, stale choices must disappear so
     // an old “Something else” cannot hijack the new RC conversation.
-    if (!fromQueue) removeConversationalOptions();
+    // Image turns always replace any old diagnostic/practice quick replies.
+    // Otherwise stale VARC chips can appear to belong to an image failure.
+    if (!fromQueue || hasImages) removeConversationalOptions();
     if (isGuestMode) { guestMessageCount++; updateGuestBanner(); }
     var storedImageMarker = hasImages ? '\n[' + imageAttachments.length + ' images attached in page order: ' + imageAttachments.map(function(item) { return item.name; }).join(', ') + ']' : '';
     var storedUserText = text + storedImageMarker;
@@ -12511,6 +12513,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     ? await prepareQuestionContextForTurn(text, imageAttachments)
     : { blocked:false, attachments:imageAttachments, directive:'' };
   if (questionResolution && questionResolution.blocked) {
+    removeConversationalOptions();
     var questionBlockReply = String(questionResolution.reply || 'I cannot identify that question safely. Please re-upload the complete question.');
     addMessage('marg', renderMentorStructuredText(questionBlockReply));
     conversationHistory.push({ role:'assistant', content:questionBlockReply });
