@@ -35,21 +35,69 @@ function getRequestedAnswerDepth(message) {
   return 'standard';
 }
 
+function isExplicitSavedPageReference(message) {
+  if (typeof refersToEarlierUploadedMaterial === 'function' && refersToEarlierUploadedMaterial(message)) return true;
+  var text = String(message || '');
+  return /\b(?:saved|uploaded|earlier|previous|yesterday(?:'s)?)\s+(?:[\w-]+\s+){0,4}(?:pages?|images?|photos?|pictures?|screenshots?)\b/i.test(text) ||
+    /\b(?:pages?|images?|photos?|pictures?|screenshots?)\b[\s\S]{0,40}\b(?:yesterday|uploaded|saved)\b/i.test(text) ||
+    /\b(?:reopen|open|show|pull up)\b[\s\S]{0,50}\b(?:saved|uploaded|earlier|previous|yesterday(?:'s)?)\b[\s\S]{0,30}\b(?:page|image|photo|picture|screenshot)\b/i.test(text);
+}
+
+function hasActiveSavedQuestion() {
+  return !!(typeof margActiveQuestionContext !== 'undefined' && margActiveQuestionContext &&
+    (margActiveQuestionContext.question || margActiveQuestionContext.question_id));
+}
+
+function isShortSavedQuestionFollowup(message) {
+  return /^(?:why|how|this(?: one)?|that(?: one)?|the above(?: question)?|give (?:me )?the answer|explain|solve this|next|option\s+[A-H])[?.!\s]*$/i.test(String(message || '').trim());
+}
+
+function isActiveQuestionDiscussion(message) {
+  var text = String(message || '').trim();
+  return /\b(?:the|that|this)\s+question\s+we\s+(?:were|are)\s+discussing\b/i.test(text) ||
+    /^(?:the|that|this)\s+question[?.!\s]*$/i.test(text);
+}
+
+function isStrategyHabitRequest(message) {
+  var text = String(message || '');
+  var strategyFrame = /\b(?:how should i|what should i|what(?:'s| is) a better|better\b[\s\S]{0,24}\bstrategy|strategy|approach|should i leave|time management|in general|habit|under time pressure|my strategy)\b/i.test(text);
+  if (!strategyFrame) return false;
+  var directQuestionSolve = /\b(?:solve|walk me through|why is|why are|why was|wrong|incorrect|solution|answer to|check option)\b/i.test(text) ||
+    /\boption\s+[A-H]\b[\s\S]{0,24}\b(?:wrong|incorrect|correct|right)\b/i.test(text);
+  return !directQuestionSolve;
+}
+
+function isSavedQuestionResolutionRequest(message) {
+  var text = String(message || '').trim();
+  if (!text || isStrategyHabitRequest(text)) return false;
+  if (typeof isBareQuestionReference === 'function' && isBareQuestionReference(text)) return true;
+  if (/^(?:please\s+)?(?:solve|explain|answer|check)\s+(?:this|that)(?:\s+question)?[?.!\s]*$/i.test(text)) return true;
+  if (/^(?:please\s+)?(?:walk me through|explain|solve|answer|check)\s+q(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text)) return true;
+  if (isExplicitSavedPageReference(text)) return true;
+  if (hasActiveSavedQuestion() && (isShortSavedQuestionFollowup(text) || isActiveQuestionDiscussion(text))) return true;
+  var numbered = /\bq(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text) || /\b(?:first|second|third|fourth|fifth|last)\s+question\b/i.test(text);
+  var resolution = /\b(?:solve|explain|answer|why|wrong|incorrect|solution|walk me through|check|reopen|show me)\b/i.test(text) ||
+    (/\boption\s+[A-H]\b/i.test(text) && numbered);
+  return !!(numbered && resolution);
+}
+
 function parseQuestionReference(message) {
+  if (!isSavedQuestionResolutionRequest(message)) return null;
   var text = String(message || '').trim();
   var numberMatch = text.match(/\bq(?:uestion)?\s*[-:#.]?\s*(\d{1,3})\b/i);
   var ordinalMatch = text.match(/\b(first|second|third|fourth|fifth|last|next)\s+(?:one|question)\b/i);
   var bareNext = /^next[?.!\s]*$/i.test(text);
-  var shortFollowup = /^(?:why|how|this(?: one)?|that(?: one)?|the above(?: question)?|give (?:me )?the answer|explain|solve this|next)[?.!\s]*$/i.test(text);
-  var optionFollowup = /\boption\s+([A-H])\b/i.exec(text);
-  var earlierLibraryReference = /\b(?:that|the|my|earlier|previous|uploaded|saved|yesterday(?:'s)?)\b[\s\S]{0,80}\b(?:images?|photos?|pictures?|pages?|questions?|sets?|passages?|scorecards?)\b|\b(?:images?|photos?|pictures?|pages?|questions?|sets?|passages?|scorecards?)\b[\s\S]{0,80}\b(?:yesterday|earlier|previously|uploaded|saved)\b/i.test(text);
-  if (!numberMatch && !ordinalMatch && !shortFollowup && !optionFollowup && !earlierLibraryReference) return null;
+  var shortFollowup = isShortSavedQuestionFollowup(text);
+  var optionFollowup = (shortFollowup || numberMatch) ? /\boption\s+([A-H])\b/i.exec(text) : null;
+  var earlierLibraryReference = isExplicitSavedPageReference(text);
+  var continuation = shortFollowup || !!optionFollowup || isActiveQuestionDiscussion(text);
+  if (!numberMatch && !ordinalMatch && !continuation && !earlierLibraryReference) return null;
   var sectionMatch = text.match(/\b(VARC|RC|DILR|LRDI|QA|quant|quants)\b/i);
   return {
     number:numberMatch ? numberMatch[1] : '',
     ordinal:ordinalMatch ? ordinalMatch[1].toLowerCase() : (bareNext ? 'next' : ''),
     option:optionFollowup ? optionFollowup[1].toUpperCase() : '',
-    continuation:shortFollowup || !!optionFollowup,
+    continuation:continuation,
     libraryQuery:earlierLibraryReference,
     section:sectionMatch ? normaliseQuestionSection(sectionMatch[1]) : '',
     yesterday:/\byesterday/i.test(text),
@@ -474,7 +522,8 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
       });
       console.warn('Background question indexing failed without delaying chat:', error);
     });
-    var requestedIdentity = reference && reference.number ? ' The user refers to Q' + reference.number + ' on this current image; locate that visible question number before answering.' : '';
+    var imageNumber = String(message || '').match(/\bq(?:uestion)?\s*[-:#.]?\s*(\d{1,3})\b/i);
+    var requestedIdentity = reference && reference.number ? ' The user refers to Q' + reference.number + ' on this current image; locate that visible question number before answering.' : (imageNumber ? ' The user refers to Q' + imageNumber[1] + ' on this current image; locate that visible question number before answering.' : '');
     return {
       blocked:false,
       attachments:attachments,
@@ -485,6 +534,8 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
       directive:'\n\nCURRENT IMAGE DIRECT MODE: Inspect the original current-turn image and answer the user’s actual request now; do not wait for or mention Question Library indexing.' + requestedIdentity + ' If an exact symbol, condition, diagram label or option is genuinely illegible, identify only that part and ask for a closer crop.'
     };
   }
+  if (!isSavedQuestionResolutionRequest(message)) return { blocked:false, attachments:[], directive:'' };
+  reference = parseQuestionReference(message);
   if (!reference) return { blocked:false, attachments:[], directive:'' };
   var threadData;
   try { threadData = await fetchQuestionLibraryData(false, true); }

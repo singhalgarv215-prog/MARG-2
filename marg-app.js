@@ -3995,12 +3995,16 @@ function anchorMentorAnalysisToImageContext(mentorAnalysis, userMessage, imageAt
     analysis.directive += getImageAnalysisDirective(imageAttachments);
     return analysis;
   }
-  if (isBareQuestionReference(userMessage)) {
+  var savedQuestionRequest = typeof isSavedQuestionResolutionRequest === 'function' && isSavedQuestionResolutionRequest(userMessage);
+  var protectedQuestionIntent = /^(?:answer_review|dilr_validity_review|privacy_request|greeting|score_correction)$/.test(diagnosis.intent || '');
+  if ((isBareQuestionReference(userMessage) || savedQuestionRequest) && !protectedQuestionIntent) {
     diagnosis.intent = 'question_reference';
     diagnosis.emotionalState = 'neutral';
     diagnosis.likelyHiddenProblem = 'The student is referring to a numbered question from earlier material. Resolve it only from an exact visible stem in textual history or a verified active exercise; a topic label or recommendation is not enough to reconstruct the question.';
     diagnosis.allowsEvidenceQuestion = false;
-    analysis.directive += '\n\nNUMBERED-QUESTION REFERENCE: Find the exact complete stem and options for this question in recent textual history or verified ACTIVE GENERATED EXERCISE MEMORY. If they are present, answer that exact question. If only its number, topic or a one-line recommendation is present, say you need the full question image/text and ask for it once. Never invent the ages, counts, equations, conditions, options or answer of another question with the same number.';
+    if (isBareQuestionReference(userMessage) || String(analysis.directive || '').indexOf('NUMBERED-QUESTION REFERENCE') === -1) {
+      analysis.directive += '\n\nNUMBERED-QUESTION REFERENCE: Find the exact complete stem and options for this question in recent textual history or verified ACTIVE GENERATED EXERCISE MEMORY. If they are present, answer that exact question. If only its number, topic or a one-line recommendation is present, say you need the full question image/text and ask for it once. Never invent the ages, counts, equations, conditions, options or answer of another question with the same number.';
+    }
   }
   if (refersToEarlierUploadedMaterial(userMessage)) {
     diagnosis.priorImageReference = true;
@@ -4539,13 +4543,101 @@ function scopedMentorMemoryAllowed(item, message) {
   return !!(item && item.sourceThreadId && item.sourceThreadId === getCurrentMentorThreadId());
 }
 
-function getDiagnosticMemoryContext(message, diagnosis) {
-  var requestedTopic = diagnosis && diagnosis.requestedSection || null;
-  var entries = Object.keys(diagnosticMemory).map(function(topic) { return diagnosticMemory[topic]; }).filter(function(entry) {
-    if (!entry || !entry.confirmedDiagnosis || entry.status === 'rejected' || entry.doNotReuse) return false;
-    if (!scopedMentorMemoryAllowed(entry, message)) return false;
-    return !requestedTopic || entry.topic === requestedTopic || entry.topic === 'mock';
+function sectionsNamedInMessage(message) {
+  var text = String(message || '').toLowerCase();
+  var named = [];
+  if (/\b(?:varc|reading comprehension|\brc\b|verbal)\b/.test(text)) named.push('varc');
+  if (/\b(?:dilr|lrdi|data interpretation|logical reasoning)\b/.test(text)) named.push('dilr');
+  if (/\b(?:qa|quant(?:s|itative aptitude)?|maths?)\b/.test(text)) named.push('qa');
+  return named;
+}
+
+function normalizeMentorFocusTopic(topic) {
+  var value = String(topic || '').toLowerCase();
+  if (value === 'rc' || value === 'va' || value === 'verbal' || value === 'varc') return 'varc';
+  if (value === 'lrdi' || value === 'dilr') return 'dilr';
+  if (value === 'quant' || value === 'quants' || value === 'qa') return 'qa';
+  if (value === 'mock') return 'mock';
+  return '';
+}
+
+function getReliableMentorFocus(message) {
+  if (typeof diagnosticFlowState !== 'undefined' && diagnosticFlowState && diagnosticFlowState.active) {
+    var flowTopic = normalizeMentorFocusTopic(diagnosticFlowState.topic);
+    if (flowTopic) return flowTopic;
+  }
+  var activeTopic = typeof activeDiagnosticTopic !== 'undefined' ? normalizeMentorFocusTopic(activeDiagnosticTopic) : '';
+  var activeEntry = activeTopic && diagnosticMemory ? diagnosticMemory[activeTopic] : null;
+  if (activeEntry && activeEntry.confirmedDiagnosis && !activeEntry.doNotReuse && normalizeDiagnosisStatus(activeEntry) !== 'rejected' && scopedMentorMemoryAllowed(activeEntry, message)) return activeTopic;
+  if (typeof isOpenMentorPlan === 'function' && isOpenMentorPlan(activeMentorPlan) && scopedMentorMemoryAllowed(activeMentorPlan, message)) {
+    var planTopic = normalizeMentorFocusTopic(inferMentorPlanSection(activeMentorPlan));
+    if (planTopic) return planTopic;
+  }
+  return '';
+}
+
+function selectTurnMemory(message, diagnosis) {
+  if (requestsAccountWideMentorMemory(message)) return { mode:'all', hypothesisTopics:[] };
+  var intent = diagnosis && diagnosis.intent || '';
+  if (['greeting','privacy_request','question_reference','image_question','answer_review','dilr_validity_review','seamless_continuation','score_correction'].indexOf(intent) !== -1) {
+    return { mode:'none', topics:[], hypothesisTopics:[] };
+  }
+  var named = sectionsNamedInMessage(message);
+  if (diagnosis && diagnosis.requestedSection && named.indexOf(diagnosis.requestedSection) === -1) named.unshift(diagnosis.requestedSection);
+  if (intent === 'mock_diagnosis') return { mode:'topics', topics:['mock'].concat(named), hypothesisTopics:[] };
+  if (intent === 'varc_diagnosis' || intent === 'dilr_diagnosis' || intent === 'qa_diagnosis') {
+    return { mode:'topics', topics:[intent.replace('_diagnosis', ''), 'mock'], hypothesisTopics:[] };
+  }
+  if (intent === 'planning' || intent === 'returning_memory') return { mode:'plan', topics:[], hypothesisTopics:named };
+  if (named.length) return { mode:'topics', topics:named, hypothesisTopics:[] };
+  var focus = getReliableMentorFocus(message);
+  if (focus) return { mode:'topics', topics:[focus], hypothesisTopics:[] };
+  return { mode:'none', topics:[], hypothesisTopics:[] };
+}
+
+function diagnosticEntrySelected(entry, topicKey, message, selection) {
+  if (!selection || selection.mode === 'none') return false;
+  if (!entry || !entry.confirmedDiagnosis || entry.doNotReuse) return false;
+  var status = normalizeDiagnosisStatus(entry);
+  if (status === 'rejected') return false;
+  if (selection.mode !== 'all' && !scopedMentorMemoryAllowed(entry, message)) return false;
+  var topic = entry.topic || topicKey;
+  if (selection.mode === 'all') return true;
+  if (selection.mode === 'plan') {
+    if (status === 'supported' || status === 'confirmed') return true;
+    return (selection.hypothesisTopics || []).indexOf(topic) !== -1;
+  }
+  return (selection.topics || []).indexOf(topic) !== -1;
+}
+
+function memorySectionMatchesTopic(section, topic) {
+  var value = String(section || '').toLowerCase();
+  if (topic === 'varc') return value === 'varc' || value === 'rc' || value === 'va' || value === 'verbal';
+  if (topic === 'dilr') return value === 'dilr' || value === 'lrdi';
+  if (topic === 'qa') return value === 'qa' || value === 'quant' || value === 'quants';
+  if (topic === 'mock') return value === 'mock';
+  return value === topic;
+}
+
+function behavioralTopicsForTurn(message, selection) {
+  if (!selection || selection.mode === 'none') return [];
+  if (selection.mode === 'all') return null;
+  if (selection.mode === 'topics') return selection.topics || [];
+  var topics = (selection.hypothesisTopics || []).slice();
+  Object.keys(diagnosticMemory || {}).forEach(function(topic) {
+    var entry = diagnosticMemory[topic];
+    if (!diagnosticEntrySelected(entry, topic, message, { mode:'plan', hypothesisTopics:[] })) return;
+    var selectedTopic = entry.topic || topic;
+    if (topics.indexOf(selectedTopic) === -1) topics.push(selectedTopic);
   });
+  return topics;
+}
+
+function getDiagnosticMemoryContext(message, diagnosis) {
+  var selection = selectTurnMemory(message, diagnosis);
+  var entries = Object.keys(diagnosticMemory || {}).map(function(topic) { return { topic:topic, entry:diagnosticMemory[topic] }; }).filter(function(item) {
+    return diagnosticEntrySelected(item.entry, item.topic, message, selection);
+  }).map(function(item) { return item.entry; });
   if (!entries.length) return '';
   return '\n\nDIAGNOSTIC EVIDENCE MEMORY (respect the evidence level; do not present a hypothesis as fact):\n' + entries.map(function(entry) {
     var counts = observedDiagnosisEvidenceCounts(entry);
@@ -6408,11 +6500,18 @@ function recordBehaviorPattern(section, insight, evidence, source) {
 
 function getBehavioralMemoryContext(message, diagnosis) {
   if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
-  var requestedSection = diagnosis && diagnosis.requestedSection;
-  if (requestedSection === 'varc') requestedSection = 'rc';
+  var selection = selectTurnMemory(message, diagnosis);
+  var topics = behavioralTopicsForTurn(message, selection);
+  if (topics && !topics.length) return '';
   var patterns = behavioralMemory.patterns.filter(function(pattern) {
-    return pattern && pattern.status !== 'rejected' && !pattern.doNotReuse && pattern.source !== 'answer-review' &&
-      scopedMentorMemoryAllowed(pattern, message) && (!requestedSection || pattern.section === requestedSection);
+    if (!pattern || pattern.status === 'rejected' || pattern.doNotReuse || pattern.source === 'answer-review') return false;
+    if (selection.mode !== 'all' && !scopedMentorMemoryAllowed(pattern, message)) return false;
+    return !topics || topics.some(function(topic) { return memorySectionMatchesTopic(pattern.section, topic); });
+  }).sort(function(a, b) {
+    var aStrong = Number(a.occurrences || 0) >= 2 ? 1 : 0;
+    var bStrong = Number(b.occurrences || 0) >= 2 ? 1 : 0;
+    if (aStrong !== bStrong) return bStrong - aStrong;
+    return String(b.lastSeen || '').localeCompare(String(a.lastSeen || ''));
   }).slice(0, 6);
   if (!patterns.length) return '';
   return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(function(pattern) {
@@ -6920,14 +7019,22 @@ function suppressUnrelatedExerciseContinuation(response, userMessage) {
   return value.trim() || response;
 }
 
-function getTopicProgressionMemoryContext(message) {
+function getTopicProgressionMemoryContext(message, diagnosis) {
   if (typeof loadTopicProgression !== 'function') return '';
   // Topic progression is account-wide aggregate data. Keep it out of ordinary
   // new/personal chats unless the student explicitly asks for their broader
   // progress or account history.
-  if (!requestsAccountWideMentorMemory(message) && !/\b(?:my progress|progress history|performance history|trend across|across mocks|previous results)\b/i.test(String(message || ''))) return '';
+  var explicitProgress = requestsAccountWideMentorMemory(message) || /\b(?:my progress|progress history|performance history|trend across|across mocks|previous results)\b/i.test(String(message || ''));
+  if (!explicitProgress) return '';
+  var selection = selectTurnMemory(message, diagnosis);
   loadTopicProgression();
-  var items = Object.keys(topicProgression || {}).map(function(key) { return topicProgression[key]; }).filter(function(item) { return item && item.updatedAt; }).sort(function(a,b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); }).slice(0, 6);
+  var topics = behavioralTopicsForTurn(message, selection);
+  var items = Object.keys(topicProgression || {}).map(function(key) { return topicProgression[key]; }).filter(function(item) {
+    if (!item || !item.updatedAt) return false;
+    if (!topics) return true;
+    if (!topics.length) return explicitProgress;
+    return topics.some(function(topic) { return memorySectionMatchesTopic(item.section, topic); });
+  }).sort(function(a,b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)); }).slice(0, 6);
   if (!items.length) return '';
   return '\n\nTOPIC PROGRESSION — reference one relevant result before giving new advice:\n' + items.map(function(item) {
     return '- ' + String(item.section || '').toUpperCase() + ' / ' + item.topic + ': ' + (item.conceptQuestionsCompleted || 0) + ' concept questions, ' + (item.timedSectionalsCompleted || 0) + ' timed sectionals, last accuracy ' + (item.lastAccuracy === null || item.lastAccuracy === undefined ? 'not measured' : item.lastAccuracy + '%') + (item.mockPerformance === null || item.mockPerformance === undefined ? '' : ', latest mock performance ' + item.mockPerformance) + '.';
@@ -6951,6 +7058,151 @@ function runConversationMemoryTests() {
     { name:'maps author invention pattern', passed:pattern.key === 'invented_author_step' }
   ];
 }
+
+async function runContextRoutingTests() {
+  var originalDiagnostic = diagnosticMemory;
+  var originalBehavioral = behavioralMemory;
+  var originalThread = typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId;
+  var originalActiveTopic = activeDiagnosticTopic;
+  var originalFlow = diagnosticFlowState;
+  var originalPlan = activeMentorPlan;
+  var originalQuestion = typeof margActiveQuestionContext === 'undefined' ? undefined : margActiveQuestionContext;
+  var originalProgress = topicProgression;
+  function restore() {
+    diagnosticMemory = originalDiagnostic;
+    behavioralMemory = originalBehavioral;
+    margActiveThreadId = originalThread;
+    activeDiagnosticTopic = originalActiveTopic;
+    diagnosticFlowState = originalFlow;
+    activeMentorPlan = originalPlan;
+    margActiveQuestionContext = originalQuestion;
+    topicProgression = originalProgress;
+  }
+  function diagnosisEntry(topic, section, status, threadId, diagnosisText) {
+    return {
+      topic:topic, selectedSection:section, confirmedDiagnosis:diagnosisText, status:status,
+      confirmation:status === 'hypothesis' ? 'Exactly' : 'none', sourceThreadId:threadId, doNotReuse:false,
+      evidenceHistory: status === 'confirmed'
+        ? [{ type:'observed_attempt', supports:true, strength:0.9 }, { type:'observed_attempt', supports:true, strength:0.9 }]
+        : [{ type:'self_report', supports:true, strength:0.4 }]
+    };
+  }
+  function behavior(section, label, threadId, occurrences) {
+    return { section:section, label:label, occurrences:occurrences || 1, status:'hypothesis', source:'practice', sourceThreadId:threadId, lastSeen:'2026-09-0' + String(occurrences || 1), lastEvidence:label, doNotReuse:false };
+  }
+  margActiveThreadId = 'thread-a';
+  activeDiagnosticTopic = null;
+  diagnosticFlowState = { active:false, topic:null };
+  activeMentorPlan = null;
+  margActiveQuestionContext = null;
+  diagnosticMemory = {
+    varc:diagnosisEntry('varc', 'VARC', 'hypothesis', 'thread-a', 'VARC option elimination'),
+    qa:diagnosisEntry('qa', 'QA', 'supported', 'thread-a', 'QA recognition gap'),
+    dilr:diagnosisEntry('dilr', 'DILR', 'rejected', 'thread-a', 'DILR rejected read'),
+    mock:diagnosisEntry('mock', 'MOCK', 'confirmed', 'thread-b', 'other thread mock read'),
+    confidence:diagnosisEntry('confidence', 'CONFIDENCE', 'hypothesis', 'thread-a', 'unrelated confidence read')
+  };
+  diagnosticMemory.dilr.doNotReuse = true;
+  behavioralMemory = { patterns:[
+    behavior('rc', 'VARC final-two pattern', 'thread-a', 2),
+    behavior('qa', 'QA execution pattern', 'thread-a', 1),
+    behavior('dilr', 'DILR rejected pattern', 'thread-a', 3),
+    behavior('qa', 'other thread QA pattern', 'thread-b', 4),
+    { section:'qa', label:'profile QA slip', occurrences:1, source:'profile', lastSeen:'2026-09-01', lastEvidence:'profile slip', doNotReuse:false }
+  ]};
+  behavioralMemory.patterns[2].status = 'rejected';
+  behavioralMemory.patterns[2].doNotReuse = true;
+  var generalDiagnostic = getDiagnosticMemoryContext('I practised today and want a rhythm', { intent:'general_mentor', requestedSection:null });
+  var generalBehavioral = getBehavioralMemoryContext('I practised today and want a rhythm', { intent:'general_mentor', requestedSection:null });
+  var varcDiagnostic = getDiagnosticMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+  var varcBehavioral = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+  activeDiagnosticTopic = 'qa';
+  var focusDiagnostic = getDiagnosticMemoryContext('I am not sure what to do next', { intent:'general_mentor', requestedSection:null });
+  var focusBehavioral = getBehavioralMemoryContext('I am not sure what to do next', { intent:'general_mentor', requestedSection:null });
+  activeDiagnosticTopic = null;
+  var accountDiagnostic = getDiagnosticMemoryContext('use my account history', { intent:'general_mentor' });
+  var accountBehavioral = getBehavioralMemoryContext('use my account history', { intent:'general_mentor' });
+  var returningDiagnostic = getDiagnosticMemoryContext('Where did we leave off?', { intent:'returning_memory' });
+  var planningDiagnostic = getDiagnosticMemoryContext('Build my VARC roadmap with sectionals', { intent:'planning', requestedSection:'varc' });
+  var questionDiagnostic = getDiagnosticMemoryContext('Why is C wrong in Q4?', { intent:'question_reference' });
+  var confirmedLabel = getDiagnosticMemoryContext('Look at my QA', { intent:'qa_diagnosis', requestedSection:'qa' });
+  diagnosticMemory.qa.status = 'confirmed';
+  var explicitConfirmed = getDiagnosticMemoryContext('Look at my QA', { intent:'qa_diagnosis', requestedSection:'qa' });
+  var progressKey = topicProgressionStorageKey();
+  var originalProgressRaw = null;
+  try { originalProgressRaw = localStorage.getItem(progressKey); } catch(e) {}
+  localStorage.setItem(progressKey, JSON.stringify({
+    varc:{ section:'varc', topic:'RC', updatedAt:'2026-09-02', conceptQuestionsCompleted:2, timedSectionalsCompleted:0, lastAccuracy:40 },
+    qa:{ section:'qa', topic:'Algebra', updatedAt:'2026-09-03', conceptQuestionsCompleted:1, timedSectionalsCompleted:0, lastAccuracy:70 }
+  }));
+  var progress = getTopicProgressionMemoryContext('Show my progress', { intent:'general_mentor', requestedSection:null });
+  activeDiagnosticTopic = 'qa';
+  var focusedProgress = getTopicProgressionMemoryContext('Show my progress', { intent:'general_mentor', requestedSection:null });
+  var dormantFollowup = !isSavedQuestionResolutionRequest('why') && !isSavedQuestionResolutionRequest('option C');
+  var classA = ['Solve Q4', 'Explain Q4', 'Why is C wrong in Q4?', 'Walk me through Q12'];
+  margActiveQuestionContext = { question_id:'active-q', question:{ id:'active-q', question_number:'4', stem:'Active stem' } };
+  var followUps = ['why', 'next', 'option C', 'the question we were discussing'];
+  var classB = ['How should I approach QA?', "What's a better DILR strategy?", 'Should I leave a set after 8 minutes?', "What's a better strategy for my DILR sets?", 'I keep picking option B under time pressure', 'question 4 of my strategy is to skip TITA'];
+  var ambiguous = resolveQuestionCandidates({ number:'4', continuation:false }, [
+    { id:'q1', question_number:'4', stem:'first stem' },
+    { id:'q2', question_number:'4', stem:'second stem' }
+  ], null);
+  var results = [
+    { name:'ordinary turn does not dump every section', passed:generalDiagnostic.indexOf('VARC option elimination') === -1 && generalDiagnostic.indexOf('QA recognition gap') === -1 && generalBehavioral.indexOf('VARC final-two') === -1 && generalBehavioral.indexOf('QA execution') === -1 },
+    { name:'section diagnosis excludes other sections', passed:varcDiagnostic.indexOf('VARC option elimination') !== -1 && varcDiagnostic.indexOf('QA recognition gap') === -1 && varcBehavioral.indexOf('VARC final-two') !== -1 && varcBehavioral.indexOf('QA execution') === -1 },
+    { name:'self-report stays a working hypothesis', passed:varcDiagnostic.indexOf('WORKING HYPOTHESIS') !== -1 && varcDiagnostic.indexOf('CONFIRMED REPEATED PATTERN') === -1 && varcDiagnostic.indexOf('self-report=Exactly') !== -1 },
+    { name:'observed repeats stay confirmed', passed:explicitConfirmed.indexOf('CONFIRMED REPEATED PATTERN') !== -1 && confirmedLabel.indexOf('SUPPORTED ONCE') !== -1 },
+    { name:'rejected and doNotReuse memories are excluded', passed:varcDiagnostic.indexOf('DILR rejected') === -1 && accountDiagnostic.indexOf('DILR rejected') === -1 && accountBehavioral.indexOf('DILR rejected') === -1 },
+    { name:'other threads stay out of ordinary memory', passed:varcDiagnostic.indexOf('other thread mock') === -1 && varcBehavioral.indexOf('other thread QA') === -1 },
+    { name:'explicit account history includes other threads', passed:accountDiagnostic.indexOf('other thread mock') !== -1 && accountBehavioral.indexOf('other thread QA') !== -1 && accountBehavioral.indexOf('profile QA slip') !== -1 },
+    { name:'profile memory without a thread stays out of ordinary turns', passed:varcBehavioral.indexOf('profile QA slip') === -1 },
+    { name:'returning memory stays on this thread and supported evidence', passed:returningDiagnostic.indexOf('QA recognition gap') !== -1 && returningDiagnostic.indexOf('VARC option elimination') === -1 && returningDiagnostic.indexOf('other thread mock') === -1 },
+    { name:'planning keeps supported evidence and omits an unrelated hypothesis', passed:planningDiagnostic.indexOf('QA recognition gap') !== -1 && planningDiagnostic.indexOf('VARC option elimination') !== -1 && planningDiagnostic.indexOf('unrelated confidence read') === -1 },
+    { name:'question reference does not inject section memory', passed:questionDiagnostic === '' },
+    { name:'active mentor focus limits a general turn', passed:focusDiagnostic.indexOf('QA recognition gap') !== -1 && focusDiagnostic.indexOf('VARC option elimination') === -1 && focusBehavioral.indexOf('QA execution') !== -1 && focusBehavioral.indexOf('VARC final-two') === -1 },
+    { name:'explicit progress follows the active focus', passed:progress.indexOf('Algebra') !== -1 && progress.indexOf('RC') !== -1 && focusedProgress.indexOf('Algebra') !== -1 && focusedProgress.indexOf('RC') === -1 },
+    { name:'class A requests resolve as question references', passed:classA.every(function(text) { return isSavedQuestionResolutionRequest(text) && detectMentorIntent(text) === 'question_reference' && parseQuestionReference(text); }) },
+    { name:'active-question follow-ups stay class A', passed:followUps.every(function(text) { return isSavedQuestionResolutionRequest(text) && parseQuestionReference(text); }) },
+    { name:'class B strategy never opens the library', passed:classB.every(function(text) { return !isSavedQuestionResolutionRequest(text) && !parseQuestionReference(text) && detectMentorIntent(text) !== 'question_reference'; }) },
+    { name:'follow-up without an active question does not search', passed:dormantFollowup },
+    { name:'ambiguous saved questions stay ambiguous', passed:ambiguous.status === 'ambiguous' && ambiguous.candidates.length === 2 },
+    { name:'complete roadmap stays planning', passed:detectMentorIntent('I am a third-attempt student. Build a complete VARC, DILR and QA roadmap with sectionals and mocks.') === 'planning' }
+  ];
+  var originalExtract = extractQuestionImageContext;
+  var originalLibraryFetch = fetchQuestionLibraryData;
+  var libraryCalls = 0;
+  extractQuestionImageContext = function() { return Promise.resolve({ status:'none', questions:[], extraction:null }); };
+  fetchQuestionLibraryData = function() {
+    libraryCalls += 1;
+    return Promise.resolve({ images:[{ id:'img-1' }, { id:'img-2' }], questions:[
+      { id:'q1', question_number:'4', image_id:'img-1', stem:'first stem', short_label:'First', section:'qa', options:['A'] },
+      { id:'q2', question_number:'4', image_id:'img-2', stem:'second stem', short_label:'Second', section:'qa', options:['B'] }
+    ] });
+  };
+  try {
+    var callsBeforeStrategy = libraryCalls;
+    var imageTurn = await prepareQuestionContextForTurn('How should I approach QA?', [{ data:'abc', mimeType:'image/jpeg' }]);
+    var strategyTurn = await prepareQuestionContextForTurn("What's a better strategy for my DILR sets?", []);
+    var strategyDidNotFetch = libraryCalls === callsBeforeStrategy;
+    margActiveQuestionContext = { question_id:'unrelated', question:{ id:'unrelated', question_number:'9', stem:'different' } };
+    var ambiguousTurn = await prepareQuestionContextForTurn('Why is C wrong in Q4?', []);
+    results.push(
+      { name:'direct image context stays on the current image', passed:imageTurn.blocked === false && imageTurn.directive.indexOf('CURRENT IMAGE DIRECT MODE') !== -1 && imageTurn.attachments.length === 1 },
+      { name:'class B does not retrieve the question library', passed:strategyTurn.blocked === false && strategyTurn.directive === '' && strategyDidNotFetch },
+      { name:'ambiguous library matches ask instead of guessing', passed:ambiguousTurn.blocked === true && /multiple matches/i.test(ambiguousTurn.reply) && ambiguousTurn.reply.indexOf('first stem') === -1 }
+    );
+  } finally {
+    extractQuestionImageContext = originalExtract;
+    fetchQuestionLibraryData = originalLibraryFetch;
+    try {
+      if (originalProgressRaw === null) localStorage.removeItem(progressKey);
+      else localStorage.setItem(progressKey, originalProgressRaw);
+    } catch(e) {}
+    restore();
+  }
+  return results;
+}
+window.runContextRoutingTests = runContextRoutingTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
@@ -9507,6 +9759,7 @@ function detectMentorIntent(message) {
   // Route them as answer reviews only when the nearby conversation actually
   // contains an RC passage/question, so a standalone letter stays harmless.
   if (typeof isRCDecisionReply === 'function' && typeof getRecentRCDecisionCount === 'function' && isRCDecisionReply(message) && getRecentRCDecisionCount(message) > 0) return 'answer_review';
+  if (typeof isSavedQuestionResolutionRequest === 'function' && isSavedQuestionResolutionRequest(message)) return 'question_reference';
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
   if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
   if (isPlanCoverageCorrection(message)) return 'planning';
@@ -12626,7 +12879,7 @@ async function sendMessage(fromQueue, submissionOptions) {
       studentProfile.recentMistakes.slice(0, 5).map(function(m) {
         return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
       }).join('\n') : '') +
-    activitySummary + getDiagnosticMemoryContext() + (pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext() + getTopicProgressionMemoryContext() + (mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(text, mentorAnalysis.diagnosis)) + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
+    activitySummary + getDiagnosticMemoryContext(text, mentorAnalysis.diagnosis) + (pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext(text, mentorAnalysis.diagnosis) + getTopicProgressionMemoryContext(text, mentorAnalysis.diagnosis) + (mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(text, mentorAnalysis.diagnosis)) + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
