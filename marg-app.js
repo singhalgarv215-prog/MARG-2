@@ -7204,6 +7204,31 @@ async function runContextRoutingTests() {
 }
 window.runContextRoutingTests = runContextRoutingTests;
 
+function runMentorTurnContextTests() {
+  var originalProfile = studentProfile;
+  var originalConversational = conversationalProfile;
+  var originalPending = pendingExternalQuestionTurnMode;
+  var originalHistory = conversationHistory;
+  studentProfile = { attemptNumber:'2nd', monthsLeft:'4 months', weakestSection:'QA (Quant)', dailyHours:'2 hours', situation:'working', varcPattern:'option elimination', dilrPattern:null, qaPattern:'recognition gap', mockHistory:[], recentMistakes:[], sessionsCount:3 };
+  conversationalProfile = { weakSection:'VARC', hours:'2 hours', attempt:'second', situation:'working', awaitingPatternCorrection:false };
+  pendingExternalQuestionTurnMode = '';
+  conversationHistory = [];
+  var message = 'How should I approach QA?';
+  var analysis = buildDiagnosisDirective(message);
+  var chat = buildMentorTurnContext(message, analysis, { surface:'chat', useWebGrounding:false });
+  var conversational = buildMentorTurnContext(message, analysis, { surface:'conversational', useWebGrounding:false, context:'typed' });
+  var results = [
+    { name:'chat turn context includes the calendar, profile and directive once', passed:chat.indexOf('AUTHORITATIVE CALENDAR') !== -1 && chat.indexOf('STUDENT PROFILE') !== -1 && chat.indexOf('Attempt number: 2nd') !== -1 && chat.indexOf('VARC cognitive pattern: option elimination') !== -1 && chat.indexOf(analysis.directive) !== -1 && chat.split('AUTHORITATIVE CALENDAR').length === 2 },
+    { name:'conversational turn context keeps collected profile and chat-first mode', passed:conversational.indexOf('PROFILE COLLECTED SO FAR: Weak section: VARC.') !== -1 && conversational.indexOf('CHAT-FIRST SOLVER MODE') !== -1 && conversational.indexOf(analysis.directive) !== -1 && conversational.split('AUTHORITATIVE CALENDAR').length === 2 && conversational.indexOf('STUDENT PROFILE') === -1 }
+  ];
+  studentProfile = originalProfile;
+  conversationalProfile = originalConversational;
+  pendingExternalQuestionTurnMode = originalPending;
+  conversationHistory = originalHistory;
+  return results;
+}
+window.runMentorTurnContextTests = runMentorTurnContextTests;
+
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
     'VARC (Reading & Verbal)': "My first read: your English probably isn't the issue — the leak is more likely option elimination, pace, or second-guessing. We'll identify which one next.",
@@ -11554,60 +11579,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
   }
   var useWebGrounding = shouldUseWebGrounding(userMessage, mentorAnalysis.diagnosis);
   showTyping(userMessage, mentorAnalysis.diagnosis, useWebGrounding);
-  var profileSoFar = '';
-  if (conversationalProfile.weakSection) profileSoFar += 'Weak section: ' + conversationalProfile.weakSection + '. ';
-  if (conversationalProfile.hours) profileSoFar += 'Daily hours: ' + conversationalProfile.hours + '. ';
-  if (conversationalProfile.attempt) profileSoFar += 'Attempt: ' + conversationalProfile.attempt + '. ';
-  if (conversationalProfile.situation) profileSoFar += 'Situation: ' + conversationalProfile.situation + '. ';
-
-  var systemAddition = profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
-  systemAddition += getDiagnosticMemoryContext(userMessage, mentorAnalysis.diagnosis);
-  systemAddition += pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(userMessage);
-  systemAddition += getBehavioralMemoryContext(userMessage, mentorAnalysis.diagnosis);
-  systemAddition += getTopicProgressionMemoryContext(userMessage, mentorAnalysis.diagnosis);
-  systemAddition += mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(userMessage, mentorAnalysis.diagnosis);
-  systemAddition += getPersonalGoalMemoryContext();
-  systemAddition += getProgressiveProfileMemoryContext(userMessage, mentorAnalysis.diagnosis);
-  systemAddition += mentorAnalysis.directive;
-  if (useWebGrounding) systemAddition += '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.';
-  if (!useWebGrounding && !mentorAnalysis.diagnosis.comprehensivePlanning && context !== 'rc_micro_followup_existing' && context !== 'rc_function_followup_existing' && ['answer_review','planning','returning_memory','image_question','question_reference'].indexOf(mentorAnalysis.diagnosis.intent) === -1) {
-    systemAddition += '\n\nCHAT-FIRST SOLVER MODE: There is no form or intake interview. Thin evidence permits one precise question. A concrete description of where the work breaks requires useful help now: an evidence-bounded read, an executable correction and a way to judge the next result. Do not gate the correction behind Exactly/Mostly, timing consent or another profile question. Do not say "My prediction:". Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
-  } else if (mentorAnalysis.diagnosis.comprehensivePlanning) {
-    systemAddition += '\n\nThe student has already supplied a broad preparation story and explicitly asked for a complete roadmap. Do not narrow them into a section diagnostic or ask preliminary intake questions. Give the complete cross-section roadmap now.';
-  }
-
-  if (context === 'pattern_confirmed') {
-    systemAddition += '\n\nThe student just confirmed the diagnosis pattern. Do not repeat it and do not ask another intake question. Move straight to the next useful action.';
-  }
-  if (context === 'diagnosis_confirmation_lead') {
-    systemAddition += '\n\nThe student just confirmed or corrected the diagnosis immediately above. If they said Exactly or Mostly, do not repeat the diagnosis and do not ask what they want to do next. Briefly connect the clue to the mechanism, then lead with one specific validation or coaching action and give clear Right now / Later today / Tomorrow choices using [OPTIONS: Right now|Later today|Tomorrow][CONTEXT: diagnosis_action_timing]. Immediately before those tags, add [REMINDER_CONTEXT: kind|short safe task], where kind is rc, varc, dilr, qa, mock, sectional or general and the task is a concise description of the promised check. Include the task only—never the student\'s emotional disclosure, score, diagnosis wording, name, phone number or raw chat text. If they said Not Really, explicitly say the earlier read is ruled out. Do not replace it with a second diagnosis from the same evidence. Ask exactly one short question about the moment immediately before the problem appears, unless their correction already provides that detail; in that case reflect the new clue as tentative, not proven.';
-  }
-  if (context === 'diagnosis_action_timing') {
-    systemAddition += '\n\nThe student is choosing when to do the concrete validation step you just proposed. If they chose Right now, begin that promised action immediately with no more confirmation or intake. For QA or DILR, launch the dedicated timed interface with the appropriate [START_TEST] tag instead of dumping questions into chat. If they chose Later today or Tomorrow, preserve the exact promised action, acknowledge the timing briefly, and state how the conversation will resume without inventing another task.';
-  }
-  if (context === 'rc_micro_followup_existing') {
-    systemAddition += '\n\nRC SAME-PASSAGE FOLLOW-UP: The student accepted one more question. Use the exact RC passage already present in recent conversation history. Give exactly ONE new CAT-style four-option question that tests precise option checking, not passage recall. Do not repeat the passage, reveal the answer, explain the earlier diagnosis, generate a full RC, ask another intake question, or add any text after “Which option do you choose?”.';
-  }
-  if (context === 'rc_function_followup_existing') {
-    systemAddition += '\n\nRC FUNCTION-MAPPING FOLLOW-UP: The student accepted one slightly harder paragraph. Give exactly ONE fresh paragraph of 90-130 words whose role is less obvious than the previous example. Then ask for its function in one short phrase. Do not explain the answer, generate a full RC, ask an intake question, or add anything after the question.';
-  }
-  if (context === 'profile_attempt') {
-    systemAddition += '\n\nPROFILE ANSWER CONTINUATION: The student answered the light attempt-number question. Acknowledge it in at most one clause and apply it only as context—not proof of any diagnosis. Continue the exact CAT thread from before the question. Do not ask another profile question in this reply and do not repeat generic theory.';
-  }
-  if (context === 'deferred_section_pulse') {
-    systemAddition += '\n\nDEFERRED-SESSION CONTINUATION: The targeted check is already saved for later, so do not launch it, reschedule it, or repeat its timing choices. The student just named how another section currently feels. Give one short, specific reason that answer matters, then ask exactly ONE easy behavioural question about the moment that section usually breaks. Keep the reply compact and personal. Do not give a full diagnosis yet, do not assign homework, and do not ask another background/profile question.';
-  }
-  if (context === 'profile_topic_familiarity') {
-    systemAddition += '\n\nTOPIC-FAMILIARITY CONTINUATION: The student just said whether this topic is a first pass, revision after a gap, or familiar-but-rusty. Acknowledge it in one natural clause and adjust the already-promised plan: first pass needs one compact concept scaffold, revision needs retrieval plus targeted questions, and rusty-but-comfortable needs an earlier timed check. Continue the exact topic thread. Do not ask another profile question or restart the explanation.';
-  }
-  if (context === 'mock_section_evidence') {
-    systemAddition += '\n\nMOCK SECTION DEEP-DIVE: The student chose ' + String(activeMockReviewPriority || 'this section').toUpperCase() + ' first and just answered one evidence question. Use the mock scores or detailed story already present in conversation history plus this answer. Give one clear, plain-language read of this section only. Explain the exact moment that may have caused the marks to fall, then give one immediately usable correction tied to that moment. Do not stop after naming the problem or make the student ask “so what should I do?”. If one genuinely important fact is still missing, give the bounded correction that is safe from current evidence, then ask one short follow-up that would materially change it. Do not start, generate, or offer a practice exercise yet. Do not move to another section until the student chooses to.';
-  }
-  if (conversationalProfile.awaitingPatternCorrection) {
-    systemAddition += '\n\nThe student just explained what happened with a specific wrong answer, after you asked one clarifying question following a diagnosis they said was not quite right. Do not ask another open-ended question. State a one-sentence read on their actual pattern based on what they just told you, then move on to your next onboarding question.';
-    conversationalProfile.awaitingPatternCorrection = false;
-  }
-  systemAddition += getPracticeThresholdNote();
+  var systemAddition = buildMentorTurnContext(userMessage, mentorAnalysis, { surface:'conversational', useWebGrounding:useWebGrounding, context:context });
 
   try {
     var mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
@@ -11615,7 +11587,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     var conversationalRequestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage);
     if (useWebGrounding) conversationalRequestHistory = trimHistoryForGroundedRequest(conversationalRequestHistory);
     var mentorRequest = buildGeminiRequest(
-      SYSTEM_PROMPT + getDateContext() + systemAddition,
+      SYSTEM_PROMPT + systemAddition,
       conversationalRequestHistory,
       mentorMaxTokens
     );
@@ -11901,6 +11873,96 @@ function getPracticeThresholdNote() {
     }
   }
   return '';
+}
+
+function buildTurnProfileContext(message, diagnosis) {
+  return '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
+    (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
+    (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
+    (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
+    (studentProfile.mockHistory && studentProfile.mockHistory.length > 0 ? '\n- Mock history: ' + studentProfile.mockHistory.slice(-5).map(function(m) { return m.date + ' (VARC ' + m.varc + ', DILR ' + m.dilr + ', QA ' + m.qa + ', total ' + m.total + ')'; }).join('; ') : '') +
+    (studentProfile.sessionsCount ? '\n- Total sessions with Marg: ' + studentProfile.sessionsCount : '') +
+    (getSavedTimetableRoutine() ? '\n- Daily routine for timetable: ' + getSavedTimetableRoutine() + '\nTIMETABLE RULE: The routine is known. Build the personalised timetable now and do not ask for it again.' : '') +
+    (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0 ?
+      '\n\nRECENT MISTAKES (last ' + studentProfile.recentMistakes.length + ' wrong answers — USE THESE to target practice):\n' +
+      studentProfile.recentMistakes.slice(0, 5).map(function(m) {
+        return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
+      }).join('\n') : '') +
+    buildActivitySummary();
+}
+
+function buildConversationalCollectedProfile() {
+  var profileSoFar = '';
+  if (conversationalProfile.weakSection) profileSoFar += 'Weak section: ' + conversationalProfile.weakSection + '. ';
+  if (conversationalProfile.hours) profileSoFar += 'Daily hours: ' + conversationalProfile.hours + '. ';
+  if (conversationalProfile.attempt) profileSoFar += 'Attempt: ' + conversationalProfile.attempt + '. ';
+  if (conversationalProfile.situation) profileSoFar += 'Situation: ' + conversationalProfile.situation + '. ';
+  return profileSoFar ? '\n\nPROFILE COLLECTED SO FAR: ' + profileSoFar : '';
+}
+
+function buildConversationalSurfaceInstructions(diagnosis, context, useWebGrounding) {
+  var systemAddition = '';
+  if (!useWebGrounding && !diagnosis.comprehensivePlanning && context !== 'rc_micro_followup_existing' && context !== 'rc_function_followup_existing' && ['answer_review','planning','returning_memory','image_question','question_reference'].indexOf(diagnosis.intent) === -1) {
+    systemAddition += '\n\nCHAT-FIRST SOLVER MODE: There is no form or intake interview. Thin evidence permits one precise question. A concrete description of where the work breaks requires useful help now: an evidence-bounded read, an executable correction and a way to judge the next result. Do not gate the correction behind Exactly/Mostly, timing consent or another profile question. Do not say "My prediction:". Never ask for attempt number, daily hours, coaching, old passages, screenshots or prior mock data as a sequence.';
+  } else if (diagnosis.comprehensivePlanning) {
+    systemAddition += '\n\nThe student has already supplied a broad preparation story and explicitly asked for a complete roadmap. Do not narrow them into a section diagnostic or ask preliminary intake questions. Give the complete cross-section roadmap now.';
+  }
+  if (context === 'pattern_confirmed') {
+    systemAddition += '\n\nThe student just confirmed the diagnosis pattern. Do not repeat it and do not ask another intake question. Move straight to the next useful action.';
+  }
+  if (context === 'diagnosis_confirmation_lead') {
+    systemAddition += '\n\nThe student just confirmed or corrected the diagnosis immediately above. If they said Exactly or Mostly, do not repeat the diagnosis and do not ask what they want to do next. Briefly connect the clue to the mechanism, then lead with one specific validation or coaching action and give clear Right now / Later today / Tomorrow choices using [OPTIONS: Right now|Later today|Tomorrow][CONTEXT: diagnosis_action_timing]. Immediately before those tags, add [REMINDER_CONTEXT: kind|short safe task], where kind is rc, varc, dilr, qa, mock, sectional or general and the task is a concise description of the promised check. Include the task only—never the student\'s emotional disclosure, score, diagnosis wording, name, phone number or raw chat text. If they said Not Really, explicitly say the earlier read is ruled out. Do not replace it with a second diagnosis from the same evidence. Ask exactly one short question about the moment immediately before the problem appears, unless their correction already provides that detail; in that case reflect the new clue as tentative, not proven.';
+  }
+  if (context === 'diagnosis_action_timing') {
+    systemAddition += '\n\nThe student is choosing when to do the concrete validation step you just proposed. If they chose Right now, begin that promised action immediately with no more confirmation or intake. For QA or DILR, launch the dedicated timed interface with the appropriate [START_TEST] tag instead of dumping questions into chat. If they chose Later today or Tomorrow, preserve the exact promised action, acknowledge the timing briefly, and state how the conversation will resume without inventing another task.';
+  }
+  if (context === 'rc_micro_followup_existing') {
+    systemAddition += '\n\nRC SAME-PASSAGE FOLLOW-UP: The student accepted one more question. Use the exact RC passage already present in recent conversation history. Give exactly ONE new CAT-style four-option question that tests precise option checking, not passage recall. Do not repeat the passage, reveal the answer, explain the earlier diagnosis, generate a full RC, ask another intake question, or add any text after “Which option do you choose?”.';
+  }
+  if (context === 'rc_function_followup_existing') {
+    systemAddition += '\n\nRC FUNCTION-MAPPING FOLLOW-UP: The student accepted one slightly harder paragraph. Give exactly ONE fresh paragraph of 90-130 words whose role is less obvious than the previous example. Then ask for its function in one short phrase. Do not explain the answer, generate a full RC, ask an intake question, or add anything after the question.';
+  }
+  if (context === 'profile_attempt') {
+    systemAddition += '\n\nPROFILE ANSWER CONTINUATION: The student answered the light attempt-number question. Acknowledge it in at most one clause and apply it only as context—not proof of any diagnosis. Continue the exact CAT thread from before the question. Do not ask another profile question in this reply and do not repeat generic theory.';
+  }
+  if (context === 'deferred_section_pulse') {
+    systemAddition += '\n\nDEFERRED-SESSION CONTINUATION: The targeted check is already saved for later, so do not launch it, reschedule it, or repeat its timing choices. The student just named how another section currently feels. Give one short, specific reason that answer matters, then ask exactly ONE easy behavioural question about the moment that section usually breaks. Keep the reply compact and personal. Do not give a full diagnosis yet, do not assign homework, and do not ask another background/profile question.';
+  }
+  if (context === 'profile_topic_familiarity') {
+    systemAddition += '\n\nTOPIC-FAMILIARITY CONTINUATION: The student just said whether this topic is a first pass, revision after a gap, or familiar-but-rusty. Acknowledge it in one natural clause and adjust the already-promised plan: first pass needs one compact concept scaffold, revision needs retrieval plus targeted questions, and rusty-but-comfortable needs an earlier timed check. Continue the exact topic thread. Do not ask another profile question or restart the explanation.';
+  }
+  if (context === 'mock_section_evidence') {
+    systemAddition += '\n\nMOCK SECTION DEEP-DIVE: The student chose ' + String(activeMockReviewPriority || 'this section').toUpperCase() + ' first and just answered one evidence question. Use the mock scores or detailed story already present in conversation history plus this answer. Give one clear, plain-language read of this section only. Explain the exact moment that may have caused the marks to fall, then give one immediately usable correction tied to that moment. Do not stop after naming the problem or make the student ask “so what should I do?”. If one genuinely important fact is still missing, give the bounded correction that is safe from current evidence, then ask one short follow-up that would materially change it. Do not start, generate, or offer a practice exercise yet. Do not move to another section until the student chooses to.';
+  }
+  if (conversationalProfile.awaitingPatternCorrection) {
+    systemAddition += '\n\nThe student just explained what happened with a specific wrong answer, after you asked one clarifying question following a diagnosis they said was not quite right. Do not ask another open-ended question. State a one-sentence read on their actual pattern based on what they just told you, then move on to your next onboarding question.';
+    conversationalProfile.awaitingPatternCorrection = false;
+  }
+  return systemAddition;
+}
+
+function buildMentorTurnContext(message, mentorAnalysis, extras) {
+  extras = extras || {};
+  var diagnosis = mentorAnalysis && mentorAnalysis.diagnosis || {};
+  var directive = mentorAnalysis && mentorAnalysis.directive || '';
+  var useWebGrounding = !!extras.useWebGrounding;
+  var surface = extras.surface === 'conversational' ? 'conversational' : 'chat';
+  var exerciseContext = pendingExternalQuestionTurnMode || diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(message);
+  var planContext = diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(message, diagnosis);
+  var body = getDateContext() +
+    (surface === 'chat' ? buildTurnProfileContext(message, diagnosis) : buildConversationalCollectedProfile()) +
+    getDiagnosticMemoryContext(message, diagnosis) +
+    exerciseContext +
+    getBehavioralMemoryContext(message, diagnosis) +
+    getTopicProgressionMemoryContext(message, diagnosis) +
+    planContext +
+    getPersonalGoalMemoryContext() +
+    getProgressiveProfileMemoryContext(message, diagnosis) +
+    directive;
+  if (useWebGrounding) body += '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.';
+  if (surface === 'conversational') body += buildConversationalSurfaceInstructions(diagnosis, extras.context || '', useWebGrounding);
+  body += getPracticeThresholdNote();
+  return body;
 }
 
 async function savePracticeTopicLog() {
@@ -12854,7 +12916,6 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
-  const activitySummary = buildActivitySummary();
   const mentorAnalysis = anchorMentorAnalysisToImageContext(buildDiagnosisDirective(text), text, effectiveImageAttachments);
   if (questionResolution && questionResolution.directive) mentorAnalysis.directive += questionResolution.directive;
   if (pendingExternalQuestionTurnMode === 'review') {
@@ -12867,19 +12928,7 @@ async function sendMessage(fromQueue, submissionOptions) {
   showTyping(text, mentorAnalysis.diagnosis, useWebGrounding);
   // Recent turns are already supplied in requestHistory. Do not duplicate them
   // inside the system instruction on every authenticated chat request.
-  profileContext = getDateContext() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
-    (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
-    (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
-    (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
-    (studentProfile.mockHistory && studentProfile.mockHistory.length > 0 ? '\n- Mock history: ' + studentProfile.mockHistory.slice(-5).map(function(m) { return m.date + ' (VARC ' + m.varc + ', DILR ' + m.dilr + ', QA ' + m.qa + ', total ' + m.total + ')'; }).join('; ') : '') +
-    (studentProfile.sessionsCount ? '\n- Total sessions with Marg: ' + studentProfile.sessionsCount : '') +
-    (getSavedTimetableRoutine() ? '\n- Daily routine for timetable: ' + getSavedTimetableRoutine() + '\nTIMETABLE RULE: The routine is known. Build the personalised timetable now and do not ask for it again.' : '') +
-    (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0 ?
-      '\n\nRECENT MISTAKES (last ' + studentProfile.recentMistakes.length + ' wrong answers — USE THESE to target practice):\n' +
-      studentProfile.recentMistakes.slice(0, 5).map(function(m) {
-        return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
-      }).join('\n') : '') +
-    activitySummary + getDiagnosticMemoryContext(text, mentorAnalysis.diagnosis) + (pendingExternalQuestionTurnMode || mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(text)) + getBehavioralMemoryContext(text, mentorAnalysis.diagnosis) + getTopicProgressionMemoryContext(text, mentorAnalysis.diagnosis) + (mentorAnalysis.diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(text, mentorAnalysis.diagnosis)) + getPersonalGoalMemoryContext() + getProgressiveProfileMemoryContext(text, mentorAnalysis.diagnosis) + mentorAnalysis.directive + (useWebGrounding ? '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.' : '') + getPracticeThresholdNote();
+  profileContext = buildMentorTurnContext(text, mentorAnalysis, { surface:'chat', useWebGrounding:useWebGrounding });
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
