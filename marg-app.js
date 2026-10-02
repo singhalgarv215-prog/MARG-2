@@ -2733,7 +2733,7 @@ SOLVER CONTRACT
 Answer direct questions first. Use: evidence → uncertainty → smallest useful fix → how the next attempt tests it. Once the student describes where work breaks, give the bounded solution immediately. Never make them ask “so what should I do?”. Ask only when the answer changes the action. Match length to the job and make requested explanations complete. Diagnose decisions, not topics. Avoid report labels.
 
 LENGTH CONTRACT
-Normal replies are 40-90 words. Go longer only for a requested complete explanation, answer review, worked solution or plan; never cut required reasoning to hit a word count.
+Follow the TURN CONTRACT response shape. Never cut required reasoning to hit a word count.
 
 CONTENT-HELP CONTRACT
 Keep solutions separate from diagnosis. When asked for an answer, solution or explanation, identify the question, state the answer and show one clean derivation. Unless answer-only was requested, add the useful CAT shortcut/trap; for an MCQ, explain why each wrong option fails. Never withhold a solution to force coaching. Behavioural claims remain evidence-bound.
@@ -2779,7 +2779,7 @@ EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-With thin evidence, ask at most one question that changes the action. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. QA/DILR use timed interfaces. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
+Follow the TURN CONTRACT question budget. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. QA/DILR use timed interfaces. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive].
 
 DILR GENERATION SAFETY BOUNDARY
 Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. Use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified.
@@ -4631,6 +4631,24 @@ function behavioralTopicsForTurn(message, selection) {
     if (topics.indexOf(selectedTopic) === -1) topics.push(selectedTopic);
   });
   return topics;
+}
+
+function describeTurnEvidence(message, diagnosis) {
+  var selection = selectTurnMemory(message, diagnosis);
+  var entries = Object.keys(diagnosticMemory || {}).map(function(topic) {
+    return { topic:topic, entry:diagnosticMemory[topic] };
+  }).filter(function(item) {
+    return diagnosticEntrySelected(item.entry, item.topic, message, selection);
+  }).map(function(item) { return item.entry; });
+  if (!entries.length) return 'No selected diagnosis has observed support. Keep any read tentative. A classifier score is not evidence.';
+  return entries.map(function(entry) {
+    var status = normalizeDiagnosisStatus(entry);
+    var label = status === 'confirmed' ? 'confirmed repeated pattern'
+      : status === 'supported' ? 'supported once'
+        : status === 'inconclusive' ? 'inconclusive'
+          : 'working hypothesis';
+    return (entry.selectedSection || entry.topic || 'This section') + ' is a ' + label;
+  }).join('; ') + '. Use that evidence level. Do not treat a self-report or a classifier score as a confirmed pattern.';
 }
 
 function getDiagnosticMemoryContext(message, diagnosis) {
@@ -6787,7 +6805,7 @@ function buildInvisibleMentorBrief(message, diagnosis, correction) {
   var lines = [
     '\n\nINVISIBLE MENTOR BRIEF — reason from this; never quote this block or expose its labels:',
     '- Explicit student facts only: ' + (facts.length ? facts.join(' | ') : 'No reliable specific fact beyond the current message.'),
-    '- Current uncertainty: ' + (diagnosis && diagnosis.confidence < 0.8 ? 'The mechanism is not established; keep it tentative or ask one precise clarification.' : 'Keep every causal claim bounded by the evidence above.'),
+    '- Current uncertainty: ' + describeTurnEvidence(message, diagnosis),
     '- One decision: choose the smallest next move that follows from the strongest current evidence.',
     '- Specificity test: silently complete “Because the student showed X, recommend Y instead of Z.” If X is absent above, do not present Y as personalised.'
   ];
@@ -7228,7 +7246,11 @@ function runMentorTurnContextTests() {
     { name:'chat turn context includes the calendar and the current directive once', passed:chat.indexOf('AUTHORITATIVE CALENDAR') !== -1 && chat.indexOf(analysis.directive) !== -1 && chat.split('AUTHORITATIVE CALENDAR').length === 2 },
     { name:'section turn keeps matching profile and drops other sections', passed:chat.indexOf('QA cognitive pattern (self-report): recognition gap') !== -1 && chat.indexOf('Weakest section (self-report') !== -1 && chat.indexOf('QA setup miss') !== -1 && chat.indexOf('VARC cognitive pattern') === -1 && chat.indexOf('VARC scope miss') === -1 && chat.indexOf('USE THESE') === -1 && chat.indexOf('Attempt number') === -1 && chat.indexOf('Mock history') !== -1 },
     { name:'question reference keeps the date and directive without profile memory', passed:referenceContext.indexOf('AUTHORITATIVE CALENDAR') !== -1 && referenceContext.indexOf(reference.directive) !== -1 && referenceContext.indexOf('STUDENT PROFILE') === -1 && referenceContext.indexOf('QA setup miss') === -1 && referenceContext.indexOf('recognition gap') === -1 },
-    { name:'conversational turn context keeps collected profile and chat-first mode', passed:conversational.indexOf('PROFILE COLLECTED SO FAR: Weak section: VARC.') !== -1 && conversational.indexOf('CHAT-FIRST SOLVER MODE') !== -1 && conversational.indexOf(analysis.directive) !== -1 && conversational.split('AUTHORITATIVE CALENDAR').length === 2 && conversational.indexOf('STUDENT PROFILE') === -1 }
+    { name:'conversational turn context keeps collected profile and chat-first mode', passed:conversational.indexOf('PROFILE COLLECTED SO FAR: Weak section: VARC.') !== -1 && conversational.indexOf('CHAT-FIRST SOLVER MODE') !== -1 && conversational.indexOf(analysis.directive) !== -1 && conversational.split('AUTHORITATIVE CALENDAR').length === 2 && conversational.indexOf('STUDENT PROFILE') === -1 },
+    { name:'prompt evidence comes from diagnosis status, not a fixed confidence score', passed:analysis.directive.indexOf('Confidence:') === -1 && analysis.directive.indexOf('0.55') === -1 && analysis.directive.indexOf('0.84') === -1 && analysis.directive.indexOf('No selected diagnosis has observed support') !== -1 },
+    { name:'turn contract sets one response shape and question budget', passed:analysis.diagnosis.responseShape === 'normal' && analysis.diagnosis.questionBudget === 1 && analysis.directive.indexOf('TURN CONTRACT') !== -1 && analysis.directive.indexOf('Question budget: 1') !== -1 && reference.diagnosis.responseShape === 'complete' && reference.diagnosis.questionBudget === 0 && reference.directive.indexOf('Supplied material outranks') !== -1 },
+    { name:'question budget zero removes a trailing question after diagnosis closers', passed:enforceTurnQuestionBudget('The setup is right.\n\nDoes that help?', reference.diagnosis) === 'The setup is right.' && ensureDiagnosisForwardLead('Does that feel right?', analysis.diagnosis).indexOf('[OPTIONS: Exactly') === -1 },
+    { name:'normal shape asks for the ordinary token budget', passed:getMentorResponseMaxTokens(analysis.diagnosis) === 2048 && getMentorResponseMaxTokens(reference.diagnosis) === 4096 }
   ];
   studentProfile = originalProfile;
   conversationalProfile = originalConversational;
@@ -9941,7 +9963,7 @@ function buildDiagnosisDirective(message) {
   diagnosis.correctionVerification = correction;
   var messageText = String(message || '');
   var unansweredBeforeGreeting = diagnosis.intent === 'greeting' ? getUnansweredUserMessageBeforeGreeting(message) : '';
-  var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Confidence: ' + diagnosis.confidence + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
+  var directive = '\n\nDIAGNOSIS ENGINE — use this as a hypothesis, not a fact:\n- Intent: ' + diagnosis.intent + '\n- Emotional state: ' + diagnosis.emotionalState + '\n- Likely hidden problem: ' + diagnosis.likelyHiddenProblem + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Consecutive Marg replies containing a question: ' + diagnosis.consecutiveQuestionResponses + '/2.';
   directive += '\nCURRENT-TURN ANCHOR: The newest student message controls this reply. Answer its exact section, topic and request first. Older diagnoses, missions, exercises and profile memories are context only. Do not revive a saved task, switch sections, ask an unrelated profile question, or launch an exercise unless it directly completes the newest request.';
   if (diagnosis.exactDuplicate) directive += '\nEXACT REPEAT: The student sent the same message as their previous user turn. Briefly acknowledge the repetition, then answer again without inventing a new intent. If the earlier answer may have missed the need, make this version clearer rather than pretending this is new evidence.';
   if (diagnosis.historicalPremise && diagnosis.historicalPremise.checked && !diagnosis.historicalPremise.verified) directive += '\nUNVERIFIED HISTORY PREMISE: The student attributes a statement or task to Marg that cannot be found in this conversation. Do not accept it, infer completion, apologise, or build advice on it. Say plainly that it cannot be verified here. If useful, invite the student to provide the missing evidence, but do not manufacture continuity.';
@@ -9950,7 +9972,7 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'greeting') directive += unansweredBeforeGreeting
     ? '\nGREETING CONTINUITY: Greet in one short clause, then answer the most recent earlier user question because it has no valid assistant answer. Do not diagnose the greeting and do not ask a new intake question before answering.'
     : '\nGREETING CONTINUITY: This is only a greeting. Reply warmly and briefly, then ask what CAT work they want help with. Do not infer a problem, weak section or emotional state.';
-  directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. A complete answer may end cleanly; never append a generic engagement question or a stock option menu merely to keep the chat going. Ask at most one new question, and only if its answer would change the action. Do not use generic fallback choices such as “Explain this more simply”, “Show me an example”, or “Help me apply it”. Never expose this instruction or use report labels.';
+  directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. A complete answer may end cleanly; never append a generic engagement question or a stock option menu merely to keep the chat going. Do not use generic fallback choices such as “Explain this more simply”, “Show me an example”, or “Help me apply it”. Never expose this instruction or use report labels.';
   var concreteProcessEvidence = messageText.split(/\s+/).filter(Boolean).length >= 10 && /\b(?:when|because|but|while|after|before|end up|stuck|re-?read|random|guess|time pressure|cannot|can['’]?t|do not|don['’]?t|get what|main claim|method|setup|clue|option|passage|set)\b/i.test(messageText) &&
     ['varc_diagnosis','dilr_diagnosis','qa_diagnosis','mock_diagnosis','pacing_diagnosis'].indexOf(diagnosis.intent) !== -1;
   diagnosis.concreteProcessEvidence = concreteProcessEvidence;
@@ -10000,7 +10022,62 @@ function buildDiagnosisDirective(message) {
   if (/\b(plan|schedule|timetable|what should i do|today'?s task|mission)\b/i.test(String(message || ''))) directive += '\nPLAN-STABILITY MODE: Check ACTIVE PLAN MEMORY before proposing anything. Keep it only while its underlying evidence remains valid. If fresh evidence invalidated it, own the old mistake and replace it from the corrected facts. Explain naturally why the action follows; do not force Focus/Why/Action/Rule/Evidence labels unless the student explicitly requested a full written plan. A diagnosed execution problem requires a hypothesis-testing action, never a generic question-count task.';
   if (diagnosis.committedAction) directive += '\nACTION ALREADY CHOSEN: Execute it now in this response. Do not repeat the rationale, ask “ready?”, ask when they want to do it, or offer the same choice again. If it is QA/DILR practice, emit the correct [START_TEST] tag now. If it is an RC/review/strategy action, begin the promised material or analysis now.';
   directive += buildInvisibleMentorBrief(message, diagnosis, correction);
+  var turnContract = describeTurnResponseContract(message, diagnosis);
+  diagnosis.responseShape = turnContract.shape;
+  diagnosis.questionBudget = turnContract.budget;
+  directive += turnContract.block;
   return { diagnosis: diagnosis, directive: directive, correction:correction };
+}
+
+function describeTurnResponseContract(message, diagnosis) {
+  var intent = diagnosis && diagnosis.intent || '';
+  var supplied = !!(diagnosis && (diagnosis.hasImage || diagnosis.freshPastedMaterial || diagnosis.pastedAnswerEvidence || intent === 'question_reference' || intent === 'image_question' || intent === 'answer_review' || intent === 'dilr_validity_review'));
+  var shape = 'normal';
+  var budget = 1;
+  var task = 'Answer the newest student message before using older context.';
+  if (diagnosis && diagnosis.comprehensivePlanning) {
+    shape = 'plan';
+    budget = 0;
+    task = 'Give the complete roadmap the student asked for, covering every named part.';
+  } else if (intent === 'planning') {
+    shape = 'plan';
+    budget = diagnosis && diagnosis.planSequenceAmbiguity ? 1 : 0;
+    task = 'Give the requested plan from selected evidence. Do not restart a section diagnosis.';
+  } else if (intent === 'answer_review' || intent === 'seamless_continuation' || intent === 'image_question' || intent === 'question_reference' || intent === 'dilr_validity_review') {
+    shape = 'complete';
+    budget = 0;
+    task = 'Work only on the supplied or named material for this turn.';
+  } else if (intent === 'greeting') {
+    shape = 'short';
+    budget = 1;
+    task = 'Greet briefly and ask what CAT work they want help with.';
+  } else if (intent === 'privacy_request' || intent === 'score_correction') {
+    shape = 'short';
+    budget = 0;
+    task = 'Answer the factual request directly.';
+  } else if (diagnosis && diagnosis.concreteProcessEvidence) {
+    shape = 'normal';
+    budget = 0;
+    task = 'Give the evidence-bounded read, one executable correction, and the observation that will test it.';
+  }
+  if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.allowsEvidenceQuestion && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) budget = 0;
+  if (diagnosis && (diagnosis.rcWrongAnswerReview || diagnosis.requestedExistingSolutions || diagnosis.hintOnly)) {
+    budget = 0;
+    if (diagnosis.hintOnly) shape = 'short';
+  }
+  var shapeLine = shape === 'short' ? 'Keep this reply to a few sentences.'
+    : shape === 'complete' ? 'Finish the requested explanation, check or solution.'
+      : shape === 'plan' ? 'Give the full plan that was requested.'
+        : 'Use a normal mentoring reply, about 40-90 words, unless the requested explanation needs the next sentence to finish.';
+  var questionLine = budget === 0 ? 'Question budget: 0. Do not ask a question.' : 'Question budget: 1. Ask at most one question, and only if its answer changes the next action.';
+  var suppliedLine = supplied
+    ? 'Supplied material outranks section coaching. Solve or review the supplied image, stem or pasted set, including DILR. Do not invent a new DILR set.'
+    : 'Do not invent a new DILR set in chat. A new set belongs in the verified Practice flow.';
+  return {
+    shape:shape,
+    budget:budget,
+    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine
+  };
 }
 
 function removeMentorProcessMetaLanguage(text) {
@@ -10244,6 +10321,10 @@ function diagnosisForwardLeadFromIntent(diagnosis) {
 function ensureDiagnosisForwardLead(text, diagnosis) {
   var value = String(text || '').trim();
   if (!diagnosis || ['varc_diagnosis','dilr_diagnosis','qa_diagnosis','mock_diagnosis','pacing_diagnosis','confidence_breakdown'].indexOf(diagnosis.intent) === -1) return value;
+  if (!diagnosticFlowState || !diagnosticFlowState.active) return value;
+  var flowTopic = normalizeMentorFocusTopic(diagnosticFlowState.topic);
+  var flowEntry = flowTopic && diagnosticMemory ? diagnosticMemory[flowTopic] : null;
+  if (flowEntry && normalizeDiagnosisStatus(flowEntry) !== 'hypothesis') return value;
   // Once the failure moment is concrete, confirmation is no longer a gate.
   // The solver guard below supplies the correction and measurement now.
   if (diagnosis.concreteProcessEvidence) return value;
@@ -10928,6 +11009,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = ensureRCFunctionMappingProgressionClose(text, diagnosis);
   text = ensureFullRCReviewContinuation(text, diagnosis);
   text = ensureDiagnosisForwardLead(text, diagnosis);
+  text = enforceTurnQuestionBudget(text, diagnosis);
   text = removeClinicalReportFormatting(text, diagnosis);
   text = removeTrailingActionQuestion(text, diagnosis);
   text = guardNaturalProfileClose(text, diagnosis);
@@ -10958,8 +11040,21 @@ function applyMentorResponseGuard(response, diagnosis) {
   return applyExplicitResponseLimit(text, diagnosis);
 }
 
+function enforceTurnQuestionBudget(text, diagnosis) {
+  if (!diagnosis || diagnosis.questionBudget !== 0) return String(text || '');
+  if (diagnosis.rcProgressionReady || diagnosis.rcFunctionMapProgressionReady) return String(text || '');
+  var value = String(text || '').replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
+  return value.replace(/[^.!?\n]*\?\s*/g, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function getMentorResponseMaxTokens(diagnosis) {
   if (diagnosis && diagnosis.comprehensivePlanning) return 16384;
+  if (diagnosis && diagnosis.responseShape === 'plan') return 8192;
+  if (diagnosis && diagnosis.responseShape === 'complete') {
+    if (diagnosis.intent === 'answer_review') return Math.min(16384, Math.max(8192, 4096 + (diagnosis.answerCount || 3) * 800));
+    return 4096;
+  }
+  if (diagnosis && diagnosis.responseShape === 'short') return 1024;
   if (diagnosis && diagnosis.intent === 'answer_review') return Math.min(16384, Math.max(8192, 4096 + (diagnosis.answerCount || 3) * 800));
   if (diagnosis && diagnosis.hasImage) return 4096;
   if (diagnosis && diagnosis.intent === 'seamless_continuation') return 4096;
@@ -11997,6 +12092,30 @@ function buildConversationalSurfaceInstructions(diagnosis, context, useWebGround
   return systemAddition;
 }
 
+function personalGoalFactsForTurn() {
+  var full = getPersonalGoalMemoryContext();
+  if (full.indexOf('Do not interrupt the main answer') === -1) return full;
+  return '\n\nPERSONAL GOAL MEMORY: The student explicitly mentioned a dream college but did not name it.';
+}
+
+function progressiveProfileFactsForTurn(message, diagnosis) {
+  var full = getProgressiveProfileMemoryContext(message, diagnosis);
+  var opening = full.indexOf('\n\nNATURAL PROFILE OPENING');
+  return opening === -1 ? full : full.slice(0, opening);
+}
+
+function chooseTurnFollowUp(message, diagnosis) {
+  if (!diagnosis || diagnosis.questionBudget !== 1 || diagnosis.responseShape !== 'normal') return '';
+  var practice = getPracticeThresholdNote();
+  if (practice) return practice;
+  var profile = getProgressiveProfileMemoryContext(message, diagnosis);
+  var opening = profile.indexOf('\n\nNATURAL PROFILE OPENING');
+  if (opening !== -1) return profile.slice(opening);
+  var goal = getPersonalGoalMemoryContext();
+  if (goal.indexOf('Do not interrupt the main answer') !== -1) return goal;
+  return '';
+}
+
 function buildMentorTurnContext(message, mentorAnalysis, extras) {
   extras = extras || {};
   var diagnosis = mentorAnalysis && mentorAnalysis.diagnosis || {};
@@ -12014,12 +12133,12 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
     getBehavioralMemoryContext(message, diagnosis) +
     getTopicProgressionMemoryContext(message, diagnosis) +
     planContext +
-    (allowAccountProfile ? getPersonalGoalMemoryContext() : '') +
-    (allowAccountProfile ? getProgressiveProfileMemoryContext(message, diagnosis) : '') +
+    (allowAccountProfile ? personalGoalFactsForTurn() : '') +
+    (allowAccountProfile ? progressiveProfileFactsForTurn(message, diagnosis) : '') +
     directive;
   if (useWebGrounding) body += '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.';
   if (surface === 'conversational') body += buildConversationalSurfaceInstructions(diagnosis, extras.context || '', useWebGrounding);
-  body += getPracticeThresholdNote();
+  body += chooseTurnFollowUp(message, diagnosis);
   return body;
 }
 
