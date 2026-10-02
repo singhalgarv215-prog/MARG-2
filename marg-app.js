@@ -6318,22 +6318,37 @@ function buildPredictionValidationFallback(message) {
   return 'I saved your response, but the evidence check did not finish cleanly. I’m not treating the earlier read as proven; retry the review and I’ll test it from the same answers.\n[HYPOTHESIS_VERDICT: inconclusive]';
 }
 
-function getGeneratedExerciseMemoryContext(message) {
+function messageNamesExerciseQuestion(message) {
+  var questions = getActiveExerciseQuestions();
+  var text = String(message || '');
+  return questions.some(function(question) {
+    var number = String(question && question.number || '');
+    if (!number) return false;
+    return new RegExp('\\b(?:q(?:uestion)?\\s*)' + number + '\\b', 'i').test(text);
+  });
+}
+
+function getGeneratedExerciseMemoryContext(message, diagnosis) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  if (!activeGeneratedExercise) return '';
+  var intent = diagnosis && diagnosis.intent || '';
+  var libraryOwned = intent === 'question_reference' || intent === 'image_question';
+  var text = String(message || '').toLowerCase();
+  var reviewFollowUp = isAnswerReviewRequest(message) || isExerciseResultReviewRequest(message) || intent === 'answer_review';
+  var validationFollowUp = isPredictionValidationExercise(activeGeneratedExercise) &&
+    (isPredictionValidationReply(message) || activeGeneratedExercise.lastSubmittedAnswers === String(message || '').substring(0, 1000));
+  if (activeGeneratedExercise.type === 'strategy' &&
+      /\b(?:person|persons|standing|seating|line|constraint|condition|left of|right of|facing|corner|position)\b/.test(text) &&
+      !/\b(?:decision lab|strategy lab|question\s*[123]|1\s*[-:.)]\s*[abcd])\b/.test(text)) {
+    reviewFollowUp = false;
+    validationFollowUp = false;
+  }
+  if (libraryOwned) {
+    if (!messageNamesExerciseQuestion(message)) return '';
+  } else if (!reviewFollowUp && !validationFollowUp) return '';
   if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(message)) return '\n\nUse only the newly pasted passage/questions for this turn. The saved exercise key belongs to different material and must not be applied.';
   if (!isActiveExerciseCurrentInConversation()) return '\n\nEXERCISE IDENTITY: The newest passage/questions in this conversation are different from the saved exercise. Do not use the old key, score or selections. Check only the newest visible material and the answers supplied in this turn. If verification fails, leave it ungraded. Never ask the student to paste it again.';
   if (!hasVerifiedActiveAnswerKey()) return '\n\nUNVERIFIED SAVED EXERCISE: The saved answer key has no valid verification status. Do not use it to grade, score or diagnose the student. The visible questions are still in conversation history; do not ask for another paste. Explain what can be established from the visible evidence, and leave any unchecked verdict ungraded.';
-  var text = String(message || '').toLowerCase();
-  var isFollowUp = isAnswerReviewRequest(message) || isExerciseResultReviewRequest(message) || /\b(?:q(?:uestion)?\s*\d+|why\s+(?:is|was)|explain\s+(?:this|the|q|question|answer|option)|this\s+(?:question|set|passage)|the\s+(?:question|set|passage))\b/.test(text);
-  var isValidationFollowUp = isPredictionValidationExercise(activeGeneratedExercise) &&
-    (isPredictionValidationReply(message) || activeGeneratedExercise.lastSubmittedAnswers === String(message || '').substring(0, 1000));
-  if (activeGeneratedExercise && activeGeneratedExercise.type === 'strategy' &&
-      /\b(?:person|persons|standing|seating|line|constraint|condition|left of|right of|facing|corner|position)\b/.test(text) &&
-      !/\b(?:decision lab|strategy lab|question\s*[123]|1\s*[-:.)]\s*[abcd])\b/.test(text)) {
-    isFollowUp = false;
-    isValidationFollowUp = false;
-  }
-  if (!activeGeneratedExercise || (!isFollowUp && !isValidationFollowUp)) return '';
   var memoryJson = JSON.stringify(activeGeneratedExercise, function(key, value) { return key === 'visibleMaterialAtDelivery' ? undefined : value; });
   if (memoryJson.length > 24000) memoryJson = memoryJson.substring(0, 24000) + '...';
   return '\n\nACTIVE GENERATED EXERCISE MEMORY — this was created by Marg. Never ask the student to resend it. Check the current response against it now:\n' + memoryJson + '\nElapsed seconds are wall-clock time and may include pauses or leaving the page. Do not infer reading speed or time per stage from this number. Correct answers after rereading do not prove first-read comprehension. A single error is not a repeated pattern.' +
@@ -7250,7 +7265,16 @@ function runMentorTurnContextTests() {
     { name:'prompt evidence comes from diagnosis status, not a fixed confidence score', passed:analysis.directive.indexOf('Confidence:') === -1 && analysis.directive.indexOf('0.55') === -1 && analysis.directive.indexOf('0.84') === -1 && analysis.directive.indexOf('No selected diagnosis has observed support') !== -1 },
     { name:'turn contract sets one response shape and question budget', passed:analysis.diagnosis.responseShape === 'normal' && analysis.diagnosis.questionBudget === 1 && analysis.directive.indexOf('TURN CONTRACT') !== -1 && analysis.directive.indexOf('Question budget: 1') !== -1 && reference.diagnosis.responseShape === 'complete' && reference.diagnosis.questionBudget === 0 && reference.directive.indexOf('Supplied material outranks') !== -1 },
     { name:'question budget zero removes a trailing question after diagnosis closers', passed:enforceTurnQuestionBudget('The setup is right.\n\nDoes that help?', reference.diagnosis) === 'The setup is right.' && ensureDiagnosisForwardLead('Does that feel right?', analysis.diagnosis).indexOf('[OPTIONS: Exactly') === -1 },
-    { name:'normal shape asks for the ordinary token budget', passed:getMentorResponseMaxTokens(analysis.diagnosis) === 2048 && getMentorResponseMaxTokens(reference.diagnosis) === 4096 }
+    { name:'normal shape asks for the ordinary token budget', passed:getMentorResponseMaxTokens(analysis.diagnosis) === 2048 && getMentorResponseMaxTokens(reference.diagnosis) === 4096 },
+    { name:'saved exercise memory stays off a strategy turn and a different question', passed:(function() {
+      var previousExercise = activeGeneratedExercise;
+      activeGeneratedExercise = { id:'ex-1', type:'qa', content:{ questions:[{ q:'Stem', options:['A','B','C','D'], correct:0 }] }, validationVerdict:{ status:'verified_local' } };
+      var strategyMemory = getGeneratedExerciseMemoryContext('How should I approach QA?', { intent:'qa_diagnosis' });
+      var otherQuestion = getGeneratedExerciseMemoryContext('Why is C wrong in Q9?', { intent:'question_reference' });
+      var sameQuestion = getGeneratedExerciseMemoryContext('Why is C wrong in Q1?', { intent:'question_reference' });
+      activeGeneratedExercise = previousExercise;
+      return strategyMemory === '' && otherQuestion === '' && sameQuestion.indexOf('ACTIVE GENERATED EXERCISE MEMORY') !== -1 && strategyMemory.indexOf('EXERCISE IDENTITY') === -1;
+    })() }
   ];
   studentProfile = originalProfile;
   conversationalProfile = originalConversational;
@@ -12124,7 +12148,7 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
   var surface = extras.surface === 'conversational' ? 'conversational' : 'chat';
   var selection = selectTurnMemory(message, diagnosis);
   var allowAccountProfile = !selection || selection.mode !== 'none';
-  var exerciseContext = pendingExternalQuestionTurnMode || diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(message);
+  var exerciseContext = pendingExternalQuestionTurnMode || diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(message, diagnosis);
   var planContext = diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(message, diagnosis);
   var body = getDateContext() +
     (surface === 'chat' ? buildTurnProfileContext(message, diagnosis) : buildConversationalCollectedProfile()) +
