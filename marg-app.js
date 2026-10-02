@@ -7213,12 +7213,21 @@ function runMentorTurnContextTests() {
   conversationalProfile = { weakSection:'VARC', hours:'2 hours', attempt:'second', situation:'working', awaitingPatternCorrection:false };
   pendingExternalQuestionTurnMode = '';
   conversationHistory = [];
+  studentProfile.recentMistakes = [
+    { date:'2026-09-01', type:'varc', topic:'RC', insight:'VARC scope miss' },
+    { date:'2026-09-02', type:'qa', topic:'Algebra', insight:'QA setup miss' }
+  ];
+  studentProfile.mockHistory = [{ date:'2026-09-01', varc:20, dilr:15, qa:18, total:53 }];
   var message = 'How should I approach QA?';
   var analysis = buildDiagnosisDirective(message);
   var chat = buildMentorTurnContext(message, analysis, { surface:'chat', useWebGrounding:false });
   var conversational = buildMentorTurnContext(message, analysis, { surface:'conversational', useWebGrounding:false, context:'typed' });
+  var reference = buildDiagnosisDirective('Why is C wrong in Q4?');
+  var referenceContext = buildMentorTurnContext('Why is C wrong in Q4?', reference, { surface:'chat', useWebGrounding:false });
   var results = [
-    { name:'chat turn context includes the calendar, profile and directive once', passed:chat.indexOf('AUTHORITATIVE CALENDAR') !== -1 && chat.indexOf('STUDENT PROFILE') !== -1 && chat.indexOf('Attempt number: 2nd') !== -1 && chat.indexOf('VARC cognitive pattern: option elimination') !== -1 && chat.indexOf(analysis.directive) !== -1 && chat.split('AUTHORITATIVE CALENDAR').length === 2 },
+    { name:'chat turn context includes the calendar and the current directive once', passed:chat.indexOf('AUTHORITATIVE CALENDAR') !== -1 && chat.indexOf(analysis.directive) !== -1 && chat.split('AUTHORITATIVE CALENDAR').length === 2 },
+    { name:'section turn keeps matching profile and drops other sections', passed:chat.indexOf('QA cognitive pattern (self-report): recognition gap') !== -1 && chat.indexOf('Weakest section (self-report') !== -1 && chat.indexOf('QA setup miss') !== -1 && chat.indexOf('VARC cognitive pattern') === -1 && chat.indexOf('VARC scope miss') === -1 && chat.indexOf('USE THESE') === -1 && chat.indexOf('Attempt number') === -1 && chat.indexOf('Mock history') !== -1 },
+    { name:'question reference keeps the date and directive without profile memory', passed:referenceContext.indexOf('AUTHORITATIVE CALENDAR') !== -1 && referenceContext.indexOf(reference.directive) !== -1 && referenceContext.indexOf('STUDENT PROFILE') === -1 && referenceContext.indexOf('QA setup miss') === -1 && referenceContext.indexOf('recognition gap') === -1 },
     { name:'conversational turn context keeps collected profile and chat-first mode', passed:conversational.indexOf('PROFILE COLLECTED SO FAR: Weak section: VARC.') !== -1 && conversational.indexOf('CHAT-FIRST SOLVER MODE') !== -1 && conversational.indexOf(analysis.directive) !== -1 && conversational.split('AUTHORITATIVE CALENDAR').length === 2 && conversational.indexOf('STUDENT PROFILE') === -1 }
   ];
   studentProfile = originalProfile;
@@ -11875,20 +11884,67 @@ function getPracticeThresholdNote() {
   return '';
 }
 
+function profileTopicFromLabel(value) {
+  var text = String(value || '').toLowerCase();
+  if (/\b(?:varc|verbal|reading comprehension|\brc\b)\b/.test(text)) return 'varc';
+  if (/\b(?:dilr|lrdi|data interpretation|logical reasoning)\b/.test(text)) return 'dilr';
+  if (/\b(?:qa|quant|quants|quantitative|maths?)\b/.test(text)) return 'qa';
+  if (/\bmock\b/.test(text)) return 'mock';
+  return '';
+}
+
+function selectedProfileTopics(message, diagnosis) {
+  var selection = selectTurnMemory(message, diagnosis);
+  if (!selection || selection.mode === 'none') return [];
+  if (selection.mode === 'all') return ['varc', 'dilr', 'qa', 'mock'];
+  if (selection.mode === 'topics') return (selection.topics || []).slice();
+  var topics = (selection.hypothesisTopics || []).slice();
+  Object.keys(diagnosticMemory || {}).forEach(function(topic) {
+    var entry = diagnosticMemory[topic];
+    if (!diagnosticEntrySelected(entry, topic, message, { mode:'plan', hypothesisTopics:[] })) return;
+    var selectedTopic = normalizeMentorFocusTopic(entry.topic || topic);
+    if (selectedTopic && topics.indexOf(selectedTopic) === -1) topics.push(selectedTopic);
+  });
+  return topics;
+}
+
 function buildTurnProfileContext(message, diagnosis) {
-  return '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation +
-    (studentProfile.varcPattern ? '\n- VARC cognitive pattern: ' + studentProfile.varcPattern : '') +
-    (studentProfile.dilrPattern ? '\n- DILR cognitive pattern: ' + studentProfile.dilrPattern : '') +
-    (studentProfile.qaPattern ? '\n- QA cognitive pattern: ' + studentProfile.qaPattern : '') +
-    (studentProfile.mockHistory && studentProfile.mockHistory.length > 0 ? '\n- Mock history: ' + studentProfile.mockHistory.slice(-5).map(function(m) { return m.date + ' (VARC ' + m.varc + ', DILR ' + m.dilr + ', QA ' + m.qa + ', total ' + m.total + ')'; }).join('; ') : '') +
-    (studentProfile.sessionsCount ? '\n- Total sessions with Marg: ' + studentProfile.sessionsCount : '') +
-    (getSavedTimetableRoutine() ? '\n- Daily routine for timetable: ' + getSavedTimetableRoutine() + '\nTIMETABLE RULE: The routine is known. Build the personalised timetable now and do not ask for it again.' : '') +
-    (studentProfile.recentMistakes && studentProfile.recentMistakes.length > 0 ?
-      '\n\nRECENT MISTAKES (last ' + studentProfile.recentMistakes.length + ' wrong answers — USE THESE to target practice):\n' +
-      studentProfile.recentMistakes.slice(0, 5).map(function(m) {
-        return '- ' + m.date + ' | ' + m.type.toUpperCase() + ' | ' + m.topic + ': ' + m.insight;
-      }).join('\n') : '') +
-    buildActivitySummary();
+  var selection = selectTurnMemory(message, diagnosis);
+  if (!selection || selection.mode === 'none') return '';
+  var topics = selectedProfileTopics(message, diagnosis);
+  var planningContext = selection.mode === 'plan' || selection.mode === 'all';
+  var lines = [];
+  if (planningContext) {
+    if (studentProfile.attemptNumber) lines.push('- Attempt number (self-report): ' + studentProfile.attemptNumber);
+    if (studentProfile.monthsLeft) lines.push('- Months until CAT: ' + studentProfile.monthsLeft);
+    if (studentProfile.dailyHours) lines.push('- Daily study hours (self-report): ' + studentProfile.dailyHours);
+    if (studentProfile.situation) lines.push('- Current situation (self-report): ' + studentProfile.situation);
+    if (studentProfile.sessionsCount) lines.push('- Total sessions with Marg: ' + studentProfile.sessionsCount);
+  }
+  var weakestTopic = profileTopicFromLabel(studentProfile.weakestSection);
+  if (studentProfile.weakestSection && weakestTopic && topics.indexOf(weakestTopic) !== -1) {
+    lines.push('- Weakest section (self-report, not a confirmed diagnosis): ' + studentProfile.weakestSection);
+  }
+  if (studentProfile.varcPattern && topics.indexOf('varc') !== -1) lines.push('- VARC cognitive pattern (self-report): ' + studentProfile.varcPattern);
+  if (studentProfile.dilrPattern && topics.indexOf('dilr') !== -1) lines.push('- DILR cognitive pattern (self-report): ' + studentProfile.dilrPattern);
+  if (studentProfile.qaPattern && topics.indexOf('qa') !== -1) lines.push('- QA cognitive pattern (self-report): ' + studentProfile.qaPattern);
+  if (studentProfile.mockHistory && studentProfile.mockHistory.length && topics.indexOf('mock') !== -1) {
+    lines.push('- Mock history: ' + studentProfile.mockHistory.slice(-5).map(function(m) { return m.date + ' (VARC ' + m.varc + ', DILR ' + m.dilr + ', QA ' + m.qa + ', total ' + m.total + ')'; }).join('; '));
+  }
+  var timetable = planningContext && getSavedTimetableRoutine()
+    ? '\n- Daily routine for timetable: ' + getSavedTimetableRoutine() + '\nTIMETABLE RULE: The routine is known. Build the personalised timetable now and do not ask for it again.'
+    : '';
+  var mistakes = (studentProfile.recentMistakes || []).filter(function(item) {
+    return item && topics.indexOf(profileTopicFromLabel(item.type)) !== -1;
+  }).slice(0, 5);
+  var mistakeBlock = mistakes.length
+    ? '\n\nRECENT MISTAKES (last ' + mistakes.length + ' wrong answers in this turn\'s sections — self-reported, not a confirmed pattern):\n' + mistakes.map(function(item) {
+      return '- ' + item.date + ' | ' + String(item.type || '').toUpperCase() + ' | ' + item.topic + ': ' + item.insight;
+    }).join('\n')
+    : '';
+  var activity = planningContext || diagnosis && diagnosis.intent === 'returning_memory' ? buildActivitySummary() : '';
+  if (!lines.length && !timetable && !mistakeBlock && !activity) return '';
+  return '\n\nSTUDENT PROFILE:\n' + lines.join('\n') + timetable + mistakeBlock + activity;
 }
 
 function buildConversationalCollectedProfile() {
@@ -11947,6 +12003,8 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
   var directive = mentorAnalysis && mentorAnalysis.directive || '';
   var useWebGrounding = !!extras.useWebGrounding;
   var surface = extras.surface === 'conversational' ? 'conversational' : 'chat';
+  var selection = selectTurnMemory(message, diagnosis);
+  var allowAccountProfile = !selection || selection.mode !== 'none';
   var exerciseContext = pendingExternalQuestionTurnMode || diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(message);
   var planContext = diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(message, diagnosis);
   var body = getDateContext() +
@@ -11956,8 +12014,8 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
     getBehavioralMemoryContext(message, diagnosis) +
     getTopicProgressionMemoryContext(message, diagnosis) +
     planContext +
-    getPersonalGoalMemoryContext() +
-    getProgressiveProfileMemoryContext(message, diagnosis) +
+    (allowAccountProfile ? getPersonalGoalMemoryContext() : '') +
+    (allowAccountProfile ? getProgressiveProfileMemoryContext(message, diagnosis) : '') +
     directive;
   if (useWebGrounding) body += '\n\nLIVE WEB VERIFICATION IS ENABLED FOR THIS TURN. Verify the edition/source-specific or current factual claim before advising. Use the retrieved evidence, do not substitute memory, and say plainly when the exact detail cannot be confirmed.';
   if (surface === 'conversational') body += buildConversationalSurfaceInstructions(diagnosis, extras.context || '', useWebGrounding);
