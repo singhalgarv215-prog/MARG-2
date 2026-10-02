@@ -6945,7 +6945,35 @@ function buildHypothesisDrivenMission(contextText) {
   return "Today's Mission\nFocus: Test the execution mechanism identified in this mock.\nWhy: Practice volume cannot confirm whether the diagnosed decision pattern is actually changing.\nAction: Run one controlled section sample built around that decision and record the behaviour before recording the score.\nRule: Success means following the corrective rule, not completing a target number of questions.\nEvidence: Compare the decision record and outcome with the mock before changing the plan.";
 }
 
-function stabilizeAndRememberMission(response, userMessage) {
+function selectedDiagnosisAllowsMission(message, diagnosis) {
+  var selection = selectTurnMemory(message, diagnosis || {});
+  return Object.keys(diagnosticMemory || {}).some(function(topic) {
+    var entry = diagnosticMemory[topic];
+    if (!diagnosticEntrySelected(entry, topic, message, selection)) return false;
+    var status = normalizeDiagnosisStatus(entry);
+    return status === 'supported' || status === 'confirmed';
+  });
+}
+
+function turnHasConcreteProcessEvidence(message, diagnosis) {
+  if (diagnosis && diagnosis.concreteProcessEvidence) return true;
+  var messageText = String(message || '');
+  var intent = diagnosis && diagnosis.intent || detectMentorIntent(message);
+  return messageText.split(/\s+/).filter(Boolean).length >= 10 && /\b(?:when|because|but|while|after|before|end up|stuck|re-?read|random|guess|time pressure|cannot|can['’]?t|do not|don['’]?t|get what|main claim|method|setup|clue|option|passage|set)\b/i.test(messageText) &&
+    ['varc_diagnosis','dilr_diagnosis','qa_diagnosis','mock_diagnosis','pacing_diagnosis'].indexOf(intent) !== -1;
+}
+
+function allowMissionPersistence(response, userMessage, diagnosis) {
+  if (/\b(?:plan|roadmap|timetable|schedule|today'?s mission)\b/i.test(String(userMessage || ''))) return true;
+  var resolved = diagnosis && diagnosis.intent ? diagnosis : analyzeMentorInput(userMessage);
+  if (selectedDiagnosisAllowsMission(userMessage, resolved)) return true;
+  if (!turnHasConcreteProcessEvidence(userMessage, resolved)) return false;
+  var mission = extractTodayMission(response);
+  loadActiveMentorPlan();
+  return !!(mission && isOpenMentorPlan(activeMentorPlan) && normalizeMissionText(activeMentorPlan.mission) === normalizeMissionText(mission.body));
+}
+
+function stabilizeAndRememberMission(response, userMessage, diagnosis) {
   var revisedResponse = guardUnearnedPercentilePromise(response, userMessage);
   var mission = extractTodayMission(revisedResponse);
   if (!mission) return revisedResponse;
@@ -6964,6 +6992,10 @@ function stabilizeAndRememberMission(response, userMessage) {
   }
   var revised = revisedResponse;
   var isChange = openPlan && !sameMission;
+  if (!allowMissionPersistence(revised, userMessage, diagnosis)) {
+    if (openPlan) return revised.replace(mission.full, "Today's Mission\n" + activeMentorPlan.mission);
+    return revised.replace(mission.full, '').replace(/\n{3,}/g, '\n\n').trim();
+  }
   if (isChange && !/\b(?:because|since|based on|changed|new result)\b/i.test(revised.slice(0, revised.indexOf(mission.full)))) {
     revised = revised.replace(mission.full, "I'm changing today's mission because the new evidence changes the priority.\n\n" + mission.full);
   }
@@ -7266,6 +7298,35 @@ function runMentorTurnContextTests() {
     { name:'turn contract sets one response shape and question budget', passed:analysis.diagnosis.responseShape === 'normal' && analysis.diagnosis.questionBudget === 1 && analysis.directive.indexOf('TURN CONTRACT') !== -1 && analysis.directive.indexOf('Question budget: 1') !== -1 && reference.diagnosis.responseShape === 'complete' && reference.diagnosis.questionBudget === 0 && reference.directive.indexOf('Supplied material outranks') !== -1 },
     { name:'question budget zero removes a trailing question after diagnosis closers', passed:enforceTurnQuestionBudget('The setup is right.\n\nDoes that help?', reference.diagnosis) === 'The setup is right.' && ensureDiagnosisForwardLead('Does that feel right?', analysis.diagnosis).indexOf('[OPTIONS: Exactly') === -1 },
     { name:'normal shape asks for the ordinary token budget', passed:getMentorResponseMaxTokens(analysis.diagnosis) === 2048 && getMentorResponseMaxTokens(reference.diagnosis) === 4096 },
+    { name:'unsupported mission is not saved and ordinary SUPPORTED text does not promote a diagnosis', passed:(function() {
+      var previousMemory = diagnosticMemory;
+      var previousPlan = activeMentorPlan;
+      var previousExercise = activeGeneratedExercise;
+      var previousPromote = promoteDiagnosisFromEvidence;
+      var planKey = activePlanStorageKey();
+      var storedPlan = null;
+      try { storedPlan = localStorage.getItem(planKey); localStorage.removeItem(planKey); } catch(e) {}
+      diagnosticMemory = {};
+      activeMentorPlan = null;
+      activeGeneratedExercise = null;
+      var promotions = 0;
+      promoteDiagnosisFromEvidence = function(entry) { promotions += 1; return previousPromote(entry); };
+      var unsaved = stabilizeAndRememberMission("Today's Mission\nFocus: solve twenty mixed questions.", 'How should I approach QA?');
+      var didNotSave = !activeMentorPlan && unsaved.indexOf("Today's Mission") === -1;
+      applyPredictionValidationVerdict('The pattern is SUPPORTED.');
+      var didNotPromote = promotions === 0;
+      activeGeneratedExercise = { id:'pv', type:'qa', source:'prediction-validation', hypothesis:{ topic:'qa', confirmedDiagnosis:'QA recognition gap', selectedPattern:'recognition' }, content:{ questions:[{ q:'Stem', options:['A','B','C','D'], correct:1 }] }, validationVerdict:{ status:'verified_local' }, awaitingAnswers:true, result:{ correct:1, wrong:0, skipped:0, total:1 } };
+      diagnosticMemory = { qa:{ topic:'qa', selectedSection:'QA', confirmedDiagnosis:'QA recognition gap', status:'hypothesis', confirmation:'Exactly', sourceThreadId:getCurrentMentorThreadId(), evidenceHistory:[] } };
+      applyPredictionValidationVerdict('The pattern is SUPPORTED.');
+      var promotedWhenActive = promotions === 1;
+      promoteDiagnosisFromEvidence = previousPromote;
+      diagnosticMemory = previousMemory;
+      activeMentorPlan = previousPlan;
+      activeGeneratedExercise = previousExercise;
+      try { if (storedPlan === null) localStorage.removeItem(planKey); else localStorage.setItem(planKey, storedPlan); } catch(e) {}
+      return didNotSave && didNotPromote && promotedWhenActive;
+    })() },
+    { name:'unconfirmed certainty is rewritten unless a selected row is confirmed', passed:guardUnconfirmedCertainty('This confirmed pattern means you always rush.', { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' }).indexOf('confirmed pattern') === -1 && guardUnconfirmedCertainty('This confirmed pattern means you always rush.', { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' }).indexOf('you often') !== -1 },
     { name:'saved exercise memory stays off a strategy turn and a different question', passed:(function() {
       var previousExercise = activeGeneratedExercise;
       activeGeneratedExercise = { id:'ex-1', type:'qa', content:{ questions:[{ q:'Stem', options:['A','B','C','D'], correct:0 }] }, validationVerdict:{ status:'verified_local' } };
@@ -7274,6 +7335,12 @@ function runMentorTurnContextTests() {
       var sameQuestion = getGeneratedExerciseMemoryContext('Why is C wrong in Q1?', { intent:'question_reference' });
       activeGeneratedExercise = previousExercise;
       return strategyMemory === '' && otherQuestion === '' && sameQuestion.indexOf('ACTIVE GENERATED EXERCISE MEMORY') !== -1 && strategyMemory.indexOf('EXERCISE IDENTITY') === -1;
+    })() },
+    { name:'final model context is the system string plus the current history', passed:(function() {
+      var request = buildGeminiRequest(SYSTEM_PROMPT + chat, buildHistoryWithImageAttachment([{ role:'user', content:message }], [], message), getMentorResponseMaxTokens(analysis.diagnosis));
+      var systemText = request.systemInstruction.parts[0].text;
+      var last = request.contents[request.contents.length - 1];
+      return systemText.indexOf('TURN CONTRACT') !== -1 && systemText.indexOf(message) !== -1 && last.role === 'user' && last.parts[0].text === message && request.generationConfig.maxOutputTokens === 2048;
     })() }
   ];
   studentProfile = originalProfile;
@@ -10809,6 +10876,22 @@ function guardCleanSolvedQuestionResponse(text, diagnosis) {
   return value.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function guardUnconfirmedCertainty(text, diagnosis) {
+  var value = String(text || '');
+  var message = diagnosis && diagnosis.submittedAnswerText || '';
+  if (turnHasConcreteProcessEvidence(message, diagnosis)) return value;
+  var selection = selectTurnMemory(message, diagnosis || {});
+  var hasConfirmed = Object.keys(diagnosticMemory || {}).some(function(topic) {
+    var entry = diagnosticMemory[topic];
+    return diagnosticEntrySelected(entry, topic, message, selection) && normalizeDiagnosisStatus(entry) === 'confirmed';
+  });
+  if (hasConfirmed) return value;
+  value = value.replace(/\bconfirmed (?:pattern|diagnosis|weakness|habit|read)\b/gi, 'possible pattern');
+  value = value.replace(/\bproven (?:pattern|diagnosis|weakness|habit|read)\b/gi, 'unproven pattern');
+  value = value.replace(/\byou always\b/gi, 'you often');
+  return value;
+}
+
 function guardUnsupportedCausalCertainty(text, diagnosis) {
   var value = String(text || '');
   var userText = String(diagnosis && diagnosis.submittedAnswerText || '');
@@ -11040,6 +11123,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardForcedReportBackClose(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
   text = guardUnsupportedCausalCertainty(text, diagnosis);
+  text = guardUnconfirmedCertainty(text, diagnosis);
   text = guardUngroundedSectionPrescription(text, diagnosis);
   text = guardExplicitRequestScope(text, diagnosis);
   text = guardUnrelatedCalendarCorrection(text, diagnosis);
