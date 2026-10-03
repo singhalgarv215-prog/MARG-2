@@ -5043,16 +5043,56 @@ async function persistDiagnosisEvidence(entry, evidence) {
   }
 }
 
+function structuredInterventionTarget(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  var observable = String(value.observable || '').trim();
+  var direction = value.direction === 'decrease' ? 'decrease' : value.direction === 'increase' ? 'increase' : '';
+  if (!observable || !direction) return null;
+  return { observable:observable, direction:direction };
+}
+
+function knownInterventionTarget() {
+  for (var index = 0; index < arguments.length; index++) {
+    var target = structuredInterventionTarget(arguments[index]);
+    if (target) return target;
+  }
+  return null;
+}
+
+function mentorTaskByClientRef(clientRef) {
+  return (mentorExecutionLoop.tasks || []).find(function(task) { return task && task.client_ref === clientRef; }) || null;
+}
+
+function mergedMentorTaskActionPayload(existing, entry, incoming) {
+  var previous = existing && existing.action_payload && typeof existing.action_payload === 'object' ? existing.action_payload : {};
+  var extra = incoming && typeof incoming === 'object' ? incoming : {};
+  var payload = Object.assign({}, previous, extra);
+  if (entry && entry.patternId) payload.pattern_id = entry.patternId;
+  if (entry && entry.confirmation != null) payload.confirmation = entry.confirmation;
+  if (extra.timing) payload.timing = extra.timing;
+  var target = knownInterventionTarget(
+    extra.interventionTarget, extra.intervention_target,
+    entry && entry.interventionTarget, entry && entry.intervention_target,
+    entry && entry.content && entry.content.interventionTarget,
+    previous.interventionTarget, previous.intervention_target
+  );
+  if (target) payload.interventionTarget = target;
+  else if (!structuredInterventionTarget(payload.interventionTarget)) delete payload.interventionTarget;
+  return payload;
+}
+
 async function upsertMentorTaskForDiagnosis(entry, options) {
   if (!entry || !canUseMentorExecutionLoop()) return null;
   options = options || {};
   var diagnosis = await persistMentorDiagnosis(entry);
   if (!diagnosis || !diagnosis.id) return null;
   var definition = mentorTaskDefinition(entry);
+  var clientRef = mentorTaskClientRefForDiagnosis(entry);
+  var existing = mentorTaskByClientRef(clientRef);
   var payload = {
     user_id:currentUser.id,
     diagnosis_id:diagnosis.id,
-    client_ref:mentorTaskClientRefForDiagnosis(entry),
+    client_ref:clientRef,
     section:definition.section,
     topic:String(entry.subcategory || entry.topic || '').slice(0, 120) || null,
     task_type:definition.taskType,
@@ -5062,7 +5102,7 @@ async function upsertMentorTaskForDiagnosis(entry, options) {
     destination:options.destination || definition.destination,
     duration_minutes:Number(options.durationMinutes || definition.duration),
     artifact_ref:String(options.artifactRef || '').slice(0, 180) || null,
-    action_payload:Object.assign({ pattern_id:entry.patternId || null, confirmation:entry.confirmation || null, timing:options.timing || null }, options.actionPayload || {}),
+    action_payload:mergedMentorTaskActionPayload(existing, entry, Object.assign({}, options.actionPayload || {}, options.timing ? { timing:options.timing } : {})),
     scheduled_for:options.scheduledFor || null,
     status:options.status || 'ready',
     started_at:options.status === 'in_progress' ? (options.startedAt || new Date().toISOString()) : null,
@@ -5119,6 +5159,7 @@ async function persistGeneratedExerciseTask(exercise) {
   } else {
     var section = normalizeExecutionSection(exercise.type);
     var clientRef = 'exercise:' + String(exercise.id).slice(0, 150);
+    var existingPractice = mentorTaskByClientRef(clientRef);
     var payload = {
       user_id:currentUser.id, diagnosis_id:null, client_ref:clientRef, section:section,
       topic:String(exercise.title || exercise.type || '').slice(0, 120) || null,
@@ -5128,7 +5169,7 @@ async function persistGeneratedExerciseTask(exercise) {
       success_metric:'Review the completed attempt and identify the next decision pattern from the saved evidence.',
       destination:section === 'qa' || section === 'dilr' ? 'sectionals' : 'practice',
       duration_minutes:null, artifact_ref:String(exercise.id).slice(0, 180),
-      action_payload:{ source:exercise.source || 'practice', artifact_snapshot:{
+      action_payload:mergedMentorTaskActionPayload(existingPractice, exercise, { source:exercise.source || 'practice', artifact_snapshot:{
         id:exercise.id, type:exercise.type, source:exercise.source, title:exercise.title,
         threadId:exercise.threadId || (typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy'),
         purpose:exercise.purpose, content:exercise.content, generatedAt:exercise.generatedAt,
@@ -5136,7 +5177,7 @@ async function persistGeneratedExerciseTask(exercise) {
         reviewPending:exercise.reviewPending, completedAt:exercise.completedAt || null,
         reviewedAt:exercise.reviewedAt || null, cancelledAt:exercise.cancelledAt || null,
         uiSelections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : []
-      } }, scheduled_for:null, status:status,
+      } }), scheduled_for:null, status:status,
       started_at:exercise.generatedAt || new Date().toISOString(), completed_at:exercise.completedAt || null,
       reviewed_at:exercise.reviewedAt || null, updated_at:new Date().toISOString()
     };
@@ -5170,6 +5211,7 @@ async function persistMentorTaskAttempt(exercise, result) {
   var isTimedExercise = /(?:sectional|prediction-validation)/.test(String(exercise.source || '')) && ['qa','dilr','mini_mock'].indexOf(String(exercise.type || '')) !== -1;
   if (isTimedExercise && typeof timedTestSecondsTotal === 'number' && typeof timedTestSecondsLeft === 'number' && timedTestSecondsTotal >= timedTestSecondsLeft) elapsed = timedTestSecondsTotal - timedTestSecondsLeft;
   var evidenceQuality = assessExerciseEvidenceQuality(exercise);
+  var observables = observablesFromAttemptResult(task, result);
   var payload = {
     user_id:currentUser.id, task_id:task.id,
     client_ref:String(exercise.id + ':attempt:' + completedAt).slice(0, 200),
@@ -5188,7 +5230,7 @@ async function persistMentorTaskAttempt(exercise, result) {
       delivered_at:exercise.deliveredAt || null,
       generation_duration_ms:Number(exercise.generationDurationMs || 0) || null,
       evidence_quality:evidenceQuality,
-      observables:result && result.observables && typeof result.observables === 'object' ? result.observables : null
+      observables:observables
     },
     evidence_summary:String(result.evidenceSummary || (Number(result.correct || 0) + '/' + total + ' correct; ' + Number(result.wrong || 0) + ' wrong; ' + Number(result.skipped || 0) + ' skipped.')).slice(0, 1600),
     verdict:getExerciseHypothesisVerdict(exercise),
@@ -5206,12 +5248,78 @@ async function persistMentorTaskAttempt(exercise, result) {
       mentorExecutionLoop.attempts.push(saved);
       exercise.mentorAttemptId = saved.id;
       try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(exercise)); } catch(e) {}
+      await evaluatePersistedMentorTask(task, attemptsForMentorTask(task.id), {
+        prose:result.prose || result.mentorProse || '',
+        feedback:result.feedback || null,
+        completed:true
+      });
     }
     return saved || null;
   } catch(error) {
     if (!mentorExecutionLoop.unavailable) console.error('Task attempt persistence error:', error);
     return null;
   }
+}
+
+function numericObservableValue(value) {
+  if (value == null || value === '' || typeof value === 'boolean' || typeof value === 'object') return null;
+  var number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function observablesFromAttemptResult(task, result) {
+  var observables = {};
+  var supplied = result && result.observables;
+  if (supplied && typeof supplied === 'object' && !Array.isArray(supplied)) {
+    Object.keys(supplied).forEach(function(key) {
+      var number = numericObservableValue(supplied[key]);
+      if (number !== null) observables[key] = number;
+    });
+  }
+  var target = interventionTargetFromTask(task);
+  if (target && !Object.prototype.hasOwnProperty.call(observables, target.observable) && result && Object.prototype.hasOwnProperty.call(result, target.observable)) {
+    var named = numericObservableValue(result[target.observable]);
+    if (named !== null) observables[target.observable] = named;
+  }
+  return Object.keys(observables).length ? observables : null;
+}
+
+function attemptsForMentorTask(taskId) {
+  return (mentorExecutionLoop.attempts || []).filter(function(attempt) {
+    return attempt && String(attempt.task_id || attempt.taskId || '') === String(taskId || '');
+  });
+}
+
+async function persistMentorTaskActionPayload(task) {
+  if (!task || !task.client_ref || !canUseMentorExecutionLoop()) return null;
+  try {
+    var response = await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/mentor_tasks?on_conflict=user_id,client_ref&select=*', {
+      method:'POST', headers:executionLoopHeaders('resolution=merge-duplicates,return=representation'),
+      body:JSON.stringify({
+        user_id:currentUser.id,
+        client_ref:task.client_ref,
+        action_payload:task.action_payload || {},
+        updated_at:new Date().toISOString()
+      })
+    });
+    if (!response.ok) { markExecutionLoopUnavailable(response, 'mentor_tasks'); return null; }
+    var rows = await response.json();
+    var saved = Array.isArray(rows) ? rows[0] : rows;
+    if (saved) {
+      mentorExecutionLoop.tasks = mentorExecutionLoop.tasks.filter(function(item) { return item.client_ref !== saved.client_ref; });
+      mentorExecutionLoop.tasks.push(saved);
+    }
+    return saved || null;
+  } catch(error) {
+    if (!mentorExecutionLoop.unavailable) console.error('Mentor task evaluation persistence error:', error);
+    return null;
+  }
+}
+
+async function evaluatePersistedMentorTask(task, attempts, options) {
+  if (!task || !task.id) return null;
+  applyInterventionAdaptation(task, null, attempts || attemptsForMentorTask(task.id), options || {});
+  return persistMentorTaskActionPayload(task);
 }
 
 async function updateMentorExecutionReview(exercise, responseText) {
@@ -6766,13 +6874,13 @@ function applyInterventionAdaptation(task, diagnosis, attempts, options) {
 
 function shouldRepeatSameDiagnostic(entry) {
   if (!entry) return true;
+  var diagnosisId = entry.dbDiagnosisId || entry.diagnosis_id || entry.diagnosisId || null;
+  if (!diagnosisId) return true;
   var tasks = mentorExecutionLoop && mentorExecutionLoop.tasks || [];
   var succeeded = tasks.some(function(task) {
     var evaluation = task && task.action_payload && task.action_payload.interventionEvaluation;
     if (!evaluation || evaluation.verdict !== 'SUPPORTED') return false;
-    if (entry.dbDiagnosisId && String(task.diagnosis_id || task.diagnosisId || '') === String(entry.dbDiagnosisId)) return true;
-    var payload = task.action_payload || {};
-    return !!(payload.pattern_id && entry.patternId && payload.pattern_id === entry.patternId && normalizeExecutionSection(task.section) === normalizeExecutionSection(entry.topic));
+    return String(task.diagnosis_id || task.diagnosisId || '') === String(diagnosisId);
   });
   return !succeeded;
 }
@@ -8129,6 +8237,156 @@ function runInterventionRecommendationEvaluationTests() {
   ];
 }
 window.runInterventionRecommendationEvaluationTests = runInterventionRecommendationEvaluationTests;
+
+async function runInterventionProductionEvaluationTests() {
+  var previousUser = currentUser;
+  var previousToken = SUPABASE_TOKEN;
+  var previousGuest = isGuestMode;
+  var previousLoop = mentorExecutionLoop;
+  var previousMemory = diagnosticMemory;
+  var previousFetch = authenticatedSupabaseFetch;
+  var diagnosisKey = getDiagnosticStorageKey();
+  var storedDiagnosis = null;
+  try { storedDiagnosis = localStorage.getItem(diagnosisKey); } catch(e) {}
+  var tables = { mentor_diagnoses:[], mentor_tasks:[], mentor_task_attempts:[], mentor_diagnosis_evidence:[] };
+  var sequence = 1;
+  currentUser = { id:'eval-user' };
+  SUPABASE_TOKEN = 'eval-token';
+  isGuestMode = false;
+  mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+  diagnosticMemory = {};
+  authenticatedSupabaseFetch = async function(url, options) {
+    var path = String(url).split('/rest/v1/')[1].split('?')[0];
+    var method = String(options && options.method || 'GET').toUpperCase();
+    var rows = tables[path] || (tables[path] = []);
+    if (method === 'GET') return { ok:true, status:200, json:async function() { return rows.slice(); } };
+    if (method === 'PATCH') return { ok:true, status:204, json:async function() { return {}; } };
+    var body = JSON.parse(options.body);
+    var index = rows.findIndex(function(row) { return row.user_id === body.user_id && row.client_ref === body.client_ref; });
+    var saved = Object.assign({}, index >= 0 ? rows[index] : { id:path + '-' + (sequence++) }, body);
+    if (index >= 0) rows[index] = saved;
+    else rows.push(saved);
+    return { ok:true, status:201, json:async function() { return [saved]; } };
+  };
+  function entry(pattern, target) {
+    return {
+      topic:'dilr', patternId:pattern, confirmedDiagnosis:pattern + ' check',
+      status:'hypothesis', confirmation:'Exactly', confidence:0.62,
+      interventionTarget:target || null
+    };
+  }
+  function exercise(item, id, when, result) {
+    return {
+      id:id, type:'dilr', source:'prediction-validation', title:'Decision check', purpose:'Check the diagnosis',
+      hypothesis:item, generatedAt:when, completedAt:when, result:result
+    };
+  }
+  function taskFor(item) {
+    var ref = mentorTaskClientRefForDiagnosis(item);
+    return (mentorExecutionLoop.tasks || []).find(function(task) { return task && task.client_ref === ref; }) || null;
+  }
+  var results = [];
+  try {
+    var plain = { topic:'qa', patternId:'recognition', confirmedDiagnosis:'QA recognition gap', status:'hypothesis', confirmation:'Exactly', confidence:0.62 };
+    var plainTask = await upsertMentorTaskForDiagnosis(plain, { successMetric:'selectionMisses should decrease from 4 to 1.' });
+    var plainAttempt = await persistMentorTaskAttempt(exercise(plain, 'plain-1', '2026-10-01T00:00:00.000Z', {
+      correct:1, wrong:0, skipped:0, total:1, marks:3, accuracy:100, feedback:'helpful', prose:'SUPPORTED', completed:true
+    }), exercise(plain, 'plain-1', '2026-10-01T00:00:00.000Z', {
+      correct:1, wrong:0, skipped:0, total:1, marks:3, accuracy:100, feedback:'helpful', prose:'SUPPORTED', completed:true
+    }).result);
+    var plainSaved = taskFor(plain);
+    results.push({ name:'prose success metric does not create an intervention target', passed:!!plainTask && !plainTask.action_payload.interventionTarget && plainSaved && !plainSaved.action_payload.interventionTarget && plainSaved.action_payload.interventionEvaluation.verdict === 'INCONCLUSIVE' });
+    results.push({ name:'marks and completion are not copied unless named as the target', passed:!!plainAttempt && plainAttempt.behaviour_data.observables == null && plainAttempt.marks === 3 });
+
+    var decreaseEntry = entry('selection', { observable:'selectionMisses', direction:'decrease' });
+    var created = await upsertMentorTaskForDiagnosis(decreaseEntry);
+    var baseline = await persistMentorTaskAttempt(exercise(decreaseEntry, 'sel-1', '2026-10-01T00:00:00.000Z', {
+      correct:1, marks:1, accuracy:25, observables:{ selectionMisses:4 }, feedback:'helpful', prose:'[HYPOTHESIS_VERDICT: rejected]', completed:true
+    }), { correct:1, marks:1, accuracy:25, observables:{ selectionMisses:4 }, feedback:'helpful', prose:'[HYPOTHESIS_VERDICT: rejected]', completed:true });
+    var oneAttempt = taskFor(decreaseEntry);
+    var oneAttemptVerdict = oneAttempt && oneAttempt.action_payload.interventionEvaluation.verdict;
+    var oneAttemptBaseline = oneAttempt && oneAttempt.action_payload.interventionEvaluation.baseline && oneAttempt.action_payload.interventionEvaluation.baseline.attemptId;
+    var improved = await persistMentorTaskAttempt(exercise(decreaseEntry, 'sel-2', '2026-10-02T00:00:00.000Z', {
+      correct:2, marks:9, accuracy:100, observables:{ selectionMisses:1 }, feedback:'helpful', prose:'REJECTED', completed:true
+    }), { correct:2, marks:9, accuracy:100, observables:{ selectionMisses:1 }, feedback:'helpful', prose:'REJECTED', completed:true });
+    var decreased = taskFor(decreaseEntry);
+    var decreaseEval = decreased && decreased.action_payload.interventionEvaluation;
+    var decreaseRecommendation = decreased && decreased.action_payload.recommendationEvaluation;
+    results.push({ name:'prediction task stores a structured intervention target', passed:!!created && created.action_payload.interventionTarget.observable === 'selectionMisses' && created.action_payload.interventionTarget.direction === 'decrease' });
+    results.push({ name:'one persisted attempt stays INCONCLUSIVE', passed:oneAttemptVerdict === 'INCONCLUSIVE' && oneAttemptBaseline === baseline.id });
+    results.push({ name:'persisted observables keep only the supplied structured field', passed:baseline.behaviour_data.observables.selectionMisses === 4 && baseline.behaviour_data.observables.marks == null && improved.behaviour_data.observables.selectionMisses === 1 });
+    results.push({ name:'decrease target is SUPPORTED from the persisted attempts', passed:decreaseEval.verdict === 'SUPPORTED' && decreaseEval.observable === 'selectionMisses' && decreaseEval.direction === 'decrease' && decreaseEval.baseline.attemptId === baseline.id && decreaseEval.baseline.value === 4 && decreaseEval.post.attemptId === improved.id && decreaseEval.post.value === 1 && decreaseEval.series.length === 2 });
+    results.push({ name:'diagnosis-linked recommendation follows the intervention verdict', passed:decreaseRecommendation.verdict === 'SUPPORTED' && decreaseRecommendation.diagnosisId === decreased.diagnosis_id && decreaseRecommendation.taskId === decreased.id });
+    results.push({ name:'helpful feedback and mentor prose do not override a decrease', passed:decreaseEval.verdict === 'SUPPORTED' && improved.behaviour_data && decreaseEntry.status === 'hypothesis' && decreaseEntry.confidence === 0.62 });
+
+    var other = entry('dead-set', { observable:'selectionMisses', direction:'decrease' });
+    var foreign = await persistMentorTaskAttempt(exercise(other, 'other-1', '2026-09-01T00:00:00.000Z', { observables:{ selectionMisses:0 } }), { observables:{ selectionMisses:0 } });
+    var seriesEntry = entry('order', { observable:'selectionMisses', direction:'decrease' });
+    var first = await persistMentorTaskAttempt(exercise(seriesEntry, 'ord-1', '2026-10-01T00:00:00.000Z', { observables:{ selectionMisses:5 }, marks:9 }), { observables:{ selectionMisses:5 }, marks:9 });
+    var second = await persistMentorTaskAttempt(exercise(seriesEntry, 'ord-2', '2026-10-02T00:00:00.000Z', { observables:{ selectionMisses:4 }, marks:1 }), { observables:{ selectionMisses:4 }, marks:1 });
+    var third = await persistMentorTaskAttempt(exercise(seriesEntry, 'ord-3', '2026-10-03T00:00:00.000Z', { observables:{ selectionMisses:2 }, marks:0, prose:'REJECTED', feedback:'helpful', completed:true }), { observables:{ selectionMisses:2 }, marks:0, prose:'REJECTED', feedback:'helpful', completed:true });
+    var seriesTask = taskFor(seriesEntry);
+    var seriesEval = seriesTask.action_payload.interventionEvaluation;
+    results.push({ name:'another task cannot become the baseline', passed:seriesEval.baseline.attemptId === first.id && seriesEval.baseline.value === 5 && seriesEval.series.every(function(point) { return point.attemptId !== foreign.id; }) });
+    results.push({ name:'third attempt becomes the post and the full series remains', passed:seriesEval.post.attemptId === third.id && seriesEval.post.value === 2 && seriesEval.series.length === 3 && seriesEval.series[0].attemptId === first.id && seriesEval.series[1].attemptId === second.id && seriesEval.series[2].attemptId === third.id && seriesEval.verdict === 'SUPPORTED' });
+
+    await upsertMentorTaskForDiagnosis(seriesEntry, { status:'ready', timing:'later', actionPayload:{ retry_section:'dilr', interrupted_at:'2026-10-04T00:00:00.000Z' } });
+    mentorExecutionLoop.tasks = [];
+    mentorExecutionLoop.attempts = [];
+    mentorExecutionLoop.diagnoses = [];
+    await loadMentorExecutionLoop();
+    var reloaded = taskFor(seriesEntry);
+    var reloadedEval = reloaded && reloaded.action_payload && reloaded.action_payload.interventionEvaluation;
+    var reloadedRecommendation = reloaded && reloaded.action_payload && reloaded.action_payload.recommendationEvaluation;
+    results.push({ name:'evaluation survives reload and a later task upsert', passed:!!reloadedEval && reloadedEval.verdict === 'SUPPORTED' && reloadedEval.baseline.attemptId === first.id && reloadedEval.post.attemptId === third.id && reloadedEval.series.length === 3 && reloaded.action_payload.interventionTarget.observable === 'selectionMisses' && reloaded.action_payload.retry_section === 'dilr' && !!reloadedRecommendation && reloadedRecommendation.verdict === 'SUPPORTED' && reloadedRecommendation.diagnosisId === reloaded.diagnosis_id && reloadedRecommendation.taskId === reloaded.id });
+
+    var rejectedEntry = entry('revision', { observable:'selectionMisses', direction:'decrease' });
+    await persistMentorTaskAttempt(exercise(rejectedEntry, 'rev-1', '2026-10-01T00:00:00.000Z', { observables:{ selectionMisses:1 }, prose:'SUPPORTED', feedback:'helpful', completed:true }), { observables:{ selectionMisses:1 }, prose:'SUPPORTED', feedback:'helpful', completed:true });
+    await persistMentorTaskAttempt(exercise(rejectedEntry, 'rev-2', '2026-10-02T00:00:00.000Z', { observables:{ selectionMisses:4 }, prose:'SUPPORTED', feedback:'helpful', completed:true }), { observables:{ selectionMisses:4 }, prose:'SUPPORTED', feedback:'helpful', completed:true });
+    var rejectedTask = taskFor(rejectedEntry);
+    results.push({ name:'opposite movement is REJECTED without changing the diagnosis', passed:rejectedTask.action_payload.interventionEvaluation.verdict === 'REJECTED' && rejectedTask.action_payload.repeatSameDiagnostic === true && rejectedEntry.status === 'hypothesis' && rejectedEntry.confidence === 0.62 && shouldRepeatSameDiagnostic(rejectedEntry) === true });
+
+    var flatEntry = entry('guessing', { observable:'selectionMisses', direction:'decrease' });
+    await persistMentorTaskAttempt(exercise(flatEntry, 'guess-1', '2026-10-01T00:00:00.000Z', { observables:{ selectionMisses:3 }, completed:true, feedback:'helpful' }), { observables:{ selectionMisses:3 }, completed:true, feedback:'helpful' });
+    await persistMentorTaskAttempt(exercise(flatEntry, 'guess-2', '2026-10-02T00:00:00.000Z', { observables:{ selectionMisses:3 }, completed:true, feedback:'helpful', prose:'SUPPORTED' }), { observables:{ selectionMisses:3 }, completed:true, feedback:'helpful', prose:'SUPPORTED' });
+    var flatTask = taskFor(flatEntry);
+    results.push({ name:'unchanged observable stays INCONCLUSIVE', passed:flatTask.action_payload.interventionEvaluation.verdict === 'INCONCLUSIVE' && flatTask.action_payload.repeatSameDiagnostic === true && flatEntry.status === 'hypothesis' && flatEntry.confidence === 0.62 });
+
+    var increaseEntry = entry('plateau', { observable:'marks', direction:'increase' });
+    var low = await persistMentorTaskAttempt(exercise(increaseEntry, 'plat-1', '2026-10-01T00:00:00.000Z', { marks:2, accuracy:20, correct:1 }), { marks:2, accuracy:20, correct:1 });
+    var high = await persistMentorTaskAttempt(exercise(increaseEntry, 'plat-2', '2026-10-02T00:00:00.000Z', { marks:5, accuracy:90, correct:2, prose:'REJECTED', feedback:'helpful', completed:true }), { marks:5, accuracy:90, correct:2, prose:'REJECTED', feedback:'helpful', completed:true });
+    var increased = taskFor(increaseEntry);
+    results.push({ name:'named increase target is SUPPORTED and unnamed accuracy is ignored', passed:increased.action_payload.interventionEvaluation.verdict === 'SUPPORTED' && increased.action_payload.interventionEvaluation.baseline.value === 2 && increased.action_payload.interventionEvaluation.post.value === 5 && low.behaviour_data.observables.marks === 2 && low.behaviour_data.observables.accuracy == null && high.behaviour_data.observables.accuracy == null });
+
+    var unlinked = {
+      id:'practice-unlinked', type:'qa', source:'practice', title:'QA practice', purpose:'Practice',
+      content:{ interventionTarget:{ observable:'selectionMisses', direction:'decrease' } },
+      generatedAt:'2026-10-01T00:00:00.000Z'
+    };
+    await persistMentorTaskAttempt(Object.assign({}, unlinked, { completedAt:'2026-10-01T00:00:00.000Z' }), { observables:{ selectionMisses:4 }, completed:true, feedback:'helpful', prose:'SUPPORTED' });
+    await persistMentorTaskAttempt(Object.assign({}, unlinked, { completedAt:'2026-10-02T00:00:00.000Z' }), { observables:{ selectionMisses:1 }, completed:true, feedback:'helpful', prose:'SUPPORTED' });
+    var unlinkedTask = (mentorExecutionLoop.tasks || []).find(function(task) { return task && task.client_ref === 'exercise:practice-unlinked'; });
+    results.push({ name:'task without a diagnosis keeps recommendation evaluation INCONCLUSIVE', passed:!!unlinkedTask && unlinkedTask.diagnosis_id == null && unlinkedTask.action_payload.interventionEvaluation.verdict === 'SUPPORTED' && unlinkedTask.action_payload.recommendationEvaluation.verdict === 'INCONCLUSIVE' && unlinkedTask.action_payload.recommendationEvaluation.diagnosisId == null });
+
+    var separate = { topic:'dilr', patternId:'order', confirmedDiagnosis:'A different diagnosis', status:'hypothesis', confidence:0.62, dbDiagnosisId:'diagnosis-b' };
+    results.push({ name:'supported diagnosis does not suppress a different diagnosis', passed:shouldRepeatSameDiagnostic(seriesEntry) === false && shouldRepeatSameDiagnostic(separate) === true && reloaded.section === 'dilr' && reloaded.action_payload.pattern_id === 'order' && String(reloaded.diagnosis_id) !== String(separate.dbDiagnosisId) });
+  } finally {
+    authenticatedSupabaseFetch = previousFetch;
+    currentUser = previousUser;
+    SUPABASE_TOKEN = previousToken;
+    isGuestMode = previousGuest;
+    mentorExecutionLoop = previousLoop;
+    diagnosticMemory = previousMemory;
+    try {
+      var restoreKey = getDiagnosticStorageKey();
+      if (storedDiagnosis === null) localStorage.removeItem(diagnosisKey);
+      else localStorage.setItem(diagnosisKey, storedDiagnosis);
+      if (restoreKey !== diagnosisKey) localStorage.removeItem(restoreKey);
+    } catch(e) {}
+  }
+  return results;
+}
+window.runInterventionProductionEvaluationTests = runInterventionProductionEvaluationTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
