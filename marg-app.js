@@ -7327,6 +7327,40 @@ function runMentorTurnContextTests() {
       return didNotSave && didNotPromote && promotedWhenActive;
     })() },
     { name:'unconfirmed certainty is rewritten unless a selected row is confirmed', passed:guardUnconfirmedCertainty('This confirmed pattern means you always rush.', { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' }).indexOf('confirmed pattern') === -1 && guardUnconfirmedCertainty('This confirmed pattern means you always rush.', { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' }).indexOf('you often') !== -1 },
+    { name:'confirmed selected row keeps certainty wording', passed:(function() {
+      var previousMemory = diagnosticMemory;
+      diagnosticMemory = { qa:{ topic:'qa', selectedSection:'QA', confirmedDiagnosis:'QA recognition gap', status:'confirmed', confirmation:'Exactly', doNotReuse:false, sourceThreadId:getCurrentMentorThreadId() } };
+      var text = 'This confirmed pattern means you always rush the options.';
+      var out = guardUnconfirmedCertainty(text, { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' });
+      diagnosticMemory = previousMemory;
+      return out === text;
+    })() },
+    { name:'confirmed unrelated row still guards certainty wording', passed:(function() {
+      var previousMemory = diagnosticMemory;
+      diagnosticMemory = { varc:{ topic:'varc', selectedSection:'VARC', confirmedDiagnosis:'VARC option drift', status:'confirmed', confirmation:'Exactly', doNotReuse:false, sourceThreadId:getCurrentMentorThreadId() } };
+      var out = guardUnconfirmedCertainty('This confirmed pattern means you always rush the options.', { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' });
+      diagnosticMemory = previousMemory;
+      return out.indexOf('confirmed pattern') === -1 && /you often rush/i.test(out);
+    })() },
+    { name:'method instructions and negated diagnosis claims stay literal', passed:(function() {
+      var diagnosis = { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' };
+      var samples = [
+        'A proven method is to cross-multiply first.',
+        'The confirmed answer is C because the passage limits the claim.',
+        'You always add the denominator first.',
+        'You always cancel common factors before multiplying.',
+        'This is not a confirmed pattern.',
+        'This is not a confirmed diagnosis.'
+      ];
+      return samples.every(function(sample) { return guardUnconfirmedCertainty(sample, diagnosis) === sample; });
+    })() },
+    { name:'unsupported rush certainty is guarded', passed:(function() {
+      var previousMemory = diagnosticMemory;
+      diagnosticMemory = {};
+      var out = guardUnconfirmedCertainty('You always rush the options.', { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' });
+      diagnosticMemory = previousMemory;
+      return /^You often rush the options\.$/.test(out);
+    })() },
     { name:'saved exercise memory stays off a strategy turn and a different question', passed:(function() {
       var previousExercise = activeGeneratedExercise;
       activeGeneratedExercise = { id:'ex-1', type:'qa', content:{ questions:[{ q:'Stem', options:['A','B','C','D'], correct:0 }] }, validationVerdict:{ status:'verified_local' } };
@@ -10886,9 +10920,19 @@ function guardUnconfirmedCertainty(text, diagnosis) {
     return diagnosticEntrySelected(entry, topic, message, selection) && normalizeDiagnosisStatus(entry) === 'confirmed';
   });
   if (hasConfirmed) return value;
-  value = value.replace(/\bconfirmed (?:pattern|diagnosis|weakness|habit|read)\b/gi, 'possible pattern');
-  value = value.replace(/\bproven (?:pattern|diagnosis|weakness|habit|read)\b/gi, 'unproven pattern');
-  value = value.replace(/\byou always\b/gi, 'you often');
+  function claimIsNegated(offset) {
+    return /\b(?:not|no|never|without|isn'?t|aren'?t|wasn'?t|weren'?t)\b(?:\s+[A-Za-z']+){0,3}\s*$/i.test(value.slice(Math.max(0, offset - 48), offset));
+  }
+  value = value.replace(/\bconfirmed (?:pattern|diagnosis|weakness|habit|read)\b/gi, function(match, offset) {
+    return claimIsNegated(offset) ? match : 'possible pattern';
+  });
+  value = value.replace(/\bproven (?:pattern|diagnosis|weakness|habit|read)\b/gi, function(match, offset) {
+    return claimIsNegated(offset) ? match : 'unproven pattern';
+  });
+  // Method steps stay literal. Only an unconfirmed behaviour claim is softened.
+  value = value.replace(/\b([Yy]ou) always(?=\s+(?:rush(?:es|ed|ing)?|panic(?:s|ked|king)?|freeze[sd]?|freezing|guess(?:es|ed|ing)?|miss(?:es|ed|ing)?|second-guess(?:es|ed|ing)?|over-?think(?:s|ing)?|stick(?:s|ing)?|stay(?:s|ed|ing)?|abandon(?:s|ed|ing)?|skip(?:s|ped|ping)?|choke[sd]?|choking|blank(?:s|ed|ing)?|re-?read(?:s|ing)?|hesitat(?:e|es|ed|ing)|doubt(?:s|ed|ing)?)\b)/g, function(match, pronoun) {
+    return (pronoun === 'You' ? 'You' : 'you') + ' often';
+  });
   return value;
 }
 
