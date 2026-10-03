@@ -7610,6 +7610,68 @@ function runMentorTurnContextTests() {
 }
 window.runMentorTurnContextTests = runMentorTurnContextTests;
 
+function runOutputQualityTests() {
+  function sentence(count, token) {
+    var words = [];
+    for (var i = 0; i < count; i++) words.push(token);
+    return words.join(' ') + '.';
+  }
+  var longReply = [sentence(30, 'alpha'), sentence(30, 'beta'), sentence(30, 'gamma'), sentence(30, 'delta')].join(' ');
+  var normalDiagnosis = { responseShape:'normal', questionBudget:1, intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' };
+  var shortDiagnosis = { responseShape:'short', questionBudget:0, intent:'privacy_request', submittedAnswerText:'Delete my data' };
+  var completeDiagnosis = { responseShape:'complete', questionBudget:0, intent:'answer_review', submittedAnswerText:'Review my answers' };
+  var planDiagnosis = { responseShape:'plan', questionBudget:0, intent:'planning', submittedAnswerText:'Build my weekly plan' };
+  var normalTrimmed = enforceMentorShapeLength(longReply, normalDiagnosis);
+  var shortTrimmed = enforceMentorShapeLength('One clear point. Two clear points. Three clear points. Four clear points.', shortDiagnosis);
+  var previousMemory = diagnosticMemory;
+  var previousExercise = activeGeneratedExercise;
+  var previousHistory = conversationHistory;
+  diagnosticMemory = {};
+  conversationHistory = [];
+  activeGeneratedExercise = {
+    id:'oq-review',
+    type:'qa',
+    content:{ questions:[{ q:'Stem', options:['12','15','18','21'], correct:0, explanation:'The checked value is 12.' }] },
+    validationVerdict:{ status:'verified_local' }
+  };
+  var reviewDiagnosis = { responseShape:'complete', questionBudget:0, intent:'answer_review', submittedAnswerText:'1-B' };
+  var reviewed = applyMentorResponseGuard('The model marked this incorrectly.', reviewDiagnosis);
+  activeGeneratedExercise = previousExercise;
+  conversationHistory = previousHistory;
+  diagnosticMemory = previousMemory;
+  var savedQuestion = finalizeMentorSavedText('The checked value is 12. Which step should we reopen?', { responseShape:'complete', questionBudget:0, intent:'question_reference', submittedAnswerText:'Why is C wrong in Q4?' });
+  var twoQuestions = finalizeMentorSavedText('The setup is right. Does that match what happened? Should I also reopen the older set?', normalDiagnosis);
+  var unspokenQuestion = finalizeMentorSavedText('The method is cross-multiply. Tell me which option you chose.', completeDiagnosis);
+  diagnosticMemory = {};
+  var regenerated = applyRegeneratedReplyGuard('You always rush through DILR.\n2 + 2 = 5.\nWant to go through the reasoning for one answer together?', { responseShape:'normal', questionBudget:0, intent:'dilr_diagnosis', submittedAnswerText:'How should I approach DILR?' });
+  diagnosticMemory = previousMemory;
+  var truncated = selectMentorModelText({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'The setup is right but' }] } }] });
+  var resolver = typeof resolveMaxOutputTokens === 'function' ? resolveMaxOutputTokens : null;
+  function contents(items) {
+    return items.map(function(item) { return { role:item.role, parts:item.parts }; });
+  }
+  var tokenResults = resolver ? [
+    { name:'normal mentor turn keeps 2048 when older history says study plan', passed:resolver({}, contents([{ role:'user', parts:[{ text:'Please build a study plan for next month.' }] }, { role:'model', parts:[{ text:'Here is the study plan.' }] }, { role:'user', parts:[{ text:'How should I approach this QA question?' }] }]), 2048) === 2048 },
+    { name:'short mentor turn keeps 1024 when older history says answer review', passed:resolver({}, contents([{ role:'user', parts:[{ text:'Please do an answer review of the last mock.' }] }, { role:'model', parts:[{ text:'Answer review noted.' }] }, { role:'user', parts:[{ text:'Thanks.' }] }]), 1024) === 1024 },
+    { name:'current user image still uses the vision floor', passed:resolver({}, contents([{ role:'user', parts:[{ text:'How should I approach QA?', inlineData:{ mimeType:'image/png', data:'abc' } }] }]), 2048) === 4096 },
+    { name:'older history image does not raise the current mentor ceiling', passed:resolver({}, contents([{ role:'user', parts:[{ text:'Look at this', inlineData:{ mimeType:'image/png', data:'abc' } }] }, { role:'model', parts:[{ text:'I see it.' }] }, { role:'user', parts:[{ text:'How should I approach QA?' }] }]), 2048) === 2048 },
+    { name:'practice JSON generation keeps its generation floor', passed:resolver({ generationConfig:{ responseMimeType:'application/json' } }, contents([{ role:'user', parts:[{ text:'Return only valid JSON for this QA set.' }] }]), 1024) === 8192 }
+  ] : [{ name:'worker token resolver is available to output-quality tests', passed:false }];
+  return [
+    { name:'oversized normal response is reduced at a sentence boundary', passed:normalTrimmed.indexOf('alpha') === 0 && normalTrimmed.indexOf('gamma') !== -1 && normalTrimmed.indexOf('delta') === -1 && /[.!?]$/.test(normalTrimmed) },
+    { name:'oversized short response is reduced at a sentence boundary', passed:shortTrimmed.indexOf('One clear point.') === 0 && shortTrimmed.indexOf('Three clear points.') !== -1 && shortTrimmed.indexOf('Four clear points.') === -1 },
+    { name:'complete response of the same size remains unchanged', passed:enforceMentorShapeLength(longReply, completeDiagnosis) === longReply },
+    { name:'plan response remains unchanged', passed:enforceMentorShapeLength(longReply, planDiagnosis) === longReply },
+    { name:'MAX_TOKENS mentor fragment is not the saved model text', passed:truncated === null },
+    { name:'budget 0 local answer review does not keep the follow-up question', passed:reviewed.indexOf('Want to go through') === -1 && reviewed.indexOf('?') === -1 && reviewed.indexOf('correct answer') !== -1 },
+    { name:'budget 0 saved-question replacement does not keep a follow-up question', passed:savedQuestion.indexOf('Which step') === -1 && savedQuestion.indexOf('checked value is 12') !== -1 && savedQuestion.indexOf('?') === -1 },
+    { name:'budget 1 keeps only one follow-up question', passed:twoQuestions.indexOf('Does that match what happened?') !== -1 && twoQuestions.indexOf('Should I also reopen') === -1 },
+    { name:'a follow-up without a question mark still counts against budget 0', passed:unspokenQuestion.indexOf('cross-multiply') !== -1 && unspokenQuestion.indexOf('Tell me which') === -1 },
+    { name:'regeneration with budget 0 cannot reintroduce a question and still runs arithmetic and certainty guards', passed:regenerated.indexOf('Want to go through') === -1 && regenerated.indexOf('?') === -1 && regenerated.indexOf('You often rush') !== -1 && regenerated.indexOf('You always rush') === -1 && regenerated.indexOf('2 + 2 = 4') !== -1 }
+  ].concat(tokenResults);
+}
+window.runOutputQualityTests = runOutputQualityTests;
+
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
     'VARC (Reading & Verbal)': "My first read: your English probably isn't the issue — the leak is more likely option elimination, pace, or second-guessing. We'll identify which one next.",
@@ -8132,14 +8194,15 @@ function applyRegeneratedReplyGuard(response, diagnosis) {
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
   text = guardExerciseAbilityOverclaim(text);
   text = guardAnswerVerdictConsistency(text, diagnosis);
-  if (diagnosis && diagnosis.gradingIntegrityRepaired) return stripInternalMentorTags(text).trim();
+  if (diagnosis && diagnosis.gradingIntegrityRepaired) return finalizeMentorSavedText(stripInternalMentorTags(text).trim(), diagnosis);
   text = guardEvidenceRefinementLanguage(text, diagnosis);
   text = formatMultiAnswerReview(text, diagnosis);
   text = guardTimeAllocationArithmetic(text);
   // Regeneration is a rewrite of one existing bubble. Deliberately do not run
   // the normal progression/profile/mission closers here: those can manufacture
   // a new exercise or question that was not present in the answer being revised.
-  return stripInternalMentorTags(text).trim();
+  // Arithmetic, certainty and question budget still apply to the saved rewrite.
+  return finalizeMentorSavedText(stripInternalMentorTags(text).trim(), diagnosis);
 }
 
 function latestVisibleAssistantHistoryIndex() {
@@ -8310,7 +8373,9 @@ async function regenerateAssistantMessage(wrap) {
     }, getMentorRequestTimeout(diagnosis.diagnosis, false));
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
-    var regenerated = applyRegeneratedReplyGuard(preventStructuredOutputLeak(getGeminiText(payload)), diagnosis.diagnosis);
+    var regeneratedSource = selectMentorModelText(payload);
+    if (regeneratedSource == null) throw new Error('Regenerated mentor output hit the token ceiling');
+    var regenerated = applyRegeneratedReplyGuard(preventStructuredOutputLeak(regeneratedSource), diagnosis.diagnosis);
     var previousSourceMarkers = previousContent.match(MARG_GROUNDING_SOURCE_PATTERN) || [];
     if (previousSourceMarkers.length && !/\[MARG_SOURCES:/.test(regenerated)) regenerated += '\n' + previousSourceMarkers.join('');
     MARG_GROUNDING_SOURCE_PATTERN.lastIndex = 0;
@@ -11365,7 +11430,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
   text = guardExerciseAbilityOverclaim(text);
   text = guardAnswerVerdictConsistency(text, diagnosis);
-  if (diagnosis && diagnosis.gradingIntegrityRepaired) return applyExplicitResponseLimit(text, diagnosis);
+  if (diagnosis && diagnosis.gradingIntegrityRepaired) return finalizeMentorSavedText(applyExplicitResponseLimit(text, diagnosis), diagnosis);
   text = guardEvidenceRefinementLanguage(text, diagnosis);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady && !diagnosis.allowsEvidenceQuestion) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
@@ -11411,17 +11476,116 @@ function applyMentorResponseGuard(response, diagnosis) {
   // Never discard an otherwise complete answer merely because natural prose
   // contains an unmatched quotation mark. The old quote-count heuristic
   // falsely removed valid RC exercises and appended an internal-sounding note.
-  // Do not mechanically slice model output. The prompt controls normal reply
-  // length; hard word caps were capable of manufacturing mid-answer cutoffs.
   if (!text) text = buildMentorFallbackReply(diagnosis);
-  return applyExplicitResponseLimit(text, diagnosis);
+  return finalizeMentorSavedText(applyExplicitResponseLimit(text, diagnosis), diagnosis);
+}
+
+function separateMentorControlTags(text) {
+  var tags = [];
+  var visible = String(text || '').replace(/\s*\[(OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG|REMINDER_CONTEXT|HYPOTHESIS_VERDICT):[^\]]*\]/gi, function(match) {
+    tags.push(match.trim());
+    return '';
+  });
+  return { visible:visible.replace(/\n{3,}/g, '\n\n').trim(), tags:tags };
+}
+
+function splitCompleteMentorSentences(text) {
+  var value = String(text || '').trim();
+  var sentences = [];
+  var pattern = /[^.!?]*[.!?]+(?:["')\]]+)?/g;
+  var match;
+  var end = 0;
+  while ((match = pattern.exec(value))) {
+    var sentence = String(match[0] || '').trim();
+    if (sentence) sentences.push(sentence);
+    end = pattern.lastIndex;
+  }
+  return { sentences:sentences, remainder:value.slice(end).trim() };
+}
+
+function mentorSentenceWordCount(sentence) {
+  return String(sentence || '').split(/\s+/).filter(Boolean).length;
+}
+
+function mentorSentenceIsFollowUpQuestion(sentence) {
+  var value = String(sentence || '').trim();
+  if (!value) return false;
+  if (/\?/.test(value)) return true;
+  // These cues already identify a student prompt in the mentor guards. They
+  // are not a new question classifier.
+  if (/\b(?:want me to|shall i|should i|do you want|when do you want|would you like|want to go through)\b/i.test(value)) return true;
+  if (/\b(?:reply|write|share|give me|tell me)\b[^.!?]{0,150}\b(?:answer|choice|label|function|summary|reasoning|one sentence|one line|which)\b/i.test(value)) return true;
+  return false;
+}
+
+function enforceMentorShapeLength(text, diagnosis) {
+  var shape = diagnosis && diagnosis.responseShape;
+  if (shape !== 'short' && shape !== 'normal') return String(text || '');
+  var separated = separateMentorControlTags(text);
+  var split = splitCompleteMentorSentences(separated.visible);
+  var sentences = split.sentences;
+  var kept = [];
+  var overCeiling = false;
+  if (shape === 'short') {
+    var sentenceLimit = 3;
+    overCeiling = sentences.length > sentenceLimit || (!!split.remainder && sentences.length >= sentenceLimit);
+    kept = sentences.slice(0, sentenceLimit);
+  } else {
+    var words = 0;
+    sentences.forEach(function(sentence) {
+      var count = mentorSentenceWordCount(sentence);
+      if (!kept.length || words + count <= 90) {
+        kept.push(sentence);
+        words += count;
+      } else overCeiling = true;
+    });
+    if (split.remainder && words >= 90) overCeiling = true;
+  }
+  if (!overCeiling) return String(text || '');
+  if (!kept.length) return String(text || '');
+  var body = kept.join(' ').replace(/\s{2,}/g, ' ').trim();
+  return (body + (separated.tags.length ? '\n' + separated.tags.join('\n') : '')).trim();
 }
 
 function enforceTurnQuestionBudget(text, diagnosis) {
-  if (!diagnosis || diagnosis.questionBudget !== 0) return String(text || '');
+  if (!diagnosis || (diagnosis.questionBudget !== 0 && diagnosis.questionBudget !== 1)) return String(text || '');
   if (diagnosis.rcProgressionReady || diagnosis.rcFunctionMapProgressionReady) return String(text || '');
-  var value = String(text || '').replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
-  return value.replace(/[^.!?\n]*\?\s*/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  var separated = separateMentorControlTags(text);
+  var split = splitCompleteMentorSentences(separated.visible);
+  var kept = [];
+  var questionsKept = 0;
+  function keepQuestion(sentence) {
+    if (diagnosis.questionBudget === 1 && questionsKept < 1) {
+      kept.push(sentence);
+      questionsKept += 1;
+      return;
+    }
+  }
+  split.sentences.forEach(function(sentence) {
+    if (!mentorSentenceIsFollowUpQuestion(sentence)) kept.push(sentence);
+    else keepQuestion(sentence);
+  });
+  if (split.remainder) {
+    if (!mentorSentenceIsFollowUpQuestion(split.remainder)) kept.push(split.remainder);
+    else keepQuestion(split.remainder);
+  }
+  var tags = diagnosis.questionBudget === 0
+    ? separated.tags.filter(function(tag) { return !/^\[(?:OPTIONS|CONTEXT):/i.test(tag); })
+    : separated.tags;
+  return (kept.join(' ').replace(/\s{2,}/g, ' ').trim() + (tags.length ? '\n' + tags.join('\n') : '')).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function finalizeMentorSavedText(text, diagnosis) {
+  var value = guardDeterministicArithmeticEqualities(String(text || ''));
+  value = guardUnconfirmedCertainty(value, diagnosis);
+  value = enforceMentorShapeLength(value, diagnosis);
+  value = enforceTurnQuestionBudget(value, diagnosis);
+  return value;
+}
+
+function selectMentorModelText(payload) {
+  if (isGeminiStructuredResponseTruncated(payload)) return null;
+  return getGeminiText(payload);
 }
 
 function getMentorResponseMaxTokens(diagnosis) {
@@ -11516,6 +11680,7 @@ function completeMentorTurnWithLocalRecovery(userMessage, diagnosis, useWebGroun
   finalizeMentorPlanCompletionReview(userMessage, reply);
   applyPredictionValidationVerdict(reply);
   reply = stripInternalMentorTags(reply);
+  reply = finalizeMentorSavedText(reply, diagnosis);
   markExerciseReviewCompleted(reply);
   addMessage('marg', renderMentorStructuredText(reply));
   conversationHistory.push({ role:'assistant', content:reply });
@@ -12079,7 +12244,12 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
       body: JSON.stringify(mentorRequest)
     }, mentorTimeout);
     var data = await res.json();
-    var geminiText = getGeminiText(data);
+    var geminiText = selectMentorModelText(data);
+    if (geminiText == null) {
+      var truncatedConversationalError = new Error('Mentor output hit the token ceiling');
+      truncatedConversationalError.name = 'GeminiEmptyResponseError';
+      throw truncatedConversationalError;
+    }
     var response = geminiText ? applyMentorResponseGuard(preventStructuredOutputLeak(geminiText), mentorAnalysis.diagnosis) : null;
     if (response) response = enforceVerifiedDILRChatBoundary(response, mentorAnalysis.diagnosis, userMessage, imageAttachments);
     if (response) response = ensureMockEvidenceContinuation(response, context, mentorAnalysis.diagnosis);
@@ -12100,6 +12270,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
       captureChatReminderContext(response);
       response = stripInternalMentorTags(response);
       response = appendGroundingSources(response, data);
+      response = finalizeMentorSavedText(response, mentorAnalysis.diagnosis);
       markExerciseReviewCompleted(response);
       if (!mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(userMessage)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
 
@@ -12152,6 +12323,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     fallbackResponse = stabilizeAndRememberMission(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(fallbackResponse))), userMessage);
     applyPredictionValidationVerdict(fallbackResponse);
     fallbackResponse = stripInternalMentorTags(fallbackResponse);
+    fallbackResponse = finalizeMentorSavedText(fallbackResponse, mentorAnalysis.diagnosis);
     markExerciseReviewCompleted(fallbackResponse);
     addMessage('marg', fallbackResponse);
     conversationHistory.push({ role: 'assistant', content: fallbackResponse });
@@ -13492,7 +13664,13 @@ async function sendMessage(fromQueue, submissionOptions) {
     enableWebGrounding(mentorRequest, useWebGrounding);
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mentorRequest) }, mentorTimeout);
     const data = await response.json();
-    let reply = applyMentorResponseGuard(preventStructuredOutputLeak(getGeminiText(data)), mentorAnalysis.diagnosis);
+    var mentorModelText = selectMentorModelText(data);
+    if (mentorModelText == null) {
+      var truncatedMentorError = new Error('Mentor output hit the token ceiling');
+      truncatedMentorError.name = 'GeminiEmptyResponseError';
+      throw truncatedMentorError;
+    }
+    let reply = applyMentorResponseGuard(preventStructuredOutputLeak(mentorModelText), mentorAnalysis.diagnosis);
     reply = stabilizeAndRememberMission(reply, text);
     reply = suppressUnrelatedActivePlanReminder(reply, text);
     reply = suppressUnrelatedExerciseContinuation(reply, text);
@@ -13508,6 +13686,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     applyPredictionValidationVerdict(reply);
     reply = stripInternalMentorTags(reply);
     reply = appendGroundingSources(reply, data);
+    reply = finalizeMentorSavedText(reply, mentorAnalysis.diagnosis);
     markExerciseReviewCompleted(reply);
     if (!mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(text)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
@@ -13534,6 +13713,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     finalizeMentorPlanCompletionReview(text, fallbackReply);
     applyPredictionValidationVerdict(fallbackReply);
     fallbackReply = stripInternalMentorTags(fallbackReply);
+    fallbackReply = finalizeMentorSavedText(fallbackReply, mentorAnalysis.diagnosis);
     markExerciseReviewCompleted(fallbackReply);
     addMessage('marg', fallbackReply);
     conversationHistory.push({ role: 'assistant', content: fallbackReply });
