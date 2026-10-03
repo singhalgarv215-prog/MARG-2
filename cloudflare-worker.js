@@ -298,6 +298,18 @@ function contentsContainImages(contents) {
   return (contents || []).some((message) => (message.parts || []).some((part) => part && part.inlineData));
 }
 
+function currentUserMessage(contents) {
+  const list = contents || [];
+  for (let index = list.length - 1; index >= 0; index--) {
+    if (list[index] && list[index].role === 'user') return list[index];
+  }
+  return null;
+}
+
+function messageContainsImages(message) {
+  return !!(message && (message.parts || []).some((part) => part && part.inlineData));
+}
+
 function requestText(payload, contents) {
   return (contents || []).flatMap((message) => message.parts || []).map((part) => part && part.text || '').join('\n').toLowerCase();
 }
@@ -357,20 +369,35 @@ function normalizeGenerationConfig(generationConfig) {
   return config;
 }
 
+function isPracticeGenerationRequest(payload, contents) {
+  const systemText = systemRequestText(payload);
+  if (systemText.includes('[marg_task: compact_decision_lab]')) return false;
+  const current = currentUserMessage(contents);
+  const currentText = current ? (current.parts || []).map((part) => part && part.text || '').join('\n').toLowerCase() : '';
+  const text = systemText + '\n' + currentText;
+  return !!((payload && hasJsonResponseFormat(payload.generationConfig)) ||
+    /\b(?:return only valid json|generate only valid json)\b/.test(systemText) ||
+    /\b(?:return only valid json|generate only valid json|question generator|sectional test|cat-style rc|cat style rc|dilr set|qa set|practice set|passage generation)\b/.test(text));
+}
+
 function resolveMaxOutputTokens(payload, contents, requestedTokens) {
   const requested = Number(requestedTokens) || 0;
   const text = requestText(payload, contents);
-  const systemText = systemRequestText(payload);
-  const compactDecisionLab = systemText.includes('[marg_task: compact_decision_lab]');
-  let floor = MIN_OUTPUT_TOKENS;
-  if (contentsContainImages(contents)) floor = VISION_OUTPUT_TOKENS;
-  if (/\b(?:complete roadmap|study plan|mock analysis|answer review|multi-step|full solution)\b/.test(text)) floor = Math.max(floor, LONG_OUTPUT_TOKENS);
-  if (!compactDecisionLab && ((payload && hasJsonResponseFormat(payload.generationConfig)) ||
-      /\b(?:return only valid json|generate only valid json)\b/.test(systemText) ||
-      /\b(?:return only valid json|generate only valid json|question generator|sectional test|cat-style rc|cat style rc|dilr set|qa set|practice set|passage generation)\b/.test(text))) {
+  // Practice and JSON generation keep their own floors. Those requests are not
+  // mentor-chat shape ceilings.
+  if (isPracticeGenerationRequest(payload, contents)) {
+    let floor = MIN_OUTPUT_TOKENS;
+    if (contentsContainImages(contents)) floor = VISION_OUTPUT_TOKENS;
+    if (/\b(?:complete roadmap|study plan|mock analysis|answer review|multi-step|full solution)\b/.test(text)) floor = Math.max(floor, LONG_OUTPUT_TOKENS);
     floor = Math.max(floor, GENERATION_OUTPUT_TOKENS);
+    return Math.min(MAX_OUTPUT_TOKENS, Math.max(floor, requested));
   }
-  return Math.min(MAX_OUTPUT_TOKENS, Math.max(floor, requested));
+  // Mentor chat: the client shape budget is the ceiling. Older history cannot
+  // raise it through keywords or images. An image on the current user turn
+  // still uses the vision floor.
+  let ceiling = Math.max(MIN_OUTPUT_TOKENS, requested);
+  if (messageContainsImages(currentUserMessage(contents))) ceiling = Math.max(ceiling, VISION_OUTPUT_TOKENS);
+  return Math.min(MAX_OUTPUT_TOKENS, ceiling);
 }
 
 function normalizeRequest(payload) {
@@ -551,6 +578,8 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
     };
   }
 }
+
+export { resolveMaxOutputTokens };
 
 export default {
   async fetch(request, env) {
