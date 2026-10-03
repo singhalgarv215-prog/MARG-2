@@ -374,10 +374,14 @@ function isPracticeGenerationRequest(payload, contents) {
   if (systemText.includes('[marg_task: compact_decision_lab]')) return false;
   const current = currentUserMessage(contents);
   const currentText = current ? (current.parts || []).map((part) => part && part.text || '').join('\n').toLowerCase() : '';
-  const text = systemText + '\n' + currentText;
-  return !!((payload && hasJsonResponseFormat(payload.generationConfig)) ||
-    /\b(?:return only valid json|generate only valid json)\b/.test(systemText) ||
-    /\b(?:return only valid json|generate only valid json|question generator|sectional test|cat-style rc|cat style rc|dilr set|qa set|practice set|passage generation)\b/.test(text));
+  // JSON mode and an explicit generator instruction are practice generation.
+  // Incidental wording in the mentor system instruction, including "DILR set",
+  // is not a request to generate practice material.
+  if (payload && hasJsonResponseFormat(payload.generationConfig)) return true;
+  if (/\b(?:return only valid json|generate only valid json)\b/.test(systemText) ||
+      /\b(?:return only valid json|generate only valid json)\b/.test(currentText)) return true;
+  if (/\bquestion generator\b/.test(systemText) || /\bquestion generator\b/.test(currentText)) return true;
+  return /\b(?:generate|write|create)\b[\s\S]{0,180}\b(?:sectional test|cat-style rc|cat style rc|dilr set|qa set|practice set|passage)\b/.test(currentText);
 }
 
 function resolveMaxOutputTokens(payload, contents, requestedTokens) {

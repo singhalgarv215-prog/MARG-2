@@ -7646,16 +7646,32 @@ function runOutputQualityTests() {
   var regenerated = applyRegeneratedReplyGuard('You always rush through DILR.\n2 + 2 = 5.\nWant to go through the reasoning for one answer together?', { responseShape:'normal', questionBudget:0, intent:'dilr_diagnosis', submittedAnswerText:'How should I approach DILR?' });
   diagnosticMemory = previousMemory;
   var truncated = selectMentorModelText({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'The setup is right but' }] } }] });
+  var budgetDiagnosis = { responseShape:'normal', questionBudget:0, intent:'general', submittedAnswerText:'How should I approach QA?' };
+  var budgetZero = applyMentorResponseGuard('The setup is right. Does that help? Should I continue?', budgetDiagnosis);
+  var budgetOne = applyMentorResponseGuard('The setup is right. Does that help? Should I continue?', { responseShape:'normal', questionBudget:1, intent:'general', submittedAnswerText:'How should I approach QA?' });
+  var rcQuestions = applyMentorResponseGuard('The passage point holds. Does the option match? Should we check one more line?', { responseShape:'normal', questionBudget:0, intent:'general', rcProgressionReady:true, submittedAnswerText:'I picked B because the line narrowed the claim.' });
   var resolver = typeof resolveMaxOutputTokens === 'function' ? resolveMaxOutputTokens : null;
   function contents(items) {
     return items.map(function(item) { return { role:item.role, parts:item.parts }; });
   }
+  var mentorSystem = { systemInstruction:{ parts:[{ text:'You are Marg, a CAT mentor. Do not invent a new DILR set.' }] } };
+  var studyPlanHistory = [{ role:'user', parts:[{ text:'Please build a study plan for next month.' }] }, { role:'model', parts:[{ text:'Here is a short note.' }] }, { role:'user', parts:[{ text:'How should I approach this QA question?' }] }];
+  var imageHistory = [{ role:'user', parts:[{ text:'Look at this page.', inlineData:{ mimeType:'image/png', data:'abc' } }] }, { role:'model', parts:[{ text:'I see it.' }] }, { role:'user', parts:[{ text:'How should I approach QA?' }] }];
+  var currentMentorTurn = [{ role:'user', parts:[{ text:'How should I approach this QA question?' }] }];
   var tokenResults = resolver ? [
     { name:'normal mentor turn keeps 2048 when older history says study plan', passed:resolver({}, contents([{ role:'user', parts:[{ text:'Please build a study plan for next month.' }] }, { role:'model', parts:[{ text:'Here is the study plan.' }] }, { role:'user', parts:[{ text:'How should I approach this QA question?' }] }]), 2048) === 2048 },
     { name:'short mentor turn keeps 1024 when older history says answer review', passed:resolver({}, contents([{ role:'user', parts:[{ text:'Please do an answer review of the last mock.' }] }, { role:'model', parts:[{ text:'Answer review noted.' }] }, { role:'user', parts:[{ text:'Thanks.' }] }]), 1024) === 1024 },
     { name:'current user image still uses the vision floor', passed:resolver({}, contents([{ role:'user', parts:[{ text:'How should I approach QA?', inlineData:{ mimeType:'image/png', data:'abc' } }] }]), 2048) === 4096 },
     { name:'older history image does not raise the current mentor ceiling', passed:resolver({}, contents([{ role:'user', parts:[{ text:'Look at this', inlineData:{ mimeType:'image/png', data:'abc' } }] }, { role:'model', parts:[{ text:'I see it.' }] }, { role:'user', parts:[{ text:'How should I approach QA?' }] }]), 2048) === 2048 },
-    { name:'practice JSON generation keeps its generation floor', passed:resolver({ generationConfig:{ responseMimeType:'application/json' } }, contents([{ role:'user', parts:[{ text:'Return only valid JSON for this QA set.' }] }]), 1024) === 8192 }
+    { name:'practice JSON generation keeps its generation floor', passed:resolver({ generationConfig:{ responseMimeType:'application/json' } }, contents([{ role:'user', parts:[{ text:'Return only valid JSON for this QA set.' }] }]), 1024) === 8192 },
+    { name:'mentor system sentence about a DILR set keeps a requested 1024', passed:resolver(mentorSystem, contents(currentMentorTurn), 1024) === 1024 },
+    { name:'mentor system sentence about a DILR set keeps a requested 2048', passed:resolver(mentorSystem, contents(currentMentorTurn), 2048) === 2048 },
+    { name:'older study plan history does not raise a mentor ceiling that mentions a DILR set', passed:resolver(mentorSystem, contents(studyPlanHistory), 1024) === 1024 && resolver(mentorSystem, contents(studyPlanHistory), 2048) === 2048 },
+    { name:'older image history does not raise a mentor ceiling that mentions a DILR set', passed:resolver(mentorSystem, contents(imageHistory), 1024) === 1024 && resolver(mentorSystem, contents(imageHistory), 2048) === 2048 },
+    { name:'current-turn image still raises the mentor vision floor', passed:resolver(mentorSystem, contents([{ role:'user', parts:[{ text:'How should I approach QA?', inlineData:{ mimeType:'image/png', data:'abc' } }] }]), 2048) === 4096 },
+    { name:'explicit JSON generation keeps the generation floor', passed:resolver({ systemInstruction:{ parts:[{ text:'Return only valid JSON.' }] } }, contents([{ role:'user', parts:[{ text:'Build the exercise.' }] }]), 1024) === 8192 },
+    { name:'question generator instruction keeps the generation floor', passed:resolver({ systemInstruction:{ parts:[{ text:'You are an expert CAT exam question generator. Generate only valid JSON.' }] } }, contents([{ role:'user', parts:[{ text:'Write one QA set.' }] }]), 1024) === 8192 },
+    { name:'a current request to write a practice set keeps the generation floor', passed:resolver({}, contents([{ role:'user', parts:[{ text:'Write a CAT-style RC passage for today.' }] }]), 1024) === 8192 }
   ] : [{ name:'worker token resolver is available to output-quality tests', passed:false }];
   return [
     { name:'oversized normal response is reduced at a sentence boundary', passed:normalTrimmed.indexOf('alpha') === 0 && normalTrimmed.indexOf('gamma') !== -1 && normalTrimmed.indexOf('delta') === -1 && /[.!?]$/.test(normalTrimmed) },
@@ -7667,9 +7683,59 @@ function runOutputQualityTests() {
     { name:'budget 0 saved-question replacement does not keep a follow-up question', passed:savedQuestion.indexOf('Which step') === -1 && savedQuestion.indexOf('checked value is 12') !== -1 && savedQuestion.indexOf('?') === -1 },
     { name:'budget 1 keeps only one follow-up question', passed:twoQuestions.indexOf('Does that match what happened?') !== -1 && twoQuestions.indexOf('Should I also reopen') === -1 },
     { name:'a follow-up without a question mark still counts against budget 0', passed:unspokenQuestion.indexOf('cross-multiply') !== -1 && unspokenQuestion.indexOf('Tell me which') === -1 },
-    { name:'regeneration with budget 0 cannot reintroduce a question and still runs arithmetic and certainty guards', passed:regenerated.indexOf('Want to go through') === -1 && regenerated.indexOf('?') === -1 && regenerated.indexOf('You often rush') !== -1 && regenerated.indexOf('You always rush') === -1 && regenerated.indexOf('2 + 2 = 4') !== -1 }
+    { name:'regeneration with budget 0 cannot reintroduce a question and still runs arithmetic and certainty guards', passed:regenerated.indexOf('Want to go through') === -1 && regenerated.indexOf('?') === -1 && regenerated.indexOf('You often rush') !== -1 && regenerated.indexOf('You always rush') === -1 && regenerated.indexOf('2 + 2 = 4') !== -1 },
+    { name:'budget 0 guard path does not keep a follow-up rewritten from a question mark', passed:budgetZero.indexOf('?') === -1 && budgetZero.indexOf('Should I continue') === -1 && budgetZero.indexOf('Does that help') === -1 && budgetZero.indexOf('The setup is right') !== -1 },
+    { name:'budget 1 guard path keeps only one follow-up question', passed:(budgetOne.match(/\?/g) || []).length === 1 && budgetOne.indexOf('Does that help?') !== -1 && budgetOne.indexOf('Should I continue') === -1 },
+    { name:'RC progression still keeps its follow-up questions', passed:(rcQuestions.match(/\?/g) || []).length === 2 }
   ].concat(tokenResults);
 }
+async function runPatternGuessOutputQualityTests() {
+  var previousFetch = fetch;
+  var previousHistory = conversationHistory.slice();
+  var previousProfile = Object.assign({}, conversationalProfile);
+  var previousOptions = margPendingConversationOptions;
+  function gemini(text, finishReason) {
+    return {
+      ok:true,
+      status:200,
+      headers:{ get:function() { return ''; } },
+      clone:function() { return this; },
+      json:async function() {
+        return { candidates:[{ finishReason:finishReason || 'STOP', content:{ parts:[{ text:text }] } }] };
+      }
+    };
+  }
+  var results = [];
+  try {
+    conversationHistory = [];
+    conversationalProfile = { awaitingPatternCorrection:false };
+    fetch = async function() { return gemini('You always rush the setup. Does that match? Should I continue?'); };
+    await sendPatternGuess('dilr', 'I cant crack the setup');
+    var saved = conversationHistory.filter(function(item) { return item.role === 'assistant'; }).pop();
+    var savedText = saved ? saved.content : '';
+    results.push({
+      name:'pattern guess saves finalized mentor text with one confirmation',
+      passed:(savedText.match(/\?/g) || []).length === 1 && savedText.indexOf('Should I continue') === -1 && savedText.indexOf('Does that match?') !== -1 && savedText.indexOf('You often rush') !== -1 && savedText.indexOf('You always rush') === -1 && conversationalProfile.awaitingPatternCorrection !== true && margPendingConversationOptions && margPendingConversationOptions.context === 'pattern_confirm'
+    });
+    conversationHistory = [];
+    margPendingConversationOptions = null;
+    fetch = async function() { return gemini('The setup is right but', 'MAX_TOKENS'); };
+    await sendPatternGuess('dilr', 'I cant crack the setup');
+    var fallback = conversationHistory.filter(function(item) { return item.role === 'assistant'; }).pop();
+    var fallbackText = fallback ? fallback.content : '';
+    results.push({
+      name:'pattern guess does not save a truncated model fragment',
+      passed:fallbackText.indexOf('The setup is right but') === -1 && fallbackText.indexOf('sound familiar?') !== -1 && margPendingConversationOptions && margPendingConversationOptions.context === 'pattern_confirm'
+    });
+  } finally {
+    fetch = previousFetch;
+    conversationHistory = previousHistory;
+    conversationalProfile = previousProfile;
+    margPendingConversationOptions = previousOptions;
+  }
+  return results;
+}
+window.runPatternGuessOutputQualityTests = runPatternGuessOutputQualityTests;
 window.runOutputQualityTests = runOutputQualityTests;
 
 const onboardingFlow = [
@@ -11435,9 +11501,6 @@ function applyMentorResponseGuard(response, diagnosis) {
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady && !diagnosis.allowsEvidenceQuestion) {
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
-  } else {
-    var questionCount = 0;
-    text = text.replace(/\?/g, function(mark) { questionCount++; return questionCount <= 1 ? mark : '.'; });
   }
   var visibleValue = text.replace(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g, '').trim();
   var valueWithoutQuestions = visibleValue.replace(/[^.!?\n]*\?/g, '').trim();
@@ -12363,10 +12426,18 @@ async function sendPatternGuess(section, subissueAnswer) {
       ))
     }, 45000);
     var data = await res.json();
-    var response = getGeminiText(data);
+    var modelText = selectMentorModelText(data);
     hideTyping();
 
-    var guessText = response ? stripMarkdown(response) : ('my guess — ' + patternContent + (isFallback ? '' : '. sound familiar?'));
+    var patternDiagnosis = {
+      responseShape:'short',
+      questionBudget:1,
+      intent:isFallback ? 'pattern_clarification' : 'pattern_hypothesis',
+      submittedAnswerText:subissueAnswer
+    };
+    var cleaned = modelText ? String(stripMarkdown(modelText) || '').trim() : '';
+    var fallbackText = 'my guess — ' + patternContent + (isFallback ? '' : '. sound familiar?');
+    var guessText = finalizeMentorSavedText(cleaned || fallbackText, patternDiagnosis);
 
     addMessage('marg', guessText.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'));
     conversationHistory.push({ role: 'assistant', content: guessText });
