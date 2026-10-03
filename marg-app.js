@@ -5187,7 +5187,8 @@ async function persistMentorTaskAttempt(exercise, result) {
       delivery_state:exercise.deliveryState || null,
       delivered_at:exercise.deliveredAt || null,
       generation_duration_ms:Number(exercise.generationDurationMs || 0) || null,
-      evidence_quality:evidenceQuality
+      evidence_quality:evidenceQuality,
+      observables:result && result.observables && typeof result.observables === 'object' ? result.observables : null
     },
     evidence_summary:String(result.evidenceSummary || (Number(result.correct || 0) + '/' + total + ' correct; ' + Number(result.wrong || 0) + ' wrong; ' + Number(result.skipped || 0) + ' skipped.')).slice(0, 1600),
     verdict:getExerciseHypothesisVerdict(exercise),
@@ -6649,6 +6650,133 @@ function applyPredictionValidationVerdict(responseText) {
   return verdict;
 }
 
+function interventionTargetFromTask(task) {
+  var payload = task && (task.action_payload || task.actionPayload) || {};
+  var target = payload.interventionTarget || payload.intervention_target || null;
+  if (!target || typeof target !== 'object') return null;
+  var observable = String(target.observable || '').trim();
+  var direction = target.direction === 'decrease' ? 'decrease' : target.direction === 'increase' ? 'increase' : '';
+  if (!observable || !direction) return null;
+  return { observable:observable, direction:direction };
+}
+
+function readAttemptObservable(attempt, observable) {
+  if (!attempt || !observable) return null;
+  var data = attempt.behaviour_data || attempt.behavior_data || {};
+  var observables = data.observables || {};
+  if (!Object.prototype.hasOwnProperty.call(observables, observable) || observables[observable] == null || observables[observable] === '') return null;
+  var value = Number(observables[observable]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function interventionComparisonPoints(task, attempts) {
+  var target = interventionTargetFromTask(task);
+  var taskId = String(task && (task.id || task.task_id) || '');
+  var points = (attempts || []).map(function(attempt) {
+    if (!attempt || String(attempt.task_id || attempt.taskId || '') !== taskId) return null;
+    var value = readAttemptObservable(attempt, target && target.observable);
+    if (value === null) return null;
+    return {
+      attemptId:attempt.id || attempt.client_ref || null,
+      value:value,
+      completedAt:String(attempt.completed_at || attempt.completedAt || attempt.updated_at || '')
+    };
+  }).filter(Boolean).sort(function(a, b) { return a.completedAt.localeCompare(b.completedAt) || String(a.attemptId || '').localeCompare(String(b.attemptId || '')); });
+  return { target:target, points:points };
+}
+
+function evaluateIntervention(task, attempts, options) {
+  options = options || {};
+  var compared = interventionComparisonPoints(task, attempts);
+  var base = {
+    verdict:'INCONCLUSIVE',
+    reason:'There is not enough comparable evidence for this intervention.',
+    observable:compared.target && compared.target.observable || null,
+    direction:compared.target && compared.target.direction || null,
+    baseline:null,
+    post:null,
+    series:compared.points
+  };
+  if (!compared.target) {
+    base.reason = 'The task has no measurable success criterion.';
+    return base;
+  }
+  if (compared.points.length < 2) {
+    base.baseline = compared.points[0] || null;
+    base.reason = 'No usable baseline is stored for this intervention.';
+    return base;
+  }
+  var baseline = compared.points[0];
+  var post = compared.points[compared.points.length - 1];
+  base.baseline = baseline;
+  base.post = post;
+  var improved = compared.target.direction === 'decrease' ? post.value < baseline.value : post.value > baseline.value;
+  var worsened = compared.target.direction === 'decrease' ? post.value > baseline.value : post.value < baseline.value;
+  if (improved) {
+    base.verdict = 'SUPPORTED';
+    base.reason = 'The stored ' + compared.target.observable + ' moved from ' + baseline.value + ' to ' + post.value + ' in the direction this intervention targets.';
+  } else if (worsened) {
+    base.verdict = 'REJECTED';
+    base.reason = 'The stored ' + compared.target.observable + ' moved from ' + baseline.value + ' to ' + post.value + ', contrary to this intervention target.';
+  } else {
+    base.reason = 'The stored ' + compared.target.observable + ' did not change between the baseline and the later attempt.';
+  }
+  return base;
+}
+
+function evaluateRecommendation(task, attempts, options) {
+  var diagnosisId = task && (task.diagnosis_id || task.diagnosisId) || null;
+  if (!diagnosisId) {
+    return { verdict:'INCONCLUSIVE', reason:'This recommendation is not linked to a diagnosis.', diagnosisId:null, taskId:task && task.id || null, intervention:null };
+  }
+  var intervention = evaluateIntervention(task, attempts, options);
+  return {
+    verdict:intervention.verdict,
+    reason:intervention.reason,
+    diagnosisId:diagnosisId,
+    taskId:task && task.id || null,
+    intervention:intervention
+  };
+}
+
+function applyInterventionAdaptation(task, diagnosis, attempts, options) {
+  var recommendation = evaluateRecommendation(task, attempts, options);
+  var intervention = recommendation.intervention || evaluateIntervention(task, attempts, options);
+  if (task) {
+    if (!task.action_payload) task.action_payload = {};
+    task.action_payload.interventionEvaluation = {
+      verdict:intervention.verdict, reason:intervention.reason,
+      observable:intervention.observable, direction:intervention.direction,
+      baseline:intervention.baseline, post:intervention.post, series:intervention.series
+    };
+    task.action_payload.recommendationEvaluation = {
+      verdict:recommendation.verdict, reason:recommendation.reason,
+      diagnosisId:recommendation.diagnosisId, taskId:recommendation.taskId
+    };
+    task.action_payload.repeatSameDiagnostic = intervention.verdict !== 'SUPPORTED';
+  }
+  return {
+    intervention:intervention.verdict,
+    recommendation:recommendation.verdict,
+    diagnosisStatus:diagnosis && diagnosis.status || null,
+    confidence:diagnosis && diagnosis.confidence,
+    repeatSameDiagnostic:!task || task.action_payload.repeatSameDiagnostic !== false
+  };
+}
+
+function shouldRepeatSameDiagnostic(entry) {
+  if (!entry) return true;
+  var tasks = mentorExecutionLoop && mentorExecutionLoop.tasks || [];
+  var succeeded = tasks.some(function(task) {
+    var evaluation = task && task.action_payload && task.action_payload.interventionEvaluation;
+    if (!evaluation || evaluation.verdict !== 'SUPPORTED') return false;
+    if (entry.dbDiagnosisId && String(task.diagnosis_id || task.diagnosisId || '') === String(entry.dbDiagnosisId)) return true;
+    var payload = task.action_payload || {};
+    return !!(payload.pattern_id && entry.patternId && payload.pattern_id === entry.patternId && normalizeExecutionSection(task.section) === normalizeExecutionSection(entry.topic));
+  });
+  return !succeeded;
+}
+
 function recordActiveExerciseSelection(position, selectedIndex, correctIndex) {
   if (!activeGeneratedExercise) return;
   if (!activeGeneratedExercise.uiSelections) activeGeneratedExercise.uiSelections = [];
@@ -7941,6 +8069,66 @@ function runEvaluationTests() {
   ];
 }
 window.runEvaluationTests = runEvaluationTests;
+
+function runInterventionRecommendationEvaluationTests() {
+  function attempt(id, when, value) {
+    return { id:id, task_id:'task-1', completed_at:when, correct:value, behaviour_data:{ observables:{ selectionMisses:value } } };
+  }
+  var target = { observable:'selectionMisses', direction:'decrease' };
+  function task(extra) {
+    return Object.assign({
+      id:'task-1', diagnosis_id:'diagnosis-1', section:'dilr', success_metric:'Selection misses should fall on the same drill.',
+      status:'evidence_ready', action_payload:{ pattern_id:'selection', interventionTarget:target }
+    }, extra || {});
+  }
+  var diagnosis = { topic:'dilr', patternId:'selection', status:'hypothesis', confidence:0.62, dbDiagnosisId:'diagnosis-1' };
+  var improved = [attempt('baseline', '2026-10-01T00:00:00.000Z', 4), attempt('post', '2026-10-02T00:00:00.000Z', 1)];
+  var worsened = [attempt('baseline', '2026-10-01T00:00:00.000Z', 1), attempt('post', '2026-10-02T00:00:00.000Z', 4)];
+  var supported = evaluateIntervention(task(), improved, { prose:'[HYPOTHESIS_VERDICT: rejected]', feedback:'helpful', completed:true });
+  var rejected = evaluateIntervention(task(), worsened, { prose:'SUPPORTED', feedback:'helpful', completed:true });
+  var missingBaseline = evaluateIntervention(task(), [attempt('only', '2026-10-02T00:00:00.000Z', 0)], { completed:true, prose:'SUPPORTED' });
+  var noCriterion = evaluateIntervention(task({ action_payload:{ pattern_id:'selection' }, success_metric:'Review the completed attempt.' }), improved, { prose:'SUPPORTED' });
+  var flat = evaluateIntervention(task(), [attempt('baseline', '2026-10-01T00:00:00.000Z', 3), attempt('post', '2026-10-02T00:00:00.000Z', 3)], { completed:true });
+  var finished = evaluateIntervention(task({ status:'reviewed' }), [], { prose:'I finished the task', completed:true });
+  var helpful = evaluateIntervention(task(), [attempt('only', '2026-10-02T00:00:00.000Z', 5)], { feedback:'helpful', prose:'This was helpful' });
+  var recommendationSupported = evaluateRecommendation(task(), improved, { prose:'REJECTED' });
+  var recommendationRejected = evaluateRecommendation(task(), worsened, { prose:'SUPPORTED' });
+  var unlinked = evaluateRecommendation(task({ diagnosis_id:null }), improved, { prose:'SUPPORTED' });
+  var previousAccuracy = null;
+  try { previousAccuracy = topicProgression; } catch(e) {}
+  topicProgression = { 'dilr::selection':{ section:'dilr', topic:'selection', lastAccuracy:100 } };
+  var series = [
+    attempt('a1', '2026-10-01T00:00:00.000Z', 5),
+    attempt('a2', '2026-10-02T00:00:00.000Z', 4),
+    attempt('a3', '2026-10-03T00:00:00.000Z', 2)
+  ];
+  var preserved = evaluateIntervention(task(), series, { lastAccuracy:100 });
+  topicProgression = previousAccuracy || {};
+  var adapted = applyInterventionAdaptation(task(), Object.assign({}, diagnosis), improved);
+  var rejectedAdaptation = applyInterventionAdaptation(task(), Object.assign({}, diagnosis), worsened);
+  var unresolved = applyInterventionAdaptation(task(), Object.assign({}, diagnosis), [attempt('only', '2026-10-02T00:00:00.000Z', 4)]);
+  var previousTasks = mentorExecutionLoop.tasks;
+  mentorExecutionLoop.tasks = [{ id:'task-1', diagnosis_id:'diagnosis-1', section:'dilr', action_payload:{ pattern_id:'selection', interventionEvaluation:{ verdict:'SUPPORTED' } } }];
+  var doesNotRepeat = shouldRepeatSameDiagnostic(diagnosis) === false;
+  mentorExecutionLoop.tasks = previousTasks;
+  return [
+    { name:'baseline and improved observable evaluate the intervention SUPPORTED', passed:supported.verdict === 'SUPPORTED' && supported.baseline.value === 4 && supported.post.value === 1 },
+    { name:'baseline and contradictory observable evaluate the intervention REJECTED', passed:rejected.verdict === 'REJECTED' && rejected.post.value === 4 },
+    { name:'missing baseline stays INCONCLUSIVE', passed:missingBaseline.verdict === 'INCONCLUSIVE' },
+    { name:'prose success metric without a measurable target stays INCONCLUSIVE', passed:noCriterion.verdict === 'INCONCLUSIVE' },
+    { name:'completion without a better observable is not intervention success', passed:flat.verdict !== 'SUPPORTED' && missingBaseline.verdict !== 'SUPPORTED' },
+    { name:'finishing the task does not create intervention success', passed:finished.verdict === 'INCONCLUSIVE' },
+    { name:'a helpful signal does not create intervention success', passed:helpful.verdict === 'INCONCLUSIVE' },
+    { name:'a diagnosis-linked recommendation is SUPPORTED when the targeted observable improves', passed:recommendationSupported.verdict === 'SUPPORTED' && recommendationSupported.diagnosisId === 'diagnosis-1' && recommendationSupported.taskId === 'task-1' },
+    { name:'a diagnosis-linked recommendation is REJECTED when the targeted observable moves the wrong way', passed:recommendationRejected.verdict === 'REJECTED' },
+    { name:'a recommendation without a diagnosis stays INCONCLUSIVE', passed:unlinked.verdict === 'INCONCLUSIVE' && unlinked.intervention === null },
+    { name:'multiple attempts keep the baseline and later result instead of lastAccuracy', passed:preserved.verdict === 'SUPPORTED' && preserved.baseline.attemptId === 'a1' && preserved.baseline.value === 5 && preserved.post.attemptId === 'a3' && preserved.post.value === 2 && preserved.series.length === 3 },
+    { name:'model prose cannot override a deterministic intervention or recommendation verdict', passed:supported.verdict === 'SUPPORTED' && rejected.verdict === 'REJECTED' && recommendationSupported.verdict === 'SUPPORTED' && recommendationRejected.verdict === 'REJECTED' },
+    { name:'supported intervention can move past the same diagnostic without changing diagnosis confidence', passed:adapted.intervention === 'SUPPORTED' && adapted.recommendation === 'SUPPORTED' && adapted.repeatSameDiagnostic === false && adapted.diagnosisStatus === 'hypothesis' && adapted.confidence === 0.62 && doesNotRepeat },
+    { name:'rejected and inconclusive interventions do not reject the diagnosis', passed:rejectedAdaptation.intervention === 'REJECTED' && rejectedAdaptation.diagnosisStatus === 'hypothesis' && rejectedAdaptation.confidence === 0.62 && unresolved.intervention === 'INCONCLUSIVE' && unresolved.diagnosisStatus === 'hypothesis' && unresolved.repeatSameDiagnostic === true }
+  ];
+}
+window.runInterventionRecommendationEvaluationTests = runInterventionRecommendationEvaluationTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
@@ -9802,6 +9990,11 @@ async function handlePredictionExerciseTiming(answer) {
   if (!pending || !pending.entry) return;
   var normalized = String(answer || '').toLowerCase();
   if (/yes|let.?s do|right now|now/.test(normalized)) {
+    if (!shouldRepeatSameDiagnostic(pending.entry)) {
+      savePendingDiagnosticExercise(null);
+      addMentorLeadMessage('That targeted check already produced the change it was measuring, so I will not repeat it.');
+      return;
+    }
     upsertMentorTaskForDiagnosis(pending.entry, { status:'generating', timing:'right_now' });
     if (pending.entry.topic === 'dilr') {
       addMentorLeadMessage(getDILROpeningLesson(pending.entry));
