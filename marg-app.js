@@ -3521,7 +3521,7 @@ function cleanHistory(history) {
   // Short context is good for latency, but cannot erase evidence explicitly
   // requested in a recap. Retrieve at most two relevant earlier user/reply
   // pairs; normal turns still use only the recent 24 messages.
-  if (!/\b(?:recap|recall|remember|earlier|previous|summar(?:y|i[sz]e)|what did (?:i|you)|you (?:said|told|claimed)|never supplied)\b/i.test(recallRequest || '')) return recentHistory;
+  if (!historyRequestsBroadRecall(recallRequest)) return recentHistory;
   var excluded = /^(?:the|and|that|this|with|from|only|give|have|were|what|which|when|then|your|mine|answer|answers|question|questions|working|correct|wrong|corrected|recap|remember|earlier|previous|supplied|three|line|lines|college|target|total|scores|score|please|never|said|told|claim|claimed|practice|tasks|mock)$/;
   var terms = Array.from(new Set((String(recallRequest).toLowerCase().match(/[a-z]{3,}|\bq\d+\b/g) || []).filter(function(term) { return !excluded.test(term); })));
   if (!terms.length) return recentHistory;
@@ -3932,8 +3932,9 @@ function buildImageUserMessageHtml(text, attachments) {
   return images + caption;
 }
 
-function buildHistoryWithImageAttachment(history, attachments, userText) {
+function buildHistoryWithImageAttachment(history, attachments, userText, diagnosis, extras) {
   var requestHistory = cleanHistory(history || []).slice();
+  if (diagnosis) requestHistory = routeHistoryForTurn(requestHistory, userText, diagnosis, extras);
   var list = (Array.isArray(attachments) ? attachments : attachments ? [attachments] : []).filter(function(item) { return item && item.data; });
   if (!list.length) return requestHistory;
   var imageParts = list.map(function(attachment) {
@@ -3955,7 +3956,18 @@ function trimHistoryForGroundedRequest(requestHistory) {
   // Source verification is driven by the current claim. Durable profile and
   // diagnostic memory are already in the system context; resending 24 chat
   // turns makes Google Search grounding slower without improving the lookup.
-  return history.length > 6 ? history.slice(-6) : history;
+  if (history.length <= 6) return history;
+  var sliced = history.slice(-6);
+  var cut = history.length - 6;
+  var supplyAt = -1;
+  for (var i = cut - 1; i >= Math.max(0, cut - 8); i--) {
+    var item = history[i];
+    if (!item || item.role !== 'user') continue;
+    var text = typeof item.content === 'string' ? item.content : '';
+    var hasImage = Array.isArray(item.parts) && item.parts.some(function(part) { return part && part.inlineData; });
+    if (hasImage || text.length > 280) supplyAt = i;
+  }
+  return supplyAt === -1 ? sliced : history.slice(supplyAt);
 }
 
 function getImageAnalysisDirective(attachments) {
@@ -4538,6 +4550,11 @@ function requestsAccountWideMentorMemory(message) {
   return /\b(?:across all (?:my )?(?:chats?|conversations?)|account[- ]wide|from (?:my )?(?:other|previous|past) chats?|all (?:my )?(?:history|mock history)|what do you (?:know|remember) about me|use my (?:full|account) history)\b/i.test(String(message || ''));
 }
 
+function historyRequestsBroadRecall(message) {
+  return requestsAccountWideMentorMemory(message) ||
+    /\b(?:recap|recall|remember|earlier|previous|summar(?:y|i[sz]e)|what did (?:i|you)|you (?:said|told|claimed)|never supplied|what have i been doing)\b/i.test(String(message || ''));
+}
+
 function scopedMentorMemoryAllowed(item, message) {
   if (requestsAccountWideMentorMemory(message)) return true;
   return !!(item && item.sourceThreadId && item.sourceThreadId === getCurrentMentorThreadId());
@@ -4593,6 +4610,76 @@ function selectTurnMemory(message, diagnosis) {
   var focus = getReliableMentorFocus(message);
   if (focus) return { mode:'topics', topics:[focus], hypothesisTopics:[] };
   return { mode:'none', topics:[], hypothesisTopics:[] };
+}
+
+function historyItemText(item) {
+  if (!item) return '';
+  if (typeof item.content === 'string') return item.content;
+  if (Array.isArray(item.parts)) return item.parts.map(function(part) { return part && part.text || ''; }).join('\n');
+  return '';
+}
+
+function historyTurnGroups(history) {
+  var groups = [];
+  (history || []).forEach(function(item) {
+    if (!item) return;
+    if (item.role === 'user' || !groups.length) groups.push([item]);
+    else groups[groups.length - 1].push(item);
+  });
+  return groups;
+}
+
+function historyGroupText(group) {
+  return group.map(historyItemText).join('\n');
+}
+
+function historyGroupMatchesTopics(group, topics) {
+  var named = sectionsNamedInMessage(historyGroupText(group));
+  if ((topics || []).indexOf('mock') !== -1 && /\bmocks?\b/i.test(historyGroupText(group))) return true;
+  return named.some(function(section) { return (topics || []).indexOf(section) !== -1; });
+}
+
+function historyGroupIsOtherTopic(group, topics) {
+  var named = sectionsNamedInMessage(historyGroupText(group));
+  if (!named.length) return false;
+  return named.every(function(section) { return (topics || []).indexOf(section) === -1; });
+}
+
+function flattenHistoryGroups(groups) {
+  var out = [];
+  groups.forEach(function(group) { group.forEach(function(item) { out.push(item); }); });
+  return out;
+}
+
+function routeHistoryForTurn(cleanedHistory, message, diagnosis, extras) {
+  extras = extras || {};
+  var history = Array.isArray(cleanedHistory) ? cleanedHistory.slice() : [];
+  if (!history.length || !diagnosis || extras.surface === 'conversational') return history;
+  if (historyRequestsBroadRecall(message)) return history;
+  var selection = selectTurnMemory(message, diagnosis);
+  var intent = diagnosis.intent || '';
+  var immediate = !!(extras.hasImage || diagnosis.hasImage || ['question_reference','image_question','answer_review','dilr_validity_review','seamless_continuation'].indexOf(intent) !== -1);
+  var groups = historyTurnGroups(history);
+  if (immediate) return flattenHistoryGroups(groups.slice(-3));
+  if (selection.mode === 'topics' && selection.topics && selection.topics.length) {
+    var topics = selection.topics;
+    return flattenHistoryGroups(groups.filter(function(group, index) {
+      if (index === groups.length - 1) return true;
+      if (historyGroupIsOtherTopic(group, topics)) return false;
+      if (historyGroupMatchesTopics(group, topics)) return true;
+      return index >= groups.length - 3;
+    }));
+  }
+  return flattenHistoryGroups(historyGroupsWithRecentSupply(groups, 3));
+}
+
+function historyGroupsWithRecentSupply(groups, minimum) {
+  var start = Math.max(0, groups.length - minimum);
+  for (var i = start - 1; i >= Math.max(0, start - 4); i--) {
+    var user = groups[i][0];
+    if (user && user.role === 'user' && historyItemText(user).length > 280) return groups.slice(i);
+  }
+  return groups.slice(-minimum);
 }
 
 function diagnosticEntrySelected(entry, topicKey, message, selection) {
@@ -7268,6 +7355,144 @@ async function runContextRoutingTests() {
   return results;
 }
 window.runContextRoutingTests = runContextRoutingTests;
+
+function runHistoryRoutingTests() {
+  var originalHistory = conversationHistory;
+  var originalTopic = activeDiagnosticTopic;
+  var originalFlow = diagnosticFlowState;
+  var originalPlan = activeMentorPlan;
+  conversationHistory = [];
+  activeDiagnosticTopic = null;
+  diagnosticFlowState = { active:false, topic:null };
+  activeMentorPlan = null;
+  function turn(role, content) { return { role:role, content:content }; }
+  function textOf(history) { return history.map(function(item) { return historyItemText(item); }).join('\n'); }
+  var transcript = [
+    turn('user', 'VARC diagnosis: I miss RC main ideas.'),
+    turn('assistant', 'That VARC read is only a hypothesis.'),
+    turn('user', 'Let us do an RC practice passage.'),
+    turn('assistant', 'Here is an RC passage about trade.'),
+    turn('user', 'DILR discussion: I stay too long on sets.'),
+    turn('assistant', 'The DILR leave decision is the thing to test.'),
+    turn('user', 'This QA question is about ratios.'),
+    turn('assistant', 'Start the QA ratio by writing the two parts.')
+  ];
+  var qaMessage = 'How should I approach this QA question?';
+  var qaHistory = transcript.concat([turn('user', qaMessage)]);
+  var qaDiagnosis = buildDiagnosisDirective(qaMessage).diagnosis;
+  var qaRouted = buildHistoryWithImageAttachment(qaHistory, [], qaMessage, qaDiagnosis, { surface:'chat' });
+  var qaText = textOf(qaRouted);
+  var varcMessage = 'How should I approach VARC?';
+  var varcHistory = transcript.concat([turn('user', varcMessage)]);
+  var varcDiagnosis = buildDiagnosisDirective(varcMessage).diagnosis;
+  var varcRouted = buildHistoryWithImageAttachment(varcHistory, [], varcMessage, varcDiagnosis, { surface:'chat' });
+  var varcText = textOf(varcRouted);
+  var generalMessage = 'I practised today and want a rhythm';
+  var generalHistory = [
+    turn('user', 'VARC diagnosis: I miss RC main ideas.'),
+    turn('assistant', 'That VARC read is only a hypothesis.'),
+    turn('user', 'Thanks, that helps.'),
+    turn('assistant', 'Good. We can continue from here.'),
+    turn('user', 'Let us keep this conversation going.'),
+    turn('assistant', 'Tell me what you want next.'),
+    turn('user', generalMessage)
+  ];
+  var generalDiagnosis = buildDiagnosisDirective(generalMessage).diagnosis;
+  var generalRouted = buildHistoryWithImageAttachment(generalHistory, [], generalMessage, generalDiagnosis, { surface:'chat' });
+  var generalText = textOf(generalRouted);
+  var recapMessage = 'Please recap what we have worked on';
+  var recapHistory = transcript.concat([turn('user', recapMessage)]);
+  var recapDiagnosis = buildDiagnosisDirective(recapMessage).diagnosis;
+  var recapRouted = buildHistoryWithImageAttachment(recapHistory, [], recapMessage, recapDiagnosis, { surface:'chat' });
+  var recapText = textOf(recapRouted);
+  var accountMessage = 'use my account history';
+  var accountHistory = transcript.concat([turn('user', accountMessage)]);
+  var accountDiagnosis = buildDiagnosisDirective(accountMessage).diagnosis;
+  var accountText = textOf(buildHistoryWithImageAttachment(accountHistory, [], accountMessage, accountDiagnosis, { surface:'chat' }));
+  var stem = 'Saved question stem: a shopkeeper mixes two teas. Options A 1:1 B 2:1 C 3:1 D 4:1.';
+  var referenceMessage = 'Why is C wrong in Q4?';
+  var referenceHistory = [
+    turn('user', 'VARC diagnosis: I miss RC main ideas.'),
+    turn('assistant', 'That VARC read is only a hypothesis.'),
+    turn('user', 'Thanks, that helps.'),
+    turn('assistant', 'Good.'),
+    turn('user', 'Another short note.'),
+    turn('assistant', 'Okay.'),
+    turn('user', stem),
+    turn('assistant', 'We can check option C from that stem.'),
+    turn('user', referenceMessage)
+  ];
+  var referenceDiagnosis = buildDiagnosisDirective(referenceMessage).diagnosis;
+  var referenceText = textOf(buildHistoryWithImageAttachment(referenceHistory, [], referenceMessage, referenceDiagnosis, { surface:'chat' }));
+  var imageMessage = 'What does this mark mean?';
+  var imageHistory = [
+    turn('user', 'QA ratios can wait.'),
+    turn('assistant', 'We will leave QA for now.'),
+    turn('user', 'First short note.'),
+    turn('assistant', 'Okay.'),
+    turn('user', 'Second short note.'),
+    turn('assistant', 'Okay.'),
+    turn('user', 'This image is the DILR set we just opened.'),
+    turn('assistant', 'I have the DILR image in front of me.'),
+    turn('user', imageMessage)
+  ];
+  var imageDiagnosis = buildDiagnosisDirective(imageMessage).diagnosis;
+  imageDiagnosis.hasImage = true;
+  imageDiagnosis.intent = 'image_question';
+  var imageText = textOf(buildHistoryWithImageAttachment(imageHistory, [{ data:'abc', mimeType:'image/jpeg' }], imageMessage, imageDiagnosis, { surface:'chat', hasImage:true }));
+  var grounded = [];
+  for (var i = 0; i < 8; i++) {
+    grounded.push(turn('user', 'Short earlier note ' + i));
+    grounded.push(turn('assistant', 'Noted ' + i));
+  }
+  var supplied = 'OFFICIAL SYLLABUS PASTE ' + new Array(80).join('word ');
+  grounded.push(turn('user', supplied));
+  grounded.push(turn('assistant', 'I can see that syllabus paste.'));
+  for (var j = 0; j < 4; j++) {
+    grounded.push(turn('user', 'Follow up ' + j));
+    grounded.push(turn('assistant', 'Continue ' + j));
+  }
+  var groundedMessage = 'Is this the current official syllabus?';
+  grounded.push(turn('user', groundedMessage));
+  var groundedTrimmed = trimHistoryForGroundedRequest(buildHistoryWithImageAttachment(grounded, [], groundedMessage, buildDiagnosisDirective(groundedMessage).diagnosis, { surface:'chat' }));
+  var groundedText = textOf(groundedTrimmed);
+  var onboardHistory = [
+    turn('user', 'My weak section is VARC.'),
+    turn('assistant', 'We will use that only as a self-report.'),
+    turn('user', 'I can study for 2 hours.'),
+    turn('assistant', 'Two hours is enough for one focused block.')
+  ];
+  var onboardMessage = 'QA feels shaky too';
+  var onboardFull = onboardHistory.concat([turn('user', onboardMessage)]);
+  var onboardText = textOf(buildHistoryWithImageAttachment(onboardFull, [], onboardMessage, buildDiagnosisDirective(onboardMessage).diagnosis, { surface:'conversational' }));
+  var assembled = buildGeminiRequest(
+    'SYSTEM',
+    buildHistoryWithImageAttachment(qaHistory, [], qaMessage, qaDiagnosis, { surface:'chat' }),
+    2048
+  );
+  var assembledText = assembled.contents.map(function(item) {
+    return (item.parts || []).map(function(part) { return part.text || ''; }).join('\n');
+  }).join('\n');
+  var results = [
+    { name:'QA turn does not carry unrelated VARC or DILR history', passed:qaText.indexOf(qaMessage) !== -1 && qaText.indexOf('QA ratio') !== -1 && qaText.indexOf('VARC diagnosis') === -1 && qaText.indexOf('RC practice') === -1 && qaText.indexOf('DILR discussion') === -1 },
+    { name:'VARC turn does not carry unrelated QA history', passed:varcText.indexOf(varcMessage) !== -1 && varcText.indexOf('VARC diagnosis') !== -1 && varcText.indexOf('QA ratio') === -1 && varcText.indexOf('DILR discussion') === -1 },
+    { name:'general conversation preserves recent continuity', passed:generalText.indexOf(generalMessage) !== -1 && generalText.indexOf('Thanks, that helps.') !== -1 && generalText.indexOf('VARC diagnosis') === -1 },
+    { name:'explicit recap preserves broader history', passed:recapText.indexOf('VARC diagnosis') !== -1 && recapText.indexOf('DILR discussion') !== -1 && recapText.indexOf('QA ratio') !== -1 },
+    { name:'account history preserves broader history', passed:accountText.indexOf('VARC diagnosis') !== -1 && accountText.indexOf('QA ratio') !== -1 },
+    { name:'saved-question reference retains the immediate stem', passed:referenceDiagnosis.intent === 'question_reference' && referenceText.indexOf(stem) !== -1 && referenceText.indexOf(referenceMessage) !== -1 && referenceText.indexOf('VARC diagnosis') === -1 },
+    { name:'image follow-up retains the preceding image turn', passed:imageText.indexOf('DILR image') !== -1 && imageText.indexOf(imageMessage) !== -1 && imageText.indexOf('QA ratios can wait') === -1 },
+    { name:'grounded request retains the current supplied material', passed:groundedText.indexOf('OFFICIAL SYLLABUS PASTE') !== -1 && groundedText.indexOf(groundedMessage) !== -1 },
+    { name:'history does not reintroduce unrelated diagnostic memory', passed:qaText.indexOf('VARC option elimination') === -1 && qaText.indexOf('STUDENT PROFILE') === -1 && qaText.indexOf('That VARC read is only a hypothesis.') === -1 },
+    { name:'conversational onboarding keeps the collected exchange', passed:onboardText.indexOf('My weak section is VARC.') !== -1 && onboardText.indexOf('2 hours') !== -1 && onboardText.indexOf(onboardMessage) !== -1 },
+    { name:'assembled Gemini request contains the routed history', passed:assembled.contents[assembled.contents.length - 1].role === 'user' && assembledText.indexOf(qaMessage) !== -1 && assembledText.indexOf('VARC diagnosis') === -1 && assembledText.indexOf('QA ratio') !== -1 }
+  ];
+  conversationHistory = originalHistory;
+  activeDiagnosticTopic = originalTopic;
+  diagnosticFlowState = originalFlow;
+  activeMentorPlan = originalPlan;
+  return results;
+}
+window.runHistoryRoutingTests = runHistoryRoutingTests;
 
 function runMentorTurnContextTests() {
   var originalProfile = studentProfile;
@@ -11840,7 +12065,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
   try {
     var mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     var mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
-    var conversationalRequestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage);
+    var conversationalRequestHistory = buildHistoryWithImageAttachment(conversationHistory, imageAttachments, userMessage, mentorAnalysis.diagnosis, { surface:'conversational', hasImage:Array.isArray(imageAttachments) && imageAttachments.length > 0 });
     if (useWebGrounding) conversationalRequestHistory = trimHistoryForGroundedRequest(conversationalRequestHistory);
     var mentorRequest = buildGeminiRequest(
       SYSTEM_PROMPT + systemAddition,
@@ -13261,7 +13486,7 @@ async function sendMessage(fromQueue, submissionOptions) {
   try {
     const mentorMaxTokens = getMentorResponseMaxTokens(mentorAnalysis.diagnosis);
     const mentorTimeout = getMentorRequestTimeout(mentorAnalysis.diagnosis, useWebGrounding);
-    let requestHistory = buildHistoryWithImageAttachment(conversationHistory, effectiveImageAttachments, text);
+    let requestHistory = buildHistoryWithImageAttachment(conversationHistory, effectiveImageAttachments, text, mentorAnalysis.diagnosis, { surface:'chat', hasImage:effectiveHasImages });
     if (useWebGrounding) requestHistory = trimHistoryForGroundedRequest(requestHistory);
     const mentorRequest = buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens);
     enableWebGrounding(mentorRequest, useWebGrounding);
