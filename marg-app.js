@@ -6135,7 +6135,10 @@ function buildLocalAnswerCheck(message) {
         ? 'compare your first useful deduction and any stalled cases in a fresh set, rather than assuming this score proves a selection or speed problem.'
         : 'use a fresh RC and identify the exact passage support before choosing, to see whether the same option mismatch recurs.');
   }
-  if (activeGeneratedExercise && activeGeneratedExercise.hypothesis) result += '\n[HYPOTHESIS_VERDICT: inconclusive]';
+  if (activeGeneratedExercise && activeGeneratedExercise.hypothesis) {
+    var hypothesisEvaluation = evaluateStoredHypothesisAttempt(activeGeneratedExercise, choices);
+    result += '\n[HYPOTHESIS_VERDICT: ' + String(hypothesisEvaluation.verdict || 'INCONCLUSIVE').toLowerCase() + ']';
+  }
   return result;
 }
 
@@ -6457,16 +6460,137 @@ function markActiveExerciseAttempt(answerText, force) {
   }, 'exercise-complete-' + activeGeneratedExercise.id);
 }
 
+function rawExerciseQuestions(exercise) {
+  var content = exercise && exercise.content || {};
+  if (Array.isArray(content.questions)) return content.questions;
+  var questions = [];
+  if (Array.isArray(content.sets)) content.sets.forEach(function(set) {
+    (set.questions || []).forEach(function(question) { questions.push(question); });
+  });
+  return questions;
+}
+
+function hypothesisSignalKey(patternId) {
+  var pattern = String(patternId || '').toLowerCase();
+  if (!pattern) return '';
+  if (pattern.indexOf('select') !== -1) return 'selection';
+  if (pattern.indexOf('revis') !== -1) return 'revision';
+  if (pattern.indexOf('guess') !== -1) return 'guessing';
+  if (pattern.indexOf('plateau') !== -1 || pattern.indexOf('stuck') !== -1) return 'plateau';
+  return pattern;
+}
+
+function recordedHypothesisChoices(exercise) {
+  var found = {};
+  var questions = rawExerciseQuestions(exercise);
+  (exercise && exercise.uiSelections || []).forEach(function(selection) {
+    var number = Number(String(selection && selection.position || '').split('.')[0]);
+    if (!number || selection.selected == null) return;
+    var question = questions[number - 1];
+    var hasOptions = question && Array.isArray(question.options) && question.options.length;
+    found[number] = typeof selection.selected === 'number' && hasOptions
+      ? String.fromCharCode(65 + selection.selected)
+      : String(selection.selected).trim().toUpperCase().charAt(0);
+  });
+  var answers = exercise && exercise.result && exercise.result.answers;
+  if (Array.isArray(answers)) {
+    answers.forEach(function(answer, index) {
+      if (found[index + 1] || answer == null) return;
+      var question = questions[index];
+      var hasOptions = question && Array.isArray(question.options) && question.options.length;
+      if (typeof answer === 'number' && hasOptions) found[index + 1] = String.fromCharCode(65 + answer);
+      else {
+        var letter = String(answer).trim().toUpperCase().match(/[A-D]/);
+        if (letter) found[index + 1] = letter[0];
+      }
+    });
+  }
+  var explicit = exercise && exercise.result && exercise.result.choices;
+  if (explicit && typeof explicit === 'object') {
+    Object.keys(explicit).forEach(function(number) {
+      if (!found[number] && explicit[number] != null) found[number] = String(explicit[number]).trim().toUpperCase().charAt(0);
+    });
+  }
+  return found;
+}
+
+function questionHypothesisSignals(question, hypothesis) {
+  var signals = question && (question.hypothesisSignals || question.hypothesis_signals);
+  if (!signals || typeof signals !== 'object') return null;
+  var patternId = String(hypothesis && hypothesis.patternId || '');
+  var signalPattern = String(signals.patternId || '');
+  if (signalPattern && signalPattern !== patternId && signalPattern !== hypothesisSignalKey(patternId)) return null;
+  function letters(value) {
+    return (Array.isArray(value) ? value : []).map(function(letter) { return String(letter || '').trim().toUpperCase().charAt(0); }).filter(function(letter) { return /[A-D]/.test(letter); });
+  }
+  return { supports:letters(signals.supports), rejects:letters(signals.rejects) };
+}
+
+function evaluateStoredHypothesisAttempt(exercise, choices) {
+  var hypothesis = exercise && exercise.hypothesis;
+  if (!hypothesis) return { deterministic:false, verdict:'INCONCLUSIVE', reason:'No stored hypothesis is attached to this attempt.', observations:[] };
+  var recorded = {};
+  Object.keys(choices || {}).forEach(function(number) {
+    if (choices[number] != null && String(choices[number]).trim()) recorded[number] = String(choices[number]).trim().toUpperCase().charAt(0);
+  });
+  var storedChoices = recordedHypothesisChoices(exercise);
+  Object.keys(storedChoices).forEach(function(number) { if (!recorded[number]) recorded[number] = storedChoices[number]; });
+  var hasAttempt = !!(exercise.result) || Object.keys(recorded).length > 0;
+  if (!hasAttempt) return { deterministic:false, verdict:'INCONCLUSIVE', reason:'No stored attempt is available.', observations:[] };
+  var quality = assessExerciseEvidenceQuality(exercise);
+  if (!quality.usable) return { deterministic:true, verdict:'INCONCLUSIVE', reason:quality.reason, observations:[], quality:quality };
+  var observations = [];
+  rawExerciseQuestions(exercise).forEach(function(question, index) {
+    var signals = questionHypothesisSignals(question, hypothesis);
+    var choice = recorded[index + 1];
+    if (!signals || !choice) return;
+    var relation = signals.supports.indexOf(choice) !== -1 ? 'supports' : signals.rejects.indexOf(choice) !== -1 ? 'rejects' : '';
+    if (!relation) return;
+    observations.push({ question:index + 1, choice:choice, relation:relation, patternId:String(hypothesis.patternId || '') });
+  });
+  var supporting = observations.filter(function(item) { return item.relation === 'supports'; }).length;
+  var contradicting = observations.filter(function(item) { return item.relation === 'rejects'; }).length;
+  var verdict = 'INCONCLUSIVE';
+  var reason = 'The stored attempt does not contain an explicit observable for this hypothesis.';
+  if (supporting > 0 && contradicting === 0) {
+    verdict = 'SUPPORTED';
+    reason = 'The attempt recorded the predicted decision and no contradicting observation.';
+  } else if (contradicting > 0 && supporting === 0) {
+    verdict = 'REJECTED';
+    reason = 'The attempt recorded a decision that contradicts the predicted mechanism, with no supporting observation.';
+  } else if (supporting > 0 && contradicting > 0) {
+    reason = 'The attempt contains both supporting and contradicting observations.';
+  }
+  return { deterministic:true, verdict:verdict, reason:reason, observations:observations, quality:quality };
+}
+
+function hypothesisEvaluationPayload(evidenceQuality, deterministic, entry) {
+  var exercise = activeGeneratedExercise || {};
+  return {
+    quality:evidenceQuality,
+    result:exercise.result || {},
+    deterministic:!!(deterministic && deterministic.deterministic),
+    evaluation:deterministic && deterministic.verdict || null,
+    reason:deterministic && deterministic.reason || '',
+    observations:deterministic && deterministic.observations || [],
+    diagnosisId:entry && entry.dbDiagnosisId || null,
+    taskId:exercise.mentorTaskId || null,
+    attemptId:exercise.mentorAttemptId || exercise.id || null
+  };
+}
+
 function applyPredictionValidationVerdict(responseText) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
   if (!isActiveExerciseCurrentInConversation() || !isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.hypothesis) return null;
+  var deterministic = evaluateStoredHypothesisAttempt(activeGeneratedExercise, getActiveExerciseAnswerChoices(activeGeneratedExercise.lastSubmittedAnswers || ''));
   var match = String(responseText || '').match(/\[HYPOTHESIS_VERDICT:\s*(supported|rejected|inconclusive)\s*\]/i) || String(responseText || '').match(/\b(SUPPORTED|REJECTED|INCONCLUSIVE)\b/i);
-  if (!match) return null;
-  var verdict = match[1].toUpperCase();
-  var evidenceQuality = assessExerciseEvidenceQuality(activeGeneratedExercise);
-  // No model may turn an all-skipped or delivery-confounded attempt into a
-  // cognitive diagnosis. The only honest verdict in that state is inconclusive.
-  if (!evidenceQuality.usable) verdict = 'INCONCLUSIVE';
+  if (!match && !deterministic.deterministic) return null;
+  var verdict = match ? match[1].toUpperCase() : 'INCONCLUSIVE';
+  var evidenceQuality = deterministic.quality || assessExerciseEvidenceQuality(activeGeneratedExercise);
+  // A stored attempt is authoritative, including when it is inconclusive.
+  // Mentor prose must not promote, reject, or overturn that result.
+  if (deterministic.deterministic) verdict = deterministic.verdict;
+  else if (!evidenceQuality.usable) verdict = 'INCONCLUSIVE';
   var hypothesis = activeGeneratedExercise.hypothesis;
   activeGeneratedExercise.hypothesisVerdict = verdict;
   activeGeneratedExercise.validatedAt = new Date().toISOString();
@@ -6477,20 +6601,20 @@ function applyPredictionValidationVerdict(responseText) {
   if (verdict === 'SUPPORTED') {
     appendLocalDiagnosisEvidence(entry, {
       type:'observed_attempt', supports:true, strength:evidenceQuality.level === 'observed' ? .85 : .68,
-      claim:'A correctly delivered attempt supported the working read: ' + hypothesis.confirmedDiagnosis,
+      claim:'A correctly delivered attempt supported the working read: ' + hypothesis.confirmedDiagnosis + (deterministic.reason ? ' ' + deterministic.reason : ''),
       attemptId:activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id,
       clientRef:'supported-' + (activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id),
-      payload:{ quality:evidenceQuality, result:activeGeneratedExercise.result || {} }
+      payload:hypothesisEvaluationPayload(evidenceQuality, deterministic, entry)
     });
     promoteDiagnosisFromEvidence(entry);
     if (entry.status === 'confirmed') recordBehaviorPattern(hypothesis.topic, hypothesis.confirmedDiagnosis, hypothesis.selectedPattern, 'repeated-observed-diagnostic');
   } else if (verdict === 'REJECTED') {
     appendLocalDiagnosisEvidence(entry, {
       type:'observed_attempt', supports:false, strength:evidenceQuality.level === 'observed' ? .85 : .68,
-      claim:'A correctly delivered attempt contradicted the working read: ' + hypothesis.confirmedDiagnosis,
+      claim:'A correctly delivered attempt contradicted the working read: ' + hypothesis.confirmedDiagnosis + (deterministic.reason ? ' ' + deterministic.reason : ''),
       attemptId:activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id,
       clientRef:'rejected-' + (activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id),
-      payload:{ quality:evidenceQuality, result:activeGeneratedExercise.result || {} }
+      payload:hypothesisEvaluationPayload(evidenceQuality, deterministic, entry)
     });
     entry.confirmation = 'Rejected';
     entry.status = 'rejected';
@@ -6506,10 +6630,10 @@ function applyPredictionValidationVerdict(responseText) {
   } else {
     appendLocalDiagnosisEvidence(entry, {
       type:'observed_attempt', supports:null, strength:evidenceQuality.usable ? .5 : .2,
-      claim:'The attempt was inconclusive for the working read. ' + evidenceQuality.reason,
+      claim:'The attempt was inconclusive for the working read. ' + (deterministic.reason || evidenceQuality.reason),
       attemptId:activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id,
       clientRef:'inconclusive-' + (activeGeneratedExercise.mentorAttemptId || activeGeneratedExercise.id),
-      payload:{ quality:evidenceQuality, result:activeGeneratedExercise.result || {} }
+      payload:hypothesisEvaluationPayload(evidenceQuality, deterministic, entry)
     });
     entry.confirmation = 'Inconclusive';
     entry.status = 'inconclusive';
@@ -7523,7 +7647,7 @@ function runMentorTurnContextTests() {
     { name:'turn contract sets one response shape and question budget', passed:analysis.diagnosis.responseShape === 'normal' && analysis.diagnosis.questionBudget === 1 && analysis.directive.indexOf('TURN CONTRACT') !== -1 && analysis.directive.indexOf('Question budget: 1') !== -1 && reference.diagnosis.responseShape === 'complete' && reference.diagnosis.questionBudget === 0 && reference.directive.indexOf('Supplied material outranks') !== -1 },
     { name:'question budget zero removes a trailing question after diagnosis closers', passed:enforceTurnQuestionBudget('The setup is right.\n\nDoes that help?', reference.diagnosis) === 'The setup is right.' && ensureDiagnosisForwardLead('Does that feel right?', analysis.diagnosis).indexOf('[OPTIONS: Exactly') === -1 },
     { name:'normal shape asks for the ordinary token budget', passed:getMentorResponseMaxTokens(analysis.diagnosis) === 2048 && getMentorResponseMaxTokens(reference.diagnosis) === 4096 },
-    { name:'unsupported mission is not saved and ordinary SUPPORTED text does not promote a diagnosis', passed:(function() {
+    { name:'unsupported mission is not saved and model SUPPORTED text does not promote a diagnosis', passed:(function() {
       var previousMemory = diagnosticMemory;
       var previousPlan = activeMentorPlan;
       var previousExercise = activeGeneratedExercise;
@@ -7543,13 +7667,13 @@ function runMentorTurnContextTests() {
       activeGeneratedExercise = { id:'pv', type:'qa', source:'prediction-validation', hypothesis:{ topic:'qa', confirmedDiagnosis:'QA recognition gap', selectedPattern:'recognition' }, content:{ questions:[{ q:'Stem', options:['A','B','C','D'], correct:1 }] }, validationVerdict:{ status:'verified_local' }, awaitingAnswers:true, result:{ correct:1, wrong:0, skipped:0, total:1 } };
       diagnosticMemory = { qa:{ topic:'qa', selectedSection:'QA', confirmedDiagnosis:'QA recognition gap', status:'hypothesis', confirmation:'Exactly', sourceThreadId:getCurrentMentorThreadId(), evidenceHistory:[] } };
       applyPredictionValidationVerdict('The pattern is SUPPORTED.');
-      var promotedWhenActive = promotions === 1;
+      var modelTextDidNotPromote = promotions === 0 && diagnosticMemory.qa && diagnosticMemory.qa.status === 'inconclusive';
       promoteDiagnosisFromEvidence = previousPromote;
       diagnosticMemory = previousMemory;
       activeMentorPlan = previousPlan;
       activeGeneratedExercise = previousExercise;
       try { if (storedPlan === null) localStorage.removeItem(planKey); else localStorage.setItem(planKey, storedPlan); } catch(e) {}
-      return didNotSave && didNotPromote && promotedWhenActive;
+      return didNotSave && didNotPromote && modelTextDidNotPromote;
     })() },
     { name:'unconfirmed certainty is rewritten unless a selected row is confirmed', passed:guardUnconfirmedCertainty('This confirmed pattern means you always rush.', { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' }).indexOf('confirmed pattern') === -1 && guardUnconfirmedCertainty('This confirmed pattern means you always rush.', { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' }).indexOf('you often') !== -1 },
     { name:'confirmed selected row keeps certainty wording', passed:(function() {
@@ -7737,6 +7861,86 @@ async function runPatternGuessOutputQualityTests() {
 }
 window.runPatternGuessOutputQualityTests = runPatternGuessOutputQualityTests;
 window.runOutputQualityTests = runOutputQualityTests;
+
+function runEvaluationTests() {
+  var previousMemory = diagnosticMemory;
+  var previousExercise = activeGeneratedExercise;
+  var previousPlan = activeMentorPlan;
+  var previousHistory = conversationHistory.slice();
+  var previousChat = Object.assign({}, chatDiagnosticState);
+  var diagnosisKey = getDiagnosticStorageKey();
+  var storedDiagnosis = null;
+  try { storedDiagnosis = localStorage.getItem(diagnosisKey); } catch(e) {}
+  function hypothesisEntry() {
+    return { topic:'qa', selectedSection:'QA', patternId:'recognition', confirmedDiagnosis:'QA recognition gap', status:'hypothesis', confirmation:'Exactly', confidence:0.62, evidenceHistory:[], dbDiagnosisId:'diagnosis-1' };
+  }
+  function exerciseWithChoice(letter, signals) {
+    return {
+      id:'eval-1', type:'qa', source:'prediction-validation', mentorTaskId:'task-1', mentorAttemptId:'attempt-1',
+      hypothesis:hypothesisEntry(),
+      validationVerdict:{ status:'verified_local' },
+      result:{ correct:letter === 'B' ? 1 : 0, wrong:letter === 'B' ? 0 : 1, skipped:0, total:1, choices:{ 1:letter } },
+      uiSelections:[{ position:'1', selected:letter, at:'2026-10-03T00:00:00.000Z' }],
+      content:{ questions:[{ q:'Which clue starts the method?', options:['A. The predicted miss','B. The contradicting decision','C. An unrelated distractor','D. Another distractor'], correct:1, hypothesisSignals:signals }] }
+    };
+  }
+  function signals() { return { patternId:'recognition', supports:['A'], rejects:['B'] }; }
+  function runVerdict(exercise, prose) {
+    diagnosticMemory = { qa:hypothesisEntry() };
+    activeGeneratedExercise = exercise;
+    conversationHistory = [];
+    activeMentorPlan = null;
+    return applyPredictionValidationVerdict(prose);
+  }
+  var supported = runVerdict(exerciseWithChoice('A', signals()), '[HYPOTHESIS_VERDICT: rejected]');
+  var supportedEvidence = diagnosticMemory.qa.evidenceHistory.slice(-1)[0];
+  var supportedStatus = diagnosticMemory.qa.status;
+  var rejected = runVerdict(exerciseWithChoice('B', signals()), 'The pattern is SUPPORTED.');
+  var rejectedEvidence = diagnosticMemory.qa.evidenceHistory.slice(-1)[0];
+  var rejectedStatus = diagnosticMemory.qa.status;
+  var ambiguous = runVerdict(exerciseWithChoice('C', signals()), '[HYPOTHESIS_VERDICT: supported]');
+  var unlabeled = runVerdict(exerciseWithChoice('A', null), '[HYPOTHESIS_VERDICT: supported]');
+  var correctButUnlabelled = runVerdict(exerciseWithChoice('B', { patternId:'recognition', supports:['A'] }), '[HYPOTHESIS_VERDICT: rejected]');
+  diagnosticMemory = { qa:hypothesisEntry() };
+  activeGeneratedExercise = exerciseWithChoice('A', signals());
+  conversationHistory = [];
+  markActiveExerciseAttempt('Please review my answers', true);
+  var completionDidNotSupport = diagnosticMemory.qa.status === 'hypothesis' && !diagnosticMemory.qa.evidenceHistory.some(function(item) { return item && item.type === 'observed_attempt' && item.supports === true; });
+  diagnosticMemory = { qa:hypothesisEntry() };
+  var planKey = activePlanStorageKey();
+  var storedPlan = null;
+  try { storedPlan = localStorage.getItem(planKey); } catch(e) {}
+  saveActiveMentorPlan({ mission:'Finish the recognition check.', status:'evidence_ready', updatedAt:'2026-10-03T00:00:00.000Z' });
+  noteMentorPlanCompletionClaim('I finished the mission');
+  finalizeMentorPlanCompletionReview('I finished the mission', 'Noted.');
+  var finishedDidNotConfirm = diagnosticMemory.qa.status === 'hypothesis' && activeMentorPlan && activeMentorPlan.status === 'completed' && !diagnosticMemory.qa.evidenceHistory.some(function(item) { return item && item.type === 'observed_attempt'; });
+  try { if (storedPlan === null) localStorage.removeItem(planKey); else localStorage.setItem(planKey, storedPlan); } catch(e) {}
+  diagnosticMemory = {};
+  chatDiagnosticState = { active:true, topic:'qa', subcategory:null, pattern:{ id:'recognition', label:'I cannot see how to start.', prediction:'QA recognition gap', action:'Record the clue.' }, displayPrediction:null, revisedPrediction:null, rejectedCount:0 };
+  var exactly = saveChatDiagnosticEntry('Exactly', 'QA recognition gap');
+  var mostly = saveChatDiagnosticEntry('Mostly', 'QA recognition gap');
+  var selfReportTypes = (mostly.evidenceHistory || []).map(function(item) { return item.type; });
+  var selfReportStaysOutOfObserved = observedDiagnosisEvidenceCounts(mostly).observed === 0 && selfReportTypes.every(function(type) { return type === 'self_report'; }) && exactly.confirmation === 'Exactly' && mostly.confirmation === 'Mostly';
+  diagnosticMemory = previousMemory;
+  activeGeneratedExercise = previousExercise;
+  activeMentorPlan = previousPlan;
+  conversationHistory = previousHistory;
+  chatDiagnosticState = previousChat;
+  try { if (storedDiagnosis === null) localStorage.removeItem(diagnosisKey); else localStorage.setItem(diagnosisKey, storedDiagnosis); } catch(e) {}
+  return [
+    { name:'explicit supporting choice evaluates SUPPORTED', passed:supported === 'SUPPORTED' && supportedStatus === 'supported' },
+    { name:'explicit contradicting choice evaluates REJECTED', passed:rejected === 'REJECTED' && rejectedStatus === 'rejected' },
+    { name:'unlisted choice evaluates INCONCLUSIVE', passed:ambiguous === 'INCONCLUSIVE' },
+    { name:'attempt without an explicit observable evaluates INCONCLUSIVE', passed:unlabeled === 'INCONCLUSIVE' && correctButUnlabelled === 'INCONCLUSIVE' },
+    { name:'model SUPPORTED cannot override deterministic REJECTED', passed:rejected === 'REJECTED' && rejectedEvidence && rejectedEvidence.supports === false && rejectedEvidence.type === 'observed_attempt' },
+    { name:'model REJECTED cannot override deterministic SUPPORTED', passed:supported === 'SUPPORTED' && supportedEvidence && supportedEvidence.supports === true && supportedEvidence.strength === 0.68 },
+    { name:'completion alone does not create supported evidence', passed:completionDidNotSupport },
+    { name:'finishing the mission does not confirm the diagnosis', passed:finishedDidNotConfirm },
+    { name:'Exactly and Mostly remain self-report evidence', passed:selfReportStaysOutOfObserved },
+    { name:'evaluation evidence keeps the diagnosis task and attempt ids', passed:!!(supportedEvidence && supportedEvidence.attemptId === 'attempt-1' && supportedEvidence.payload && supportedEvidence.payload.diagnosisId === 'diagnosis-1' && supportedEvidence.payload.taskId === 'task-1' && supportedEvidence.payload.attemptId === 'attempt-1' && supportedEvidence.payload.deterministic === true) }
+  ];
+}
+window.runEvaluationTests = runEvaluationTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
@@ -18291,6 +18495,7 @@ function getVerifiedStrategyDecisionLab(entry) {
       options:['A. Stay with Question 1 because you have already spent time','B. Move to Question 4 and return only if time remains','C. Skip both and wait for a chapter you revised today','D. Keep trying Question 1 until the setup appears'],
       correct:1,
       solution:'Move to Question 4. A clear starting route matters more than familiarity or time already spent.',
+      hypothesisSignals:{ patternId:'order', supports:['A','D'], rejects:['B'] },
       common_mistake:'Protecting time already spent instead of protecting the section',
       concept_check:'Leaving a stalled question',
       marg_insight:'This checks whether syllabus order controls your attempt order.'
@@ -18301,6 +18506,7 @@ function getVerifiedStrategyDecisionLab(entry) {
       options:['A. The familiar arrangement','B. The unfamiliar table with a clear first setup','C. Whichever appears first','D. The set with the shortest wording'],
       correct:1,
       solution:'Open the table. A usable setup and clues that combine are stronger signals than a familiar topic or short wording.',
+      hypothesisSignals:{ patternId:'selection', supports:['A'], rejects:['B'] },
       common_mistake:'Choosing by topic familiarity',
       concept_check:'Set selection',
       marg_insight:'This checks whether you choose by solvability or comfort.'
@@ -18311,6 +18517,7 @@ function getVerifiedStrategyDecisionLab(entry) {
       options:['A. Follow the schedule without changing anything','B. Review the three scope mistakes and test the rule on one fresh RC','C. Watch a general VARC strategy video','D. Solve as many RC questions as possible'],
       correct:1,
       solution:'Review the repeated mistake and test one correction. A plan should respond to evidence, not continue by habit.',
+      hypothesisSignals:{ patternId:'revision', supports:['A'], rejects:['B'] },
       common_mistake:'Treating schedule completion as improvement',
       concept_check:'Evidence-led revision',
       marg_insight:'This checks whether your plan changes when the same error repeats.'
@@ -18321,6 +18528,7 @@ function getVerifiedStrategyDecisionLab(entry) {
       options:['A. Pick the broader option because it covers more of the passage','B. Pick the option whose wording is closest to the author’s exact claim','C. Pick the more confident-sounding option','D. Change from your first choice because doubt means it was wrong'],
       correct:1,
       solution:'Choose the option that matches the author’s exact limit. Coverage and confident wording are not evidence.',
+      hypothesisSignals:{ patternId:'guessing', supports:['C'], rejects:['B'] },
       common_mistake:'Choosing by completeness or tone',
       concept_check:'Evidence-based choice',
       marg_insight:'This checks what you use when certainty is low.'
@@ -18331,6 +18539,7 @@ function getVerifiedStrategyDecisionLab(entry) {
       options:['A. Only the total percentile','B. Section-wise attempts, accuracy, time sinks and repeated mistakes','C. How many chapters remain in the book','D. Which mock had the hardest questions'],
       correct:1,
       solution:'Compare attempts, accuracy, time sinks and repeated errors by section. The same total score can come from very different problems.',
+      hypothesisSignals:{ patternId:'plateau', supports:['A'], rejects:['B'] },
       common_mistake:'Treating the total score as the diagnosis',
       concept_check:'Reading mock evidence',
       marg_insight:'This checks whether you investigate the score before changing the plan.'
