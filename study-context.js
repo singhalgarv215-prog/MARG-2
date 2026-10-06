@@ -559,7 +559,7 @@
       'Mix question types across: primary purpose / central claim, what an example or detail is used to show, inference the author would accept, relationship between parts, tone or stance, and one close-option question that turns on scope or qualification. No fact-lookup question, no question that repeats another\'s skeleton.\n' +
       qualityBrief(section) + avoid + exemplars + contextLine + '\n\n' +
       '<<<MATERIAL\n' + materialForPrompt(ctx, 12000) + '\nMATERIAL>>>\n\n' +
-      'Silently solve every question and verify the key before answering. Return only valid JSON of this exact shape: {"questions":[{"passage":"P1 or empty","q":"complete question ending with ? or an explicit task","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"2-3 sentences: why the key is right and the specific trap in the closest wrong option","trap_type":"short label","sufficiency_check":"evidence sentence from the material that fixes the key","option_check":"why each other option fails"}]}. Options must be four distinct strings that each begin with "A. ", "B. ", "C. ", "D. ". "correct" is the zero-based index.';
+      'Silently solve every question and verify the key before answering. Return only valid JSON of this exact shape: {"questions":[{"passage":"P1 or empty","q":"a complete question that ends with a question mark (for example, What is the purpose of the farmer example in the second paragraph?)","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"2-3 sentences: why the key is right and the specific trap in the closest wrong option","trap_type":"short label","sufficiency_check":"evidence sentence from the material that fixes the key","option_check":"why each other option fails"}]}. Options must be four distinct strings that each begin with "A. ", "B. ", "C. ", "D. ". "correct" is the zero-based index.';
   }
 
   /* ------------------------------------------------------------------ */
@@ -851,8 +851,12 @@
     var window = a.slice(-240);
     var best = 0;
     var maxOverlap = Math.min(window.length, b.length, 240);
-    for (var size = maxOverlap; size >= 12; size--) {
-      if (window.slice(window.length - size) === b.slice(0, size)) { best = size; break; }
+    for (var size = maxOverlap; size >= 6; size--) {
+      if (window.slice(window.length - size) !== b.slice(0, size)) continue;
+      var repeated = window.slice(window.length - size);
+      // Short overlaps count only when they are whole repeated words.
+      var wholeWords = size >= 12 || (/^\s?[A-Za-z]{5,}/.test(repeated) && (repeated.charAt(0) === ' ' || /\W/.test(window.charAt(window.length - size - 1) || ' ')));
+      if (wholeWords) { best = size; break; }
     }
     if (best) b = b.slice(best);
     else {
