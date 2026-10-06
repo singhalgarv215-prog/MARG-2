@@ -4196,9 +4196,13 @@ function hydrateDiagnosticMemoryFromHistory() {
 
 function hasConfirmedDiagnostic(topic) {
   var entry = diagnosticMemory[topic];
-  return !!(entry && !entry.doNotReuse && entry.status !== 'rejected' && (
-    entry.status === 'supported' || entry.status === 'confirmed' ||
-    ((entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && entry.status === 'hypothesis')
+  // Older entries carry a student confirmation but no status field. Read them
+  // through the same normaliser as every other diagnosis consumer so they are
+  // treated as the working hypothesis they are, not as unconfirmed.
+  var status = entry ? normalizeDiagnosisStatus(entry) : '';
+  return !!(entry && !entry.doNotReuse && status !== 'rejected' && (
+    status === 'supported' || status === 'confirmed' ||
+    ((entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && status === 'hypothesis')
   ));
 }
 
@@ -4742,6 +4746,11 @@ function describeTurnEvidence(message, diagnosis) {
   }).filter(function(item) {
     return diagnosticEntrySelected(item.entry, item.topic, message, selection);
   }).map(function(item) { return item.entry; });
+  var carried = [];
+  var state = collectStudentState(message, diagnosis);
+  if (state) state.supported.forEach(function(item) {
+    if (item.carried && entries.indexOf(item.entry) === -1) { entries.push(item.entry); carried.push(item.entry); }
+  });
   if (!entries.length) return 'No selected diagnosis has observed support. Keep any read tentative. A classifier score is not evidence.';
   return entries.map(function(entry) {
     var status = normalizeDiagnosisStatus(entry);
@@ -4749,8 +4758,126 @@ function describeTurnEvidence(message, diagnosis) {
       : status === 'supported' ? 'supported once'
         : status === 'inconclusive' ? 'inconclusive'
           : 'working hypothesis';
-    return (entry.selectedSection || entry.topic || 'This section') + ' is a ' + label;
+    return (entry.selectedSection || entry.topic || 'This section') + ' is a ' + label + (carried.indexOf(entry) !== -1 ? ' (established in an earlier chat)' : '');
   }).join('; ') + '. Use that evidence level. Do not treat a self-report or a classifier score as a confirmed pattern.';
+}
+
+// Observed support belongs to the student, not to the chat that first noticed
+// it. Hypotheses and other provisional reads stay in the thread that raised them.
+var STUDENT_STATE_SKIP_INTENTS = ['greeting','privacy_request','question_reference','image_question','answer_review','dilr_validity_review','seamless_continuation','score_correction','study_activity','confidence_breakdown'];
+
+function asksForNextDecision(message) {
+  return /\b(?:what (?:should|do|can|shall) i|what(?:'s| is) next|next step|where (?:do|should|to) i (?:start|go|begin|focus)|how (?:do|should|can) i (?:improve|proceed|continue|fix|get better|move)|what to (?:do|work on|focus|practi[sc]e|study)|work on|focus on|today|tomorrow|still (?:struggling|stuck|not|can'?t)|any progress|how am i doing|am i improving)\b/i.test(String(message || ''));
+}
+
+function isObservedSupportEntry(entry) {
+  if (!entry || !entry.confirmedDiagnosis || entry.doNotReuse) return false;
+  var status = normalizeDiagnosisStatus(entry);
+  return status === 'supported' || status === 'confirmed';
+}
+
+function studentStateScope(message, diagnosis) {
+  var intent = diagnosis && diagnosis.intent || '';
+  if (!intent || STUDENT_STATE_SKIP_INTENTS.indexOf(intent) !== -1 || diagnosis.hasImage) return null;
+  var selection = selectTurnMemory(message, diagnosis);
+  if (selection.mode === 'topics' && selection.topics && selection.topics.length) return { topics:selection.topics, mode:'topics', selection:selection };
+  if (selection.mode === 'plan' || selection.mode === 'all') return { topics:null, mode:selection.mode, selection:selection };
+  var open = intent === 'vague' || intent === 'pacing_diagnosis' || intent === 'task_outcome_report' || (intent === 'general_mentor' && asksForNextDecision(message));
+  return open ? { topics:null, mode:'open', selection:selection } : null;
+}
+
+var OPEN_MENTOR_TASK_STATUSES = ['evidence_ready', 'in_progress', 'generating', 'ready'];
+
+function findOpenMentorTask(topics) {
+  var rank = { evidence_ready:0, in_progress:1, generating:2, ready:3 };
+  var tasks = (mentorExecutionLoop && mentorExecutionLoop.tasks || []).filter(function(task) {
+    if (!task || OPEN_MENTOR_TASK_STATUSES.indexOf(task.status) === -1) return false;
+    if (!topics) return true;
+    var section = normalizeMentorFocusTopic(task.section) || String(task.section || '');
+    return topics.indexOf(section) !== -1;
+  }).sort(function(a, b) {
+    var difference = rank[a.status] - rank[b.status];
+    return difference || String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+  });
+  return tasks[0] || null;
+}
+
+function latestAttemptForMentorTask(taskId) {
+  return attemptsForMentorTask(taskId).slice().sort(function(a, b) {
+    return String(b.completed_at || b.updated_at || b.created_at || '').localeCompare(String(a.completed_at || a.updated_at || a.created_at || ''));
+  })[0] || null;
+}
+
+function collectStudentState(message, diagnosis) {
+  var scope = studentStateScope(message, diagnosis);
+  if (!scope) return null;
+  var supported = [];
+  Object.keys(diagnosticMemory || {}).forEach(function(key) {
+    var entry = diagnosticMemory[key];
+    if (!isObservedSupportEntry(entry)) return;
+    var topic = normalizeMentorFocusTopic(entry.topic || key) || String(entry.topic || key);
+    if (scope.topics && scope.topics.indexOf(topic) === -1) return;
+    supported.push({ key:key, entry:entry, topic:topic, status:normalizeDiagnosisStatus(entry), carried:!diagnosticEntrySelected(entry, key, message, scope.selection) });
+  });
+  supported.sort(function(a, b) {
+    if (a.status !== b.status) return a.status === 'confirmed' ? -1 : 1;
+    return String(b.entry.updatedAt || '').localeCompare(String(a.entry.updatedAt || ''));
+  });
+  supported = supported.slice(0, 3);
+  var task = findOpenMentorTask(scope.topics);
+  var taskState = null;
+  if (task) {
+    var linked = (mentorExecutionLoop.diagnoses || []).find(function(row) { return row && row.id === task.diagnosis_id; }) || null;
+    taskState = {
+      row:task, attempt:latestAttemptForMentorTask(task.id), diagnosis:linked,
+      provisional:!linked || ['supported', 'confirmed'].indexOf(String(linked.status || '').toLowerCase()) === -1
+    };
+  }
+  var mocks = studentProfile && Array.isArray(studentProfile.mockHistory) ? studentProfile.mockHistory : [];
+  var mock = (!scope.topics || scope.topics.indexOf('mock') !== -1) && mocks.length ? mocks[mocks.length - 1] : null;
+  var profile = null;
+  if (scope.mode === 'open' && studentProfile) {
+    var facts = [];
+    if (studentProfile.attemptNumber) facts.push(studentProfile.attemptNumber + ' attempt');
+    if (studentProfile.monthsLeft) facts.push(studentProfile.monthsLeft + ' left');
+    if (studentProfile.dailyHours) facts.push(studentProfile.dailyHours + ' a day');
+    if (studentProfile.weakestSection) facts.push('weakest section ' + studentProfile.weakestSection);
+    if (facts.length) profile = facts;
+  }
+  if (!supported.length && !taskState && !mock && !profile) return null;
+  return { scope:scope, supported:supported, task:taskState, mock:mock, profile:profile };
+}
+
+function studentStateEvidenceLabel(status) {
+  return status === 'confirmed' ? 'CONFIRMED REPEATED PATTERN' : 'SUPPORTED ONCE';
+}
+
+function getStudentStateContext(message, diagnosis) {
+  var state = collectStudentState(message, diagnosis);
+  if (!state) return '';
+  var lines = [];
+  state.supported.filter(function(item) { return item.carried; }).forEach(function(item) {
+    var entry = item.entry;
+    var counts = observedDiagnosisEvidenceCounts(entry);
+    lines.push('- ' + (entry.selectedSection || item.topic) + ' — ' + studentStateEvidenceLabel(item.status) + ' (observed support ' + counts.supporting + ', observed contradiction ' + counts.contradicting + (entry.updatedAt ? ', last updated ' + String(entry.updatedAt).slice(0, 10) : '') + '): ' + entry.confirmedDiagnosis);
+  });
+  if (state.task) {
+    var row = state.task.row;
+    var attempt = state.task.attempt;
+    var attemptLine = attempt
+      ? ' Latest recorded attempt' + (attempt.completed_at ? ' (' + String(attempt.completed_at).slice(0, 10) + ')' : '') + ': ' + Number(attempt.correct || 0) + ' correct, ' + Number(attempt.wrong || 0) + ' wrong, ' + Number(attempt.skipped || 0) + ' skipped.'
+      : ' No attempt is recorded yet.';
+    lines.push('- Open check assigned earlier (' + String(row.section || 'general').toUpperCase() + ', ' + String(row.status).replace(/_/g, ' ') + '): ' + String(row.title || 'CAT decision check') + (state.task.provisional ? ' — it tests an unconfirmed working read, so do not state that read as fact.' : '.') + attemptLine);
+  }
+  if (state.mock) lines.push('- Latest recorded mock (' + (state.mock.date || 'date not recorded') + '): VARC ' + state.mock.varc + ', DILR ' + state.mock.dilr + ', QA ' + state.mock.qa + ', total ' + state.mock.total + '. These are outcomes, not causes.');
+  if (state.profile) lines.push('- Self-reported profile, not a diagnosis: ' + state.profile.join('; ') + '.');
+  if (!lines.length) return '';
+  return '\n\nSTUDENT STATE FROM EARLIER CHATS (established before this conversation; observed or assigned items only, never an earlier hypothesis):\n' + lines.join('\n') + '\nUse this so the student does not have to repeat it, and do not ask for anything listed here. Keep each item at its stated evidence level. If today\'s message conflicts with it, test the conflict rather than silently accepting either side. Do not mention this block or call it memory.';
+}
+
+function carriedConfirmedStudentState(message, diagnosis) {
+  var state = collectStudentState(message, diagnosis);
+  return !!(state && state.supported.some(function(item) { return item.status === 'confirmed'; }));
 }
 
 function getDiagnosticMemoryContext(message, diagnosis) {
@@ -5426,6 +5553,12 @@ async function loadMentorExecutionLoop() {
       var topic = normalizeExecutionSection(saved.section);
       var existing = diagnosticMemory[topic];
       if (!existing || String(saved.updated_at || '') > String(existing.updatedAt || '')) {
+        // The stored row has no thread column. When it is the same diagnosis
+        // this browser already attributed to a thread, keep that attribution and
+        // any local evidence; otherwise the refresh would orphan the entry and
+        // hide it from the thread that created it.
+        var sameDiagnosis = !!(existing && (existing.dbDiagnosisId === saved.id || mentorDiagnosisClientRef(existing) === saved.client_ref));
+        var storedEvidence = (mentorExecutionLoop.evidence || []).filter(function(item) { return item.diagnosis_id === saved.id; });
         diagnosticMemory[topic] = {
           selectedSection:getDiagnosticTopicLabel(topic), topic:topic, subcategory:saved.topic,
           patternId:saved.pattern_id, selectedPattern:saved.evidence_summary,
@@ -5434,15 +5567,16 @@ async function loadMentorExecutionLoop() {
           confidence:Number(saved.confidence || 0.5), status:saved.status,
           validatedAt:saved.validated_at, updatedAt:saved.updated_at, dbDiagnosisId:saved.id,
           doNotReuse:saved.status === 'rejected',
-          evidenceHistory:(mentorExecutionLoop.evidence || []).filter(function(item) { return item.diagnosis_id === saved.id; }).map(function(item) {
+          evidenceHistory:storedEvidence.length ? storedEvidence.map(function(item) {
             return {
               clientRef:item.client_ref, type:item.evidence_type, claim:item.claim,
               supports:item.supports, strength:Number(item.strength || 0.5),
               attemptId:item.evidence_payload && item.evidence_payload.attempt_id || null,
               occurredAt:item.occurred_at, payload:item.evidence_payload || {}
             };
-          })
+          }) : (sameDiagnosis && Array.isArray(existing.evidenceHistory) ? existing.evidenceHistory : [])
         };
+        if (sameDiagnosis && existing.sourceThreadId) diagnosticMemory[topic].sourceThreadId = existing.sourceThreadId;
       }
     });
     saveDiagnosticMemory();
@@ -8599,6 +8733,191 @@ async function runInterventionProductionEvaluationTests() {
   return results;
 }
 window.runInterventionProductionEvaluationTests = runInterventionProductionEvaluationTests;
+
+async function runStudentStateCarryoverTests() {
+  var originalMemory = diagnosticMemory;
+  var originalThread = typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId;
+  var originalLoop = mentorExecutionLoop;
+  var originalProfile = studentProfile;
+  var originalHistory = conversationHistory;
+  var originalActiveTopic = activeDiagnosticTopic;
+  var originalFlow = diagnosticFlowState;
+  var originalPlan = activeMentorPlan;
+  var originalUser = currentUser;
+  var originalToken = SUPABASE_TOKEN;
+  var originalGuest = isGuestMode;
+  var originalCanUse = canUseMentorExecutionLoop;
+  var originalFetch = authenticatedSupabaseFetch;
+  var storageKey = null;
+  var storedMemory = null;
+  function restore() {
+    diagnosticMemory = originalMemory;
+    margActiveThreadId = originalThread;
+    mentorExecutionLoop = originalLoop;
+    studentProfile = originalProfile;
+    conversationHistory = originalHistory;
+    activeDiagnosticTopic = originalActiveTopic;
+    diagnosticFlowState = originalFlow;
+    activeMentorPlan = originalPlan;
+    currentUser = originalUser;
+    SUPABASE_TOKEN = originalToken;
+    isGuestMode = originalGuest;
+    canUseMentorExecutionLoop = originalCanUse;
+    authenticatedSupabaseFetch = originalFetch;
+    try {
+      if (storageKey) {
+        if (storedMemory === null) localStorage.removeItem(storageKey);
+        else localStorage.setItem(storageKey, storedMemory);
+      }
+    } catch(e) {}
+  }
+  function observed(count, supports) {
+    var rows = [];
+    for (var i = 0; i < count; i++) rows.push({ type:'observed_attempt', supports:supports !== false, strength:0.9 });
+    return rows;
+  }
+  function entry(topic, section, status, threadId, text, evidence) {
+    return {
+      topic:topic, selectedSection:section, confirmedDiagnosis:text, status:status,
+      confirmation:status === 'hypothesis' ? 'Exactly' : 'none', sourceThreadId:threadId, doNotReuse:false,
+      updatedAt:'2026-10-01T10:00:00.000Z', evidenceHistory:evidence || []
+    };
+  }
+  function seed(map) {
+    diagnosticMemory = map;
+    studentProfile.diagnosticMemory = map;
+    saveDiagnosticMemory();
+  }
+  function turn(message) {
+    var analysis = buildDiagnosisDirective(message);
+    return { analysis:analysis, diagnosis:analysis.diagnosis, context:buildMentorTurnContext(message, analysis, { surface:'chat', useWebGrounding:false }) };
+  }
+  var BLOCK = 'STUDENT STATE FROM EARLIER CHATS';
+  var results = [];
+  try {
+    storageKey = getDiagnosticStorageKey();
+    try { storedMemory = localStorage.getItem(storageKey); } catch(e) {}
+    studentProfile = { attemptNumber:'2nd', monthsLeft:'4 months', weakestSection:'QA (Quant)', dailyHours:'2 hours', situation:'working', mockHistory:[{ date:'2026-09-20', varc:21, dilr:12, qa:19, total:52 }], recentMistakes:[], sessionsCount:3 };
+    conversationHistory = [];
+    activeDiagnosticTopic = null;
+    diagnosticFlowState = { active:false, topic:null };
+    activeMentorPlan = null;
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    margActiveThreadId = 'thread-new';
+    seed({
+      varc:entry('varc', 'VARC', 'supported', 'thread-old', 'Drops the right answer between the final two options', observed(1)),
+      qa:entry('qa', 'QA', 'confirmed', 'thread-old', 'Skips the setup and jumps to arithmetic', observed(2)),
+      dilr:entry('dilr', 'DILR', 'hypothesis', 'thread-old', 'Picks sets by length rather than structure'),
+      mock:Object.assign(entry('mock', 'Mock', 'rejected', 'thread-old', 'Rejected pacing read'), { confirmation:'Rejected' })
+    });
+
+    var open = turn('What should I work on today?');
+    var qaTopic = turn('How should I approach QA?');
+    var reference = turn('Why is C wrong in Q4?');
+    margActiveThreadId = 'thread-old';
+    var sameThread = turn('How should I approach QA?');
+    margActiveThreadId = 'thread-new';
+
+    results.push(
+      { name:'new chat receives supported and confirmed state from an earlier chat', passed:open.context.indexOf(BLOCK) !== -1 && open.context.indexOf('Drops the right answer between the final two options') !== -1 && open.context.indexOf('Skips the setup and jumps to arithmetic') !== -1 && open.context.indexOf('CONFIRMED REPEATED PATTERN') !== -1 && open.context.indexOf('SUPPORTED ONCE') !== -1 },
+      { name:'new chat does not receive hypotheses or rejected reads from an earlier chat', passed:open.context.indexOf('Picks sets by length rather than structure') === -1 && open.context.indexOf('Rejected pacing read') === -1 && qaTopic.context.indexOf('Picks sets by length') === -1 },
+      { name:'carried state is limited to the topic of the turn', passed:qaTopic.context.indexOf(BLOCK) !== -1 && qaTopic.context.indexOf('Skips the setup and jumps to arithmetic') !== -1 && qaTopic.context.indexOf('Drops the right answer between the final two options') === -1 },
+      { name:'an open turn also carries profile facts and the latest mock as outcomes', passed:open.context.indexOf('Self-reported profile, not a diagnosis') !== -1 && open.context.indexOf('Latest recorded mock (2026-09-20)') !== -1 && open.context.indexOf('outcomes, not causes') !== -1 },
+      { name:'question-reference turns carry no student state', passed:reference.context.indexOf(BLOCK) === -1 },
+      { name:'an entry already selected by this thread is not repeated in the carried block', passed:sameThread.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') !== -1 && sameThread.context.indexOf('Skips the setup and jumps to arithmetic') !== -1 && (sameThread.context.indexOf(BLOCK) === -1 || sameThread.context.split(BLOCK)[1].indexOf('Skips the setup and jumps to arithmetic') === -1) },
+      { name:'thread isolation of ordinary diagnostic memory is unchanged', passed:open.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') === -1 && qaTopic.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') === -1 },
+      { name:'evidence line names carried state instead of claiming no support', passed:/established in an earlier chat/.test(describeTurnEvidence('What should I work on today?', open.diagnosis)) && describeTurnEvidence('What should I work on today?', open.diagnosis).indexOf('No selected diagnosis has observed support') === -1 }
+    );
+
+    var certainty = 'This confirmed pattern means you always rush the setup.';
+    var guarded = guardUnconfirmedCertainty(certainty, { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' });
+    seed({ qa:entry('qa', 'QA', 'supported', 'thread-old', 'Skips the setup', observed(1)) });
+    var supportedOnly = guardUnconfirmedCertainty(certainty, { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' });
+    results.push(
+      { name:'certainty wording is kept for a confirmed pattern carried from an earlier chat', passed:guarded === certainty },
+      { name:'certainty wording is still softened when the carried pattern is only supported once', passed:supportedOnly.indexOf('confirmed pattern') === -1 }
+    );
+
+    seed({ qa:entry('qa', 'QA', 'supported', 'thread-old', 'Skips the setup and jumps to arithmetic', observed(1)) });
+    mentorExecutionLoop.diagnoses = [
+      { id:'dx-hyp', status:'hypothesis', section:'qa', mechanism:'Secret hypothesis about speed' },
+      { id:'dx-sup', status:'supported', section:'qa', mechanism:'Observed setup skipping' }
+    ];
+    mentorExecutionLoop.tasks = [{ id:'task-1', diagnosis_id:'dx-hyp', section:'qa', status:'in_progress', title:'Set up before solving', updated_at:'2026-10-02T09:00:00Z' }];
+    var provisionalTask = turn('How should I approach QA?');
+    mentorExecutionLoop.tasks = [{ id:'task-2', diagnosis_id:'dx-sup', section:'qa', status:'evidence_ready', title:'Set up before solving', updated_at:'2026-10-03T09:00:00Z' }];
+    mentorExecutionLoop.attempts = [{ id:'att-1', task_id:'task-2', correct:7, wrong:2, skipped:1, completed_at:'2026-10-03T10:00:00Z' }];
+    var supportedTask = turn('How should I approach QA?');
+    mentorExecutionLoop.tasks = [{ id:'task-3', diagnosis_id:'dx-sup', section:'varc', status:'ready', title:'VARC pass', updated_at:'2026-10-03T09:00:00Z' }];
+    mentorExecutionLoop.attempts = [];
+    var otherSectionTask = turn('How should I approach QA?');
+    results.push(
+      { name:'an open task assigned earlier is carried without its unconfirmed hypothesis text', passed:provisionalTask.context.indexOf('Open check assigned earlier (QA, in progress): Set up before solving') !== -1 && provisionalTask.context.indexOf('unconfirmed working read') !== -1 && provisionalTask.context.indexOf('Secret hypothesis about speed') === -1 && provisionalTask.context.indexOf('No attempt is recorded yet') !== -1 },
+      { name:'an open task on a supported diagnosis carries its latest recorded attempt', passed:supportedTask.context.indexOf('Open check assigned earlier (QA, evidence ready)') !== -1 && supportedTask.context.indexOf('7 correct, 2 wrong, 1 skipped') !== -1 && supportedTask.context.indexOf('unconfirmed working read') === -1 },
+      { name:'an open task for another section is not carried into a section turn', passed:otherSectionTask.context.indexOf('Open check assigned earlier') === -1 }
+    );
+
+    seed({});
+    mentorExecutionLoop.tasks = [];
+    var empty = turn('What should I work on today?');
+    results.push({ name:'state block disappears when nothing was observed, assigned or recorded', passed:(function() {
+      var savedProfile = studentProfile;
+      studentProfile = { mockHistory:[], recentMistakes:[], diagnosticMemory:diagnosticMemory };
+      var bare = turn('What should I work on today?');
+      studentProfile = savedProfile;
+      return bare.context.indexOf(BLOCK) === -1 && empty.context.indexOf('Self-reported profile') !== -1;
+    })() });
+
+    var statusCases = [
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', confirmation:'Exactly' }, expected:true },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', confirmation:'Not Really' }, expected:false },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'rejected', confirmation:'Exactly' }, expected:false },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'supported', confirmation:'none' }, expected:true },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'inconclusive', confirmation:'Exactly' }, expected:false },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'hypothesis', confirmation:'none' }, expected:false },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'confirmed', confirmation:'none', doNotReuse:true }, expected:false }
+    ];
+    results.push({ name:'confirmed-diagnosis check reads the normalised status for older entries', passed:statusCases.every(function(item) {
+      diagnosticMemory = { qa:item.entry };
+      return hasConfirmedDiagnostic('qa') === item.expected;
+    }) });
+
+    currentUser = { id:'u-carryover' };
+    SUPABASE_TOKEN = 'token';
+    isGuestMode = false;
+    canUseMentorExecutionLoop = function() { return true; };
+    storageKey = getDiagnosticStorageKey();
+    try { storedMemory = localStorage.getItem(storageKey); } catch(e) {}
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    margActiveThreadId = 'thread-hydrate';
+    var local = entry('varc', 'VARC', 'supported', 'thread-hydrate', 'Drops the right answer between the final two options', observed(1));
+    local.patternId = 'last_two_options';
+    local.subcategory = 'rc';
+    local.updatedAt = '2026-10-06T10:00:00.000Z';
+    seed({ varc:local });
+    activeDiagnosticTopic = 'varc';
+    authenticatedSupabaseFetch = async function(url) {
+      var rows = [];
+      if (String(url).indexOf('mentor_diagnoses') !== -1) rows = [{ id:'db-1', client_ref:'diagnosis:varc:last_two_options', section:'varc', topic:'rc', pattern_id:'last_two_options', mechanism:'Drops the right answer between the final two options', evidence_summary:'stored', confidence:0.78, confirmation_level:'Mostly', status:'supported', updated_at:'2026-10-06T10:00:05.000000+00:00' }];
+      return { ok:true, status:200, json:async function() { return rows; } };
+    };
+    var loaded = await loadMentorExecutionLoop();
+    var hydrated = diagnosticMemory.varc;
+    var sameThreadAfterHydrate = turn('How should I approach VARC?');
+    var evidenceKept = hydrated && observedDiagnosisEvidenceCounts(hydrated).supporting === 1;
+    margActiveThreadId = 'thread-other';
+    var otherThreadAfterHydrate = turn('How should I approach VARC?');
+    results.push(
+      { name:'hydrating a stored diagnosis keeps the thread that raised it and its local evidence', passed:loaded === true && hydrated && hydrated.sourceThreadId === 'thread-hydrate' && evidenceKept },
+      { name:'hydrated diagnosis stays visible to its own thread as ordinary memory', passed:sameThreadAfterHydrate.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') !== -1 && sameThreadAfterHydrate.context.indexOf('Drops the right answer between the final two options') !== -1 },
+      { name:'hydrated diagnosis reaches another thread only as carried student state', passed:otherThreadAfterHydrate.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') === -1 && otherThreadAfterHydrate.context.indexOf(BLOCK) !== -1 && otherThreadAfterHydrate.context.indexOf('Drops the right answer between the final two options') !== -1 }
+    );
+  } finally {
+    restore();
+  }
+  return results;
+}
+window.runStudentStateCarryoverTests = runStudentStateCarryoverTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
@@ -12195,7 +12514,7 @@ function guardUnconfirmedCertainty(text, diagnosis) {
     var entry = diagnosticMemory[topic];
     return diagnosticEntrySelected(entry, topic, message, selection) && normalizeDiagnosisStatus(entry) === 'confirmed';
   });
-  if (hasConfirmed) return value;
+  if (hasConfirmed || carriedConfirmedStudentState(message, diagnosis || {})) return value;
   function claimIsNegated(offset) {
     return /\b(?:not|no|never|without|isn'?t|aren'?t|wasn'?t|weren'?t)\b(?:\s+[A-Za-z']+){0,3}\s*$/i.test(value.slice(Math.max(0, offset - 48), offset));
   }
@@ -13689,6 +14008,7 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
   var body = getDateContext() +
     (surface === 'chat' ? buildTurnProfileContext(message, diagnosis) : buildConversationalCollectedProfile()) +
     getDiagnosticMemoryContext(message, diagnosis) +
+    getStudentStateContext(message, diagnosis) +
     exerciseContext +
     getBehavioralMemoryContext(message, diagnosis) +
     getTopicProgressionMemoryContext(message, diagnosis) +
