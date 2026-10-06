@@ -954,6 +954,7 @@ function ensureMentorRichTextStyles() {
     '.mentor-rich .mentor-list-mark{color:var(--gold-light);flex:0 0 auto;min-width:14px}' +
     '.mentor-rich strong{font-weight:650;color:var(--text)}' +
     '.mentor-rich em{color:var(--text-muted)}';
+  if (typeof MargStudy !== 'undefined' && MargStudy.styles) style.textContent += MargStudy.styles;
   // Reading is the task in RC, so passage text gets more contrast and a larger
   // mobile baseline than ordinary chat. This override also upgrades Practice.
   style.textContent += '.passage-reading-content{color:#f2eee7;font-size:calc(18px * var(--marg-reader-scale));line-height:1.82;letter-spacing:0}.reading-focus-overlay{color:#f2eee7}.reading-focus-scroll .passage-reading-content{font-size:calc(20px * var(--marg-reader-scale));line-height:1.84}.pcard-passage{color:#f2eee7!important;font-size:18px!important;line-height:1.82!important;letter-spacing:0!important}@media(max-width:600px){.passage-reading-content{font-size:calc(18px * var(--marg-reader-scale));line-height:1.84}.passage-questions{font-size:15px;line-height:1.75}.pcard-passage{font-size:18px!important;line-height:1.84!important}}';
@@ -1099,6 +1100,10 @@ function renderMentorStructuredText(text) {
     escaped = escaped.replace(/\*\*([^*\n]{1,220})\*\*/g, '<strong>$1</strong>');
     escaped = escaped.replace(/(^|[^*])\*([^*\n]{1,220})\*/g, '$1<em>$2</em>');
     return escaped;
+  }
+
+  if (typeof MargStudy !== 'undefined' && MargStudy.hasCatStructure(value)) {
+    return '<div class="mentor-rich study-rich">' + MargStudy.renderBlocks(value, { inline: inline, raw: visualBlocks }) + '</div>';
   }
 
   var blocks = [];
@@ -3488,6 +3493,11 @@ function cleanHistory(history) {
     return true;
   }).map(function(m) {
     if (m.role !== 'assistant' || !m.content || typeof m.content !== 'string') return m;
+    // Structured study material keeps its numbering, option letters and
+    // headings; flattening them would make a later "Q3" or "option B" ambiguous.
+    if (typeof MargStudy !== 'undefined' && MargStudy.hasCatStructure(m.content)) {
+      return { role: m.role, content: stripGroundingSourceMarker(m.content).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() };
+    }
     var cleaned = stripGroundingSourceMarker(m.content)
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
@@ -3986,6 +3996,7 @@ function isBareQuestionReference(message) {
 function refersToEarlierUploadedMaterial(message) {
   var text = String(message || '').trim();
   if (!text) return false;
+  if (typeof studyContextOwnsTurn === 'function' && studyContextOwnsTurn(text)) return false;
   return /\b(?:the|those|these|my|earlier|previous|first|last|uploaded|shared)\s+(?:(?:\d+|one|two|three|four|five|six)\s+)?(?:pictures?|photos?|images?|pages?|screenshots?)\b/i.test(text) ||
     /\bfrom\s+(?:the|those|these|my|earlier|previous|first|last)\s+(?:(?:\d+|one|two|three|four|five|six)\s+)?(?:pictures?|photos?|images?|pages?)\b/i.test(text);
 }
@@ -4596,7 +4607,7 @@ function getReliableMentorFocus(message) {
 function selectTurnMemory(message, diagnosis) {
   if (requestsAccountWideMentorMemory(message)) return { mode:'all', hypothesisTopics:[] };
   var intent = diagnosis && diagnosis.intent || '';
-  if (['greeting','privacy_request','question_reference','image_question','answer_review','dilr_validity_review','seamless_continuation','score_correction'].indexOf(intent) !== -1) {
+  if (['greeting','privacy_request','question_reference','image_question','answer_review','dilr_validity_review','seamless_continuation','score_correction','study_activity'].indexOf(intent) !== -1) {
     return { mode:'none', topics:[], hypothesisTopics:[] };
   }
   var named = sectionsNamedInMessage(message);
@@ -4660,6 +4671,10 @@ function routeHistoryForTurn(cleanedHistory, message, diagnosis, extras) {
   var intent = diagnosis.intent || '';
   var immediate = !!(extras.hasImage || diagnosis.hasImage || ['question_reference','image_question','answer_review','dilr_validity_review','seamless_continuation'].indexOf(intent) !== -1);
   var groups = historyTurnGroups(history);
+  // A study session spans many short turns (P1, P2, P3, then questions). Keep
+  // enough of them that the thread of the activity is never cut mid-way; the
+  // material itself is re-supplied by the study directive.
+  if (intent === 'study_activity') return flattenHistoryGroups(groups.slice(-10));
   if (immediate) return flattenHistoryGroups(groups.slice(-3));
   if (selection.mode === 'topics' && selection.topics && selection.topics.length) {
     var topics = selection.topics;
@@ -5454,7 +5469,7 @@ async function loadMentorExecutionLoop() {
 }
 
 function getUserScopedKey(name) {
-  var suffix=typeof margActiveThreadId!=='undefined'&&margActiveThreadId!=='legacy'&&/^(?:marg_active_exercise|marg_pending_external_question)$/.test(name)?'_'+margActiveThreadId:'';
+  var suffix=typeof margActiveThreadId!=='undefined'&&margActiveThreadId!=='legacy'&&/^(?:marg_active_exercise|marg_pending_external_question|marg_study_context)$/.test(name)?'_'+margActiveThreadId:'';
   return name + '_' + (currentUser && currentUser.id ? currentUser.id : 'guest') + suffix;
 }
 
@@ -5723,7 +5738,7 @@ function maybeReplayActiveExercise(message) {
   if (!replay) return false;
   activeGeneratedExercise = replayExercise;
   try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(replayExercise)); } catch(e) {}
-  addMessage('marg', escapeGuidedExerciseText(replay).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  addMessage('marg', renderGuidedExerciseHtml(replay), true);
   conversationHistory.push({ role:'assistant', content:replay });
   if (!isGuestMode) saveChatMessage('assistant', replay);
   markActiveExerciseDelivered('chat-replay');
@@ -8097,6 +8112,203 @@ async function runPatternGuessOutputQualityTests() {
 }
 window.runPatternGuessOutputQualityTests = runPatternGuessOutputQualityTests;
 window.runOutputQualityTests = runOutputQualityTests;
+
+async function runStudyExperienceTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  if (typeof MargStudy === 'undefined' || !ensureStudyConfigured()) return [{ name:'study module is loaded', passed:false }];
+
+  var P1 = 'The history of measurement is usually told as a story of increasing precision, but that account hides a quieter story about trust. Before standard units, a merchant\'s yard was whatever the guild said it was, and disputes were settled by reputation rather than by instrument. When states imposed uniform measures, they did not simply improve accuracy; they moved authority from local communities to distant offices, and with it the power to say what counted as a fair exchange. Precision, in this light, is less a property of rulers than of institutions that agree to be bound by them.';
+  var P2 = 'Critics of this view point out that standardisation also made new forms of cooperation possible. A farmer selling grain to a buyer she would never meet could rely on a bushel that meant the same thing in both places. Yet the critics concede that the benefits were distributed unevenly: those who had previously set the terms of trade through custom found their expertise devalued, while those who controlled the new standards acquired a lever that no earlier merchant had possessed. The question is therefore not whether uniform measures help, but who decides when they are revised.';
+  var P3 = 'A third position holds that the dispute is badly framed because it treats measurement as a neutral background to exchange. In practice, every measure encodes a choice about what to ignore. A yield per acre says nothing about soil exhausted or labour spent, and a price per kilogram conceals the distance a crop travelled. To demand that measures be accurate is to demand that they be accurate about something, and that something is selected by interests that rarely announce themselves. The honest response is not to abandon measurement but to ask, each time, what a number leaves out.';
+  var article = 'This is the article. Let\'s identify the claim for each passage. After that we\'ll do questions.\n\nP1\n' + P1 + '\n\nP2\n' + P2 + '\n\nP3\n' + P3;
+
+  var keys = ['marg_study_context', 'marg_practice_memory', 'marg_seen_practice', 'marg_recent_blueprints', 'marg_active_exercise'].map(function(name) { return getUserScopedKey(name); });
+  var savedStorage = keys.map(function(key) { return localStorage.getItem(key); });
+  var saved = {
+    history:conversationHistory, exercise:activeGeneratedExercise, addMessage:addMessage, fetchWithTimeout:fetchWithTimeout,
+    guest:isGuestMode, saveChatMessage:saveChatMessage, showTyping:showTyping, hideTyping:hideTyping, pending:pendingExternalQuestion
+  };
+  function resetState() {
+    keys.forEach(function(key) { localStorage.removeItem(key); });
+    MargStudy.configure({ scope:getUserScopedKey });
+    conversationHistory = [];
+    activeGeneratedExercise = null;
+  }
+
+  try {
+    resetState();
+
+    // 1. A pasted article becomes the active study material and is never sent to saved-question retrieval.
+    var turn = getStudyTurn(article);
+    check('pasted article is recognised as owned study material', turn.type === 'material' && turn.owns && turn.analysis.kind === 'passage_set' && turn.analysis.passages.length === 3);
+    check('saved retrieval does not claim a pasted article', !isSavedQuestionResolutionRequest(article) && !refersToEarlierUploadedMaterial(article) && studyContextOwnsTurn(article));
+    var resolution = await prepareQuestionContextForTurn(article, []);
+    check('pasted article is not answered with a saved-source disambiguation', !resolution.blocked && !/multiple saved sources/i.test(String(resolution.reply || '') + String(resolution.directive || '')));
+    adoptStudyMaterial(turn);
+    var ctx = MargStudy.getContext();
+    check('active study context is persisted with every passage', !!ctx && ctx.passages.length === 3 && ctx.pendingTask === 'claims' && ctx.text.indexOf('what a number leaves out') !== -1);
+    check('study context is stored under the thread-aware user key', !!localStorage.getItem(getUserScopedKey('marg_study_context')));
+
+    // 2. The first reply is a study turn with the material in front of the model and no diagnosis.
+    var intro = buildDiagnosisDirective(article);
+    check('material turn builds a lean study directive', intro.diagnosis.intent === 'study_activity' && intro.diagnosis.responseShape === 'study' && intro.diagnosis.questionBudget === null &&
+      intro.directive.indexOf('ACTIVE STUDY MATERIAL') !== -1 && intro.directive.indexOf('what a number leaves out') !== -1 && intro.directive.indexOf('DIAGNOSIS ENGINE') === -1);
+    check('study turn contract forbids saved-source talk and diagnostic intake', /Never say you found several saved sources/.test(intro.directive) && /not a diagnosis/.test(intro.directive));
+    check('mentor context for a study turn drops the practice and plan memories', buildMentorTurnContext(article, intro, { surface:'chat' }).indexOf('ACTIVE STUDY MATERIAL') !== -1);
+
+    // 3. Multi-turn: P1, P2, P3 evaluations, then the questions on the same article.
+    conversationHistory.push({ role:'user', content:article });
+    recordStudyStudentStep(turn, article);
+    recordStudyMentorStep(turn, 'Start with P1. In one sentence, what is its claim?');
+    var p1 = getStudyTurn('P1 — precision is really about institutions agreeing to be bound, not about better rulers');
+    check('P1 claim is an analysis step on the active article', p1.type === 'analysis_step' && p1.owns && p1.label === 'P1');
+    var p1Directive = buildDiagnosisDirective('P1 — precision is really about institutions agreeing to be bound, not about better rulers');
+    check('analysis step keeps the article and the earlier steps in context', p1Directive.directive.indexOf('what a number leaves out') !== -1 && p1Directive.directive.indexOf('Start with P1') !== -1 && /Evaluate it against that passage only/.test(p1Directive.directive));
+    check('study replies get a large output budget and long timeout', getMentorResponseMaxTokens(p1Directive.diagnosis) >= 12288 && getMentorRequestTimeout(p1Directive.diagnosis, false) >= 120000);
+    recordStudyStudentStep(p1, 'P1 claim');
+    recordStudyMentorStep(p1, 'Right. Now P2.');
+    ['P2 — standardisation helped cooperation but the gains were uneven', 'P3 — every measure hides a choice about what it ignores'].forEach(function(message) {
+      var step = getStudyTurn(message);
+      recordStudyStudentStep(step, message);
+      recordStudyMentorStep(step, 'Good. Next.');
+    });
+    var afterClaims = MargStudy.getContext();
+    check('finishing every passage moves the session to the questions step', afterClaims.pendingTask === 'questions' && afterClaims.claimsDone.length === 3);
+    var go = getStudyTurn('Okay, now let\'s do questions');
+    check('"now let\'s do questions" is a request for questions on the same article', go.type === 'generate_questions' && go.owns && go.context.id === afterClaims.id);
+    check('retrieval stays out of the questions turn', !isSavedQuestionResolutionRequest('Okay, now let\'s do questions') && detectMentorIntent('Okay, now let\'s do questions') === 'study_activity');
+    check('a short follow-up about the article remains a study turn', getStudyTurn('why is P3 a different position from P2?').owns && detectMentorIntent('explain Q3 from this article') === 'study_activity');
+
+    // 4. Legitimate saved-question retrieval and answer review are not hijacked.
+    check('an explicit saved-page request still reaches retrieval', !studyContextOwnsTurn('Solve question 4 from the page I uploaded yesterday') && !getStudyTurn('Solve question 4 from the page I uploaded yesterday').owns);
+    check('an answer string is not claimed by the study session', !getStudyTurn('1-B, 2-C, 3-A, 4-D').owns);
+    check('an unrelated practice request leaves the study session', !getStudyTurn('give me a fresh QA set on percentages').owns);
+    check('bare numbered references still resolve when no study material exists', (function() {
+      MargStudy.clearContext();
+      var ok = isBareQuestionReference('Q7') && detectMentorIntent('Q7') === 'question_reference';
+      adoptStudyMaterial(turn);
+      return ok;
+    })());
+
+    // 5. Long structured replies finish: continuation joins cut-off text without repeats or loops.
+    var firstPayload = { candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'1. What is the primary purpose of the passage?\nA. To trace how measures acquired authority\nB. To defend uniform measures against critics\nC. To show that precision is' }] } }] };
+    var continuationCalls = 0;
+    fetchWithTimeout = async function() {
+      continuationCalls++;
+      var text = continuationCalls === 1 ? 'precision is impossible\nD. To argue that every number hides a choice\n\n2. According to the passage, why did critics concede' : ' concede that the gains were uneven?\nA. They were unevenly shared\nB. They were small\nC. They were illegal\nD. They were fictional';
+      return { json:async function() { return { candidates:[{ finishReason:continuationCalls === 1 ? 'MAX_TOKENS' : 'STOP', content:{ parts:[{ text:text }] } }] }; } };
+    };
+    var stitched = await resolveStudyReply(firstPayload, { contents:[{ role:'user', parts:[{ text:'questions' }] }], generationConfig:{} }, 1000);
+    check('a reply cut at the token ceiling is continued to completion', continuationCalls === 2 && /D\. To argue that every number hides a choice/.test(stitched) && /D\. They were fictional$/.test(stitched));
+    check('continuation does not duplicate the overlap or break words', stitched.indexOf('precision is precision is') === -1 && /C\. To show that precision is impossible/.test(stitched) && stitched.indexOf('concede concede') === -1);
+    var noTextCalls = 0;
+    fetchWithTimeout = async function() { noTextCalls++; return { json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'A complete answer.' }] } }] }; } }; };
+    var recovered = await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ thought:true, text:'thinking' }] } }] }, { contents:[{ role:'user', parts:[{ text:'x' }] }], generationConfig:{} }, 1000);
+    check('thinking that consumes the whole budget is retried instead of failing', noTextCalls === 1 && recovered === 'A complete answer.');
+    check('finished replies are returned untouched', (await resolveStudyReply({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'Done.' }] } }] }, { contents:[], generationConfig:{} }, 1000, { allowPartial:true })) === 'Done.');
+    check('a dangling fragment is detected as cut off', MargStudy.looksCutOff('Q2. Which option is best?\nA. one\nB. two') && !MargStudy.looksCutOff('The author concedes the point.'));
+
+    // 6. CAT layout: structure survives the guard, history cleaning and rendering.
+    var structured = 'PASSAGE 1\n' + P1 + '\n\n1. Which of the following best states the central claim of the passage?\nA. Precision follows from better instruments\nB. Precision depends on institutions that bind themselves\nC. Merchants resisted all standards\nD. States cannot improve accuracy\n\nAnswer: B\nExplanation: The last sentence ties precision to institutions.';
+    var guarded = applyMentorResponseGuard(structured, { responseShape:'study', questionBudget:null, intent:'study_activity', submittedAnswerText:'x' });
+    check('study guard keeps numbering, options and the question mark', /1\. Which of the following best states the central claim of the passage\?/.test(guarded) && /\nA\. Precision follows/.test(guarded) && /\nD\. States cannot/.test(guarded));
+    var html = renderMentorStructuredText(structured);
+    check('questions render as a CAT hierarchy with four options', html.indexOf('study-passage') !== -1 && html.indexOf('study-question') !== -1 && (html.match(/class="study-option"/g) || []).length === 4 && html.indexOf('study-answer') !== -1 && html.indexOf('study-explanation') !== -1);
+    check('ordinary mentor replies keep the conversational layout', renderMentorStructuredText('You are rereading too early. Try marking the claim first.').indexOf('study-rich') === -1);
+    var cleaned = cleanHistory([{ role:'user', content:'questions' }, { role:'assistant', content:'1. Which claim is made?\nA. One\nB. Two\nC. Three\nD. Four\n\nReply 1-[your choice].' }]);
+    check('history cleaning keeps question numbering and options', /^1\. Which claim is made\?/.test(cleaned[1].content) && /\nA\. One/.test(cleaned[1].content));
+    check('inline options are laid out one per line', MargStudy.normalizeLayout('2. Which is true? (A) one (B) two (C) three (D) four').split('\n').filter(function(line) { return /^[A-D]\. /.test(line); }).length === 4);
+
+    // 7. Original questions on the supplied material: checked, stored, formatted and answer-reviewable.
+    var captured = [];
+    addMessage = function(_role, text) { captured.push(String(text)); };
+    showTyping = function() {}; hideTyping = function() {};
+    saveChatMessage = function() {}; isGuestMode = true;
+    var generated = [
+      { passage:'P1', q:'Which of the following best captures the claim of P1?', options:['A. Precision is a property of institutions as much as of instruments', 'B. Standard units were rejected by merchants', 'C. Accuracy improved with better rulers', 'D. Reputation was more reliable than any state'], correct:0, explanation:'P1 ties precision to institutions that agree to be bound by it, so only A keeps that ownership.', trap_type:'scope', sufficiency_check:'The last sentence of P1 states that precision is less a property of rulers than of institutions.', option_check:'A matches the closing sentence; B, C and D each reverse or exaggerate what P1 says about authority.' },
+      { passage:'P2', q:'What does the author use the farmer selling grain in P2 to show?', options:['A. standards enable cooperation between strangers', 'B. farmers resist uniform measures', 'C. grain markets are unpredictable', 'D. custom is always superior'], correct:0, explanation:'The example shows a bushel meaning the same thing in both places, which is cooperation among strangers.', trap_type:'purpose', sufficiency_check:'P2 says she could rely on a bushel that meant the same thing in both places.', option_check:'Only A follows from the example; B, C and D import claims P2 never makes about farmers or markets.' },
+      { passage:'P3', q:'Which inference is most strongly supported by P3?', options:['A. A measure can be accurate and still conceal the interests that selected it', 'B. Accuracy is impossible in measurement', 'C. Yield per acre is a useless statistic', 'D. Interests rarely influence exchange'], correct:0, explanation:'P3 says measures are accurate about something that interests select, so accuracy does not remove selection.', trap_type:'extreme', sufficiency_check:'P3 says that something is selected by interests that rarely announce themselves.', option_check:'A restates the qualification; B and C overreach, while D contradicts the passage directly.' },
+      { passage:'P2', q:'Which of the following would the author of P2 most likely accept?', options:['A. Who revises a standard matters as much as whether it exists', 'B. Uniform measures should be abolished', 'C. Custom guarantees fairness', 'D. Standards benefit everyone equally'], correct:0, explanation:'P2 ends by asking who decides when measures are revised, which is option A.', trap_type:'author view', sufficiency_check:'P2 concludes the question is not whether measures help but who decides when they are revised.', option_check:'A matches that conclusion; B, C and D contradict the concession that benefits were distributed unevenly.' }
+    ];
+    var generationCalls = 0, auditCalls = 0;
+    var auditAgrees = true;
+    fetchWithTimeout = async function(_url, options) {
+      var body = String(options && options.body || '');
+      var isAudit = body.indexOf('strict independent CAT question-set auditor') !== -1;
+      if (isAudit) auditCalls++; else generationCalls++;
+      var payload = isAudit
+        ? { valid:true, issues:[], verification:{ answer_indices:generated.map(function(question) { return auditAgrees ? question.correct : (question.correct + 1) % 4; }), answer_explanations:generated.map(function() { return 'The passage supports this option and the alternatives change its scope or force.'; }), feasible_base_case_counts:[] } }
+        : { questions:generated };
+      return { ok:true, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:JSON.stringify(payload) }] } }] }; } };
+    };
+    var materialCtx = MargStudy.getContext();
+    var done = await generateQuestionsFromStudyMaterial('Okay, now let\'s do questions', { type:'generate_questions', owns:true, count:4, context:materialCtx });
+    var visible = (conversationHistory[conversationHistory.length - 1] || {}).content || '';
+    check('questions are generated from the same article and independently checked', done === true && generationCalls >= 1 && auditCalls >= 1 && /Which of the following best captures the claim of P1\?/.test(visible));
+    check('generated set is formatted as numbered questions with four lettered options', (visible.match(/^\d\. /gm) || []).length === 4 && (visible.match(/^[A-D]\. /gm) || []).length === 16 && /\(P2\) What does the author use the farmer/.test(visible) && /Reply in one line/.test(visible));
+    check('generated set is stored for answer review without a saved-question lookup', !!activeGeneratedExercise && activeGeneratedExercise.source === 'study-material' && getActiveExerciseQuestions().length === 4 && getActiveExerciseQuestions()[0].correct === 'A' && isActiveExerciseCurrentInConversation());
+    check('after questions exist, answers go to the exercise and not the study session', !getStudyTurn('1-A, 2-A, 3-A, 4-A').owns && !getStudyTurn('explain Q2').owns);
+    check('questions rendered for chat use the CAT hierarchy', renderMentorStructuredText(visible).indexOf('study-question') !== -1);
+    check('generated questions are remembered so they cannot be reissued with new names', MargStudy.findRepeats('rc', { sets:[{ questions:generated.map(function(question) { return { q:question.q.replace('P1', 'Passage 1') }; }) }] }).length > 0);
+
+    // A failed independent check never reaches the student.
+    resetState();
+    adoptStudyMaterial(turn);
+    auditAgrees = false;
+    captured = [];
+    var beforeFailure = activeGeneratedExercise;
+    var failedRun = await generateQuestionsFromStudyMaterial('give me 4 questions from this article', { type:'generate_questions', owns:true, count:4, context:MargStudy.getContext() });
+    check('questions whose key fails the independent check are never delivered', failedRun === true && activeGeneratedExercise === beforeFailure && captured.length === 1 && /could not get a clean/.test(captured[0]) && !/Which of the following best captures/.test(captured[0]));
+
+    // 8. Repetition: names, numbers or a few words changed do not make a new item.
+    resetState();
+    var qaOne = { questions:[
+      { q:'A shopkeeper marks up an item by 40% over cost and then offers a discount of 25% on the marked price. If he still earns Rs. 120 on the sale, what is the cost price of the item?', options:['A. Rs. 800','B. Rs. 1000','C. Rs. 1200','D. Rs. 1500'], correct:0, solution:'x' },
+      { q:'Two pipes fill a tank in 12 and 15 minutes respectively while a drain empties it in 20 minutes. If all three are opened together, how long does it take to fill the tank?', options:['A. 10 minutes','B. 12 minutes','C. 15 minutes','D. 20 minutes'], correct:1, solution:'x' }
+    ] };
+    markPracticeSeen('qa', qaOne);
+    var qaSwapped = { questions:[
+      { q:'A trader marks up a product by 30% over cost and then offers a discount of 20% on the marked price. If she still earns Rs. 240 on the sale, what is the cost price of the product?', options:['A. Rs. 900','B. Rs. 1500','C. Rs. 2400','D. Rs. 3000'], correct:0, solution:'x' },
+      { q:'Two taps fill a cistern in 10 and 12 minutes respectively while a leak empties it in 30 minutes. If all three work together, how long does it take to fill the cistern?', options:['A. 6 minutes','B. 8 minutes','C. 9 minutes','D. 12 minutes'], correct:1, solution:'x' }
+    ] };
+    var qaFresh = { questions:[
+      { q:'The sum of the squares of three consecutive positive integers is 365. What is the largest of the three integers?', options:['A. 10','B. 11','C. 12','D. 13'], correct:2, solution:'x' },
+      { q:'How many four-digit numbers formed using the digits 1, 2, 3, 4 and 5 without repetition are divisible by 4?', options:['A. 12','B. 24','C. 36','D. 48'], correct:1, solution:'x' }
+    ] };
+    check('a QA set with only names and numbers changed is treated as a repeat', wasPracticeRecentlySeen('qa', qaSwapped));
+    check('a QA set that tests different ideas is not a repeat', !wasPracticeRecentlySeen('qa', qaFresh));
+    var rcOne = { sets:[{ passage:P1 + '\n\n' + P2, questions:[{ q:'The author of the passage would most likely agree that precision depends on:', options:['A. a','B. b','C. c','D. d'], correct:0 }] }] };
+    markPracticeSeen('rc', rcOne);
+    var rcReworded = { sets:[{ passage:(P1 + '\n\n' + P2).replace(/merchant/g, 'trader').replace(/guild/g, 'council').replace(/yard/g, 'measure'), questions:[{ q:'The writer of this passage would most likely agree that exactness depends on:', options:['A. a','B. b','C. c','D. d'], correct:0 }] }] };
+    var rcDifferent = { sets:[{ passage:'Tidal power has been promised for a century and delivered rarely. The obstacle is not the physics of the moon but the economics of salt water, which corrodes every moving part submerged in it and punishes any engineer who treats maintenance as an afterthought. Early barrages flooded estuaries and ruined fisheries, which turned local communities against projects that regulators had approved on paper. The newer turbines are smaller and quieter, but they inherit a harder problem: each must earn its keep on its own, with no economy of scale to hide a poor site.', questions:[{ q:'Which of the following best describes the author\'s attitude to tidal power?', options:['A. a','B. b','C. c','D. d'], correct:0 }] }] };
+    check('a reworded repeat of an earlier RC passage is rejected', wasPracticeRecentlySeen('rc', rcReworded));
+    check('a genuinely different RC passage is accepted', !wasPracticeRecentlySeen('rc', rcDifferent));
+    var dilrOne = { sets:[{ set_title:'Tournament', constraint_types:['ranking', 'conditional'], setup:'Six teams A, B, C, D, E and F play a round-robin tournament. Each win earns 2 points and a draw earns 1 point. A scored more than B, and B scored more than C. D and E drew with each other. F won exactly three matches. No team scored fewer than 3 points, and the team with the most points had exactly 9 points.', questions:[{ q:'Which team finished first?', options:['A. A','B. B','C. C','D. D'], correct:0 }] }] };
+    markPracticeSeen('dilr', dilrOne);
+    var dilrRenamed = { sets:[{ set_title:'League', constraint_types:['ranking', 'conditional'], setup:'Six clubs P, Q, R, S, T and U play a round-robin league. Each win earns 3 points and a draw earns 1 point. P scored more than Q, and Q scored more than R. S and T drew with each other. U won exactly two matches. No club scored fewer than 2 points, and the club with the most points had exactly 10 points.', questions:[{ q:'Which club finished first?', options:['A. P','B. Q','C. R','D. S'], correct:0 }] }] };
+    check('a DILR set with the same structure and new names is rejected', wasPracticeRecentlySeen('dilr', dilrRenamed));
+
+    // 9. New practice is built from a rotating abstract blueprint, a quality brief and an avoid-list.
+    var prompts = [];
+    for (var round = 0; round < 6; round++) prompts.push(getTimeMockPracticeBlueprintPrompt('qa', 'mixed'));
+    var usedBlueprints = getRecentBlueprintIds('qa');
+    check('QA prompts rotate through different blueprints instead of repeating one', new Set(usedBlueprints).size >= 5);
+    check('practice prompts carry the CAT quality bar and what the student has already seen', /CAT QA QUALITY BAR/.test(prompts[0]) && /ALREADY SHOWN TO THIS STUDENT/.test(prompts[0]) && /never be copied/.test(prompts[0]));
+    check('the content library is used as reference only', /STYLE REFERENCE/.test(MargStudy.exemplarBlock('qa', 'x')) || !MargStudy.exemplarBlock('qa', 'x'));
+    check('the RC prompt asks for stance and structure rather than fact lookup', /primary purpose|primary purpose, what an example/.test(MargStudy.qualityBrief('varc')) && /believable misreading/.test(MargStudy.qualityBrief('varc')));
+  } catch (error) {
+    check('study experience tests ran without throwing: ' + (error && error.message), false);
+  } finally {
+    addMessage = saved.addMessage; fetchWithTimeout = saved.fetchWithTimeout; saveChatMessage = saved.saveChatMessage;
+    showTyping = saved.showTyping; hideTyping = saved.hideTyping; isGuestMode = saved.guest;
+    conversationHistory = saved.history; activeGeneratedExercise = saved.exercise; pendingExternalQuestion = saved.pending;
+    keys.forEach(function(key, index) { if (savedStorage[index] === null) localStorage.removeItem(key); else localStorage.setItem(key, savedStorage[index]); });
+    MargStudy.configure({ scope:getUserScopedKey });
+  }
+  return results;
+}
+window.runStudyExperienceTests = runStudyExperienceTests;
 
 function runEvaluationTests() {
   var previousMemory = diagnosticMemory;
@@ -10934,6 +11146,29 @@ function detectRequestedCatSection(message) {
   return best && best.section;
 }
 
+function getActiveExerciseTimestamp() {
+  if (typeof activeGeneratedExercise === 'undefined' || !activeGeneratedExercise || activeGeneratedExercise.cancelledAt) return 0;
+  return Date.parse(activeGeneratedExercise.deliveredAt || activeGeneratedExercise.generatedAt || '') || 0;
+}
+
+// Classifies a turn against the material the student supplied in this
+// conversation. A generated exercise that is newer than the study material is
+// the current subject, so its answer-review and explanation flow keeps priority.
+function getStudyTurn(message, options) {
+  var none = { type:'none', owns:false };
+  options = options || {};
+  if (!ensureStudyConfigured() || options.hasImages) return none;
+  var text = String(message || '');
+  if (!text.trim()) return none;
+  var classifyOptions = { hasImages:false };
+  var ctx = MargStudy.getContext();
+  if (ctx && getActiveExerciseTimestamp() >= Number(ctx.updatedAt || ctx.setAt || 0)) classifyOptions.context = null;
+  var turn;
+  try { turn = MargStudy.classifyTurn(text, classifyOptions); } catch (error) { return none; }
+  if (turn.type === 'followup' && typeof activeGeneratedExercise !== 'undefined' && activeGeneratedExercise && isAnswerReviewRequest(text)) return none;
+  return turn;
+}
+
 function detectMentorIntent(message) {
   var text = String(message || '').toLowerCase().trim();
   var recentItems = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
@@ -10942,6 +11177,7 @@ function detectMentorIntent(message) {
     (/\b(?:correction|corrected|recalculate|recompute|check (?:the )?(?:sum|total|arithmetic))\b/.test(text) ? 'score_correction' : 'mentoring');
   if (isDataPrivacyRequest(message)) return 'privacy_request';
   if (isSimpleGreeting(message)) return 'greeting';
+  if (getStudyTurn(message).owns) return 'study_activity';
   if (typeof isBareQuestionReference === 'function' && isBareQuestionReference(message)) return 'question_reference';
   if (isDILRValidityChallenge(message)) return 'dilr_validity_review';
   if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
@@ -11093,8 +11329,37 @@ function isDILRValidityChallenge(message) {
   return hasSpecificPuzzleReference && challengesResult;
 }
 
+function buildStudyDiagnosisDirective(message, diagnosis, turn) {
+  var ctx = MargStudy.getContext();
+  diagnosis.intent = 'study_activity';
+  diagnosis.emotionalState = 'neutral';
+  diagnosis.likelyHiddenProblem = 'The student is working on material they supplied in this conversation. Treat it as the active source and do the study task; there is nothing to diagnose yet.';
+  diagnosis.allowsEvidenceQuestion = false;
+  diagnosis.freshPracticeSourceCheck = false;
+  diagnosis.freshPastedMaterial = false;
+  diagnosis.pastedAnswerEvidence = null;
+  diagnosis.rcProgressionReady = false;
+  diagnosis.rcWrongAnswerReview = false;
+  diagnosis.rcFunctionMapProgressionReady = false;
+  diagnosis.rcFullSetReview = false;
+  diagnosis.rcClaimLocationRefinement = false;
+  diagnosis.comprehensivePlanning = false;
+  diagnosis.planSequenceAmbiguity = false;
+  diagnosis.committedAction = false;
+  diagnosis.concreteProcessEvidence = false;
+  diagnosis.studyTurnType = turn.type;
+  diagnosis.responseShape = 'study';
+  diagnosis.questionBudget = null;
+  var directive = '\n\nCURRENT-TURN ANCHOR: The newest student message controls this reply, and the study material below is its only source. Do not revive an older mission, saved task, exercise or profile question.' +
+    MargStudy.buildStudyDirective(turn, ctx, {}) +
+    '\n\nRESPONSE CONTRACT: shape study. Finish every sentence, question and option. Ask no engagement question; the only question allowed is the one the study step itself needs.';
+  return { diagnosis:diagnosis, directive:directive, correction:null };
+}
+
 function buildDiagnosisDirective(message) {
   var diagnosis = analyzeMentorInput(message);
+  var studyTurn = getStudyTurn(message);
+  if (studyTurn.owns) return buildStudyDiagnosisDirective(message, diagnosis, studyTurn);
   var correction = reconcileFreshCorrectiveEvidence(message);
   diagnosis.correctionVerification = correction;
   var messageText = String(message || '');
@@ -12130,7 +12395,20 @@ function applyExplicitResponseLimit(text, diagnosis) {
   return (visible + (tags.length ? '\n' + tags.join('\n') : '')).trim();
 }
 
+// Study replies are the material and its working. The mentor-conversation
+// guards (question budgets, report-format removal, closes) would flatten the
+// passage/question/option layout, so only the factual and safety passes run.
+function applyStudyResponseGuard(response, diagnosis) {
+  var text = convertLatexToPlainText(reduceAssistantStyleLanguage(correctCalendarReferences(String(response || '')))).trim();
+  text = guardDeterministicArithmeticEqualities(text);
+  text = guardPromptInstructionLeak(text, diagnosis);
+  text = MargStudy.normalizeLayout(text);
+  if (!text) text = 'I could not finish that reply. Your material is still saved, so send the same request again and I will continue from it.';
+  return text;
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
+  if (diagnosis && diagnosis.responseShape === 'study' && ensureStudyConfigured()) return applyStudyResponseGuard(response, diagnosis);
   if (diagnosis && diagnosis.hintOnly) return guardHintOnlyResponse(response);
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || ''))))).trim();
   text = guardDeterministicArithmeticEqualities(text);
@@ -12307,6 +12585,10 @@ function selectMentorModelText(payload) {
 }
 
 function getMentorResponseMaxTokens(diagnosis) {
+  // Passages, multi-question sets and full explanations are long by nature.
+  // Thinking tokens share this ceiling, so it must clear the longest legitimate
+  // study reply; shorter replies simply stop earlier.
+  if (diagnosis && diagnosis.responseShape === 'study') return diagnosis.studyTurnType === 'generate_questions' || diagnosis.studyTurnType === 'continue' ? 16384 : 12288;
   if (diagnosis && diagnosis.comprehensivePlanning) return 16384;
   if (diagnosis && diagnosis.responseShape === 'plan') return 8192;
   if (diagnosis && diagnosis.responseShape === 'complete') {
@@ -12322,6 +12604,7 @@ function getMentorResponseMaxTokens(diagnosis) {
 }
 
 function getMentorRequestTimeout(diagnosis, useWebGrounding) {
+  if (diagnosis && diagnosis.responseShape === 'study') return 120000;
   if (diagnosis && diagnosis.comprehensivePlanning) return 90000;
   if (useWebGrounding || diagnosis && (diagnosis.hasImage || diagnosis.intent === 'answer_review' || diagnosis.intent === 'planning')) return 75000;
   // Forty-five seconds was producing false failures even when Gemini was still
@@ -12331,6 +12614,7 @@ function getMentorRequestTimeout(diagnosis, useWebGrounding) {
 
 function buildMentorFallbackReply(diagnosis) {
   if (!diagnosis) return 'I couldn’t finish this reply. Your message is still here; use Retry response to continue from it.';
+  if (diagnosis.responseShape === 'study') return 'I could not finish that reply. Your material and everything we have done on it are saved, so send your message again and I will carry on from exactly this step.';
   var userText = String(diagnosis.submittedAnswerText || '');
   if (/\b(?:said|saying|marked)\b[\s\S]{0,100}\b(?:wrong|incorrect)\b[\s\S]{0,100}\b(?:correct|right)\b/i.test(userText)) return 'Those verdicts contradict each other. That is a grading error from Marg, not evidence that you made those mistakes. I won’t count the disputed answers against you. Retry this response and I’ll re-check the passage you actually answered, without using an older key.';
   if (/^(?:yes(?: sure)?|sure|yep)[.!\s]*$/i.test(userText)) {
@@ -13399,8 +13683,9 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
   var surface = extras.surface === 'conversational' ? 'conversational' : 'chat';
   var selection = selectTurnMemory(message, diagnosis);
   var allowAccountProfile = !selection || selection.mode !== 'none';
-  var exerciseContext = pendingExternalQuestionTurnMode || diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(message, diagnosis);
-  var planContext = diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(message, diagnosis);
+  var studyTurnActive = diagnosis.responseShape === 'study';
+  var exerciseContext = studyTurnActive || pendingExternalQuestionTurnMode || diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(message, diagnosis);
+  var planContext = studyTurnActive || diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(message, diagnosis);
   var body = getDateContext() +
     (surface === 'chat' ? buildTurnProfileContext(message, diagnosis) : buildConversationalCollectedProfile()) +
     getDiagnosticMemoryContext(message, diagnosis) +
@@ -14175,6 +14460,197 @@ function askMockSectionEvidenceQuestion(section) {
   showConversationalOptions(['I could not spot the method', 'I knew the method but was too slow', 'I made mistakes after the setup'], 'mock_section_evidence');
 }
 
+// --- Study session: material the student supplied in this conversation -------
+function adoptStudyMaterial(turn) {
+  if (!ensureStudyConfigured() || !turn || !turn.analysis) return null;
+  var ctx = MargStudy.setContext(turn.analysis, turn.analysis.body);
+  // Pasted study material replaces any half-finished external-question intake.
+  if (pendingExternalQuestion) savePendingExternalQuestion(null);
+  pendingExternalQuestionTurnMode = '';
+  return ctx;
+}
+
+function recordStudyStudentStep(turn, text) {
+  if (!ensureStudyConfigured() || !turn) return;
+  var label = turn.type === 'material' ? 'material' : turn.label || turn.type;
+  var body = turn.type === 'material' && turn.analysis ? (turn.analysis.instruction || 'Shared the material.') : text;
+  MargStudy.recordStep('student', label, body);
+}
+
+function recordStudyMentorStep(turn, reply) {
+  if (!ensureStudyConfigured() || !turn) return;
+  var summary = String(reply || '').replace(/\s+/g, ' ').trim().slice(0, 360);
+  MargStudy.recordStep('marg', turn.label || turn.type, summary);
+  var ctx = MargStudy.getContext();
+  if (!ctx || turn.type !== 'analysis_step') return;
+  var done = Array.isArray(ctx.claimsDone) ? ctx.claimsDone.slice() : [];
+  if (turn.label && done.indexOf(turn.label) === -1) done.push(turn.label);
+  var labels = (ctx.passages || []).map(function(item) { return item.label; });
+  var allDone = labels.length > 0 && labels.every(function(label) { return done.indexOf(label) !== -1; });
+  var patch = { claimsDone: done };
+  if (allDone) patch.pendingTask = ctx.framing && ctx.framing.questionsLater ? 'questions' : '';
+  MargStudy.updateContext(patch);
+}
+
+function trimDanglingStudyText(text) {
+  var value = String(text || '').replace(/\s+$/, '');
+  if (!MargStudy.looksCutOff(value)) return value;
+  var cut = value.lastIndexOf('\n\n');
+  return cut > value.length * 0.4 ? value.slice(0, cut).trim() : value;
+}
+
+// A reply that ends on the token ceiling is unfinished, not final. Resume it
+// from its exact endpoint instead of asking the student to type "continue" or
+// replacing it with a local fallback.
+async function resolveStudyReply(payload, request, timeoutMs, options) {
+  options = options || {};
+  var truncated = isGeminiStructuredResponseTruncated(payload);
+  var text = '';
+  try { text = getGeminiText(payload); } catch (error) { if (!truncated) throw error; }
+  if (!truncated) return text;
+  async function call(body) {
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) }, timeoutMs);
+    return response.json();
+  }
+  function leanCopy() {
+    var copy = JSON.parse(JSON.stringify(request));
+    copy.generationConfig = copy.generationConfig || {};
+    copy.generationConfig.thinkingConfig = { thinkingLevel:'minimal' };
+    return copy;
+  }
+  if (!text) {
+    var retry = await call(leanCopy());
+    truncated = isGeminiStructuredResponseTruncated(retry);
+    text = getGeminiText(retry);
+  }
+  for (var round = 0; truncated && round < 3; round++) {
+    var next = leanCopy();
+    next.contents = next.contents.concat([
+      { role:'model', parts:[{ text:text }] },
+      { role:'user', parts:[{ text:MargStudy.buildContinuationPrompt(text) }] }
+    ]);
+    var payloadNext = await call(next);
+    truncated = isGeminiStructuredResponseTruncated(payloadNext);
+    var chunk = '';
+    try { chunk = getGeminiText(payloadNext); } catch (error) { break; }
+    text = MargStudy.stitchContinuation(text, chunk);
+  }
+  if (!truncated) return text;
+  if (options.allowPartial) return trimDanglingStudyText(text);
+  // Still unfinished after several continuations: do not save a fragment.
+  var unfinished = new Error('Mentor output hit the token ceiling');
+  unfinished.name = 'GeminiEmptyResponseError';
+  throw unfinished;
+}
+
+function getStudyQuestionSchema(count) {
+  return {
+    type:'object', required:['questions'],
+    properties:{ questions:{ type:'array', minItems:count, maxItems:count, items:{
+      type:'object',
+      required:['passage','q','options','correct','explanation','trap_type','sufficiency_check','option_check'],
+      properties:{
+        passage:{ type:'string' }, q:{ type:'string' },
+        options:{ type:'array', minItems:4, maxItems:4, items:{ type:'string' } },
+        correct:{ type:'integer', minimum:0, maximum:3 },
+        explanation:{ type:'string' }, trap_type:{ type:'string' },
+        sufficiency_check:{ type:'string', description:'A full evidence sentence from the material, at least 40 characters.' },
+        option_check:{ type:'string', description:'At least 60 characters: why only the key survives and each other option fails.' }
+      }
+    } } }
+  };
+}
+
+function formatStudyQuestionsForChat(ctx, questions) {
+  var multi = (ctx.passages || []).length > 1;
+  var blocks = questions.map(function(question, index) {
+    var stem = question.q;
+    if (multi && question.passage && !/^\(?P\d/i.test(stem)) stem = '(' + String(question.passage).trim() + ') ' + stem;
+    return formatQuestionBlock({ q:stem, options:question.options }, index + 1);
+  });
+  var slots = questions.map(function(_question, index) { return (index + 1) + '-[your choice]'; }).join(', ');
+  return 'Questions\n\n' + blocks.join('\n\n') + '\n\nReply in one line using this format: ' + slots + '. I already have the key and will check each choice against the material.';
+}
+
+async function generateQuestionsFromStudyMaterial(text, turn) {
+  var ctx = ensureStudyConfigured() ? MargStudy.getContext() : null;
+  if (!ctx) return false;
+  var materialSection = ctx.section === 'dilr' ? 'dilr' : ctx.section === 'qa' ? 'qa' : 'varc';
+  var auditSection = materialSection === 'varc' ? 'rc' : materialSection;
+  var count = Math.max(1, Math.min(8, turn.count || (ctx.passages && ctx.passages.length > 1 ? Math.min(8, ctx.passages.length * 2) : 4)));
+  var diagnosis = { intent:'study_activity', responseShape:'study', studyTurnType:'generate_questions', submittedAnswerText:text };
+  showTyping(text, diagnosis, false);
+  var failure = '';
+  try {
+    await MargStudy.loadLibrary();
+    var memorySection = materialSection === 'varc' ? 'rc' : materialSection;
+    var avoidNotes = '';
+    var accepted = null;
+    for (var attempt = 0; attempt < 2 && !accepted; attempt++) {
+      var prompt = MargStudy.buildQuestionsFromMaterialPrompt(ctx, {
+        count:count,
+        avoidBlock:MargStudy.avoidBlock(memorySection, 6) + avoidNotes,
+        exemplars:MargStudy.exemplarBlock(materialSection, ctx.id),
+        stepsBlock:MargStudy.stepsForPrompt(ctx, 8)
+      });
+      var request = buildGeminiRequest('You are an expert CAT question setter. Return only valid JSON, with independently verified answer keys.' + getDateContext(), [{ role:'user', content:prompt }], 16384, 'application/json', getStudyQuestionSchema(count));
+      var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(request) }, 120000);
+      var payload = await response.json();
+      if (isGeminiStructuredResponseTruncated(payload)) throw new SyntaxError('Question JSON was truncated');
+      var parsed = parseGeneratedJson(getGeminiText(payload));
+      var list = parsed && Array.isArray(parsed.questions) ? parsed.questions : [];
+      list.forEach(normalizeCorrectIndex);
+      var shapeIssues = [];
+      if (list.length !== count) shapeIssues.push('exactly ' + count + ' questions are required');
+      list.forEach(function(question, index) {
+        if (!isValidTimedTestQuestion(question)) shapeIssues.push('question ' + (index + 1) + ' is incomplete or has a duplicate option');
+        if (String(question && question.explanation || '').trim().length < 30) shapeIssues.push('question ' + (index + 1) + ' has no usable explanation');
+      });
+      var candidate = materialSection === 'varc'
+        ? { sets:[{ passage:ctx.text, difficulty:'CAT', topic:'Student material', questions:list }] }
+        : materialSection === 'dilr'
+          ? { sets:[{ setup:ctx.text, difficulty:'CAT', set_title:'Student set', questions:list }] }
+          : { questions:list.map(function(question) { return Object.assign({}, question, { solution:question.explanation }); }) };
+      var repeats = shapeIssues.length ? [] : MargStudy.findRepeats(memorySection, materialSection === 'varc' ? { sets:[{ questions:list }] } : candidate);
+      if (shapeIssues.length || repeats.length) {
+        avoidNotes = '\nPREVIOUS DRAFT REJECTED: ' + shapeIssues.concat(repeats).join('; ') + '. Write different questions that test different skills.';
+        continue;
+      }
+      var audit = await auditGeneratedCATContent(auditSection, candidate, null, [], { timeoutMs:110000 });
+      if (!audit.valid) { avoidNotes = '\nPREVIOUS DRAFT FAILED THE INDEPENDENT ANSWER CHECK: ' + (audit.issues || []).join('; ') + '. Fix the ambiguity or the key.'; continue; }
+      var audited = audit.correctedData || candidate;
+      var auditedList = audited.sets ? audited.sets[0].questions : audited.questions;
+      // A second, independent solve must land on the same option. Two solvers
+      // that disagree mean the item is ambiguous or mis-keyed, so it is dropped.
+      var disagreements = list.map(function(question, index) { return auditedList[index] && auditedList[index].correct !== question.correct ? index + 1 : 0; }).filter(Boolean);
+      if (disagreements.length) { avoidNotes = '\nPREVIOUS DRAFT REJECTED: an independent solve chose a different option for question ' + disagreements.join(', ') + '. Each question must have exactly one defensible option.'; continue; }
+      accepted = audited;
+    }
+    if (!accepted) throw new Error('Study questions did not pass the independent check');
+    var finalQuestions = accepted.sets ? accepted.sets[0].questions : accepted.questions;
+    var visible = formatStudyQuestionsForChat(ctx, finalQuestions);
+    hideTyping();
+    addMessage('marg', renderMentorStructuredText(visible), true);
+    conversationHistory.push({ role:'assistant', content:visible });
+    if (!isGuestMode) saveChatMessage('assistant', visible);
+    MargStudy.recordStep('marg', 'questions', 'Generated ' + finalQuestions.length + ' original questions on this material.');
+    MargStudy.updateContext({ questionsGenerated:(ctx.questionsGenerated || 0) + finalQuestions.length, pendingTask:'' });
+    MargStudy.recordPractice(memorySection, materialSection === 'varc' ? { sets:[{ questions:finalQuestions }] } : accepted);
+    var storedType = materialSection;
+    storeActiveGeneratedExercise({ id:'exercise-study-' + Date.now(), type:storedType, source:'study-material', title:'Questions on your ' + (materialSection === 'varc' ? 'passage' : materialSection === 'dilr' ? 'set' : 'material'), purpose:'Check the student against the material they supplied.', hypothesis:null, content:Object.assign({}, accepted, { exerciseText:visible }) });
+    return true;
+  } catch (error) {
+    failure = error && error.message || 'failed';
+    console.error('Study question generation failed:', failure);
+  }
+  hideTyping();
+  var notice = 'I could not get a clean, independently checked set of questions on this material just now. Your material is still saved here, so send the same request again and I will build them from it.';
+  addMessage('marg', escapeChatHtml(notice), true);
+  conversationHistory.push({ role:'assistant', content:notice });
+  if (!isGuestMode) saveChatMessage('assistant', notice);
+  return true;
+}
+
 async function sendMessage(fromQueue, submissionOptions) {
   const mockOverlay = document.getElementById('mock-onboarding-overlay');
   const mockVisible = mockOverlay && mockOverlay.style.display === 'flex';
@@ -14280,6 +14756,11 @@ async function sendMessage(fromQueue, submissionOptions) {
     if (homepageIntentForSend && typeof markHomepageIntentSubmitted === 'function') homepageIntentForSend = markHomepageIntentSubmitted(homepageIntentForSend) || homepageIntentForSend;
 
   loadActiveGeneratedExercise();
+  // Material the student supplies is the active study source. Decide that before
+  // saved-question retrieval, intake gates and practice launchers can see it.
+  var studyTurn = hasImages || !onboardingComplete ? { type:'none', owns:false } : getStudyTurn(text);
+  var studyOwned = !!studyTurn.owns;
+  if (studyOwned && studyTurn.type === 'material') adoptStudyMaterial(studyTurn);
   if (hasImages) showComposerStatus('Image attached — Marg is reading and indexing the visible questions…', 'info', true);
   var questionResolution = typeof prepareQuestionContextForTurn === 'function'
     ? await prepareQuestionContextForTurn(text, imageAttachments)
@@ -14296,67 +14777,73 @@ async function sendMessage(fromQueue, submissionOptions) {
   if (hasImages) showComposerStatus('', 'info');
   var effectiveImageAttachments = questionResolution && Array.isArray(questionResolution.attachments) ? questionResolution.attachments : imageAttachments;
   var effectiveHasImages = effectiveImageAttachments.length > 0;
-  if (!effectiveHasImages && cancelActiveExerciseForChat(text)) {
+  if (!effectiveHasImages && !studyOwned && cancelActiveExerciseForChat(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && maybeHandlePrivacyRequest(text)) {
+  if (!effectiveHasImages && !studyOwned && maybeHandlePrivacyRequest(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && maybeHandleCurrentChatScoreRecall(text)) {
+  if (!effectiveHasImages && !studyOwned && maybeHandleCurrentChatScoreRecall(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && (maybeHandleStopSummary(text) || maybeHandleCatDurationQuestion(text))) {
+  if (!effectiveHasImages && !studyOwned && (maybeHandleStopSummary(text) || maybeHandleCatDurationQuestion(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && maybeHandleAmbiguousShortInput(text)) {
+  if (!effectiveHasImages && !studyOwned && maybeHandleAmbiguousShortInput(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && routePendingExternalQuestionReply(text)) {
+  if (!effectiveHasImages && !studyOwned && routePendingExternalQuestionReply(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && gateFreshExternalQuestion(text)) {
+  if (!effectiveHasImages && !studyOwned && gateFreshExternalQuestion(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && maybeHandleSectionChoicePrompt(text)) {
+  if (!effectiveHasImages && !studyOwned && maybeHandleSectionChoicePrompt(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && maybeReplayActiveExercise(text)) {
+  if (!effectiveHasImages && !studyOwned && maybeReplayActiveExercise(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
   noteMentorPlanCompletionClaim(text);
   var predictionValidationReply = isPredictionValidationReply(text);
-  if (!pendingExternalQuestionTurnMode && (isAnswerReviewRequest(text) || predictionValidationReply)) markActiveExerciseAttempt(text, predictionValidationReply);
+  if (!studyOwned && !pendingExternalQuestionTurnMode && (isAnswerReviewRequest(text) || predictionValidationReply)) markActiveExerciseAttempt(text, predictionValidationReply);
 
-  if (!effectiveHasImages && maybeCompleteVerifiedAnswerReview(text)) {
+  if (!effectiveHasImages && !studyOwned && maybeCompleteVerifiedAnswerReview(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && (await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!effectiveHasImages && !studyOwned && (await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
   // Explicit new-topic requests enter the same fast diagnostic used on day one.
   // Confirmed topics continue directly to mentoring and are never re-asked here.
-  if (!effectiveHasImages && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
+  if (!effectiveHasImages && !studyOwned && !window._timetableRoutineJustCaptured && await maybeStartGuidedExperienceFromMessage(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
+
+  if (studyOwned && studyTurn.type === 'generate_questions') {
+    var studyQuestionsDone = await generateQuestionsFromStudyMaterial(text, studyTurn);
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -14376,7 +14863,9 @@ async function sendMessage(fromQueue, submissionOptions) {
   } else if (pendingExternalQuestionTurnMode === 'solution' || pendingExternalQuestionTurnMode === 'hint') {
     mentorAnalysis.directive += getPendingExternalQuestionContext();
   }
-  const useWebGrounding = shouldUseWebGrounding(text, mentorAnalysis.diagnosis);
+  const studyReply = studyOwned && mentorAnalysis.diagnosis.responseShape === 'study';
+  const useWebGrounding = studyReply ? false : shouldUseWebGrounding(text, mentorAnalysis.diagnosis);
+  if (studyReply) recordStudyStudentStep(studyTurn, text);
   showTyping(text, mentorAnalysis.diagnosis, useWebGrounding);
   // Recent turns are already supplied in requestHistory. Do not duplicate them
   // inside the system instruction on every authenticated chat request.
@@ -14387,19 +14876,23 @@ async function sendMessage(fromQueue, submissionOptions) {
     let requestHistory = buildHistoryWithImageAttachment(conversationHistory, effectiveImageAttachments, text, mentorAnalysis.diagnosis, { surface:'chat', hasImage:effectiveHasImages });
     if (useWebGrounding) requestHistory = trimHistoryForGroundedRequest(requestHistory);
     const mentorRequest = buildGeminiRequest(SYSTEM_PROMPT + profileContext, requestHistory, mentorMaxTokens);
+    // Reasoning shares the output cap. Study text is long, so keep reasoning light.
+    if (studyReply) mentorRequest.generationConfig.thinkingConfig = { thinkingLevel:'low' };
     enableWebGrounding(mentorRequest, useWebGrounding);
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mentorRequest) }, mentorTimeout);
     const data = await response.json();
-    var mentorModelText = selectMentorModelText(data);
+    var mentorModelText = await resolveStudyReply(data, mentorRequest, mentorTimeout, { allowPartial:studyReply });
     if (mentorModelText == null) {
       var truncatedMentorError = new Error('Mentor output hit the token ceiling');
       truncatedMentorError.name = 'GeminiEmptyResponseError';
       throw truncatedMentorError;
     }
     let reply = applyMentorResponseGuard(preventStructuredOutputLeak(mentorModelText), mentorAnalysis.diagnosis);
-    reply = stabilizeAndRememberMission(reply, text);
-    reply = suppressUnrelatedActivePlanReminder(reply, text);
-    reply = suppressUnrelatedExerciseContinuation(reply, text);
+    if (!studyReply) {
+      reply = stabilizeAndRememberMission(reply, text);
+      reply = suppressUnrelatedActivePlanReminder(reply, text);
+      reply = suppressUnrelatedExerciseContinuation(reply, text);
+    }
     if (questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
       reply = await verifyQuestionResponseDraft(reply, text, effectiveImageAttachments, questionResolution);
       reply = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(reply), mentorAnalysis.diagnosis);
@@ -14413,16 +14906,19 @@ async function sendMessage(fromQueue, submissionOptions) {
     reply = stripInternalMentorTags(reply);
     reply = appendGroundingSources(reply, data);
     reply = finalizeMentorSavedText(reply, mentorAnalysis.diagnosis);
-    markExerciseReviewCompleted(reply);
+    if (!studyReply) markExerciseReviewCompleted(reply);
+    if (studyReply) recordStudyMentorStep(studyTurn, reply);
     if (!mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(text)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
     const formatted = renderGroundingSourcesForChat(renderMentorStructuredText(reply));
     addMessage('marg', formatted);
     lastFailedOutgoingMessage = null;
-    checkAndRenderMargOptions(reply);
-    checkAndRenderTestPrompt(reply);
-    checkAndLogPracticeVolume(reply);
+    if (!studyReply) {
+      checkAndRenderMargOptions(reply);
+      checkAndRenderTestPrompt(reply);
+      checkAndLogPracticeVolume(reply);
+    }
     completePendingExternalQuestionTurn();
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
   } catch (e) {
@@ -15272,6 +15768,7 @@ Each question must have exactly four distinct plausible options and one defensib
     articleRCStage = 'theme_selection';
     articleText = currentRCSource==='aeon' ? await getGroundedArticleSourceBrief(currentArticle, 4500) : (currentArticle.content || currentArticle.preview);
     prompt = buildArticleRCPrompt(articleText);
+    if (ensureStudyConfigured()) prompt += '\n' + MargStudy.qualityBrief('varc') + ' ' + MargStudy.avoidBlock('rc', 5);
     prompt += '\nPASSAGE TARGET OVERRIDE: write 500-520 words, four paragraphs of approximately 125-130 words each. Do not aim at the lower limit. Use a complete question ending in ? or an explicit forced-choice task ending in :. Each private check must be a specific evidence sentence, never a label.';
     var rcData = null;
     var localIssues = [];
@@ -15307,7 +15804,8 @@ Each question must have exactly four distinct plausible options and one defensib
         rcData = normalizePracticeAnswers(parseGeneratedJson(reply), 'rc');
         localIssues = collectArticleRCStructureIssues(rcData, 4)
           .concat(collectSolutionPresentationIssues(rcData, 'rc'))
-          .concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'));
+          .concat(collectGeneratedPracticeCompletenessIssues(rcData, 'rc'))
+          .concat(getPracticeNoveltyIssues('rc', rcData));
         if (validateRCPracticeSet(rcData, 4) && !localIssues.length) break;
         if (!localIssues.length) localIssues = ['Article RC failed its final structure check'];
       } catch(draftError) {
@@ -17853,15 +18351,48 @@ function questionMatchesQATopic(question, expectedTopic) {
   return !semanticRule || semanticRule.test(content);
 }
 
-function getTimeMockPracticeBlueprintPrompt(section, topic) {
+function getRecentBlueprintIds(section) {
   try {
-    if (!window.MargTimeMockBlueprints || typeof window.MargTimeMockBlueprints.promptFragment !== 'function') return '';
-    var seedParts = [getTodayDate(), section || '', topic || '', typeof practiceLoadSeq === 'number' ? practiceLoadSeq : 0, studentProfile && studentProfile.sessionsCount || 0];
-    return window.MargTimeMockBlueprints.promptFragment(section, topic, seedParts.join('|')) || '';
+    var all = JSON.parse(localStorage.getItem(getUserScopedKey('marg_recent_blueprints')) || '{}');
+    return Array.isArray(all[section]) ? all[section] : [];
+  } catch(e) { return []; }
+}
+
+function rememberBlueprintId(section, id) {
+  if (!id) return;
+  try {
+    var key = getUserScopedKey('marg_recent_blueprints');
+    var all = JSON.parse(localStorage.getItem(key) || '{}');
+    var list = (Array.isArray(all[section]) ? all[section] : []).filter(function(item) { return item !== id; });
+    list.push(id);
+    all[section] = list.slice(-12);
+    localStorage.setItem(key, JSON.stringify(all));
+  } catch(e) {}
+}
+
+// The abstract TIME blueprint calibrates structure; the quality brief, the
+// avoid-list of what this student has already seen and a short style reference
+// from published CAT items keep new material CAT-grade and genuinely new.
+function getTimeMockPracticeBlueprintPrompt(section, topic) {
+  var blueprint = '';
+  try {
+    if (window.MargTimeMockBlueprints && typeof window.MargTimeMockBlueprints.promptFragment === 'function') {
+      var seedParts = [getTodayDate(), section || '', topic || '', typeof practiceLoadSeq === 'number' ? practiceLoadSeq : 0, studentProfile && studentProfile.sessionsCount || 0, Date.now()];
+      var usedId = '';
+      blueprint = window.MargTimeMockBlueprints.promptFragment(section, topic, seedParts.join('|'), getRecentBlueprintIds(section), function(id) { usedId = id; }) || '';
+      rememberBlueprintId(section, usedId);
+    }
   } catch(e) {
     console.warn('TIME mock blueprint unavailable; using the standard CAT calibration.', e && e.message || e);
-    return '';
   }
+  var study = '';
+  try {
+    if (ensureStudyConfigured()) {
+      var memorySection = section === 'rc' ? 'rc' : section;
+      study = ' ' + MargStudy.qualityBrief(section === 'rc' ? 'varc' : section) + ' ' + MargStudy.avoidBlock(memorySection, 5) + ' ' + MargStudy.exemplarBlock(section, topic || section);
+    }
+  } catch(e) { study = ''; }
+  return blueprint + study;
 }
 
 function buildRCPrompt() {
@@ -18241,11 +18772,33 @@ function getSeenPracticeSignatures() {
   } catch(e) { return []; }
 }
 
+function ensureStudyConfigured() {
+  if (typeof MargStudy === 'undefined' || !MargStudy) return false;
+  if (!ensureStudyConfigured.done) {
+    MargStudy.configure({ scope: getUserScopedKey });
+    ensureStudyConfigured.done = true;
+    // Published CAT items are a style reference only; load them in the
+    // background so the first generation prompt can already use them.
+    try { MargStudy.loadLibrary(); } catch (error) { /* reference material is optional */ }
+  }
+  return true;
+}
+
+function getPracticeNoveltyIssues(section, data) {
+  if (!ensureStudyConfigured()) return [];
+  try {
+    return MargStudy.findRepeats(section, data).concat(MargStudy.libraryOverlap(section, data));
+  } catch (error) { return []; }
+}
+
 function wasPracticeRecentlySeen(section, data) {
   var signature = practiceContentSignature(section, data);
   var fingerprint = practiceStructureFingerprint(section, data);
   var recent = getSeenPracticeSignatures().filter(function(item) { return item && item.section === section; });
-  return recent.some(function(item) { return item && (item.signature === signature || fingerprint && item.fingerprint === fingerprint); });
+  if (recent.some(function(item) { return item && (item.signature === signature || fingerprint && item.fingerprint === fingerprint); })) return true;
+  // Exact hashes miss the common repeat: the same item with new names, new
+  // numbers or a few swapped words. Compare masked wording and structure.
+  return getPracticeNoveltyIssues(section, data).length > 0;
 }
 
 function markPracticeSeen(section, data) {
@@ -18255,6 +18808,7 @@ function markPracticeSeen(section, data) {
   var seen = getSeenPracticeSignatures().filter(function(item) { return item && item.signature !== signature; });
   seen.push({ signature:signature, fingerprint:fingerprint, section:section, seenAt:new Date().toISOString() });
   try { localStorage.setItem(getUserScopedKey('marg_seen_practice'), JSON.stringify(seen.slice(-60))); } catch(e) {}
+  if (ensureStudyConfigured()) { try { MargStudy.recordPractice(section, data); } catch (error) { /* memory is best effort */ } }
 }
 
 function getUnseenVerifiedFallbackPractice(section, questionCount, topic) {
@@ -18781,6 +19335,12 @@ function flattenTimedTestQuestions(section, data) {
   return flat;
 }
 
+function renderGuidedExerciseHtml(text) {
+  var value = String(text || '');
+  if (typeof MargStudy !== 'undefined' && MargStudy.hasCatStructure(value)) return renderMentorStructuredText(value);
+  return escapeGuidedExerciseText(value).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+}
+
 function escapeGuidedExerciseText(value) {
   return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
@@ -18884,7 +19444,7 @@ function buildConfidenceValidationExercise(entry) {
 function generateConfidenceValidationExercise(entry) {
   var prompts = buildConfidenceValidationExercise(entry);
   var visible = '2-MINUTE PREDICTION CHECK\n\n' + prompts.map(function(prompt, index) { return (index + 1) + '. ' + prompt; }).join('\n\n') + '\n\nReply with three short lines. I’ll use your response to say whether the prediction is supported, rejected, or still inconclusive.';
-  addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  addMessage('marg', renderGuidedExerciseHtml(visible), true);
   conversationHistory.push({ role:'assistant', content:visible });
   if (!isGuestMode) saveChatMessage('assistant', visible);
   storeActiveGeneratedExercise({ type:'confidence', source:'prediction-validation', title:'Confidence prediction check', purpose:'Validate or reject: ' + entry.confirmedDiagnosis, hypothesis:entry, content:{ reflectionPrompts:prompts } });
@@ -18930,7 +19490,7 @@ function buildStudyPlanValidationExercise(entry) {
 function generateStudyPlanValidationExercise(entry) {
   var prompts = buildStudyPlanValidationExercise(entry);
   var visible = '5-MINUTE PLAN REALITY CHECK\n\n' + prompts.map(function(prompt, index) { return (index + 1) + '. ' + prompt; }).join('\n\n') + '\n\nReply with three short lines. I’ll use them to test whether the planning diagnosis is supported, rejected, or inconclusive—and then build the actual plan.';
-  addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  addMessage('marg', renderGuidedExerciseHtml(visible), true);
   conversationHistory.push({ role:'assistant', content:visible });
   if (!isGuestMode) saveChatMessage('assistant', visible);
   storeActiveGeneratedExercise({ type:'study_plan', source:'prediction-validation', title:'Study-plan reality check', purpose:'Validate or reject: ' + entry.confirmedDiagnosis, hypothesis:entry, content:{ reflectionPrompts:prompts } });
@@ -19012,7 +19572,7 @@ function launchVerifiedStrategyDecisionLab(entry) {
   var lead = 'This is not a syllabus test. Pick what you would actually do in each situation—your choices will show whether our read is right.';
   addMentorLeadMessage(lead);
   var visible = formatGuidedExerciseForChat('strategy', parsed, entry);
-  addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+  addMessage('marg', renderGuidedExerciseHtml(visible), true);
   conversationHistory.push({ role:'assistant', content:visible });
   if (!isGuestMode) saveChatMessage('assistant', visible);
   storeActiveGeneratedExercise({
@@ -19151,7 +19711,7 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
     if (!valid) throw new Error('Guided exercise failed validation');
     hideTyping();
     var visible = formatGuidedExerciseForChat(section, parsed, diagnosticEntry);
-    var visibleHtml = escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+    var visibleHtml = renderGuidedExerciseHtml(visible);
     addMessage('marg', visibleHtml, true);
     conversationHistory.push({ role:'assistant', content:visible });
     if (!isGuestMode) saveChatMessage('assistant', visible);
@@ -19237,7 +19797,7 @@ async function generateGuidedMiniMock(diagnosticEntry) {
     if (!validateGuidedMiniMock(parsed)) throw new Error('Mini mock failed validation');
     hideTyping();
     var visible = formatGuidedMiniMock(parsed);
-    addMessage('marg', escapeGuidedExerciseText(visible).replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>'), true);
+    addMessage('marg', renderGuidedExerciseHtml(visible), true);
     conversationHistory.push({ role:'assistant', content:visible });
     if (!isGuestMode) saveChatMessage('assistant', visible);
     storeActiveGeneratedExercise({ type:'mini_mock', source:'prediction-validation-verified', title:'4-question CAT execution check', purpose:'Validate or reject: ' + (diagnosticEntry ? diagnosticEntry.confirmedDiagnosis : 'working mock diagnosis'), hypothesis:diagnosticEntry || null, content:{ questions:flattenGuidedMiniMock(parsed), sourceData:parsed } });

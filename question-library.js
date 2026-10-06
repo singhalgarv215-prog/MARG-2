@@ -67,9 +67,27 @@ function isStrategyHabitRequest(message) {
   return !directQuestionSolve;
 }
 
+// Material the student pasted or generated in this conversation is the active
+// source. The saved-question library only answers when the student is really
+// asking for something they saved earlier.
+function studyContextOwnsTurn(message) {
+  if (typeof MargStudy === 'undefined' || !MargStudy || typeof MargStudy.shouldBypassSavedRetrieval !== 'function') return false;
+  try {
+    var exerciseAt = 0;
+    if (typeof activeGeneratedExercise !== 'undefined' && activeGeneratedExercise && !activeGeneratedExercise.cancelledAt) {
+      exerciseAt = Date.parse(activeGeneratedExercise.deliveredAt || activeGeneratedExercise.generatedAt || '') || 0;
+    }
+    return MargStudy.shouldBypassSavedRetrieval(message, {
+      savedSetAt: margActiveQuestionContext && margActiveQuestionContext.setAt || 0,
+      activeExerciseAt: exerciseAt
+    });
+  } catch (error) { return false; }
+}
+
 function isSavedQuestionResolutionRequest(message) {
   var text = String(message || '').trim();
   if (!text || isStrategyHabitRequest(text)) return false;
+  if (studyContextOwnsTurn(text)) return false;
   if (typeof isBareQuestionReference === 'function' && isBareQuestionReference(text)) return true;
   if (/^(?:please\s+)?(?:solve|explain|answer|check)\s+(?:this|that)(?:\s+question)?[?.!\s]*$/i.test(text)) return true;
   if (/^(?:please\s+)?(?:walk me through|explain|solve|answer|check)\s+q(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text)) return true;
@@ -450,14 +468,14 @@ async function loadConversationQuestionState() {
   var state = result.data[0];
   var data = await fetchQuestionLibraryData(false, true);
   var question = data.questions.find(function(item) { return item.id === state.active_question_id; }) || null;
-  margActiveQuestionContext = question ? { question_id:question.id, image_id:question.image_id, question:question, conversation_id:threadId } : null;
+  margActiveQuestionContext = question ? { question_id:question.id, image_id:question.image_id, question:question, conversation_id:threadId, setAt:Date.parse(state.updated_at || '') || Date.now() } : null;
   return margActiveQuestionContext;
 }
 
 async function saveConversationQuestionState(question) {
   if (!question) return;
   var threadId = typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy';
-  margActiveQuestionContext = { question_id:question.id, image_id:question.image_id, question:question, conversation_id:threadId };
+  margActiveQuestionContext = { question_id:question.id, image_id:question.image_id, question:question, conversation_id:threadId, setAt:Date.now() };
   if (!currentUser || !SUPABASE_TOKEN || /^local-/.test(String(question.id || ''))) return;
   await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/conversation_question_state?on_conflict=user_id,conversation_id', {
     method:'POST',
