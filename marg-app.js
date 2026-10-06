@@ -4196,9 +4196,13 @@ function hydrateDiagnosticMemoryFromHistory() {
 
 function hasConfirmedDiagnostic(topic) {
   var entry = diagnosticMemory[topic];
-  return !!(entry && !entry.doNotReuse && entry.status !== 'rejected' && (
-    entry.status === 'supported' || entry.status === 'confirmed' ||
-    ((entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && entry.status === 'hypothesis')
+  // Older entries carry a student confirmation but no status field. Read them
+  // through the same normaliser as every other diagnosis consumer so they are
+  // treated as the working hypothesis they are, not as unconfirmed.
+  var status = entry ? normalizeDiagnosisStatus(entry) : '';
+  return !!(entry && !entry.doNotReuse && status !== 'rejected' && (
+    status === 'supported' || status === 'confirmed' ||
+    ((entry.confirmation === 'Exactly' || entry.confirmation === 'Mostly') && status === 'hypothesis')
   ));
 }
 
@@ -4618,6 +4622,11 @@ function selectTurnMemory(message, diagnosis) {
   }
   if (intent === 'planning' || intent === 'returning_memory') return { mode:'plan', topics:[], hypothesisTopics:named };
   if (named.length) return { mode:'topics', topics:named, hypothesisTopics:[] };
+  if (intent === 'task_outcome_report') {
+    var reportedTask = findOpenMentorTask(null);
+    var reportedTopic = reportedTask && normalizeMentorFocusTopic(reportedTask.section);
+    if (reportedTopic) return { mode:'topics', topics:[reportedTopic], hypothesisTopics:[] };
+  }
   var focus = getReliableMentorFocus(message);
   if (focus) return { mode:'topics', topics:[focus], hypothesisTopics:[] };
   return { mode:'none', topics:[], hypothesisTopics:[] };
@@ -4742,6 +4751,11 @@ function describeTurnEvidence(message, diagnosis) {
   }).filter(function(item) {
     return diagnosticEntrySelected(item.entry, item.topic, message, selection);
   }).map(function(item) { return item.entry; });
+  var carried = [];
+  var state = collectStudentState(message, diagnosis);
+  if (state) state.supported.forEach(function(item) {
+    if (item.carried && entries.indexOf(item.entry) === -1) { entries.push(item.entry); carried.push(item.entry); }
+  });
   if (!entries.length) return 'No selected diagnosis has observed support. Keep any read tentative. A classifier score is not evidence.';
   return entries.map(function(entry) {
     var status = normalizeDiagnosisStatus(entry);
@@ -4749,8 +4763,152 @@ function describeTurnEvidence(message, diagnosis) {
       : status === 'supported' ? 'supported once'
         : status === 'inconclusive' ? 'inconclusive'
           : 'working hypothesis';
-    return (entry.selectedSection || entry.topic || 'This section') + ' is a ' + label;
+    return (entry.selectedSection || entry.topic || 'This section') + ' is a ' + label + (carried.indexOf(entry) !== -1 ? ' (established in an earlier chat)' : '');
   }).join('; ') + '. Use that evidence level. Do not treat a self-report or a classifier score as a confirmed pattern.';
+}
+
+// Observed support belongs to the student, not to the chat that first noticed
+// it. Hypotheses and other provisional reads stay in the thread that raised them.
+var STUDENT_STATE_SKIP_INTENTS = ['greeting','privacy_request','question_reference','image_question','answer_review','dilr_validity_review','seamless_continuation','score_correction','study_activity','confidence_breakdown'];
+
+function asksForNextDecision(message) {
+  return /\b(?:what (?:should|do|can|shall) i|what(?:'s| is) next|next step|where (?:do|should|to) i (?:start|go|begin|focus)|how (?:do|should|can) i (?:improve|proceed|continue|fix|get better|move)|what to (?:do|work on|focus|practi[sc]e|study)|work on|focus on|today|tomorrow|still (?:struggling|stuck|not|can'?t)|any progress|how am i doing|am i improving)\b/i.test(String(message || ''));
+}
+
+function isObservedSupportEntry(entry) {
+  if (!entry || !entry.confirmedDiagnosis || entry.doNotReuse) return false;
+  var status = normalizeDiagnosisStatus(entry);
+  return status === 'supported' || status === 'confirmed';
+}
+
+function studentStateScope(message, diagnosis) {
+  var intent = diagnosis && diagnosis.intent || '';
+  if (!intent || STUDENT_STATE_SKIP_INTENTS.indexOf(intent) !== -1 || diagnosis.hasImage) return null;
+  var selection = selectTurnMemory(message, diagnosis);
+  if (selection.mode === 'topics' && selection.topics && selection.topics.length) return { topics:selection.topics, mode:'topics', selection:selection };
+  if (selection.mode === 'plan' || selection.mode === 'all') return { topics:null, mode:selection.mode, selection:selection };
+  var open = intent === 'vague' || intent === 'pacing_diagnosis' || intent === 'task_outcome_report' || (intent === 'general_mentor' && asksForNextDecision(message));
+  return open ? { topics:null, mode:'open', selection:selection } : null;
+}
+
+var OPEN_MENTOR_TASK_STATUSES = ['evidence_ready', 'in_progress', 'generating', 'ready'];
+
+function findOpenMentorTask(topics) {
+  var rank = { evidence_ready:0, in_progress:1, generating:2, ready:3 };
+  var tasks = (mentorExecutionLoop && mentorExecutionLoop.tasks || []).filter(function(task) {
+    if (!task || OPEN_MENTOR_TASK_STATUSES.indexOf(task.status) === -1) return false;
+    if (!topics) return true;
+    var section = normalizeMentorFocusTopic(task.section) || String(task.section || '');
+    return topics.indexOf(section) !== -1;
+  }).sort(function(a, b) {
+    var difference = rank[a.status] - rank[b.status];
+    return difference || String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+  });
+  return tasks[0] || null;
+}
+
+function latestAttemptForMentorTask(taskId) {
+  return attemptsForMentorTask(taskId).slice().sort(function(a, b) {
+    return String(b.completed_at || b.updated_at || b.created_at || '').localeCompare(String(a.completed_at || a.updated_at || a.created_at || ''));
+  })[0] || null;
+}
+
+function latestEvaluatedMentorTask(topics) {
+  var tasks = (mentorExecutionLoop && mentorExecutionLoop.tasks || []).filter(function(task) {
+    var payload = task && task.action_payload;
+    if (!payload || !payload.interventionEvaluation || !payload.interventionEvaluation.verdict) return false;
+    if (!topics) return true;
+    var section = normalizeMentorFocusTopic(task.section) || String(task.section || '');
+    return topics.indexOf(section) !== -1;
+  }).sort(function(a, b) { return String(b.updated_at || '').localeCompare(String(a.updated_at || '')); });
+  return tasks[0] || null;
+}
+
+function describeEvaluatedTask(task) {
+  var payload = task.action_payload || {};
+  var intervention = payload.interventionEvaluation || {};
+  var recommendation = payload.recommendationEvaluation || {};
+  var verdict = String(intervention.verdict || '').toUpperCase();
+  var line = 'Last measured check (' + String(task.section || 'general').toUpperCase() + (task.updated_at ? ', ' + String(task.updated_at).slice(0, 10) : '') + '): "' + String(task.title || 'CAT decision check') + '". Intervention verdict ' + verdict + (intervention.reason ? ' — ' + String(intervention.reason).replace(/[.\s]+$/, '') : '') + '.';
+  if (recommendation.verdict && String(recommendation.verdict).toUpperCase() !== verdict) line += ' Recommendation verdict ' + String(recommendation.verdict).toUpperCase() + '.';
+  if (verdict === 'SUPPORTED') line += ' The measured result moved the way the check predicted; build on it instead of repeating the same diagnostic.';
+  else if (verdict === 'REJECTED') line += ' The measured result went against the check; do not repeat the same read or task unchanged.';
+  else line += ' No usable measurement came back, so this check neither supported nor rejected the read; do not describe it as a success or a failure.';
+  return line;
+}
+
+function collectStudentState(message, diagnosis) {
+  var scope = studentStateScope(message, diagnosis);
+  if (!scope) return null;
+  var supported = [];
+  Object.keys(diagnosticMemory || {}).forEach(function(key) {
+    var entry = diagnosticMemory[key];
+    if (!isObservedSupportEntry(entry)) return;
+    var topic = normalizeMentorFocusTopic(entry.topic || key) || String(entry.topic || key);
+    if (scope.topics && scope.topics.indexOf(topic) === -1) return;
+    supported.push({ key:key, entry:entry, topic:topic, status:normalizeDiagnosisStatus(entry), carried:!diagnosticEntrySelected(entry, key, message, scope.selection) });
+  });
+  supported.sort(function(a, b) {
+    if (a.status !== b.status) return a.status === 'confirmed' ? -1 : 1;
+    return String(b.entry.updatedAt || '').localeCompare(String(a.entry.updatedAt || ''));
+  });
+  supported = supported.slice(0, 3);
+  var task = findOpenMentorTask(scope.topics);
+  var taskState = null;
+  if (task) {
+    var linked = (mentorExecutionLoop.diagnoses || []).find(function(row) { return row && row.id === task.diagnosis_id; }) || null;
+    taskState = {
+      row:task, attempt:latestAttemptForMentorTask(task.id), diagnosis:linked,
+      provisional:!linked || ['supported', 'confirmed'].indexOf(String(linked.status || '').toLowerCase()) === -1
+    };
+  }
+  var mocks = studentProfile && Array.isArray(studentProfile.mockHistory) ? studentProfile.mockHistory : [];
+  var mock = (!scope.topics || scope.topics.indexOf('mock') !== -1) && mocks.length ? mocks[mocks.length - 1] : null;
+  var profile = null;
+  if (scope.mode === 'open' && studentProfile) {
+    var facts = [];
+    if (studentProfile.attemptNumber) facts.push(studentProfile.attemptNumber + ' attempt');
+    if (studentProfile.monthsLeft) facts.push(studentProfile.monthsLeft + ' left');
+    if (studentProfile.dailyHours) facts.push(studentProfile.dailyHours + ' a day');
+    if (studentProfile.weakestSection) facts.push('weakest section ' + studentProfile.weakestSection);
+    if (facts.length) profile = facts;
+  }
+  var evaluated = latestEvaluatedMentorTask(scope.topics);
+  if (!supported.length && !taskState && !evaluated && !mock && !profile) return null;
+  return { scope:scope, supported:supported, task:taskState, evaluated:evaluated, mock:mock, profile:profile };
+}
+
+function studentStateEvidenceLabel(status) {
+  return status === 'confirmed' ? 'CONFIRMED REPEATED PATTERN' : 'SUPPORTED ONCE';
+}
+
+function getStudentStateContext(message, diagnosis) {
+  var state = collectStudentState(message, diagnosis);
+  if (!state) return '';
+  var lines = [];
+  state.supported.filter(function(item) { return item.carried; }).forEach(function(item) {
+    var entry = item.entry;
+    var counts = observedDiagnosisEvidenceCounts(entry);
+    lines.push('- ' + (entry.selectedSection || item.topic) + ' — ' + studentStateEvidenceLabel(item.status) + ' (observed support ' + counts.supporting + ', observed contradiction ' + counts.contradicting + (entry.updatedAt ? ', last updated ' + String(entry.updatedAt).slice(0, 10) : '') + '): ' + entry.confirmedDiagnosis);
+  });
+  if (state.task) {
+    var row = state.task.row;
+    var attempt = state.task.attempt;
+    var attemptLine = attempt
+      ? ' Latest recorded attempt' + (attempt.completed_at ? ' (' + String(attempt.completed_at).slice(0, 10) + ')' : '') + ': ' + Number(attempt.correct || 0) + ' correct, ' + Number(attempt.wrong || 0) + ' wrong, ' + Number(attempt.skipped || 0) + ' skipped.'
+      : ' No attempt is recorded yet.';
+    lines.push('- Open check assigned earlier (' + String(row.section || 'general').toUpperCase() + ', ' + String(row.status).replace(/_/g, ' ') + '): ' + String(row.title || 'CAT decision check') + (state.task.provisional ? ' — it tests an unconfirmed working read, so do not state that read as fact.' : '.') + attemptLine);
+  }
+  if (state.evaluated) lines.push('- ' + describeEvaluatedTask(state.evaluated));
+  if (state.mock) lines.push('- Latest recorded mock (' + (state.mock.date || 'date not recorded') + '): VARC ' + state.mock.varc + ', DILR ' + state.mock.dilr + ', QA ' + state.mock.qa + ', total ' + state.mock.total + '. These are outcomes, not causes.');
+  if (state.profile) lines.push('- Self-reported profile, not a diagnosis: ' + state.profile.join('; ') + '.');
+  if (!lines.length) return '';
+  return '\n\nSTUDENT STATE FROM EARLIER CHATS (established before this conversation; observed or assigned items only, never an earlier hypothesis):\n' + lines.join('\n') + '\nUse this so the student does not have to repeat it, and do not ask for anything listed here. Keep each item at its stated evidence level. If today\'s message conflicts with it, test the conflict rather than silently accepting either side. Do not mention this block or call it memory.';
+}
+
+function carriedConfirmedStudentState(message, diagnosis) {
+  var state = collectStudentState(message, diagnosis);
+  return !!(state && state.supported.some(function(item) { return item.status === 'confirmed'; }));
 }
 
 function getDiagnosticMemoryContext(message, diagnosis) {
@@ -5426,6 +5584,12 @@ async function loadMentorExecutionLoop() {
       var topic = normalizeExecutionSection(saved.section);
       var existing = diagnosticMemory[topic];
       if (!existing || String(saved.updated_at || '') > String(existing.updatedAt || '')) {
+        // The stored row has no thread column. When it is the same diagnosis
+        // this browser already attributed to a thread, keep that attribution and
+        // any local evidence; otherwise the refresh would orphan the entry and
+        // hide it from the thread that created it.
+        var sameDiagnosis = !!(existing && (existing.dbDiagnosisId === saved.id || mentorDiagnosisClientRef(existing) === saved.client_ref));
+        var storedEvidence = (mentorExecutionLoop.evidence || []).filter(function(item) { return item.diagnosis_id === saved.id; });
         diagnosticMemory[topic] = {
           selectedSection:getDiagnosticTopicLabel(topic), topic:topic, subcategory:saved.topic,
           patternId:saved.pattern_id, selectedPattern:saved.evidence_summary,
@@ -5434,15 +5598,16 @@ async function loadMentorExecutionLoop() {
           confidence:Number(saved.confidence || 0.5), status:saved.status,
           validatedAt:saved.validated_at, updatedAt:saved.updated_at, dbDiagnosisId:saved.id,
           doNotReuse:saved.status === 'rejected',
-          evidenceHistory:(mentorExecutionLoop.evidence || []).filter(function(item) { return item.diagnosis_id === saved.id; }).map(function(item) {
+          evidenceHistory:storedEvidence.length ? storedEvidence.map(function(item) {
             return {
               clientRef:item.client_ref, type:item.evidence_type, claim:item.claim,
               supports:item.supports, strength:Number(item.strength || 0.5),
               attemptId:item.evidence_payload && item.evidence_payload.attempt_id || null,
               occurredAt:item.occurred_at, payload:item.evidence_payload || {}
             };
-          })
+          }) : (sameDiagnosis && Array.isArray(existing.evidenceHistory) ? existing.evidenceHistory : [])
         };
+        if (sameDiagnosis && existing.sourceThreadId) diagnosticMemory[topic].sourceThreadId = existing.sourceThreadId;
       }
     });
     saveDiagnosticMemory();
@@ -7141,6 +7306,8 @@ function correctionTopics(text) {
 function isStrongCorrectiveEvidence(message) {
   var text = String(message || '').trim();
   if (text.length < 5) return false;
+  // "I tried what you said" quotes Marg to report an outcome; it corrects nothing.
+  text = text.replace(/[’]/g, "'").replace(OUTCOME_REFERENCE_PATTERN, ' ');
   return /\b(?:you (?:misread|misunderstood|missed|assumed|said|are wrong|were wrong)|i (?:already|actually) (?:said|told|did|completed|solved|attempted)|that(?:'s| is) (?:not what|wrong|what i told)|no[,—-]? (?:i|that|the)|not [^.!?]{1,55} but |i did not say|i never said|stop assuming|as i (?:said|told you))\b/i.test(text);
 }
 
@@ -7325,6 +7492,62 @@ function noteMentorPlanCompletionClaim(message) {
   activeMentorPlan.evidenceAt = new Date().toISOString();
   saveActiveMentorPlan(activeMentorPlan);
   return true;
+}
+
+// "I tried it" reports what happened after an assigned step. It is neither a
+// correction of Marg nor observed support for a diagnosis.
+var OUTCOME_REPORT_PATTERNS = [
+  /\bi(?:'ve| have)?\s+(?:just\s+|now\s+|already\s+|also\s+|actually\s+)?(?:tried|did|followed|attempted|practi[sc]ed|completed|finished|applied|used|done)\s+(?:it|that|this|those|these|them)\b/i,
+  /\bi(?:'ve| have)?\s+(?:just\s+|already\s+)?(?:tried|did|followed|attempted|practi[sc]ed|applied|used|done)\s+(?:exactly\s+)?(?:what|whatever|all that|everything)\s+you\s+(?:said|suggested|told me|asked|recommended|assigned|gave|advised)\b/i,
+  /\bi(?:'ve| have)?\s+(?:just\s+|already\s+)?(?:tried|did|followed|attempted|practi[sc]ed|completed|finished|applied|used|done)\s+(?:the|your|that|this|today'?s|yesterday'?s)\s+(?:[a-z-]+\s+){0,2}(?:task|drill|exercise|check|mission|plan|suggestion|advice|method|strategy|routine|step|technique|approach|experiment)\b/i,
+  /\b(?:your|the)\s+(?:suggestion|advice|task|drill|method|approach|plan|exercise)\s+(?:worked|didn'?t work|did not work|helped|didn'?t help|did not help)\b/i
+];
+var OUTCOME_REFERENCE_PATTERN = /\bi(?:'ve| have)?\s+(?:just\s+)?(?:tried|did|followed|attempted|practi[sc]ed|applied|used|done)\s+(?:exactly\s+)?(?:what|whatever|all that|everything)\s+you\s+(?:said|suggested|told me|asked|recommended|assigned|gave|advised)\b/gi;
+
+function detectTaskOutcomeReport(message) {
+  var text = String(message || '').replace(/[’]/g, "'").trim();
+  if (!text || text.length > 600) return { matches:false };
+  if (/\b(?:mocks?|percentile|scorecard)\b/i.test(text) && /\b(?:varc|dilr|qa)\s*[:=\-]?\s*-?\d+/i.test(text)) return { matches:false };
+  var matches = OUTCOME_REPORT_PATTERNS.some(function(pattern) { return pattern.test(text); });
+  if (!matches) return { matches:false };
+  var hasResult = /\b\d+(?:\.\d+)?\s*(?:%|percent|minutes?|mins?|seconds?|secs?|correct|wrong|right|out of|marks?|questions?|sets?)|\b\d+\s*\/\s*\d+\b|\b(?:got|scored|solved|finished in|took|made|missed)\b[^.!?]{0,30}\d|\bstill (?:made|got|missed|ran out|rushed|stuck|confused|got stuck)\b/i.test(text);
+  var qualitative = /\b(?:worked|didn'?t work|did not work|helped|didn'?t help|did not help|failed|better|worse|faster|slower|same as before|no change)\b/i.test(text);
+  return { matches:true, hasResult:hasResult, qualitative:qualitative, text:text.substring(0, 300) };
+}
+
+function recentAssistantInstruction() {
+  var seen = 0;
+  for (var i = (conversationHistory || []).length - 1; i >= 0 && seen < 2; i--) {
+    var item = conversationHistory[i];
+    if (!item || item.role !== 'assistant' || isInternalMemoryMessage(item)) continue;
+    var text = String(item.content || '').trim();
+    if (!text) continue;
+    seen++;
+    var sentence = text.split(/\n+|[.!?]+\s+/).filter(function(part) {
+      return /\b(?:try|do|solve|attempt|practi[sc]e|run|use|apply|write|set a timer|before you (?:answer|solve|pick|submit)|next (?:time|attempt|set|rc|passage|question))\b/i.test(part);
+    })[0];
+    if (sentence) return sentence.substring(0, 240);
+  }
+  return '';
+}
+
+function resolveOutcomeReportTarget(message) {
+  var named = sectionsNamedInMessage(message);
+  var task = findOpenMentorTask(named.length ? named : null);
+  if (task) return { kind:'task', task:task, attempt:latestAttemptForMentorTask(task.id), label:String(task.title || 'the assigned check') };
+  if (isOpenMentorPlan(activeMentorPlan)) return { kind:'plan', plan:activeMentorPlan, label:String(activeMentorPlan.mission || '').substring(0, 160) };
+  var instruction = recentAssistantInstruction();
+  if (instruction) return { kind:'instruction', label:instruction };
+  return { kind:'none', label:'' };
+}
+
+function describeTaskOutcomeReport(message) {
+  var report = detectTaskOutcomeReport(message);
+  if (!report.matches) return null;
+  var target = resolveOutcomeReportTarget(message);
+  var wordCount = String(message || '').trim().split(/\s+/).length;
+  if (target.kind === 'none' && wordCount > 14) return null;
+  return { hasResult:report.hasResult, qualitative:report.qualitative, target:target };
 }
 
 function finalizeMentorPlanCompletionReview(message, responseText) {
@@ -8155,6 +8378,7 @@ async function runStudyExperienceTests() {
     check('material turn builds a lean study directive', intro.diagnosis.intent === 'study_activity' && intro.diagnosis.responseShape === 'study' && intro.diagnosis.questionBudget === null &&
       intro.directive.indexOf('ACTIVE STUDY MATERIAL') !== -1 && intro.directive.indexOf('what a number leaves out') !== -1 && intro.directive.indexOf('DIAGNOSIS ENGINE') === -1);
     check('study turn contract forbids saved-source talk and diagnostic intake', /Never say you found several saved sources/.test(intro.directive) && /not a diagnosis/.test(intro.directive));
+    check('study turn is decided as a continuing flow', intro.diagnosis.turnMode === 'continue_flow' && !!intro.diagnosis.turnBasis);
     check('mentor context for a study turn drops the practice and plan memories', buildMentorTurnContext(article, intro, { surface:'chat' }).indexOf('ACTIVE STUDY MATERIAL') !== -1);
 
     // 3. Multi-turn: P1, P2, P3 evaluations, then the questions on the same article.
@@ -8599,6 +8823,363 @@ async function runInterventionProductionEvaluationTests() {
   return results;
 }
 window.runInterventionProductionEvaluationTests = runInterventionProductionEvaluationTests;
+
+async function runStudentStateCarryoverTests() {
+  var originalMemory = diagnosticMemory;
+  var originalThread = typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId;
+  var originalLoop = mentorExecutionLoop;
+  var originalProfile = studentProfile;
+  var originalHistory = conversationHistory;
+  var originalActiveTopic = activeDiagnosticTopic;
+  var originalFlow = diagnosticFlowState;
+  var originalPlan = activeMentorPlan;
+  var originalUser = currentUser;
+  var originalToken = SUPABASE_TOKEN;
+  var originalGuest = isGuestMode;
+  var originalCanUse = canUseMentorExecutionLoop;
+  var originalFetch = authenticatedSupabaseFetch;
+  var storageKey = null;
+  var storedMemory = null;
+  function restore() {
+    diagnosticMemory = originalMemory;
+    margActiveThreadId = originalThread;
+    mentorExecutionLoop = originalLoop;
+    studentProfile = originalProfile;
+    conversationHistory = originalHistory;
+    activeDiagnosticTopic = originalActiveTopic;
+    diagnosticFlowState = originalFlow;
+    activeMentorPlan = originalPlan;
+    currentUser = originalUser;
+    SUPABASE_TOKEN = originalToken;
+    isGuestMode = originalGuest;
+    canUseMentorExecutionLoop = originalCanUse;
+    authenticatedSupabaseFetch = originalFetch;
+    try {
+      if (storageKey) {
+        if (storedMemory === null) localStorage.removeItem(storageKey);
+        else localStorage.setItem(storageKey, storedMemory);
+      }
+    } catch(e) {}
+  }
+  function observed(count, supports) {
+    var rows = [];
+    for (var i = 0; i < count; i++) rows.push({ type:'observed_attempt', supports:supports !== false, strength:0.9 });
+    return rows;
+  }
+  function entry(topic, section, status, threadId, text, evidence) {
+    return {
+      topic:topic, selectedSection:section, confirmedDiagnosis:text, status:status,
+      confirmation:status === 'hypothesis' ? 'Exactly' : 'none', sourceThreadId:threadId, doNotReuse:false,
+      updatedAt:'2026-10-01T10:00:00.000Z', evidenceHistory:evidence || []
+    };
+  }
+  function seed(map) {
+    diagnosticMemory = map;
+    studentProfile.diagnosticMemory = map;
+    saveDiagnosticMemory();
+  }
+  function turn(message) {
+    var analysis = buildDiagnosisDirective(message);
+    return { analysis:analysis, diagnosis:analysis.diagnosis, context:buildMentorTurnContext(message, analysis, { surface:'chat', useWebGrounding:false }) };
+  }
+  var BLOCK = 'STUDENT STATE FROM EARLIER CHATS';
+  var results = [];
+  try {
+    storageKey = getDiagnosticStorageKey();
+    try { storedMemory = localStorage.getItem(storageKey); } catch(e) {}
+    studentProfile = { attemptNumber:'2nd', monthsLeft:'4 months', weakestSection:'QA (Quant)', dailyHours:'2 hours', situation:'working', mockHistory:[{ date:'2026-09-20', varc:21, dilr:12, qa:19, total:52 }], recentMistakes:[], sessionsCount:3 };
+    conversationHistory = [];
+    activeDiagnosticTopic = null;
+    diagnosticFlowState = { active:false, topic:null };
+    activeMentorPlan = null;
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    margActiveThreadId = 'thread-new';
+    seed({
+      varc:entry('varc', 'VARC', 'supported', 'thread-old', 'Drops the right answer between the final two options', observed(1)),
+      qa:entry('qa', 'QA', 'confirmed', 'thread-old', 'Skips the setup and jumps to arithmetic', observed(2)),
+      dilr:entry('dilr', 'DILR', 'hypothesis', 'thread-old', 'Picks sets by length rather than structure'),
+      mock:Object.assign(entry('mock', 'Mock', 'rejected', 'thread-old', 'Rejected pacing read'), { confirmation:'Rejected' })
+    });
+
+    var open = turn('What should I work on today?');
+    var qaTopic = turn('How should I approach QA?');
+    var reference = turn('Why is C wrong in Q4?');
+    margActiveThreadId = 'thread-old';
+    var sameThread = turn('How should I approach QA?');
+    margActiveThreadId = 'thread-new';
+
+    results.push(
+      { name:'new chat receives supported and confirmed state from an earlier chat', passed:open.context.indexOf(BLOCK) !== -1 && open.context.indexOf('Drops the right answer between the final two options') !== -1 && open.context.indexOf('Skips the setup and jumps to arithmetic') !== -1 && open.context.indexOf('CONFIRMED REPEATED PATTERN') !== -1 && open.context.indexOf('SUPPORTED ONCE') !== -1 },
+      { name:'new chat does not receive hypotheses or rejected reads from an earlier chat', passed:open.context.indexOf('Picks sets by length rather than structure') === -1 && open.context.indexOf('Rejected pacing read') === -1 && qaTopic.context.indexOf('Picks sets by length') === -1 },
+      { name:'carried state is limited to the topic of the turn', passed:qaTopic.context.indexOf(BLOCK) !== -1 && qaTopic.context.indexOf('Skips the setup and jumps to arithmetic') !== -1 && qaTopic.context.indexOf('Drops the right answer between the final two options') === -1 },
+      { name:'an open turn also carries profile facts and the latest mock as outcomes', passed:open.context.indexOf('Self-reported profile, not a diagnosis') !== -1 && open.context.indexOf('Latest recorded mock (2026-09-20)') !== -1 && open.context.indexOf('outcomes, not causes') !== -1 },
+      { name:'question-reference turns carry no student state', passed:reference.context.indexOf(BLOCK) === -1 },
+      { name:'an entry already selected by this thread is not repeated in the carried block', passed:sameThread.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') !== -1 && sameThread.context.indexOf('Skips the setup and jumps to arithmetic') !== -1 && (sameThread.context.indexOf(BLOCK) === -1 || sameThread.context.split(BLOCK)[1].split('Do not mention this block')[0].indexOf('Skips the setup and jumps to arithmetic') === -1) },
+      { name:'thread isolation of ordinary diagnostic memory is unchanged', passed:open.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') === -1 && qaTopic.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') === -1 },
+      { name:'evidence line names carried state instead of claiming no support', passed:/established in an earlier chat/.test(describeTurnEvidence('What should I work on today?', open.diagnosis)) && describeTurnEvidence('What should I work on today?', open.diagnosis).indexOf('No selected diagnosis has observed support') === -1 }
+    );
+
+    var certainty = 'This confirmed pattern means you always rush the setup.';
+    var guarded = guardUnconfirmedCertainty(certainty, { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' });
+    seed({ qa:entry('qa', 'QA', 'supported', 'thread-old', 'Skips the setup', observed(1)) });
+    var supportedOnly = guardUnconfirmedCertainty(certainty, { intent:'qa_diagnosis', submittedAnswerText:'How should I approach QA?' });
+    results.push(
+      { name:'certainty wording is kept for a confirmed pattern carried from an earlier chat', passed:guarded === certainty },
+      { name:'certainty wording is still softened when the carried pattern is only supported once', passed:supportedOnly.indexOf('confirmed pattern') === -1 }
+    );
+
+    seed({ qa:entry('qa', 'QA', 'supported', 'thread-old', 'Skips the setup and jumps to arithmetic', observed(1)) });
+    mentorExecutionLoop.diagnoses = [
+      { id:'dx-hyp', status:'hypothesis', section:'qa', mechanism:'Secret hypothesis about speed' },
+      { id:'dx-sup', status:'supported', section:'qa', mechanism:'Observed setup skipping' }
+    ];
+    mentorExecutionLoop.tasks = [{ id:'task-1', diagnosis_id:'dx-hyp', section:'qa', status:'in_progress', title:'Set up before solving', updated_at:'2026-10-02T09:00:00Z' }];
+    var provisionalTask = turn('How should I approach QA?');
+    mentorExecutionLoop.tasks = [{ id:'task-2', diagnosis_id:'dx-sup', section:'qa', status:'evidence_ready', title:'Set up before solving', updated_at:'2026-10-03T09:00:00Z' }];
+    mentorExecutionLoop.attempts = [{ id:'att-1', task_id:'task-2', correct:7, wrong:2, skipped:1, completed_at:'2026-10-03T10:00:00Z' }];
+    var supportedTask = turn('How should I approach QA?');
+    mentorExecutionLoop.tasks = [{ id:'task-3', diagnosis_id:'dx-sup', section:'varc', status:'ready', title:'VARC pass', updated_at:'2026-10-03T09:00:00Z' }];
+    mentorExecutionLoop.attempts = [];
+    var otherSectionTask = turn('How should I approach QA?');
+    results.push(
+      { name:'an open task assigned earlier is carried without its unconfirmed hypothesis text', passed:provisionalTask.context.indexOf('Open check assigned earlier (QA, in progress): Set up before solving') !== -1 && provisionalTask.context.indexOf('unconfirmed working read') !== -1 && provisionalTask.context.indexOf('Secret hypothesis about speed') === -1 && provisionalTask.context.indexOf('No attempt is recorded yet') !== -1 },
+      { name:'an open task on a supported diagnosis carries its latest recorded attempt', passed:supportedTask.context.indexOf('Open check assigned earlier (QA, evidence ready)') !== -1 && supportedTask.context.indexOf('7 correct, 2 wrong, 1 skipped') !== -1 && supportedTask.context.indexOf('unconfirmed working read') === -1 },
+      { name:'an open task for another section is not carried into a section turn', passed:otherSectionTask.context.indexOf('Open check assigned earlier') === -1 }
+    );
+
+    seed({});
+    mentorExecutionLoop.tasks = [];
+    var empty = turn('What should I work on today?');
+    results.push({ name:'state block disappears when nothing was observed, assigned or recorded', passed:(function() {
+      var savedProfile = studentProfile;
+      studentProfile = { mockHistory:[], recentMistakes:[], diagnosticMemory:diagnosticMemory };
+      var bare = turn('What should I work on today?');
+      studentProfile = savedProfile;
+      return bare.context.indexOf(BLOCK) === -1 && empty.context.indexOf('Self-reported profile') !== -1;
+    })() });
+
+    var statusCases = [
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', confirmation:'Exactly' }, expected:true },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', confirmation:'Not Really' }, expected:false },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'rejected', confirmation:'Exactly' }, expected:false },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'supported', confirmation:'none' }, expected:true },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'inconclusive', confirmation:'Exactly' }, expected:false },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'hypothesis', confirmation:'none' }, expected:false },
+      { entry:{ topic:'qa', confirmedDiagnosis:'x', status:'confirmed', confirmation:'none', doNotReuse:true }, expected:false }
+    ];
+    results.push({ name:'confirmed-diagnosis check reads the normalised status for older entries', passed:statusCases.every(function(item) {
+      diagnosticMemory = { qa:item.entry };
+      return hasConfirmedDiagnostic('qa') === item.expected;
+    }) });
+
+    currentUser = { id:'u-carryover' };
+    SUPABASE_TOKEN = 'token';
+    isGuestMode = false;
+    canUseMentorExecutionLoop = function() { return true; };
+    storageKey = getDiagnosticStorageKey();
+    try { storedMemory = localStorage.getItem(storageKey); } catch(e) {}
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    margActiveThreadId = 'thread-hydrate';
+    var local = entry('varc', 'VARC', 'supported', 'thread-hydrate', 'Drops the right answer between the final two options', observed(1));
+    local.patternId = 'last_two_options';
+    local.subcategory = 'rc';
+    local.updatedAt = '2026-10-06T10:00:00.000Z';
+    seed({ varc:local });
+    activeDiagnosticTopic = 'varc';
+    authenticatedSupabaseFetch = async function(url) {
+      var rows = [];
+      if (String(url).indexOf('mentor_diagnoses') !== -1) rows = [{ id:'db-1', client_ref:'diagnosis:varc:last_two_options', section:'varc', topic:'rc', pattern_id:'last_two_options', mechanism:'Drops the right answer between the final two options', evidence_summary:'stored', confidence:0.78, confirmation_level:'Mostly', status:'supported', updated_at:'2026-10-06T10:00:05.000000+00:00' }];
+      return { ok:true, status:200, json:async function() { return rows; } };
+    };
+    var loaded = await loadMentorExecutionLoop();
+    var hydrated = diagnosticMemory.varc;
+    var sameThreadAfterHydrate = turn('How should I approach VARC?');
+    var evidenceKept = hydrated && observedDiagnosisEvidenceCounts(hydrated).supporting === 1;
+    margActiveThreadId = 'thread-other';
+    var otherThreadAfterHydrate = turn('How should I approach VARC?');
+    results.push(
+      { name:'hydrating a stored diagnosis keeps the thread that raised it and its local evidence', passed:loaded === true && hydrated && hydrated.sourceThreadId === 'thread-hydrate' && evidenceKept },
+      { name:'hydrated diagnosis stays visible to its own thread as ordinary memory', passed:sameThreadAfterHydrate.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') !== -1 && sameThreadAfterHydrate.context.indexOf('Drops the right answer between the final two options') !== -1 },
+      { name:'hydrated diagnosis reaches another thread only as carried student state', passed:otherThreadAfterHydrate.context.indexOf('DIAGNOSTIC EVIDENCE MEMORY') === -1 && otherThreadAfterHydrate.context.indexOf(BLOCK) !== -1 && otherThreadAfterHydrate.context.indexOf('Drops the right answer between the final two options') !== -1 }
+    );
+  } finally {
+    restore();
+  }
+  return results;
+}
+window.runStudentStateCarryoverTests = runStudentStateCarryoverTests;
+
+function runTurnDecisionTests() {
+  var originalMemory = diagnosticMemory;
+  var originalThread = typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId;
+  var originalLoop = mentorExecutionLoop;
+  var originalProfile = studentProfile;
+  var originalHistory = conversationHistory;
+  var originalActiveTopic = activeDiagnosticTopic;
+  var originalFlow = diagnosticFlowState;
+  var originalPlan = activeMentorPlan;
+  var storageKey = getDiagnosticStorageKey();
+  var storedMemory = null;
+  try { storedMemory = localStorage.getItem(storageKey); } catch(e) {}
+  function restore() {
+    diagnosticMemory = originalMemory;
+    margActiveThreadId = originalThread;
+    mentorExecutionLoop = originalLoop;
+    studentProfile = originalProfile;
+    conversationHistory = originalHistory;
+    activeDiagnosticTopic = originalActiveTopic;
+    diagnosticFlowState = originalFlow;
+    activeMentorPlan = originalPlan;
+    try {
+      if (storedMemory === null) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, storedMemory);
+    } catch(e) {}
+  }
+  function observed(count) {
+    var rows = [];
+    for (var i = 0; i < count; i++) rows.push({ type:'observed_attempt', supports:true, strength:0.9 });
+    return rows;
+  }
+  function entry(topic, section, status, threadId, text, evidence) {
+    return { topic:topic, selectedSection:section, confirmedDiagnosis:text, status:status, confirmation:status === 'hypothesis' ? 'Exactly' : 'none', sourceThreadId:threadId, doNotReuse:false, updatedAt:'2026-10-01T10:00:00.000Z', evidenceHistory:evidence || [] };
+  }
+  function reset(memory, tasks, attempts) {
+    diagnosticMemory = memory || {};
+    studentProfile.diagnosticMemory = diagnosticMemory;
+    saveDiagnosticMemory();
+    mentorExecutionLoop = { diagnoses:[{ id:'dx-1', status:'supported', section:'qa' }], tasks:tasks || [], attempts:attempts || [], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    conversationHistory = [];
+    activeMentorPlan = null;
+    activeDiagnosticTopic = null;
+    diagnosticFlowState = { active:false, topic:null };
+    margActiveThreadId = 'thread-new';
+  }
+  function turn(message) {
+    var analysis = buildDiagnosisDirective(message);
+    return { analysis:analysis, diagnosis:analysis.diagnosis, directive:analysis.directive, context:buildMentorTurnContext(message, analysis, { surface:'chat', useWebGrounding:false }) };
+  }
+  var openTask = { id:'task-1', diagnosis_id:'dx-1', section:'qa', status:'in_progress', title:'Set up before solving', updated_at:'2026-10-02T09:00:00Z', action_payload:{} };
+  var qaRead = function() { return { qa:entry('qa', 'QA', 'confirmed', 'thread-old', 'Skips the setup and jumps to arithmetic', observed(2)) }; };
+  var results = [];
+  try {
+    studentProfile = { attemptNumber:'2nd', mockHistory:[], recentMistakes:[], sessionsCount:3 };
+
+    results.push(
+      { name:'trying what the mentor said is not corrective evidence', passed:['I tried what you said', 'I tried exactly what you suggested and it took 9 minutes', 'I followed whatever you told me yesterday'].every(function(text) { return !isStrongCorrectiveEvidence(text); }) },
+      { name:'real corrections that quote the mentor are still corrective', passed:['You said QA was my problem, that is wrong', 'I tried what you said but you missed that I already solved it', 'You misread my score'].every(function(text) { return isStrongCorrectiveEvidence(text); }) }
+    );
+
+    reset(qaRead(), [openTask]);
+    var corrected = reconcileFreshCorrectiveEvidence('I tried what you said');
+    results.push({ name:'an outcome report does not reject the diagnosis or record a correction', passed:corrected === null && diagnosticMemory.qa.status === 'confirmed' && !diagnosticMemory.qa.doNotReuse });
+
+    reset(qaRead(), [openTask]);
+    var bare = turn('I tried it');
+    var withResult = turn('I tried the drill and got 6/10 correct, still made the same setup slip');
+    var qualitative = turn("I tried what you said and it didn't work");
+    results.push(
+      { name:'"I tried it" on an open task is an outcome report, not a correction', passed:bare.diagnosis.intent === 'task_outcome_report' && !bare.diagnosis.correctionVerification && bare.directive.indexOf('OUTCOME REPORT') !== -1 && bare.directive.indexOf('not a correction of Marg') !== -1 && bare.directive.indexOf('Set up before solving') !== -1 && bare.directive.indexOf('Marg has no recorded attempt') !== -1 },
+      { name:'an outcome report without a result asks for one observation', passed:bare.diagnosis.turnMode === 'clarify' && bare.diagnosis.questionBudget === 1 && bare.directive.indexOf('Missing information: one concrete observation') !== -1 && qualitative.diagnosis.turnMode === 'clarify' && qualitative.diagnosis.intent === 'task_outcome_report' },
+      { name:'an outcome report with a result continues the open step without a question', passed:withResult.diagnosis.intent === 'task_outcome_report' && withResult.diagnosis.turnMode === 'continue_flow' && withResult.diagnosis.questionBudget === 0 && withResult.directive.indexOf('Question budget: 0') !== -1 },
+      { name:'an outcome report keeps the section state and the open task in context', passed:withResult.context.indexOf('Open check assigned earlier (QA, in progress): Set up before solving') !== -1 && withResult.context.indexOf('Skips the setup and jumps to arithmetic') !== -1 }
+    );
+
+    reset(qaRead(), [], [{ id:'a-1', task_id:'task-9' }]);
+    mentorExecutionLoop.tasks = [Object.assign({}, openTask, { id:'task-9' })];
+    mentorExecutionLoop.attempts = [{ id:'a-1', task_id:'task-9', correct:4, wrong:5, skipped:1, completed_at:'2026-10-03T10:00:00Z' }];
+    var recorded = turn('I tried it and got 7 right, 3 wrong');
+    results.push({ name:'a recorded attempt is offered as the record to test the account against', passed:recorded.directive.indexOf('Marg\'s record of that check: 4 correct, 5 wrong, 1 skipped') !== -1 });
+
+    reset({}, []);
+    activeMentorPlan = { mission:"Today's Mission: solve ten QA percentages with a setup line first", status:'active' };
+    var planTurn = turn('I did it and finished in 22 minutes');
+    activeMentorPlan = null;
+    conversationHistory = [{ role:'user', content:'How do I stop rushing RC options?' }, { role:'assistant', content:'Before you pick an option, write the claim in your own words. Then compare it with the final two options.' }];
+    var instructionTurn = turn('I tried it and got 3 out of 4 right');
+    conversationHistory = [];
+    var nothingOpen = turn('I tried it');
+    var longHistoryClaim = turn('I tried it for three weeks straight across all of my practice and my QA mock scores are still stuck near fifty');
+    results.push(
+      { name:'an outcome report links to an open mission when no task is open', passed:planTurn.diagnosis.intent === 'task_outcome_report' && planTurn.directive.indexOf('open mission') !== -1 },
+      { name:'an outcome report links to the last assistant instruction', passed:instructionTurn.diagnosis.intent === 'task_outcome_report' && instructionTurn.directive.indexOf('last instruction') !== -1 && instructionTurn.directive.indexOf('write the claim in your own words') !== -1 },
+      { name:'an outcome report with nothing open asks what was tried instead of guessing', passed:nothingOpen.diagnosis.intent === 'task_outcome_report' && nothingOpen.diagnosis.turnMode === 'clarify' && nothingOpen.directive.indexOf('what they tried and what happened') !== -1 },
+      { name:'a long message without a referent keeps its ordinary routing', passed:longHistoryClaim.diagnosis.intent !== 'task_outcome_report' }
+    );
+
+    reset(qaRead(), [openTask]);
+    var evidenceFree = turn('My problem is definitely speed');
+    reset({}, []);
+    var unsupportedClaim = turn('My problem is definitely speed');
+    var withProcess = turn('My problem is definitely speed because when I get to the last five questions I stop reading the setup and just guess under time pressure');
+    results.push(
+      { name:'a certain cause that conflicts with an observed read is challenged, not accepted', passed:evidenceFree.diagnosis.turnMode === 'challenge' && evidenceFree.diagnosis.turnBasis.indexOf('does not match an observed read') !== -1 && evidenceFree.directive.indexOf('Do not accept or dismiss') !== -1 },
+      { name:'a certain cause with nothing observed behind it is challenged', passed:unsupportedClaim.diagnosis.turnMode === 'challenge' && unsupportedClaim.diagnosis.turnBasis.indexOf('nothing observed supports it') !== -1 },
+      { name:'a certain cause backed by a described moment is diagnosed instead', passed:withProcess.diagnosis.turnMode === 'diagnose' && withProcess.diagnosis.questionBudget === 0 }
+    );
+
+    reset(qaRead(), [openTask]);
+    var guided = turn('What should I work on today?');
+    var guidedSection = turn('How should I approach QA?');
+    reset({}, []);
+    var noState = turn('What should I work on today?');
+    var methodQuestion = turn('How should I approach QA?');
+    var statement = turn('QA is my weak section');
+    var vagueNoState = turn('help');
+    results.push(
+      { name:'known observed evidence turns an open question into guidance with no question', passed:guided.diagnosis.turnMode === 'guide' && guided.diagnosis.questionBudget === 0 && guided.directive.indexOf('Do not ask for anything already known') !== -1 && guidedSection.diagnosis.turnMode === 'guide' && guidedSection.diagnosis.questionBudget === 0 },
+      { name:'with nothing known an open question asks for the missing evidence', passed:noState.diagnosis.turnMode === 'clarify' && noState.diagnosis.questionBudget === 1 && noState.directive.indexOf('Missing information: the most recent concrete attempt or mock decision') !== -1 && vagueNoState.diagnosis.turnMode === 'clarify' },
+      { name:'a method question is answered and a bare problem statement is clarified', passed:methodQuestion.diagnosis.turnMode === 'answer' && methodQuestion.diagnosis.questionBudget === 1 && statement.diagnosis.turnMode === 'clarify' && statement.directive.indexOf('Missing information: the last specific question') !== -1 },
+      { name:'the turn contract states the decision and its basis', passed:guided.directive.indexOf('- Turn decision: guide.') !== -1 && guided.directive.indexOf('- Decision basis: Choose the next move from observed evidence: QA') !== -1 && noState.directive.indexOf('- Turn decision: clarify.') !== -1 }
+    );
+
+    reset({ qa:entry('qa', 'QA', 'hypothesis', 'thread-old', 'Rushes under time pressure') }, []);
+    var hypothesisOnly = turn('What should I work on today?');
+    results.push({ name:'a hypothesis from another thread is not known evidence for the decision', passed:hypothesisOnly.diagnosis.turnMode === 'clarify' && hypothesisOnly.directive.indexOf('Rushes under time pressure') === -1 });
+
+    reset({}, []);
+    conversationHistory = [{ role:'user', content:'hi' }, { role:'assistant', content:'Which section is hurting most?' }, { role:'user', content:'not sure' }, { role:'assistant', content:'And how long do you study?' }];
+    var limited = turn('help');
+    results.push({ name:'a clarify decision gives way to an answer once the question limit is reached', passed:limited.diagnosis.turnMode === 'answer' && limited.diagnosis.questionBudget === 0 && limited.directive.indexOf('The question limit is reached') !== -1 });
+
+    reset({}, []);
+    var greeting = turn('hi');
+    var reference = turn('Why is C wrong in Q4?');
+    reset({}, []);
+    conversationHistory = [{ role:'user', content:'hello' }];
+    var unverified = turn('Yesterday you said 12 x 12 = 150 so I used it');
+    results.push(
+      { name:'self-contained turns are answered and supplied-material checks are verified', passed:greeting.diagnosis.turnMode === 'answer' && reference.diagnosis.turnMode === 'answer' && decideTurnMode('B', { intent:'answer_review' }).mode === 'verify' && decideTurnMode('x', { intent:'dilr_validity_review' }).mode === 'verify' },
+      { name:'an unverifiable claim about what Marg said is challenged', passed:unverified.diagnosis.turnMode === 'challenge' && unverified.diagnosis.turnBasis.indexOf('does not contain') !== -1 },
+      { name:'running flows are continued rather than restarted', passed:decideTurnMode('go on', { intent:'seamless_continuation' }).mode === 'continue_flow' && decideTurnMode('x', { intent:'study_activity' }).mode === 'continue_flow' && decideTurnMode('start rc', { intent:'general_mentor', committedAction:true }).mode === 'continue_flow' }
+    );
+
+    function evaluated(id, section, verdict, reason, updatedAt) {
+      return { id:id, diagnosis_id:'dx-1', section:section, status:'reviewed', title:'Set up before solving', updated_at:updatedAt || '2026-10-03T09:00:00Z', action_payload:{ interventionEvaluation:{ verdict:verdict, reason:reason }, recommendationEvaluation:{ verdict:verdict, reason:reason } } };
+    }
+    reset(qaRead(), [evaluated('e1', 'qa', 'SUPPORTED', 'The stored setup_lines moved from 1 to 4 in the direction this intervention targets.')]);
+    var supportedEval = turn('How should I approach QA?');
+    var openEval = turn('What should I work on today?');
+    var referenceEval = turn('Why is C wrong in Q4?');
+    reset(qaRead(), [evaluated('e2', 'qa', 'REJECTED', 'The stored setup_lines moved from 4 to 1, contrary to this intervention target.')]);
+    var rejectedEval = turn('How should I approach QA?');
+    reset(qaRead(), [evaluated('e3', 'qa', 'INCONCLUSIVE', 'The task has no measurable success criterion.')]);
+    var inconclusiveEval = turn('How should I approach QA?');
+    reset(qaRead(), [evaluated('e4', 'varc', 'SUPPORTED', 'VARC result.')]);
+    var otherSectionEval = turn('How should I approach QA?');
+    reset(qaRead(), [openTask]);
+    var noEval = turn('How should I approach QA?');
+    results.push(
+      { name:'a supported intervention verdict reaches the mentor with its reason', passed:supportedEval.context.indexOf('Last measured check (QA, 2026-10-03)') !== -1 && supportedEval.context.indexOf('Intervention verdict SUPPORTED') !== -1 && supportedEval.context.indexOf('moved from 1 to 4') !== -1 && supportedEval.context.indexOf('build on it') !== -1 && openEval.context.indexOf('Intervention verdict SUPPORTED') !== -1 },
+      { name:'a rejected verdict tells the mentor not to repeat the read unchanged', passed:rejectedEval.context.indexOf('Intervention verdict REJECTED') !== -1 && rejectedEval.context.indexOf('do not repeat the same read or task unchanged') !== -1 },
+      { name:'an inconclusive verdict is not presented as success or failure', passed:inconclusiveEval.context.indexOf('Intervention verdict INCONCLUSIVE') !== -1 && inconclusiveEval.context.indexOf('neither supported nor rejected') !== -1 && inconclusiveEval.context.indexOf('Recommendation verdict') === -1 },
+      { name:'verdicts stay out of unrelated sections and supplied-material turns', passed:otherSectionEval.context.indexOf('Last measured check') === -1 && referenceEval.context.indexOf('Last measured check') === -1 && noEval.context.indexOf('Last measured check') === -1 }
+    );
+  } finally {
+    restore();
+  }
+  return results;
+}
+window.runTurnDecisionTests = runTurnDecisionTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
@@ -11190,6 +11771,7 @@ function detectMentorIntent(message) {
   if (typeof isSavedQuestionResolutionRequest === 'function' && isSavedQuestionResolutionRequest(message)) return 'question_reference';
   if (/where did we leave off|what did we decide|what was my task|continue from|last time/.test(text)) return 'returning_memory';
   if (/i can'?t clear|i cannot clear|want to quit|give up|not made for cat|i'?m a failure|hopeless|no confidence|never crack/.test(text)) return 'confidence_breakdown';
+  if (describeTaskOutcomeReport(message)) return 'task_outcome_report';
   if (isPlanCoverageCorrection(message)) return 'planning';
   if (isComprehensiveRoadmapRequest(message) || /\b(plan|schedule|timetable|roadmap|what should i study|where.*start|balanced baseline|smallest useful first step)\b/.test(text)) return 'planning';
   // A mock narrative often contains every section name. Route the overall event
@@ -11244,6 +11826,7 @@ function getLikelyHiddenProblem(intent, message) {
   if (intent === 'answer_review') return activeGeneratedExercise ? 'The student is submitting answers to Marg’s active generated exercise. Check them immediately from stored questions and answer keys, then diagnose the shared decision pattern across errors.' : 'The student wants an answer check. Use the recent conversation first and never ask them to resend content Marg already generated.';
   if (intent === 'confidence_breakdown') return 'FACT: the student expressed a negative conclusion about their ability. UNKNOWN: the preparation cause. Separate the conclusion from the supplied evidence without inventing a repeated pattern.';
   if (intent === 'returning_memory') return studentProfile.lastTask ? 'The student wants continuity, not another intake question. Resume from the saved task: ' + studentProfile.lastTask : 'The student wants continuity. Use the session summary or recent conversation; state uncertainty honestly if no reliable unfinished task exists.';
+  if (intent === 'task_outcome_report') return 'FACT: the student reports having tried something Marg suggested or assigned. UNKNOWN: what exactly they did, whether it followed the instruction, and what happened. A report of trying it is self-report, not observed evidence, and it is not a correction of Marg.';
   if (intent === 'greeting') return 'This is only a greeting. Respond warmly and briefly; do not diagnose distress, confidence, preparation or a weak section from it.';
   if (intent === 'vague') return 'UNKNOWN: the message does not contain enough evidence for a preparation diagnosis. Offer neutral starting choices without assigning an emotional state or weak section.';
   if (intent === 'varc_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a VARC process failure. Use only that described moment; any cause remains a working hypothesis until tested.' : 'UNKNOWN: a VARC label or score does not identify whether the cause is reading, claim location, option evaluation, selection or pace.';
@@ -11311,6 +11894,7 @@ function analyzeMentorInput(message) {
     pastedAnswerEvidence:pastedAnswerEvidence,
     submittedAnswers:getConversationAnswerChoices(message),
     submittedAnswerText:String(message || ''),
+    outcomeReport:intent === 'task_outcome_report' ? describeTaskOutcomeReport(message) : null,
     hintOnly:/\b(?:hint|don'?t (?:tell|reveal|show|give)(?: me)? (?:the )?(?:answer|solution)|without (?:the )?(?:answer|solution))\b/i.test(String(message || '')) || pendingExternalQuestionTurnMode === 'hint',
     requestedExistingSolutions:/^(?:please\s+)?(?:give|show|tell|send)?\s*(?:the\s+)?answers?\s+(?:above|for (?:all|these)|to (?:all|these))\b/i.test(String(message || '').trim()),
     freshPastedMaterial:isFreshPastedPracticeMaterial(message),
@@ -11350,6 +11934,9 @@ function buildStudyDiagnosisDirective(message, diagnosis, turn) {
   diagnosis.studyTurnType = turn.type;
   diagnosis.responseShape = 'study';
   diagnosis.questionBudget = null;
+  diagnosis.turnMode = 'continue_flow';
+  diagnosis.turnBasis = 'A study session is in progress.';
+  diagnosis.turnMissing = '';
   var directive = '\n\nCURRENT-TURN ANCHOR: The newest student message controls this reply, and the study material below is its only source. Do not revive an older mission, saved task, exercise or profile question.' +
     MargStudy.buildStudyDirective(turn, ctx, {}) +
     '\n\nRESPONSE CONTRACT: shape study. Finish every sentence, question and option. Ask no engagement question; the only question allowed is the one the study step itself needs.';
@@ -11422,13 +12009,118 @@ function buildDiagnosisDirective(message) {
   if (/\b(book|books|source|material|resource|course|coaching|youtube channel)\b/i.test(String(message || ''))) directive += '\nSOURCE-TRUST MODE: The practical source question may be hiding loss of trust or fear of choosing wrong. Name that uncertainty first in one calm line, use prior progress to show whether the current source actually failed, then make one practical recommendation. Do not offer a shopping list of alternatives and do not reset an existing plan merely because the student feels uncertain.';
   if (/\b(plan|schedule|timetable|what should i do|today'?s task|mission)\b/i.test(String(message || ''))) directive += '\nPLAN-STABILITY MODE: Check ACTIVE PLAN MEMORY before proposing anything. Keep it only while its underlying evidence remains valid. If fresh evidence invalidated it, own the old mistake and replace it from the corrected facts. Explain naturally why the action follows; do not force Focus/Why/Action/Rule/Evidence labels unless the student explicitly requested a full written plan. A diagnosed execution problem requires a hypothesis-testing action, never a generic question-count task.';
   if (diagnosis.committedAction) directive += '\nACTION ALREADY CHOSEN: Execute it now in this response. Do not repeat the rationale, ask “ready?”, ask when they want to do it, or offer the same choice again. If it is QA/DILR practice, emit the correct [START_TEST] tag now. If it is an RC/review/strategy action, begin the promised material or analysis now.';
+  if (diagnosis.intent === 'task_outcome_report' && diagnosis.outcomeReport) directive += buildOutcomeReportDirective(diagnosis.outcomeReport);
   directive += buildInvisibleMentorBrief(message, diagnosis, correction);
   var turnContract = describeTurnResponseContract(message, diagnosis);
   diagnosis.responseShape = turnContract.shape;
   diagnosis.questionBudget = turnContract.budget;
+  diagnosis.turnMode = turnContract.decision.mode;
+  diagnosis.turnBasis = turnContract.decision.basis;
+  diagnosis.turnMissing = turnContract.decision.missing;
   directive += turnContract.block;
   return { diagnosis: diagnosis, directive: directive, correction:correction };
 }
+
+function buildOutcomeReportDirective(report) {
+  var target = report.target || { kind:'none' };
+  var line = '\nOUTCOME REPORT: The student is saying what happened after trying something Marg suggested or assigned. This reports on that step. It is not a correction of Marg: do not apologise, do not retract or revise any diagnosis because of it, and do not treat it as new evidence against one. It is self-report until an attempt records it, so say what it suggests, not what it proves.';
+  if (target.kind === 'task') {
+    line += ' The step is the open check "' + target.label + '".';
+    var attempt = target.attempt;
+    line += attempt
+      ? ' Marg\'s record of that check: ' + Number(attempt.correct || 0) + ' correct, ' + Number(attempt.wrong || 0) + ' wrong, ' + Number(attempt.skipped || 0) + ' skipped. Use it to test the student\'s account.'
+      : ' Marg has no recorded attempt for it, so nothing here has been observed.';
+  } else if (target.kind === 'plan') line += ' The step is the open mission "' + target.label + '".';
+  else if (target.kind === 'instruction') line += ' The step is the last instruction: "' + target.label + '".';
+  else line += ' Nothing open identifies what was tried, so do not guess; ask what they tried.';
+  line += report.hasResult
+    ? ' They gave a concrete result: read it against what the step was meant to show and give the next step.'
+    : ' They gave no concrete result: ask for the single observation named under Missing information before advising.';
+  return line;
+}
+
+function isMethodQuestion(message) {
+  var text = String(message || '').trim();
+  return /\?\s*$/.test(text) || /^(?:how|what|which|why|when|where|should|can|could|is|are|do|does|will)\b/i.test(text);
+}
+
+function claimsCertainCause(message) {
+  var text = String(message || '').replace(/[’]/g, "'");
+  return /\b(?:problem|issue|weakness|mistake|reason|cause)\s+(?:is|was)\s+(?:definitely|clearly|obviously|certainly|just|only|simply|100\s*%)\b/i.test(text) ||
+    /\b(?:definitely|clearly|obviously|certainly|100\s*%)\b[^.!?]{0,30}\b(?:my (?:problem|issue|weakness)|because of|due to)\b/i.test(text) ||
+    /\bi\s*(?:know|am sure|am certain|'m sure|'m certain)\b[^.!?]{0,20}\b(?:problem|issue|reason|cause)\b/i.test(text);
+}
+
+function knownObservedSupportForTurn(message, diagnosis) {
+  var selection = selectTurnMemory(message, diagnosis || {});
+  var known = [];
+  Object.keys(diagnosticMemory || {}).forEach(function(key) {
+    var entry = diagnosticMemory[key];
+    if (isObservedSupportEntry(entry) && diagnosticEntrySelected(entry, key, message, selection)) known.push(entry);
+  });
+  var state = collectStudentState(message, diagnosis || {});
+  if (state) state.supported.forEach(function(item) { if (known.indexOf(item.entry) === -1) known.push(item.entry); });
+  return known;
+}
+
+// The one decision this turn has to make, derived from what MARG already holds
+// and what the student actually supplied. It chooses the reply's job and
+// whether a question is justified; it never adds evidence of its own.
+function decideTurnMode(message, diagnosis) {
+  function decision(mode, basis, missing, observed) { return { mode:mode, basis:basis, missing:missing || '', observed:!!observed }; }
+  if (!diagnosis) return decision('answer', 'No diagnosis context is available.');
+  var intent = diagnosis.intent || '';
+  if (intent === 'study_activity' || intent === 'seamless_continuation') return decision('continue_flow', 'A study session or an interrupted reply is already in progress.');
+  if (['greeting', 'privacy_request', 'score_correction', 'question_reference', 'image_question'].indexOf(intent) !== -1) return decision('answer', 'The request is self-contained or the material it needs is supplied.');
+  if (intent === 'answer_review' || intent === 'dilr_validity_review') return decision('verify', 'The submitted answers or the disputed condition must be checked against the stored key or the supplied constraints before any conclusion.');
+  var correction = diagnosis.correctionVerification;
+  if (correction && correction.verified === false) return decision('challenge', 'The student attributes a statement to Marg that this conversation does not contain.');
+  if (correction && correction.verified === true) return decision('diagnose', 'Fresh corrective evidence from the student replaces the earlier read.');
+  if (intent === 'task_outcome_report') {
+    var report = diagnosis.outcomeReport || describeTaskOutcomeReport(message);
+    var target = report && report.target || { kind:'none', label:'' };
+    var subject = target.kind === 'task' ? 'the open check "' + target.label + '"'
+      : target.kind === 'plan' ? 'the open mission "' + target.label + '"'
+        : target.kind === 'instruction' ? 'the last instruction "' + target.label + '"' : '';
+    if (!subject) return decision('clarify', 'The student says they tried something, but no open task, mission or recent instruction identifies what.', 'what they tried and what happened');
+    if (!report.hasResult) return decision('clarify', 'The student reports trying ' + subject + (report.qualitative ? ' and a verdict on it' : '') + ' without a concrete result.', 'one concrete observation from the attempt, such as the question where it broke down, a count, or the time it took');
+    return decision('continue_flow', 'The student reports a concrete result on ' + subject + '. Read it as a self-report on that step.');
+  }
+  if (diagnosis.committedAction || diagnosis.rcProgressionReady || diagnosis.rcFunctionMapProgressionReady) return decision('continue_flow', 'The student accepted the next step of a flow that is already running.');
+  if (intent === 'returning_memory') return decision('continue_flow', 'The student wants to resume earlier work.');
+  var known = knownObservedSupportForTurn(message, diagnosis);
+  var knownBasis = known.length ? known.map(function(entry) { return (entry.selectedSection || entry.topic) + ' — ' + entry.confirmedDiagnosis; }).join(' | ') : '';
+  if (claimsCertainCause(message) && !diagnosis.concreteProcessEvidence) {
+    var conflicts = known.length && !known.some(function(entry) { return sharesSpecificClaim(message, entry.confirmedDiagnosis, 1); });
+    return decision('challenge', conflicts
+      ? 'The student asserts a cause that does not match an observed read (' + knownBasis + ').'
+      : 'The student asserts a cause as certain, but nothing observed supports it yet.');
+  }
+  if (intent === 'planning') return decision('guide', known.length ? 'Build the plan from observed evidence: ' + knownBasis : 'No observed read exists yet; use supplied facts and label short trials.');
+  if (diagnosis.concreteProcessEvidence) return decision('diagnose', 'The student described a concrete failure moment.');
+  if (['varc_diagnosis', 'dilr_diagnosis', 'qa_diagnosis', 'mock_diagnosis', 'pacing_diagnosis'].indexOf(intent) !== -1) {
+    if (known.length) return decision('guide', 'An observed read already exists: ' + knownBasis, '', true);
+    if (isMethodQuestion(message)) return decision('answer', 'This is a method question; answer it and keep any cause tentative.');
+    return decision('clarify', 'The message names a problem without a concrete moment to test.', 'the last specific question, set or mock decision that went wrong');
+  }
+  if (intent === 'vague') return known.length ? decision('guide', 'Known observed state can start the conversation: ' + knownBasis, '', true) : decision('clarify', 'The message carries no evidence to act on.', 'which section or recent attempt they mean');
+  if (intent === 'general_mentor' && asksForNextDecision(message)) {
+    var state = collectStudentState(message, diagnosis);
+    if (known.length || state && (state.task || state.mock)) return decision('guide', known.length ? 'Choose the next move from observed evidence: ' + knownBasis : 'Choose the next move from the open task or the latest mock.', '', known.length > 0);
+    return decision('clarify', 'There is no observed read, open task or recorded attempt to choose from.', 'the most recent concrete attempt or mock decision');
+  }
+  return decision('answer', 'Answer the newest message directly.');
+}
+
+var TURN_DECISION_INSTRUCTIONS = {
+  answer:'Answer the question first. Ask nothing the answer does not need.',
+  clarify:'Do not advise yet. Acknowledge what is known in one line, then ask the single question that supplies the missing information.',
+  diagnose:'Name the mechanism the evidence supports, keep unobserved causes tentative, and give one executable correction with the observation that will test it.',
+  guide:'Choose the one next move that follows from the known evidence. Do not ask for anything already known.',
+  verify:'Check the claim or answers against the material or recorded evidence before concluding.',
+  challenge:'Do not accept or dismiss the student\'s claim. Name the competing explanation and the one observation that would separate them.',
+  continue_flow:'Continue the active step from where it stands. Do not restart it or re-ask what is already settled.'
+};
 
 function describeTurnResponseContract(message, diagnosis) {
   var intent = diagnosis && diagnosis.intent || '';
@@ -11462,9 +12154,16 @@ function describeTurnResponseContract(message, diagnosis) {
     task = 'Give the evidence-bounded read, one executable correction, and the observation that will test it.';
   }
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.allowsEvidenceQuestion && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) budget = 0;
+  var questionLimitReached = budget === 0 && !!(diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.allowsEvidenceQuestion && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady);
   if (diagnosis && (diagnosis.rcWrongAnswerReview || diagnosis.requestedExistingSolutions || diagnosis.hintOnly)) {
     budget = 0;
     if (diagnosis.hintOnly) shape = 'short';
+  }
+  var decision = decideTurnMode(message, diagnosis);
+  if (decision.mode === 'clarify' && budget === 0) {
+    decision = { mode:'answer', basis:(questionLimitReached ? 'The question limit is reached. ' : 'No question is allowed on this turn. ') + 'Answer from what is known and leave untested causes tentative.', missing:'', observed:false };
+  } else if (budget === 1 && shape === 'normal' && (decision.mode === 'guide' && decision.observed || decision.mode === 'continue_flow' && intent === 'task_outcome_report')) {
+    budget = 0;
   }
   var shapeLine = shape === 'short' ? 'Keep this reply to a few sentences.'
     : shape === 'complete' ? 'Finish the requested explanation, check or solution.'
@@ -11477,7 +12176,8 @@ function describeTurnResponseContract(message, diagnosis) {
   return {
     shape:shape,
     budget:budget,
-    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine
+    decision:decision,
+    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Turn decision: ' + decision.mode + '. ' + TURN_DECISION_INSTRUCTIONS[decision.mode] + '\n- Decision basis: ' + decision.basis + (decision.missing ? '\n- Missing information: ' + decision.missing + '.' : '') + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine
   };
 }
 
@@ -12195,7 +12895,7 @@ function guardUnconfirmedCertainty(text, diagnosis) {
     var entry = diagnosticMemory[topic];
     return diagnosticEntrySelected(entry, topic, message, selection) && normalizeDiagnosisStatus(entry) === 'confirmed';
   });
-  if (hasConfirmed) return value;
+  if (hasConfirmed || carriedConfirmedStudentState(message, diagnosis || {})) return value;
   function claimIsNegated(offset) {
     return /\b(?:not|no|never|without|isn'?t|aren'?t|wasn'?t|weren'?t)\b(?:\s+[A-Za-z']+){0,3}\s*$/i.test(value.slice(Math.max(0, offset - 48), offset));
   }
@@ -13689,6 +14389,7 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
   var body = getDateContext() +
     (surface === 'chat' ? buildTurnProfileContext(message, diagnosis) : buildConversationalCollectedProfile()) +
     getDiagnosticMemoryContext(message, diagnosis) +
+    getStudentStateContext(message, diagnosis) +
     exerciseContext +
     getBehavioralMemoryContext(message, diagnosis) +
     getTopicProgressionMemoryContext(message, diagnosis) +
