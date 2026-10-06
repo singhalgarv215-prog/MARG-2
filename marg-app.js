@@ -4046,6 +4046,7 @@ var MENTOR_HYPOTHESIS_TAG_PATTERN = /\s*\[HYPOTHESIS:\s*([^\]]*)\]/gi;
 var MENTOR_HYPOTHESIS_RESPONSE_LIMIT = 3;
 var MENTOR_HYPOTHESIS_ACTIVE_LIMIT = 3;
 var MENTOR_HYPOTHESIS_DUPLICATE_THRESHOLD = 0.45;
+var MENTOR_HYPOTHESIS_COMPETITOR_THRESHOLD = 0.3;
 var activeDiagnosticTopic = null;
 var diagnosticSessionAttempted = {};
 var diagnosticFlowState = { active:false, firstTime:false, topic:null, subcategory:null, pattern:null, stage:'root' };
@@ -4901,7 +4902,7 @@ function getStudentStateContext(message, diagnosis) {
   state.supported.filter(function(item) { return item.carried; }).forEach(function(item) {
     var entry = item.entry;
     var counts = observedDiagnosisEvidenceCounts(entry);
-    lines.push('- ' + (entry.selectedSection || item.topic) + ' — ' + studentStateEvidenceLabel(item.status) + ' (observed support ' + counts.supporting + ', observed contradiction ' + counts.contradicting + (entry.updatedAt ? ', last updated ' + String(entry.updatedAt).slice(0, 10) : '') + '): ' + entry.confirmedDiagnosis + mentorHypothesisContextSuffix(entry));
+    lines.push('- ' + (entry.selectedSection || item.topic) + ' — ' + studentStateEvidenceLabel(item.status) + ' (observed support ' + counts.supporting + ', observed contradiction ' + counts.contradicting + (entry.updatedAt ? ', last updated ' + String(entry.updatedAt).slice(0, 10) : '') + '): ' + entry.confirmedDiagnosis + mentorHypothesisContextSuffix(entry, message));
   });
   if (state.task) {
     var row = state.task.row;
@@ -4936,7 +4937,7 @@ function getDiagnosticMemoryContext(message, diagnosis) {
       : status === 'supported' ? 'SUPPORTED ONCE'
         : status === 'inconclusive' ? 'INCONCLUSIVE'
           : 'WORKING HYPOTHESIS';
-    return '- ' + entry.selectedSection + (entry.subcategory ? ' / ' + entry.subcategory.toUpperCase() : '') + ': ' + entry.confirmedDiagnosis + ' [' + evidenceLabel + '; self-report=' + (entry.confirmation || 'none') + '; usable observed support=' + counts.supporting + '; observed contradiction=' + counts.contradicting + '].' + mentorHypothesisContextSuffix(entry);
+    return '- ' + entry.selectedSection + (entry.subcategory ? ' / ' + entry.subcategory.toUpperCase() : '') + ': ' + entry.confirmedDiagnosis + ' [' + evidenceLabel + '; self-report=' + (entry.confirmation || 'none') + '; usable observed support=' + counts.supporting + '; observed contradiction=' + counts.contradicting + '].' + mentorHypothesisContextSuffix(entry, message);
   }).join('\n') + '\nUse supported/confirmed entries for decisions. A working hypothesis may guide one test, but must be labelled as a read and never treated as established history.';
 }
 
@@ -5128,7 +5129,8 @@ var mentorHypothesisLog = [];
 var MENTOR_HYPOTHESIS_SKIP_INTENTS = STUDENT_STATE_SKIP_INTENTS.concat(['task_outcome_report', 'returning_memory', 'planning']);
 
 var MENTOR_HYPOTHESIS_STOPWORDS = ['this','that','with','from','your','have','been','were','what','when','then','more','need','today','student','because','about','into','only','issue','problem','practice','their','there','which','would','could','should','might','main','likely','rather','than','they','them','does','also','such','some','most','very','even','still','will','just'];
-var HYPOTHESIS_OBSERVABLE_CUE = /\b(?:fewer|more|less|higher|lower|increase[sd]?|decrease[sd]?|improv\w*|drop\w*|rise[sn]?|stay\w*|remain\w*|same|accuracy|errors?|mistakes?|correct|wrong|misses|missed|time|minutes?|seconds?|count|rate|attempts?|skips?|skipped|guess\w*|eliminat\w*|choos\w*|pick\w*|select\w*|answers?|scores?|\d+)\b/i;
+var HYPOTHESIS_OBSERVABLE_CUE = /\b(?:accuracy|errors?|mistakes?|correct|wrong|misses|missed|minutes?|seconds?|count|rate|attempts?|skips?|skipped|guess\w*|eliminat\w*|picks?|choices?|answers?|scores?|\d+)\b/i;
+var HYPOTHESIS_DIRECTION_CUE = /\b(?:fewer|more|less|higher|lower|increase[sd]?|decrease[sd]?|improv\w*|drop\w*|rise[sn]?|fall\w*|fell|climb\w*|reduc\w*|shrink\w*|declin\w*|stay\w*|remain\w*|same|unchanged|disappear\w*|shorter|longer|faster|slower)\b/i;
 var HYPOTHESIS_CONDITIONAL_CUE = /\b(?:if|when|once|unless|whenever|after|while|still|remain\w*|stays?|no change|does not|doesn'?t|do not|don'?t|fails?|should|would|will|expect\w*)\b/i;
 var HYPOTHESIS_CAUSE_CUE = /\b(?:issue|problem|cause[sd]?|bottleneck|gap|weakness|driver|reason|rather than|instead of|because|due to|lose[sd]?|losing|rel(?:y|ies|ying)|default\w*|pattern|habit|tendency|fail\w*|misread\w*|skip\w*|rush\w*|guess\w*|eliminat\w*|choos\w*|pick\w*|stop\w*|leav\w+|freez\w*|overthink\w*|confus\w*|mistak\w*|hurr\w*|ignor\w*|assum\w*)\b/i;
 var HYPOTHESIS_FAILURE_PATTERN = /\b(?:wrong|incorrect|miss(?:ed|es|ing)?|fail(?:ed|s|ing)?|los(?:e|es|ing|t)|mistakes?|errors?|stuck|slow|ran out|run out|can(?:'|’)?t|cannot|struggl\w*|trouble|poor|drops?|dropped|not (?:improving|working|getting)|unable)\b/i;
@@ -5257,10 +5259,10 @@ function validateMentorHypothesisFields(fields, context) {
   if (!section) return { ok:false, reason:'section_unknown' };
   var claim = cleanHypothesisText(fields.claim, 260);
   if (claim.length < 20 || claim.split(' ').length < 5) return { ok:false, reason:'claim_too_short' };
-  if (/\?\s*$/.test(claim) || /^(?:you should|try |do |start |practi[sc]e |solve |use |make sure|remember to)/i.test(claim) || !HYPOTHESIS_CAUSE_CUE.test(claim)) return { ok:false, reason:'claim_not_a_cause' };
   if (context.message && restatesStudentMessage(claim, context.message)) return { ok:false, reason:'claim_restates_student' };
+  if (/\?\s*$/.test(claim) || /^(?:you should|try |do |start |practi[sc]e |solve |use |make sure|remember to)/i.test(claim) || !HYPOTHESIS_CAUSE_CUE.test(claim)) return { ok:false, reason:'claim_not_a_cause' };
   var prediction = cleanHypothesisText(fields.prediction, 340);
-  if (prediction.length < 25 || !HYPOTHESIS_OBSERVABLE_CUE.test(prediction) || !HYPOTHESIS_CONDITIONAL_CUE.test(prediction)) return { ok:false, reason:'prediction_not_observable' };
+  if (prediction.length < 25 || !HYPOTHESIS_OBSERVABLE_CUE.test(prediction) || !HYPOTHESIS_DIRECTION_CUE.test(prediction) || !HYPOTHESIS_CONDITIONAL_CUE.test(prediction)) return { ok:false, reason:'prediction_not_observable' };
   var weakensIf = cleanHypothesisText(fields.weakens_if, 340);
   if (weakensIf.length < 20 || !HYPOTHESIS_OBSERVABLE_CUE.test(weakensIf) || !HYPOTHESIS_CONDITIONAL_CUE.test(weakensIf)) return { ok:false, reason:'no_disproof_condition' };
   if (hypothesisSimilarity(prediction, weakensIf) >= 0.85) return { ok:false, reason:'disproof_restates_prediction' };
@@ -5318,12 +5320,14 @@ function linkCompetingHypotheses(first, second) {
   second.competesWith = uniqueList(second.competesWith, [first.hypothesisId]);
 }
 
-function competingHypothesisClaims(entry) {
+function competingHypothesisClaims(entry, message) {
   if (!isMentorHypothesisEntry(entry)) return [];
   var claims = [];
   (entry.competesWith || []).forEach(function(id) {
     var sibling = findMentorHypothesis(id);
-    if (sibling && isActiveMentorHypothesis(sibling)) claims.push(sibling.claim || sibling.confirmedDiagnosis);
+    if (!sibling || !isActiveMentorHypothesis(sibling)) return;
+    if (message !== undefined && !scopedMentorMemoryAllowed(sibling, message) && !isObservedSupportEntry(sibling)) return;
+    claims.push(sibling.claim || sibling.confirmedDiagnosis);
   });
   if (entry.alternativeClaim && !claims.some(function(claim) { return hypothesisSimilarity(claim, entry.alternativeClaim) >= MENTOR_HYPOTHESIS_DUPLICATE_THRESHOLD; })) claims.push(entry.alternativeClaim);
   return claims;
@@ -5416,7 +5420,7 @@ function storeMentorHypothesis(value, context) {
   hypothesisContextEvidence(topic).forEach(function(row) { appendLocalDiagnosisEvidence(entry, row); });
   entries.forEach(function(sibling) {
     if (!isMentorHypothesisEntry(sibling) || !isActiveMentorHypothesis(sibling)) return;
-    if (hypothesisSimilarity(value.alternative, sibling.claim) >= MENTOR_HYPOTHESIS_DUPLICATE_THRESHOLD || hypothesisSimilarity(sibling.alternativeClaim, value.claim) >= MENTOR_HYPOTHESIS_DUPLICATE_THRESHOLD) linkCompetingHypotheses(entry, sibling);
+    if (hypothesisSimilarity(value.alternative, sibling.claim) >= MENTOR_HYPOTHESIS_COMPETITOR_THRESHOLD || hypothesisSimilarity(sibling.alternativeClaim, value.claim) >= MENTOR_HYPOTHESIS_COMPETITOR_THRESHOLD) linkCompetingHypotheses(entry, sibling);
   });
   diagnosticMemory[entry.memoryKey] = entry;
   if (DIAGNOSTIC_TOPICS[topic]) activeDiagnosticTopic = topic;
@@ -5692,12 +5696,12 @@ function buildHypothesisExplanationDirective(entries) {
   }).join('\n');
 }
 
-function mentorHypothesisContextSuffix(entry) {
+function mentorHypothesisContextSuffix(entry, message) {
   if (!isMentorHypothesisEntry(entry)) return '';
   var parts = [];
   if (entry.prediction) parts.push('Predicts: ' + entry.prediction);
   if (entry.weakensIf) parts.push('Would be reconsidered if: ' + entry.weakensIf);
-  var competing = competingHypothesisClaims(entry);
+  var competing = competingHypothesisClaims(entry, message);
   if (competing.length) parts.push('Competing explanation' + (competing.length > 1 ? 's' : '') + ': ' + competing.join(' / '));
   if (entry.disputedAt) parts.push('The student has disputed this.');
   return parts.length ? ' ' + parts.join(' ') : '';
@@ -9812,6 +9816,418 @@ function runTurnDecisionTests() {
   return results;
 }
 window.runTurnDecisionTests = runTurnDecisionTests;
+
+async function runStructuredHypothesisTests() {
+  var originalMemory = diagnosticMemory;
+  var originalThread = typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId;
+  var originalLoop = mentorExecutionLoop;
+  var originalProfile = studentProfile;
+  var originalHistory = conversationHistory;
+  var originalAll = typeof margAllChatMessages === 'undefined' ? undefined : margAllChatMessages;
+  var originalActiveTopic = activeDiagnosticTopic;
+  var originalFlow = diagnosticFlowState;
+  var originalPlan = activeMentorPlan;
+  var originalLog = mentorHypothesisLog;
+  var originalAttempted = diagnosticSessionAttempted;
+  var originalUser = currentUser;
+  var originalToken = SUPABASE_TOKEN;
+  var originalGuest = isGuestMode;
+  var originalCanUse = canUseMentorExecutionLoop;
+  var originalFetch = authenticatedSupabaseFetch;
+  var storageKey = getDiagnosticStorageKey();
+  var storedMemory = null;
+  try { storedMemory = localStorage.getItem(storageKey); } catch(e) {}
+  function restore() {
+    diagnosticMemory = originalMemory;
+    margActiveThreadId = originalThread;
+    if (originalAll !== undefined) margAllChatMessages = originalAll;
+    mentorExecutionLoop = originalLoop;
+    studentProfile = originalProfile;
+    conversationHistory = originalHistory;
+    activeDiagnosticTopic = originalActiveTopic;
+    diagnosticFlowState = originalFlow;
+    activeMentorPlan = originalPlan;
+    mentorHypothesisLog = originalLog;
+    diagnosticSessionAttempted = originalAttempted;
+    currentUser = originalUser;
+    SUPABASE_TOKEN = originalToken;
+    isGuestMode = originalGuest;
+    canUseMentorExecutionLoop = originalCanUse;
+    authenticatedSupabaseFetch = originalFetch;
+    try {
+      if (storedMemory === null) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, storedMemory);
+    } catch(e) {}
+  }
+  function reset() {
+    diagnosticMemory = {};
+    studentProfile = { attemptNumber:'2nd', monthsLeft:'4 months', weakestSection:'VARC', dailyHours:'2 hours', mockHistory:[], recentMistakes:[], sessionsCount:3 };
+    studentProfile.diagnosticMemory = diagnosticMemory;
+    conversationHistory = [];
+    if (originalAll !== undefined) margAllChatMessages = [];
+    activeDiagnosticTopic = null;
+    diagnosticFlowState = { active:false, topic:null };
+    activeMentorPlan = null;
+    mentorHypothesisLog = [];
+    diagnosticSessionAttempted = {};
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    margActiveThreadId = 'thread-a';
+    saveDiagnosticMemory();
+  }
+  var FIELDS = {
+    option:{
+      section:'varc', claim:'The main cause may be that you eliminate options on intuition rather than checking each one against the passage',
+      prediction:'When you must justify every elimination with a passage line, unsupported eliminations should drop and accuracy should rise',
+      weakens_if:'If your wrong picks still cite the correct passage line, the cause is inference rather than option checking',
+      basis:'You follow the passage but still miss inference questions', alternative:'You may be misreading what the inference question is asking for'
+    },
+    question:{
+      section:'varc', claim:'The problem may be that you misread what the inference question asks for before you look at the options',
+      prediction:'When you restate the question in your own words first, wrong picks that answer a different question should decrease',
+      weakens_if:'If restating the question leaves your wrong picks unchanged, the question is not being misread'
+    },
+    pace:{
+      section:'varc', claim:'Time pressure on the last passage may cause rushed eliminations instead of a reading gap',
+      prediction:'When you spend two extra minutes on the last passage, its accuracy should rise',
+      weakens_if:'If accuracy on the last passage stays the same with more time, pace is not the cause'
+    },
+    qa:{
+      section:'qa', claim:'The main issue may be that you start calculating before you set up the percentage relationship',
+      prediction:'When you write the relationship before any arithmetic, setup errors should decrease across the next five questions',
+      weakens_if:'If your errors stay the same after writing the setup first, the setup is not the cause'
+    }
+  };
+  function tag(fields, drop) {
+    var keys = ['section', 'claim', 'prediction', 'weakens_if', 'basis', 'alternative', 'observable', 'direction'];
+    return '[HYPOTHESIS: ' + keys.filter(function(key) { return fields[key] && key !== drop; }).map(function(key) { return key + '=' + fields[key]; }).join(' | ') + ']';
+  }
+  var RC_MESSAGE = 'I keep getting RC inference questions wrong even though I understand the passage.';
+  var QA_MESSAGE = 'I keep losing marks in QA percentage questions even though I know the formulas.';
+  function turn(message) {
+    var analysis = buildDiagnosisDirective(message);
+    return { analysis:analysis, diagnosis:analysis.diagnosis, context:buildMentorTurnContext(message, analysis, { surface:'chat', useWebGrounding:false }) };
+  }
+  function create(fields, message) {
+    var current = turn(message || RC_MESSAGE);
+    var captured = captureMentorHypotheses('Here is my read.\n' + tag(fields), message || RC_MESSAGE, current.diagnosis);
+    return { turn:current, captured:captured, entry:captured.created.concat(captured.updated).map(findMentorHypothesis)[0] || null };
+  }
+  function observedRow(supports, id, strength) {
+    return { kind:'observed_attempt', supports:supports, strength:strength || 0.85, attemptId:id, claim:'Recorded attempt ' + id + (supports ? ' matched the prediction.' : ' went against the prediction.') };
+  }
+  function mentorEntries() {
+    return Object.keys(diagnosticMemory).map(function(key) { return diagnosticMemory[key]; }).filter(isMentorHypothesisEntry);
+  }
+  var results = [];
+  try {
+    currentUser = null; SUPABASE_TOKEN = null; isGuestMode = true;
+    reset();
+
+    // 1. creation, content, and the tag never reaching the student
+    var first = create(FIELDS.option);
+    var entry = first.entry;
+    var leak = captureMentorHypotheses('I read this as a decision problem. ' + tag(FIELDS.option) + ' Does that fit?', RC_MESSAGE, first.turn.diagnosis);
+    results.push(
+      { name:'a recurring failure with a contrast reaches DIAGNOSE and is eligible', passed:first.turn.diagnosis.turnMode === 'diagnose' && first.turn.diagnosis.hypothesisEligible === true && first.turn.diagnosis.failureRecurrence.recurring === true },
+      { name:'the contract asks for the hidden record only on a DIAGNOSE turn that is eligible', passed:first.turn.context.indexOf('Hypothesis record:') !== -1 && turn('Hi').context.indexOf('Hypothesis record:') === -1 && turn('Can you explain what an inference question is?').context.indexOf('Hypothesis record:') === -1 },
+      { name:'mentor reasoning on a DIAGNOSE turn becomes a structured hypothesis', passed:!!entry && first.captured.created.length === 1 && entry.origin === 'mentor_reasoning' && entry.status === 'hypothesis' && diagnosticMemory['varc#' + entry.hypothesisId] === entry },
+      { name:'the stored hypothesis carries claim, section, source thread, timestamps and confidence', passed:!!entry && /option/i.test(entry.claim) && entry.topic === 'varc' && entry.sourceThreadId === 'thread-a' && !!entry.createdAt && !!entry.updatedAt && entry.confidence > 0 && entry.confidence < 0.6 && entry.confirmedDiagnosis === entry.claim },
+      { name:'the hypothesis states an operational prediction', passed:!!entry && /unsupported eliminations should drop/.test(entry.prediction) && entry.supportsIf.length > 0 },
+      { name:'the hypothesis states what would weaken or reject it', passed:!!entry && /wrong picks still cite/.test(entry.weakensIf) },
+      { name:'the competing explanation is stored with it', passed:!!entry && /misreading what the inference question/.test(entry.alternativeClaim) },
+      { name:'the tag is removed from the student-facing reply', passed:first.captured.text.indexOf('[HYPOTHESIS') === -1 && leak.text.indexOf('HYPOTHESIS') === -1 && leak.text.indexOf('decision problem') !== -1 && stripInternalMentorTags('Read. [HYPOTHESIS: section=varc | claim=cut off').indexOf('HYPOTHESIS') === -1 },
+      { name:'the legacy one-per-section slot is not touched', passed:!diagnosticMemory.varc }
+    );
+
+    // 2. no hypothesis from messages that do not warrant one
+    reset();
+    var nonQualifying = [
+      ['a greeting', 'Hi'],
+      ['a factual question', 'Can you explain what an inference question is?'],
+      ['an ordinary practice request', 'Give me a fresh RC passage to practice.'],
+      ['a request to explain', 'Explain why option C is wrong in Q3.'],
+      ['a one-off mistake', 'I got Q3 wrong in the RC passage today.'],
+      ['an unsupported assumption', 'I think my problem is definitely speed.'],
+      ['a plan request', 'Make me a study plan for the next two weeks.']
+    ].map(function(item) {
+      var current = turn(item[1]);
+      var captured = captureMentorHypotheses('Reply. ' + tag(FIELDS.option), item[1], current.diagnosis);
+      return { label:item[0], mode:current.diagnosis.turnMode, created:captured.created.length, skipped:captured.skipped.length, text:captured.text, eligible:current.diagnosis.hypothesisEligible };
+    });
+    results.push(
+      { name:'no hypothesis is created from a greeting, factual question, practice request, explanation request, one-off mistake, unsupported assumption or plan request', passed:nonQualifying.every(function(item) { return item.created === 0 && item.skipped === 1 && !item.eligible; }) && mentorEntries().length === 0 },
+      { name:'a tag the model adds on a turn that did not ask for one is still stripped', passed:nonQualifying.every(function(item) { return item.text.indexOf('HYPOTHESIS') === -1; }) }
+    );
+    var vagueRecurring = turn('I keep getting RC questions wrong.');
+    var vagueCapture = captureMentorHypotheses('Which question was the last one? ' + tag(FIELDS.option), 'I keep getting RC questions wrong.', vagueRecurring.diagnosis);
+    results.push(
+      { name:'a repeated failure with no concrete moment asks for the smallest missing observation instead of diagnosing', passed:vagueRecurring.diagnosis.turnMode === 'clarify' && vagueCapture.created.length === 0 && /one question|single question|ask/i.test(vagueRecurring.context) && mentorEntries().length === 0 }
+    );
+
+    // 3. validation of model-supplied structure
+    reset();
+    var gateTurn = turn(RC_MESSAGE).diagnosis;
+    function rejects(mutator) {
+      var fields = Object.assign({}, FIELDS.option);
+      mutator(fields);
+      var before = mentorEntries().length;
+      var captured = captureMentorHypotheses(tag(fields), RC_MESSAGE, gateTurn);
+      return captured.created.length === 0 && captured.skipped.length === 1 && mentorEntries().length === before ? captured.skipped[0].reason : null;
+    }
+    var noDisproof = rejects(function(fields) { delete fields.weakens_if; });
+    var noPrediction = rejects(function(fields) { delete fields.prediction; });
+    var vaguePrediction = rejects(function(fields) { fields.prediction = 'Things will get better with some work over time'; });
+    var restated = rejects(function(fields) { fields.claim = 'You keep getting RC inference questions wrong even though you understand the passage'; });
+    var unknownSection = validateMentorHypothesisFields(Object.assign({}, FIELDS.option, { section:'astrology' }), {}).reason;
+    var notCause = rejects(function(fields) { fields.claim = 'Practice three passages every single day this week'; });
+    var echoedDisproof = rejects(function(fields) { fields.weakens_if = fields.prediction; });
+    results.push(
+      { name:'a hypothesis without a disproof condition is refused', passed:noDisproof === 'no_disproof_condition' },
+      { name:'a hypothesis without an operational prediction is refused', passed:noPrediction === 'prediction_not_observable' && vaguePrediction === 'prediction_not_observable' },
+      { name:'a disproof that only repeats the prediction is refused', passed:echoedDisproof === 'disproof_restates_prediction' },
+      { name:'a claim that only restates the student, an instruction, or an unknown section is refused', passed:restated === 'claim_restates_student' && notCause === 'claim_not_a_cause' && unknownSection === 'section_unknown' },
+      { name:'a malformed or empty tag creates nothing and does not throw', passed:captureMentorHypotheses('Read. [HYPOTHESIS: ]', RC_MESSAGE, gateTurn).created.length === 0 && captureMentorHypotheses('Read. [HYPOTHESIS: nonsense', RC_MESSAGE, gateTurn).text === 'Read.' && mentorEntries().length === 0 }
+    );
+
+    // 4. alternatives coexist and do not overwrite each other
+    reset();
+    var h1 = create(FIELDS.option).entry;
+    var h1Claim = h1.claim;
+    var h2 = create(FIELDS.question).entry;
+    var h3 = create(FIELDS.pace).entry;
+    var h1Again = create(Object.assign({}, FIELDS.option, { prediction:'When each elimination cites a passage line, unsupported eliminations should fall and accuracy should climb' })).entry;
+    results.push(
+      { name:'two competing hypotheses for one section coexist as separate entries', passed:!!h1 && !!h2 && h1 !== h2 && h1.hypothesisId !== h2.hypothesisId && diagnosticMemory[h1.memoryKey] === h1 && diagnosticMemory[h2.memoryKey] === h2 && mentorEntries().length === 3 },
+      { name:'creating H2 does not overwrite H1', passed:h1.claim === h1Claim && /option/i.test(h1.claim) && /misread/i.test(h2.claim) && h1.status === 'hypothesis' },
+      { name:'competing explanations are linked to each other without merging', passed:h1.competesWith.indexOf(h2.hypothesisId) !== -1 && h2.competesWith.indexOf(h1.hypothesisId) !== -1 && competingHypothesisClaims(h1).some(function(claim) { return /misread/i.test(claim); }) },
+      { name:'restating an untested hypothesis updates it instead of duplicating it', passed:h1Again === h1 && mentorEntries().length === 3 && /climb/.test(h1.prediction) },
+      { name:'all coexisting alternatives are returned for the section', passed:diagnosticEntriesForTopic('varc').filter(isMentorHypothesisEntry).length === 3 && h3.topic === 'varc' }
+    );
+    var frozen = create(FIELDS.question).entry;
+    recordMentorHypothesisEvidence(h2, observedRow(true, 'att-freeze'));
+    var predictionBefore = h2.prediction;
+    create(Object.assign({}, FIELDS.question, { prediction:'When you restate the question first, almost every wrong pick should disappear entirely now' }));
+    results.push(
+      { name:'a prediction that has already been tested cannot be rewritten after the result', passed:frozen === h2 && h2.prediction === predictionBefore }
+    );
+
+    // 5. the open-explanation cap retires the oldest untested one as superseded
+    reset();
+    var fieldsSet = [FIELDS.option, FIELDS.question, FIELDS.pace, Object.assign({}, FIELDS.option, {
+      claim:'The cause may be that you change a correct first choice after rereading the final two options',
+      prediction:'When you keep your first passage-backed choice, answers changed late should decrease and accuracy should rise',
+      weakens_if:'If keeping the first choice does not change accuracy, late changes are not the cause', alternative:''
+    })];
+    var capped = fieldsSet.map(function(fields, index) {
+      var made = create(fields);
+      if (made.entry) made.entry.updatedAt = '2026-10-0' + (index + 1) + 'T10:00:00.000Z';
+      return made.entry;
+    });
+    var superseded = mentorEntries().filter(function(item) { return normalizeDiagnosisStatus(item) === 'superseded'; });
+    var captureAfterCap = turn('How should I approach RC?').context;
+    results.push(
+      { name:'at most three open hypotheses per section; the oldest untested one is retired as superseded', passed:mentorEntries().filter(isActiveMentorHypothesis).length === 3 && superseded.length === 1 && superseded[0] === capped[0] && superseded[0].supersededBy === capped[3].hypothesisId && superseded[0].doNotReuse === true },
+      { name:'a superseded hypothesis is not shown to the mentor and is not brought back by evidence', passed:captureAfterCap.indexOf(capped[0].claim) === -1 && captureAfterCap.indexOf(capped[3].claim) !== -1 && recordMentorHypothesisEvidence(capped[0], observedRow(true, 'att-late')).reason === 'superseded' && normalizeDiagnosisStatus(capped[0]) === 'superseded' }
+    );
+
+    // 6. evidence linking and the status ladder
+    reset();
+    var ev = create(FIELDS.option).entry;
+    var initialLinks = hypothesisEvidenceLinks(ev);
+    var selfOnly = recordMentorHypothesisEvidence(ev, { kind:'self_report', supports:true, strength:0.9, claim:'I am sure it is option elimination.' });
+    var sureAgain = recordMentorHypothesisEvidence(ev, { kind:'self_report', supports:true, strength:1, claim:'Yes, definitely, that is my exact problem.', clientRef:'again' });
+    var mentorOnly = recordMentorHypothesisEvidence(ev, { kind:'mentor_inference', supports:true, strength:0.9, claim:'Marg restates its own inference.' });
+    var exerciseRow = recordMentorHypothesisEvidence(ev, { kind:'exercise_result', supports:true, strength:0.9, claim:'The recorded check had 3 correct and 2 wrong.' });
+    var mockRow = recordMentorHypothesisEvidence(ev, { kind:'mock_data', supports:true, strength:0.9, claim:'Latest mock: VARC 21.' });
+    var unanchored = recordMentorHypothesisEvidence(ev, { kind:'observed_attempt', supports:true, strength:0.9, claim:'Claimed attempt with no attempt id.' });
+    var afterNonObserved = observedDiagnosisEvidenceCounts(ev);
+    var links = hypothesisEvidenceLinks(ev);
+    results.push(
+      { name:'the student statement and the mentor inference are stored as separate evidence kinds', passed:initialLinks.supporting.some(function(row) { return row.kind === 'self_report' && /keep getting RC inference/.test(row.claim); }) && initialLinks.supporting.some(function(row) { return row.kind === 'mentor_inference'; }) },
+      { name:'self-report, mentor inference, exercise result and mock data are linked but never counted as observed evidence', passed:afterNonObserved.observed === 0 && afterNonObserved.supporting === 0 && links.supporting.map(function(row) { return row.kind; }).filter(function(kind, index, list) { return list.indexOf(kind) === index; }).sort().join(',') === 'exercise_result,mentor_inference,mock_data,self_report' },
+      { name:'repeated unsupported student certainty does not confirm or even support the diagnosis', passed:normalizeDiagnosisStatus(ev) === 'hypothesis' && selfOnly.effect === 'recorded' && sureAgain.status === 'hypothesis' && ev.confidence <= 0.5 && !isObservedSupportEntry(ev) },
+      { name:'mentor inference, exercise results and mock data cannot promote either', passed:mentorOnly.status === 'hypothesis' && exerciseRow.status === 'hypothesis' && mockRow.status === 'hypothesis' },
+      { name:'an observed attempt without an attempt record is refused', passed:unanchored.ok === false && unanchored.reason === 'observed_evidence_needs_an_attempt' },
+      { name:'every evidence row carries a stable reference and a kind', passed:links.supporting.concat(links.contradicting, links.context).every(function(row) { return row.ref && row.kind; }) }
+    );
+    var promoted1 = recordMentorHypothesisEvidence(ev, observedRow(true, 'att-1'));
+    var promoted2 = recordMentorHypothesisEvidence(ev, observedRow(true, 'att-2'));
+    results.push(
+      { name:'one observed supporting attempt promotes through the existing ladder to supported', passed:promoted1.ok && promoted1.previousStatus === 'hypothesis' && promoted1.status === 'supported' && promoted1.effect === 'promoted' && isObservedSupportEntry(ev) },
+      { name:'a second observed supporting attempt promotes it to confirmed', passed:promoted2.status === 'confirmed' && ev.status === 'confirmed' && observedDiagnosisEvidenceCounts(ev).supporting === 2 },
+      { name:'the status values used are only the existing ladder', passed:mentorEntries().every(function(item) { return ['hypothesis', 'supported', 'confirmed', 'rejected', 'inconclusive', 'superseded'].indexOf(normalizeDiagnosisStatus(item)) !== -1; }) }
+    );
+
+    // 7. contradiction
+    reset();
+    var weak = create(FIELDS.option).entry;
+    var disagree = recordMentorHypothesisEvidence(weak, { kind:'self_report', supports:false, strength:0.8, claim:'I do not think that is it.' });
+    var confidenceAfterSelf = weak.confidence;
+    var softObserved = recordMentorHypothesisEvidence(weak, observedRow(false, 'att-soft', 0.4));
+    var strong = create(FIELDS.question).entry;
+    recordMentorHypothesisEvidence(strong, observedRow(true, 'att-s1'));
+    var contradicted = recordMentorHypothesisEvidence(strong, observedRow(false, 'att-s2'));
+    var afterRejected = recordMentorHypothesisEvidence(strong, observedRow(true, 'att-s3'));
+    results.push(
+      { name:'a student disagreement or other non-observed contradiction weakens a hypothesis without rejecting it', passed:disagree.effect === 'weakened' && normalizeDiagnosisStatus(weak) === 'hypothesis' && confidenceAfterSelf < 0.4 && !weak.doNotReuse },
+      { name:'a weak observed contradiction lowers confidence but does not reject', passed:softObserved.effect === 'weakened' && normalizeDiagnosisStatus(weak) === 'hypothesis' },
+      { name:'a strong observed contradiction rejects it through the existing ladder and keeps the stated reason', passed:contradicted.effect === 'rejected' && strong.status === 'rejected' && strong.doNotReuse === true && /restating the question|unchanged/.test(strong.rejectedBecause) },
+      { name:'later supporting evidence does not silently revive a rejected hypothesis', passed:afterRejected.effect === 'recorded_on_rejected' && strong.status === 'rejected' },
+      { name:'a rejected hypothesis is not offered to the mentor again', passed:turn('How should I approach RC?').context.indexOf(strong.claim) === -1 }
+    );
+
+    // 8. survival across chats and thread isolation
+    reset();
+    var carried = create(FIELDS.option).entry;
+    var untested = create(FIELDS.question).entry;
+    recordMentorHypothesisEvidence(carried, observedRow(true, 'att-c1'));
+    var sameThread = turn('How should I approach RC?').context;
+    var qaLeak = turn('How should I approach QA?').context;
+    margActiveThreadId = 'thread-b';
+    var newChat = turn('How should I approach RC?').context;
+    var newChatQa = turn('How should I approach QA?').context;
+    var newChatOpen = turn('What should I work on today?').context;
+    margActiveThreadId = 'thread-a';
+    results.push(
+      { name:'in its own chat the hypothesis reaches the mentor with its prediction, reconsider condition and competing explanation', passed:sameThread.indexOf(carried.claim) !== -1 && sameThread.indexOf('Predicts: ' + carried.prediction) !== -1 && sameThread.indexOf('Would be reconsidered if: ' + carried.weakensIf) !== -1 && sameThread.indexOf('Competing explanation') !== -1 && sameThread.indexOf('WORKING HYPOTHESIS') !== -1 },
+      { name:'a hypothesis supported by an observed attempt carries into a new relevant chat with its test and reconsider condition', passed:newChat.indexOf('STUDENT STATE FROM EARLIER CHATS') !== -1 && newChat.indexOf(carried.claim) !== -1 && newChat.indexOf('SUPPORTED ONCE') !== -1 && newChat.indexOf('Would be reconsidered if') !== -1 },
+      { name:'an untested hypothesis stays in the chat that raised it', passed:newChat.indexOf(untested.claim) === -1 && newChatOpen.indexOf(untested.claim) === -1 },
+      { name:'a hypothesis from another section never reaches an unrelated section turn', passed:qaLeak.indexOf(carried.claim) === -1 && newChatQa.indexOf(carried.claim) === -1 && qaLeak.indexOf(untested.claim) === -1 }
+    );
+
+    // 9. hypotheses restored without local storage and from the stored rows
+    var snapshotRows = mentorEntries().map(function(item) {
+      return { role:'assistant', content:'[MARG_INTERNAL:HYPOTHESIS]\n' + JSON.stringify(compactHypothesisSnapshot(item)), threadId:'thread-a' };
+    });
+    var carriedId = carried.hypothesisId;
+    var untestedId = untested.hypothesisId;
+    diagnosticMemory = {};
+    studentProfile.diagnosticMemory = diagnosticMemory;
+    if (originalAll !== undefined) margAllChatMessages = snapshotRows;
+    var restored = restoreMentorHypothesesFromSnapshots();
+    var back = findMentorHypothesis(carriedId);
+    var backUntested = findMentorHypothesis(untestedId);
+    results.push(
+      { name:'structured hypotheses are rebuilt from stored chat rows when browser storage is empty', passed:restored === true && !!back && back.prediction === carried.prediction && back.weakensIf === carried.weakensIf && back.status === 'supported' && observedDiagnosisEvidenceCounts(back).supporting === 1 && !!backUntested && backUntested.status === 'hypothesis' && back.sourceThreadId === 'thread-a' },
+      { name:'restored evidence keeps its kinds', passed:hypothesisEvidenceLinks(back).supporting.some(function(row) { return row.kind === 'self_report'; }) && hypothesisEvidenceLinks(back).supporting.some(function(row) { return row.kind === 'observed_attempt' && row.attemptId === 'att-c1'; }) }
+    );
+    var legacySlot = { topic:'varc', selectedSection:'VARC', confirmedDiagnosis:'Drops the right answer between two options', status:'supported', sourceThreadId:'thread-a', updatedAt:'2026-10-01T10:00:00.000Z', doNotReuse:false, evidenceHistory:[{ type:'observed_attempt', supports:true, strength:0.9 }] };
+    diagnosticMemory.varc = legacySlot;
+    mentorExecutionLoop.diagnoses = [{ id:'dx-mh', section:'varc', pattern_id:'mh-' + carriedId.slice(2), mechanism:carried.claim, status:'confirmed', confidence:0.92, updated_at:'2099-01-01T00:00:00.000Z', client_ref:'diagnosis:varc:mh-' + carriedId.slice(2) }];
+    mentorExecutionLoop.evidence = [{ diagnosis_id:'dx-mh', client_ref:'ev-db-1', evidence_type:'observed_attempt', claim:'Stored attempt', supports:true, strength:0.9, occurred_at:'2026-10-02T10:00:00Z', evidence_payload:{ attempt_id:'att-db' } }];
+    var hydrated = hydrateMentorHypothesisRow(mentorExecutionLoop.diagnoses[0], 'varc');
+    var orphan = hydrateMentorHypothesisRow({ id:'dx-orphan', section:'varc', pattern_id:'mh-zzz999', mechanism:'A stored read whose structure was never saved', status:'hypothesis', confidence:0.4, updated_at:'2026-10-05T00:00:00Z' }, 'varc');
+    results.push(
+      { name:'a stored mentor hypothesis row never overwrites the legacy section diagnosis', passed:diagnosticMemory.varc === legacySlot && diagnosticMemory.varc.confirmedDiagnosis === 'Drops the right answer between two options' },
+      { name:'a stored row rejoins its structured hypothesis and merges stored evidence', passed:hydrated === findMentorHypothesis(carriedId) && hydrated.dbDiagnosisId === 'dx-mh' && hydrated.status === 'confirmed' && observedDiagnosisEvidenceCounts(hydrated).supporting === 2 && hydrated.prediction === carried.prediction },
+      { name:'a stored row without saved structure is marked as missing it instead of inventing a prediction', passed:orphan.structureMissing === true && !orphan.prediction && orphan.origin === 'mentor_reasoning' && getHypothesisTestSpec(orphan).prediction === '' }
+    );
+
+    // 10. evidence persistence: no new store, no schema change
+    reset();
+    var persisted = [];
+    currentUser = { id:'user-1' }; SUPABASE_TOKEN = 'token'; isGuestMode = false;
+    canUseMentorExecutionLoop = function() { return true; };
+    authenticatedSupabaseFetch = function(url, options) {
+      persisted.push({ url:url, body:options && options.body ? JSON.parse(options.body) : null });
+      var body = options && options.body ? JSON.parse(options.body) : {};
+      return Promise.resolve({ ok:true, status:200, json:function() { return Promise.resolve([Object.assign({ id:'dx-new' }, body)]); } });
+    };
+    var stored = create(FIELDS.option).entry;
+    await persistMentorHypothesis(stored);
+    var diagnosisWrites = persisted.filter(function(call) { return /mentor_diagnoses/.test(call.url) && call.body; });
+    var evidenceWrites = persisted.filter(function(call) { return /mentor_diagnosis_evidence/.test(call.url) && call.body; });
+    results.push(
+      { name:'a hypothesis is written to the existing diagnosis table with a pattern id that identifies it', passed:diagnosisWrites.length > 0 && /^mh-/.test(diagnosisWrites[0].body.pattern_id) && diagnosisWrites[0].body.mechanism === stored.claim && diagnosisWrites[0].body.status === 'hypothesis' },
+      { name:'only the student statement is written as evidence; the mentor inference stays out of the evidence table', passed:evidenceWrites.every(function(call) { return call.body.evidence_type !== 'mentor_inference' && call.body.evidence_type !== 'other'; }) }
+    );
+    currentUser = null; SUPABASE_TOKEN = null; isGuestMode = true;
+    canUseMentorExecutionLoop = originalCanUse;
+    authenticatedSupabaseFetch = originalFetch;
+
+    // 11. student disagreement and the corrective-evidence safety rule
+    reset();
+    var protectedEntry = create(FIELDS.option).entry;
+    recordMentorHypothesisEvidence(protectedEntry, observedRow(true, 'att-p1'));
+    recordMentorHypothesisEvidence(protectedEntry, observedRow(true, 'att-p2'));
+    var dispute = turn('That is not what happened, you misread my option elimination.');
+    protectedEntry = findMentorHypothesis(protectedEntry.hypothesisId);
+    var protectedStatus = normalizeDiagnosisStatus(protectedEntry);
+    var disputeBrief = dispute.analysis.directive;
+    results.push(
+      { name:'a student saying that is not what happened does not reject a diagnosis backed by observed attempts', passed:protectedStatus === 'confirmed' && protectedEntry.doNotReuse === false && !!protectedEntry.disputedAt && dispute.diagnosis.correctionVerification.disputed.length === 1 && dispute.diagnosis.correctionVerification.rejectedHypotheses.length === 0 },
+      { name:'the disputed turn becomes a verification turn that inspects the recorded evidence', passed:dispute.diagnosis.turnMode === 'verify' && /observed support 2/.test(disputeBrief) && /does not by itself remove it/.test(disputeBrief) && disputeBrief.indexOf('Own the earlier mistake') === -1 },
+      { name:'the disputed read stays visible to the mentor and says it was disputed', passed:dispute.context.indexOf(protectedEntry.claim) !== -1 && dispute.context.indexOf('The student has disputed this.') !== -1 }
+    );
+    reset();
+    var untestedDisputed = create(FIELDS.option).entry;
+    var disputeUntested = turn('That is not what happened at all, you misread how I do option elimination.');
+    untestedDisputed = findMentorHypothesis(untestedDisputed.hypothesisId);
+    results.push(
+      { name:'disputing a hypothesis no attempt has tested weakens it and records the dispute, without a hard rejection from keyword overlap', passed:normalizeDiagnosisStatus(untestedDisputed) === 'hypothesis' && !untestedDisputed.doNotReuse && untestedDisputed.confidence < 0.4 && hypothesisEvidenceLinks(untestedDisputed).contradicting.some(function(row) { return row.kind === 'self_report'; }) && disputeUntested.diagnosis.correctionVerification.disputed.length === 0 }
+    );
+    reset();
+    diagnosticMemory.varc = { topic:'varc', selectedSection:'VARC', confirmedDiagnosis:'Drops the right answer between the final two options', status:'confirmed', confidence:0.92, doNotReuse:false, sourceThreadId:'thread-a', updatedAt:'2026-10-01T10:00:00.000Z', evidenceHistory:[{ type:'observed_attempt', supports:true, strength:0.9 }, { type:'observed_attempt', supports:true, strength:0.9 }] };
+    saveDiagnosticMemory();
+    conversationHistory = [{ role:'assistant', content:'You drop the right answer between the final two options.' }];
+    var legacyDispute = turn('That is not what happened. I did not drop the right answer between the final two options.');
+    results.push(
+      { name:'the same protection applies to an existing confirmed diagnosis that has observed support', passed:diagnosticMemory.varc.status === 'confirmed' && !diagnosticMemory.varc.doNotReuse && legacyDispute.diagnosis.turnMode === 'verify' },
+      { name:'an existing diagnosis with no observed support is still rejected by fresh corrective evidence', passed:(function() {
+        reset();
+        diagnosticMemory.varc = { topic:'varc', selectedSection:'VARC', confirmedDiagnosis:'Drops the right answer between the final two options', status:'hypothesis', confirmation:'Exactly', confidence:0.5, doNotReuse:false, sourceThreadId:'thread-a', updatedAt:'2026-10-01T10:00:00.000Z', evidenceHistory:[] };
+        saveDiagnosticMemory();
+        conversationHistory = [{ role:'assistant', content:'You drop the right answer between the final two options.' }];
+        turn('That is not what happened here. I never drop the right answer between the final two options.');
+        return diagnosticMemory.varc.status === 'rejected' && diagnosticMemory.varc.doNotReuse === true;
+      })() }
+    );
+
+    // 12. explaining the basis, and the existing confirmed-diagnosis regression
+    reset();
+    var basis = create(FIELDS.option).entry;
+    recordMentorHypothesisEvidence(basis, { kind:'mock_data', supports:null, strength:0.5, claim:'Latest recorded mock: VARC 21.' });
+    var ask = turn('What makes you think this is the problem?');
+    var askDirective = ask.analysis.directive;
+    results.push(
+      { name:'a basis question is answered from an evidence sheet rather than a new diagnosis', passed:ask.diagnosis.turnMode === 'answer' && ask.diagnosis.hypothesisEligible === false && askDirective.indexOf('EVIDENCE SHEET') !== -1 && askDirective.indexOf(basis.claim) !== -1 },
+      { name:'the sheet separates what the student said, what is on record and Marg\'s own inference', passed:/The student told Marg \(self-report, not proof\)/.test(askDirective) && /Marg has on record: Latest recorded mock/.test(askDirective) && /Marg's own inference \(not evidence\)/.test(askDirective) },
+      { name:'the sheet states uncertainty, the test, and what would change the read', passed:/Not established/.test(askDirective) && /The test: When you must justify/.test(askDirective) && /What would change the read: If your wrong picks/.test(askDirective) && /Still possible instead/.test(askDirective) && /working hypothesis that no attempt has tested yet/.test(askDirective) },
+      { name:'the basis directive forbids describing a reasoning process', passed:/Do not describe a reasoning process/.test(askDirective) && /do not cite anything that is not listed/.test(askDirective) },
+      { name:'a basis question with no stored read says so instead of inventing one', passed:(function() { reset(); return turn('What makes you think this is the problem?').analysis.directive.indexOf('holds no recorded read') !== -1; })() }
+    );
+    var hadRegression = (function() {
+      reset();
+      diagnosticMemory.qa = { confirmation:'Exactly', confidence:.95 };
+      var legacyOk = shouldLaunchDiagnosticTopic('qa') === false;
+      diagnosticMemory.qa = { confirmation:'Not Really', confidence:.3 };
+      var lowOk = shouldLaunchDiagnosticTopic('qa') === true;
+      reset();
+      var untouched = shouldLaunchDiagnosticTopic('varc') === true;
+      var made = create(FIELDS.option).entry;
+      var stillLaunches = shouldLaunchDiagnosticTopic('varc') === true;
+      recordMentorHypothesisEvidence(made, observedRow(true, 'att-r1'));
+      return legacyOk && lowOk && untouched && stillLaunches && shouldLaunchDiagnosticTopic('varc') === false;
+    })();
+    results.push(
+      { name:'a confirmed diagnosis still does not repeat, and a mentor hypothesis counts as confirmed only once an observed attempt supports it', passed:hadRegression }
+    );
+
+    // 13. what the next milestone can build on
+    reset();
+    var spec = create(Object.assign({}, FIELDS.option, { observable:'unsupported_eliminations', direction:'decrease' })).entry;
+    var testSpec = getHypothesisTestSpec(spec);
+    recordMentorHypothesisEvidence(spec, observedRow(true, 'att-n1'));
+    results.push(
+      { name:'the hypothesis exposes prediction, disproof, predicted observable, competitors and test state for the next milestone', passed:!!testSpec && testSpec.hypothesisId === spec.hypothesisId && testSpec.prediction === spec.prediction && testSpec.weakensIf === spec.weakensIf && testSpec.predictedObservable.observable === 'unsupported_eliminations' && testSpec.predictedObservable.direction === 'decrease' && testSpec.tested === false && getHypothesisTestSpec(spec).tested === true && /^diagnosis:varc:mh-/.test(testSpec.diagnosisClientRef) },
+      { name:'a missing or invalid observable is left unset rather than guessed', passed:getHypothesisTestSpec(create(FIELDS.pace).entry).predictedObservable === null }
+    );
+  } finally {
+    restore();
+  }
+  return results;
+}
+window.runStructuredHypothesisTests = runStructuredHypothesisTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
