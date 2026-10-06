@@ -5329,7 +5329,7 @@ function competingHypothesisClaims(entry, message) {
     if (message !== undefined && !scopedMentorMemoryAllowed(sibling, message) && !isObservedSupportEntry(sibling)) return;
     claims.push(sibling.claim || sibling.confirmedDiagnosis);
   });
-  if (entry.alternativeClaim && !claims.some(function(claim) { return hypothesisSimilarity(claim, entry.alternativeClaim) >= MENTOR_HYPOTHESIS_DUPLICATE_THRESHOLD; })) claims.push(entry.alternativeClaim);
+  if (entry.alternativeClaim && !claims.some(function(claim) { return hypothesisSimilarity(claim, entry.alternativeClaim) >= MENTOR_HYPOTHESIS_COMPETITOR_THRESHOLD; })) claims.push(entry.alternativeClaim);
   return claims;
 }
 
