@@ -8185,6 +8185,9 @@ function describeExperimentResultForStudent(exercise) {
   if (!evaluation) return '';
   var entry = liveExperimentHypothesis(exercise.hypothesis);
   var claim = entry && (entry.claim || entry.confirmedDiagnosis) || exercise.hypothesis && exercise.hypothesis.claim || 'this read';
+  var retiredLead = evaluation.effect === 'recorded_on_rejected' ? 'That read had already been set aside by earlier tests, so this result is saved but it does not bring the read back: “' + claim + '”'
+    : evaluation.effect === 'superseded' || evaluation.evidenceRecorded === false ? 'That read was retired before this test finished, so this result is not used against it: “' + claim + '”' : '';
+  if (retiredLead) return retiredLead + '\n[HYPOTHESIS_VERDICT: inconclusive]';
   var lead = evaluation.outcome === 'supported' ? 'Your choices lined up with this read: “' + claim + '” That is one test, not yet a pattern.'
     : evaluation.outcome === 'rejected' ? 'Your choices did not follow this read: “' + claim + '” They followed a different pattern, so I am setting it aside.'
       : evaluation.outcome === 'weakened' ? 'This test weakened the read, but one test does not rule it out.'
@@ -10962,6 +10965,550 @@ async function runStructuredHypothesisTests() {
   return results;
 }
 window.runStructuredHypothesisTests = runStructuredHypothesisTests;
+
+
+// End-to-end tests for the hypothesis experiment loop. Every step below runs the
+// production code: the real sendMessage (turn decision, hypothesis capture, answer
+// handling), the real quick-reply handler that launches the test, the real launcher
+// and its draft validation, and the real persistence/hydration functions. Only the
+// model endpoint (and, in the persistence section, the database) is scripted.
+async function runHypothesisExperimentLoopTests() {
+  var saved = {
+    memory:diagnosticMemory, thread:margActiveThreadId, loop:mentorExecutionLoop, profile:studentProfile, history:conversationHistory,
+    all:typeof margAllChatMessages === 'undefined' ? undefined : margAllChatMessages, topic:activeDiagnosticTopic, flow:diagnosticFlowState,
+    plan:activeMentorPlan, log:mentorHypothesisLog, attempted:diagnosticSessionAttempted, user:currentUser, token:SUPABASE_TOKEN, guest:isGuestMode,
+    sbFetch:authenticatedSupabaseFetch, modelFetch:fetchWithTimeout, exercise:activeGeneratedExercise, offer:pendingHypothesisExperiment, doc:document,
+    onboarding:onboardingComplete, loading:isLoading, sentMessage:lastSentMessage, sentAt:lastSentAt, guestCount:guestMessageCount,
+    options:margPendingConversationOptions, generation:guidedGenerationState, saveMessage:saveChatMessage, evidence:mentorEvidenceMemory
+  };
+  var diagnosticKey = getDiagnosticStorageKey();
+  var storedMemory = null;
+  try { storedMemory = localStorage.getItem(diagnosticKey); } catch(e) {}
+  var composer = { value:'', style:{}, dataset:{}, focus:function() {}, addEventListener:function() {} };
+  var baseDocument = document;
+  document = new Proxy(baseDocument, { get:function(target, property) {
+    if (property === 'getElementById') return function(id) { return id === 'user-input' ? composer : baseDocument.getElementById(id); };
+    return baseDocument[property];
+  } });
+  var script = [];
+  var modelCalls = [];
+  fetchWithTimeout = async function(url, options) {
+    var body = options && options.body ? JSON.parse(options.body) : {};
+    modelCalls.push({ url:String(url), body:body, text:JSON.stringify(body) });
+    if (!script.length) throw new Error('no scripted model reply');
+    var next = script.shift();
+    return { ok:true, status:200, headers:{ get:function() { return null; } }, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:next }] } }] }; } };
+  };
+  function restore() {
+    document = saved.doc;
+    fetchWithTimeout = saved.modelFetch;
+    authenticatedSupabaseFetch = saved.sbFetch;
+    saveChatMessage = saved.saveMessage;
+    diagnosticMemory = saved.memory; margActiveThreadId = saved.thread; mentorExecutionLoop = saved.loop; studentProfile = saved.profile;
+    conversationHistory = saved.history; if (saved.all !== undefined) margAllChatMessages = saved.all;
+    activeDiagnosticTopic = saved.topic; diagnosticFlowState = saved.flow; activeMentorPlan = saved.plan; mentorHypothesisLog = saved.log;
+    diagnosticSessionAttempted = saved.attempted; currentUser = saved.user; SUPABASE_TOKEN = saved.token; isGuestMode = saved.guest;
+    activeGeneratedExercise = saved.exercise; pendingHypothesisExperiment = saved.offer; onboardingComplete = saved.onboarding; isLoading = saved.loading;
+    lastSentMessage = saved.sentMessage; lastSentAt = saved.sentAt; guestMessageCount = saved.guestCount; margPendingConversationOptions = saved.options;
+    guidedGenerationState = saved.generation; mentorEvidenceMemory = saved.evidence;
+    try {
+      if (storedMemory === null) localStorage.removeItem(diagnosticKey); else localStorage.setItem(diagnosticKey, storedMemory);
+      localStorage.removeItem(getUserScopedKey('marg_active_exercise'));
+      localStorage.removeItem(getUserScopedKey('marg_exercise_archive'));
+      localStorage.removeItem(getUserScopedKey('marg_hypothesis_offer'));
+      localStorage.removeItem(mentorEvidenceStorageKey());
+    } catch(e) {}
+  }
+  function wipeStorage() {
+    try {
+      localStorage.removeItem(getUserScopedKey('marg_active_exercise'));
+      localStorage.removeItem(getUserScopedKey('marg_exercise_archive'));
+      localStorage.removeItem(getUserScopedKey('marg_hypothesis_offer'));
+      localStorage.removeItem(getGuidedGenerationStorageKey());
+      localStorage.removeItem(mentorEvidenceStorageKey());
+    } catch(e) {}
+  }
+  function reset(options) {
+    options = options || {};
+    margActiveThreadId = 'thread-a';
+    wipeStorage();
+    diagnosticMemory = {};
+    studentProfile = { attemptNumber:'2nd', monthsLeft:'4 months', weakestSection:'VARC', dailyHours:'2 hours', mockHistory:[], recentMistakes:[], sessionsCount:3 };
+    studentProfile.diagnosticMemory = diagnosticMemory;
+    conversationHistory = [];
+    if (saved.all !== undefined) margAllChatMessages = [];
+    activeDiagnosticTopic = null; diagnosticFlowState = { active:false, topic:null }; activeMentorPlan = null; mentorHypothesisLog = []; diagnosticSessionAttempted = {};
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    activeGeneratedExercise = null; pendingHypothesisExperiment = null; margPendingConversationOptions = null; guidedGenerationState = null;
+    mentorEvidenceMemory = { corrections:[] };
+    onboardingComplete = true; isLoading = false; script.length = 0; modelCalls.length = 0;
+    if (!options.keepIdentity) { currentUser = null; SUPABASE_TOKEN = null; isGuestMode = true; }
+    saveDiagnosticMemory();
+  }
+  async function settle() { for (var index = 0; index < 400; index++) await Promise.resolve(); }
+  function tag(fields) {
+    return '[HYPOTHESIS: ' + ['section', 'claim', 'prediction', 'weakens_if', 'basis', 'alternative'].filter(function(key) { return fields[key]; }).map(function(key) { return key + '=' + fields[key]; }).join(' | ') + ']';
+  }
+  var OPTION = {
+    section:'varc', claim:'The main cause may be that you eliminate options on intuition rather than checking each one against the passage',
+    prediction:'When you must justify every elimination with a passage line, unsupported eliminations should drop and accuracy should rise',
+    weakens_if:'If your wrong picks still cite the correct passage line, the cause is inference rather than option checking',
+    basis:'You follow the passage but still miss inference questions', alternative:'You may be misreading what the inference question is asking for'
+  };
+  var QUESTION = {
+    section:'varc', claim:'The problem may be that you misread what the inference question asks for before you look at the options',
+    prediction:'When you restate the question in your own words first, wrong picks that answer a different question should decrease',
+    weakens_if:'If restating the question leaves your wrong picks unchanged, the question is not being misread'
+  };
+  var RC_MESSAGE = 'I keep getting RC inference questions wrong even though I understand the passage.';
+  var PASSAGE = 'Historians have long debated whether the printing press caused the Reformation or merely accelerated it. One view holds that cheap pamphlets created a public that could challenge authority, while another insists that the underlying grievances were already widespread and would have found some other medium. The evidence from local archives suggests a more cautious reading: printers followed demand as much as they created it, and the pamphlets that sold best were those that gave voice to opinions readers already held. This does not make the press irrelevant, but it shifts the question from invention to amplification.';
+  var STEMS = [
+    'Which of the following best states the main conclusion the author draws about the press?',
+    'Which of the following does the author most clearly imply about the pamphlets that sold best?',
+    'Which of the following would the author most likely accept about the origins of the Reformation?'
+  ];
+  function draft(mutate) {
+    var questions = STEMS.map(function(stem, index) {
+      var n = index + 1;
+      return {
+        q:stem, options:['A. The press amplified opinions readers already held (' + n + ')', 'B. The press alone created the movement (' + n + ')', 'C. The archives prove nothing about the press (' + n + ')', 'D. Printers ignored what readers wanted (' + n + ')'],
+        correct:0, solution:'The passage says printers followed demand and amplified existing views.', marg_insight:'Separates scope errors from misreading the question.',
+        hypothesisSignals:{ supports:['B'], rival:['C'] }
+      };
+    });
+    if (mutate) mutate(questions);
+    return { title:'Inference test', passage:PASSAGE, questions:questions };
+  }
+  function lastAssistant() {
+    var items = conversationHistory.filter(function(item) { return item.role === 'assistant' && !/^\[MARG_INTERNAL:/.test(item.content || ''); });
+    return items.length ? String(items[items.length - 1].content || '') : '';
+  }
+  async function say(text, reply) {
+    script.length = 0;
+    if (reply !== undefined) script.push(reply);
+    isLoading = false; guestMessageCount = 0; lastSentMessage = ''; lastSentAt = 0;
+    composer.value = text;
+    await sendMessage();
+    await settle();
+    return lastAssistant();
+  }
+  async function createFromChat(replyTags) {
+    await say(RC_MESSAGE, 'Understanding a passage and choosing between close options are different skills, so I would not blame comprehension yet. ' + replyTags.map(tag).join('\n'));
+    return Object.keys(diagnosticMemory).map(function(key) { return diagnosticMemory[key]; }).filter(isMentorHypothesisEntry);
+  }
+  async function launch(entry, set) {
+    script.push(JSON.stringify(set || draft()));
+    var before = modelCalls.length;
+    var outcome = await launchHypothesisExperiment(entry.hypothesisId);
+    await settle();
+    return { outcome:outcome, exercise:activeGeneratedExercise, calls:modelCalls.length - before };
+  }
+  function entryOf(entry) { return findMentorHypothesis(entry.hypothesisId); }
+  function status(entry) { return normalizeDiagnosisStatus(entryOf(entry)); }
+  function experimentRows(entry) { return localDiagnosisEvidence(entryOf(entry)).filter(function(row) { return row && row.payload && row.payload.experiment_ref; }); }
+  function observedRows(entry) { return localDiagnosisEvidence(entryOf(entry)).filter(function(row) { return row && row.type === 'observed_attempt'; }); }
+
+  var results = [];
+  try {
+    // 1. failure -> hypothesis -> offer -> targeted test, all through the production chat path
+    reset();
+    var created = await createFromChat([OPTION, QUESTION]);
+    var h1 = created.find(function(item) { return /eliminate options/.test(item.claim); });
+    var h2 = created.find(function(item) { return /misread what the inference/.test(item.claim); });
+    var offerShown = !!margPendingConversationOptions && margPendingConversationOptions.context === 'start_hypothesis_experiment';
+    var offered = pendingHypothesisExperiment && pendingHypothesisExperiment.hypothesisId;
+    results.push(
+      { name:'a recurring failure in chat becomes two competing structured hypotheses, each with a prediction and a disproof condition', passed:created.length === 2 && !!h1 && !!h2 && !!h1.prediction && !!h1.weakensIf && h1.competesWith.indexOf(h2.hypothesisId) !== -1 },
+      { name:'the turn leaves a one-tap offer to test a specific hypothesis', passed:offerShown && [h1.hypothesisId, h2.hypothesisId].indexOf(offered) !== -1 && margPendingConversationOptions.options[0] === 'Test this read' },
+      { name:'the model reply shown to the student carries no hidden hypothesis tag', passed:lastAssistant().indexOf('HYPOTHESIS') === -1 && lastAssistant().indexOf('different skills') !== -1 }
+    );
+    var design = buildHypothesisExperimentDesign(h1);
+    var gateOk = hypothesisExperimentGate(h1.hypothesisId);
+    results.push(
+      { name:'a test design carries the hypothesis id, its prediction, its disproof condition and the competing explanation', passed:design.hypothesisId === h1.hypothesisId && design.prediction === h1.prediction && design.weakensIf === h1.weakensIf && design.rivalRequired === true && design.rivals.some(function(rival) { return rival.hypothesisId === h2.hypothesisId; }) && design.purpose === 'first_test' && gateOk.ok === true }
+    );
+
+    var calls0 = modelCalls.length;
+    script.push(JSON.stringify(draft()));
+    margPendingConversationOptions = null;
+    await handleConversationalResponse('Test this read', 'start_hypothesis_experiment');
+    await settle();
+    var experiment = activeGeneratedExercise;
+    var requestText = modelCalls.slice(calls0).map(function(call) { return call.text; }).join('\n');
+    var testedId = experiment && experiment.experiment && experiment.experiment.hypothesisId;
+    var tested = testedId && findMentorHypothesis(testedId);
+    results.push(
+      { name:'tapping the offer builds one experiment bound to the offered hypothesis', passed:!!experiment && isHypothesisExperiment(experiment) && testedId === offered && experiment.hypothesis.hypothesisId === offered && experiment.source === 'prediction-validation-experiment' && modelCalls.length - calls0 === 1 },
+      { name:'the generation request is built from that hypothesis: its claim, prediction, disproof condition and competing explanation', passed:!!tested && requestText.indexOf(tested.prediction) !== -1 && requestText.indexOf(tested.weakensIf) !== -1 && requestText.indexOf(tested.claim.slice(0, 60)) !== -1 && /competing explanation/i.test(requestText) && /rival\\?"/.test(requestText) },
+      { name:'every question carries answer signals stamped with the hypothesis id: one option for the claim, a different one for the competitor, never the correct one', passed:!!experiment && experiment.content.questions.length === 3 && experiment.content.questions.every(function(question) {
+        var signals = question.hypothesisSignals, correct = String.fromCharCode(65 + question.correct);
+        return signals.hypothesisId === offered && signals.patternId === tested.patternId && signals.supports.length === 1 && signals.rival.length === 1 && signals.supports[0] !== signals.rival[0] && signals.supports[0] !== correct && signals.rival[0] !== correct;
+      }) },
+      { name:'the test is visible in chat, identifiable as the active exercise, and its task is the same hypothesis', passed:lastAssistant().indexOf(STEMS[0]) !== -1 && isActiveExerciseCurrentInConversation() && conversationHistory[conversationHistory.length - 1].exerciseId === experiment.id && /^diagnosis:varc:mh-/.test(experiment.experiment.diagnosisClientRef) },
+      { name:'the legacy one-per-section diagnosis slot is not used', passed:!diagnosticMemory.varc }
+    );
+
+    // 2. a draft that cannot tell the explanations apart is never shown
+    reset();
+    var base = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    var plainDesign = buildHypothesisExperimentDesign(base);
+    function verdictFor(mutate) { return validateHypothesisExperimentSet(draft(mutate), plainDesign); }
+    var noRivalDesign = Object.assign({}, plainDesign, { rivals:[], rivalRequired:false });
+    var badDrafts = {
+      generic:verdictFor(function(questions) { questions.forEach(function(question) { delete question.hypothesisSignals; }); }),
+      correctOption:verdictFor(function(questions) { questions[0].hypothesisSignals = { supports:['A'], rival:['C'] }; }),
+      noRival:verdictFor(function(questions) { questions[1].hypothesisSignals = { supports:['B'], rival:[] }; }),
+      sameOption:verdictFor(function(questions) { questions[0].hypothesisSignals = { supports:['B'], rival:['B'] }; }),
+      noNeutral:verdictFor(function(questions) { questions[2].hypothesisSignals = { supports:['B', 'D'], rival:['C'] }; }),
+      repeated:verdictFor(function(questions) { questions[1].q = questions[0].q; }),
+      scratchwork:verdictFor(function(questions) { questions[0].solution = 'The first value is 12. Wait, that is wrong. Let us redo it from the start.'; }),
+      tooFew:verdictFor(function(questions) { questions.pop(); })
+    };
+    results.push(
+      { name:'a generic question set with no answer signals is rejected', passed:badDrafts.generic.ok === false && /^no_claim_option_1$/.test(badDrafts.generic.reason) },
+      { name:'a draft that marks the correct option as the claim\'s predicted pick is rejected', passed:badDrafts.correctOption.ok === false && /signal_on_correct_option_1/.test(badDrafts.correctOption.reason) },
+      { name:'a draft with no option for the competing explanation is rejected when a competitor exists', passed:badDrafts.noRival.ok === false && /no_rival_option_2/.test(badDrafts.noRival.reason) },
+      { name:'a draft that gives the claim and the competitor the same option is rejected', passed:badDrafts.sameOption.ok === false && /options_cannot_separate_1/.test(badDrafts.sameOption.reason) },
+      { name:'a draft with no neutral slip option is rejected, since every wrong pick would then look diagnostic', passed:badDrafts.noNeutral.ok === false && /no_neutral_option_3/.test(badDrafts.noNeutral.reason) },
+      { name:'repeated questions, exposed scratchwork and a wrong question count are rejected', passed:badDrafts.repeated.ok === false && badDrafts.scratchwork.ok === false && badDrafts.tooFew.ok === false },
+      { name:'a competitor signal is rejected when no competing explanation was stated', passed:validateHypothesisExperimentSet(draft(), noRivalDesign).ok === false && validateHypothesisExperimentSet(draft(function(questions) { questions.forEach(function(question) { question.hypothesisSignals = { supports:['B'], rival:[] }; }); }), noRivalDesign).ok === true },
+      { name:'a well-formed draft is accepted', passed:validateHypothesisExperimentSet(draft(), plainDesign).ok === true }
+    );
+
+    // 2b. the launcher retries with the rejection reason, and shows nothing if it cannot get a valid test
+    reset();
+    var retryEntry = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    script.length = 0; modelCalls.length = 0;
+    var generic = draft(function(questions) { questions.forEach(function(question) { delete question.hypothesisSignals; }); });
+    script.push(JSON.stringify(generic), JSON.stringify(draft()));
+    var historyBefore = conversationHistory.length;
+    await launchHypothesisExperiment(retryEntry.hypothesisId);
+    await settle();
+    results.push(
+      { name:'when the first draft cannot discriminate, the launcher asks again with the reason and shows only the valid second draft', passed:modelCalls.length === 2 && /PREVIOUS DRAFT WAS REJECTED \(no_claim_option_1\)/.test(modelCalls[1].text) && modelCalls[0].text.indexOf('PREVIOUS DRAFT') === -1 && isHypothesisExperiment(activeGeneratedExercise) && lastAssistant().indexOf(STEMS[0]) !== -1 }
+    );
+    reset();
+    var failEntry = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    script.length = 0; modelCalls.length = 0;
+    script.push(JSON.stringify(generic), JSON.stringify(generic));
+    var failHistory = conversationHistory.length;
+    var failed = await launchHypothesisExperiment(failEntry.hypothesisId);
+    results.push(
+      { name:'when no valid test can be produced nothing is shown or stored, no generic fallback is used, and a retry stays available', passed:failed === false && modelCalls.length === 2 && activeGeneratedExercise === null && conversationHistory.length <= failHistory + 1 && !conversationHistory.some(function(item) { return String(item.content || '').indexOf(STEMS[0]) !== -1; }) && !!guidedGenerationState && guidedGenerationState.status === 'retry' && status(failEntry) === 'hypothesis' && observedRows(failEntry).length === 0 && isLoading === false }
+    );
+
+    // 2c. every legacy route that used to open a generic check for a hypothesis now opens its bound experiment
+    reset();
+    var routed = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    var routes = [];
+    async function viaRoute(run) {
+      activeGeneratedExercise = null; script.length = 0; modelCalls.length = 0;
+      script.push(JSON.stringify(draft()));
+      await run();
+      await settle();
+      routes.push({ bound:isHypothesisExperiment(activeGeneratedExercise) && activeGeneratedExercise.experiment.hypothesisId === routed.hypothesisId, calls:modelCalls.length });
+    }
+    await viaRoute(function() { return runPredictionValidationExercise(routed); });
+    await viaRoute(function() { return generateGuidedDiagnosticExercise('rc', routed); });
+    await viaRoute(function() { return generateGuidedDiagnosticExercise('dilr', routed); });
+    await viaRoute(function() { return startTimedTest('qa', 'Mixed QA', 3, routed); });
+    await viaRoute(function() { return generateGuidedMiniMock(routed); });
+    await viaRoute(function() { return launchVerifiedStrategyDecisionLab(routed); });
+    results.push(
+      { name:'diagnostic launch, retry, timed-test, mini-mock and strategy-lab routes all open the bound experiment for a mentor hypothesis instead of a generic check', passed:routes.length === 6 && routes.every(function(route) { return route.bound && route.calls === 1; }) },
+      { name:'the legacy focus builder describes the experiment, not a one-per-section pattern', passed:getPredictionValidationFocus(routed).indexOf('HYPOTHESIS UNDER TEST') !== -1 && getPredictionValidationFocus(routed).indexOf(routed.prediction) !== -1 }
+    );
+
+    // 3. attempt -> evaluation -> evidence -> status -> next action (supported)
+    reset();
+    var main = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    var launched = await launch(main);
+    var exerciseId = launched.exercise.id;
+    var callsBeforeAnswer = modelCalls.length;
+    var reply = await say('1-B, 2-B, 3-D');
+    var live = entryOf(main);
+    var rows = experimentRows(main);
+    var evidence = rows[0];
+    results.push(
+      { name:'the student attempt is evaluated without asking the model to grade it', passed:modelCalls.length === callsBeforeAnswer && reply.indexOf('lined up with this read') !== -1 && reply.indexOf('HYPOTHESIS') === -1 },
+      { name:'the attempt becomes one observed-attempt evidence row on the same hypothesis, with the counts that produced it', passed:rows.length === 1 && evidence.type === 'observed_attempt' && evidence.supports === true && evidence.strength >= 0.65 && evidence.payload.hypothesis_id === main.hypothesisId && evidence.payload.counts.supports === 2 && evidence.payload.counts.neutral === 1 && evidence.payload.counts.contradicts === 0 && evidence.attemptId === exerciseId },
+      { name:'the status moves from that evidence: hypothesis to supported', passed:status(main) === 'supported' && observedDiagnosisEvidenceCounts(live).supporting === 1 && live.lastExperiment.outcome === 'supported' },
+      { name:'identity is preserved from hypothesis to test to attempt to evidence to result', passed:launched.exercise.experiment.hypothesisId === main.hypothesisId && activeGeneratedExercise.hypothesis.hypothesisId === main.hypothesisId && activeGeneratedExercise.experimentEvaluation.hypothesisId === main.hypothesisId && evidence.payload.exercise_id === exerciseId },
+      { name:'the exercise records its verdict and the next diagnostic action', passed:activeGeneratedExercise.hypothesisVerdict === 'SUPPORTED' && activeGeneratedExercise.hypothesisStatusAfter === 'supported' && activeGeneratedExercise.nextDiagnosticAction.action === 'replicate' && live.nextAction.action === 'replicate' && /fresh items/.test(reply) },
+      { name:'the other hypothesis is untouched', passed:status(h2 && main) === 'supported' && observedRows(created.find(function(item) { return /misread what/.test(item.claim); }) || main).length >= 0 && !!findMentorHypothesis(h2.hypothesisId) && normalizeDiagnosisStatus(findMentorHypothesis(h2.hypothesisId)) === 'hypothesis' && observedRows(h2).length === 0 }
+    );
+
+    // 3b. the result is idempotent and model prose cannot overrule it
+    var rowCount = localDiagnosisEvidence(entryOf(main)).length;
+    var again = completeHypothesisExperiment(activeGeneratedExercise, { 1:'C', 2:'C', 3:'C' });
+    var proseVerdict = applyPredictionValidationVerdict('The pattern is REJECTED. [HYPOTHESIS_VERDICT: rejected]');
+    var chatted = await say('So does that mean my approach is wrong?', 'REJECTED. [HYPOTHESIS_VERDICT: rejected] You should drop that theory entirely.');
+    results.push(
+      { name:'re-completing the same attempt, even with different choices, records nothing new', passed:again.ok === true && again.repeated === true && localDiagnosisEvidence(entryOf(main)).length === rowCount },
+      { name:'model prose saying rejected cannot change the verdict or the status', passed:proseVerdict === 'SUPPORTED' && status(main) === 'supported' && activeGeneratedExercise.hypothesisVerdict === 'SUPPORTED' && observedDiagnosisEvidenceCounts(entryOf(main)).contradicting === 0 && !isHypothesisExperimentEvidenceContradicted(main) }
+    );
+    function isHypothesisExperimentEvidenceContradicted(entry) { return observedRows(entry).some(function(row) { return row.supports === false; }); }
+
+    // 3c. student disagreement does not erase what was observed
+    var disputeReply = await say('That is not what happened, you misread my option elimination.', 'I hear that it does not match your experience. The test showed what it showed on those three questions, so let us check it again on fresh ones rather than settle it by argument.');
+    var afterDispute = entryOf(main);
+    results.push(
+      { name:'a student disagreeing marks the read as disputed but the observed attempt stays on record and the status holds', passed:!!afterDispute.disputedAt && observedDiagnosisEvidenceCounts(afterDispute).supporting === 1 && experimentRows(main).length === 1 && status(main) === 'supported' },
+      { name:'the next action after a dispute is to repeat the test, so a new observation decides', passed:computeNextDiagnosticAction(afterDispute).action === 'replicate' && /student disputes/.test(computeNextDiagnosticAction(afterDispute).reason) },
+      { name:'the mentor sees the recorded test result and is told it cannot be re-graded', passed:(function() { var ctx = getGeneratedExerciseMemoryContext('I disagree with that result', { intent:'general' }); return /HYPOTHESIS TEST RESULT/.test(ctx) && /do not re-grade/.test(ctx) && ctx.indexOf('outcome supported') !== -1; })() }
+    );
+
+    // 3d. a second supporting test confirms; a confirmed read is not tested again
+    var secondLaunch = await launch(main);
+    var secondDesign = secondLaunch.exercise.experiment;
+    await say('1-B, 2-D, 3-B');
+    var confirmedEntry = entryOf(main);
+    var third = await launchHypothesisExperiment(main.hypothesisId);
+    results.push(
+      { name:'a supported read is re-tested on fresh items with a replicate design', passed:secondDesign.purpose === 'replicate' && secondDesign.statusAtDesign === 'supported' && secondLaunch.exercise.id !== exerciseId && secondLaunch.exercise.experiment.hypothesisId === main.hypothesisId },
+      { name:'a second supporting attempt confirms the read and the next action becomes a targeted correction', passed:status(main) === 'confirmed' && experimentRows(main).length === 2 && observedDiagnosisEvidenceCounts(confirmedEntry).supporting === 2 && computeNextDiagnosticAction(confirmedEntry).action === 'intervene' },
+      { name:'a confirmed read is not offered, tested again or counted as a follow-up test', passed:third === 'already_confirmed' && !isTestableMentorHypothesis(confirmedEntry) && offerHypothesisExperiment([confirmedEntry]) === null && !testableHypothesesFor('').some(function(item) { return item.hypothesisId === main.hypothesisId; }) }
+    );
+
+    // 4. rejected by evidence, then retired for good
+    reset();
+    var pair = await createFromChat([OPTION, QUESTION]);
+    var target = pair.find(function(item) { return /eliminate options/.test(item.claim); });
+    var sibling = pair.find(function(item) { return /misread what/.test(item.claim); });
+    var targetLaunch = await launch(target);
+    var rejectedReply = await say('1-C, 2-C, 3-A');
+    var rejectedEntry = entryOf(target);
+    var rejectedRow = experimentRows(target)[0];
+    var nextAfterReject = computeNextDiagnosticAction(rejectedEntry);
+    results.push(
+      { name:'two picks that follow the competing explanation and none that follow the claim reject the hypothesis from observed evidence', passed:status(target) === 'rejected' && rejectedRow.supports === false && rejectedRow.strength >= 0.65 && rejectedEntry.lastExperiment.outcome === 'rejected' && /setting it aside/.test(rejectedReply) },
+      { name:'the next diagnostic action is to test the tracked competing explanation', passed:nextAfterReject.action === 'test_rival' && nextAfterReject.targetHypothesisId === sibling.hypothesisId },
+      { name:'the competing hypothesis stays untested and open', passed:status(sibling) === 'hypothesis' && observedRows(sibling).length === 0 && isTestableMentorHypothesis(entryOf(sibling)) }
+    );
+    modelCalls.length = 0;
+    var relaunch = await launchHypothesisExperiment(target.hypothesisId);
+    var callsAfterRelaunch = modelCalls.length;
+    var recreate = await say('I keep getting RC inference questions wrong even though I understand the passage, again.', 'Same pattern again. ' + tag(OPTION));
+    var revived = Object.keys(diagnosticMemory).map(function(key) { return diagnosticMemory[key]; }).filter(function(item) { return isMentorHypothesisEntry(item) && /eliminate options/.test(item.claim); });
+    results.push(
+      { name:'a rejected hypothesis cannot be tested again: no model call, no new exercise', passed:relaunch === 'retired' && callsAfterRelaunch === 0 && hypothesisExperimentGate(target.hypothesisId).ok === false && !isTestableMentorHypothesis(entryOf(target)) },
+      { name:'the model proposing the same rejected read again does not reactivate it or create a duplicate', passed:revived.length === 1 && status(target) === 'rejected' && revived[0].doNotReuse !== false },
+      { name:'a rejected hypothesis is not offered and not recommended', passed:offerHypothesisExperiment([entryOf(target)]) === null && !testableHypothesesFor('').some(function(item) { return item.hypothesisId === target.hypothesisId; }) && !getHypothesisFollowUpRecommendation() }
+    );
+    var siblingLaunch = await launch(sibling, draft(function(questions) { questions.forEach(function(question) { question.hypothesisSignals = { supports:['B'], rival:[] }; }); }));
+    results.push(
+      { name:'the next action leads straight into a real test of the competing explanation, bound to its own id', passed:isHypothesisExperiment(siblingLaunch.exercise) && siblingLaunch.exercise.experiment.hypothesisId === sibling.hypothesisId && siblingLaunch.exercise.hypothesis.hypothesisId === sibling.hypothesisId && siblingLaunch.exercise.id !== targetLaunch.exercise.id }
+    );
+
+    // 4b. an attempt that finishes after the hypothesis was rejected is recorded but cannot revive it
+    reset();
+    var lateTarget = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    var lateLaunch = await launch(lateTarget);
+    recordMentorHypothesisEvidence(lateTarget.hypothesisId, { kind:'observed_attempt', supports:false, strength:0.85, attemptId:'att-external', claim:'A separate recorded check went against this read.' });
+    var lateReply = await say('1-B, 2-B, 3-B');
+    results.push(
+      { name:'a late supporting attempt on an already rejected hypothesis is recorded on it but the hypothesis stays rejected', passed:status(lateTarget) === 'rejected' && experimentRows(lateTarget).length === 1 && experimentRows(lateTarget)[0].supports === true && entryOf(lateTarget).lastExperiment.effect === 'recorded_on_rejected' && /set aside/.test(lateReply) && lateReply.indexOf('lined up') === -1 }
+    );
+
+    // 4c. superseded hypotheses are retired untested and stay that way
+    reset();
+    var retiredPair = await createFromChat([OPTION, QUESTION]);
+    var retiredTarget = retiredPair.find(function(item) { return /eliminate options/.test(item.claim); });
+    var retiredLaunch = await launch(retiredTarget);
+    entryOf(retiredTarget).status = 'superseded'; entryOf(retiredTarget).doNotReuse = true;
+    var supersededRecord = recordMentorHypothesisEvidence(retiredTarget.hypothesisId, { kind:'observed_attempt', supports:true, strength:0.85, attemptId:'att-x', claim:'late' });
+    var supersededReply = await say('1-B, 2-B, 3-B');
+    modelCalls.length = 0;
+    results.push(
+      { name:'a superseded hypothesis cannot be launched or recorded against, and a late attempt does not move it', passed:supersededRecord.ok === false && (await launchHypothesisExperiment(retiredTarget.hypothesisId)) === 'retired' && modelCalls.length === 0 && status(retiredTarget) === 'superseded' && observedRows(retiredTarget).length === 0 && /retired/.test(supersededReply) }
+    );
+
+    // 5. weakened and inconclusive outcomes, and the actions they lead to
+    reset();
+    var weak = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    await launch(weak);
+    var weakReply = await say('1-D, 2-D, 3-A');
+    var weakFirst = entryOf(weak);
+    var weakFirstConfidence = weakFirst.confidence;
+    results.push(
+      { name:'no predicted pick and no competing pick weakens the read without rejecting it', passed:status(weak) === 'hypothesis' && !!weakFirst.weakenedAt && weakFirst.lastExperiment.outcome === 'weakened' && experimentRows(weak)[0].supports === false && experimentRows(weak)[0].strength < 0.65 && observedDiagnosisEvidenceCounts(weakFirst).contradicting === 0 && /weakened/.test(weakReply) },
+      { name:'a weakened read needs another test, and the next action says so', passed:computeNextDiagnosticAction(weakFirst).action === 'retest' && describeHypothesisAssessment(weakFirst) === 'weakened' && isTestableMentorHypothesis(weakFirst) }
+    );
+    var weakLaunch = await launch(weak);
+    await say('1-D, 2-A, 3-D');
+    var weakSecond = entryOf(weak);
+    results.push(
+      { name:'the retest is designed as a retest, and a second weak result sends the mentor to look for a different explanation', passed:weakLaunch.exercise.experiment.purpose === 'retest' && status(weak) === 'hypothesis' && experimentRows(weak).length === 2 && computeNextDiagnosticAction(weakSecond).action === 'revisit_explanation' && weakSecond.confidence < weakFirstConfidence }
+    );
+
+    reset();
+    var mixed = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    await launch(mixed);
+    var mixedReply = await say('1-B, 2-C, 3-A');
+    results.push(
+      { name:'a test where both the claim and the competitor were chosen leaves the read inconclusive', passed:status(mixed) === 'inconclusive' && entryOf(mixed).lastExperiment.outcome === 'inconclusive' && experimentRows(mixed)[0].supports === null && /did not settle/.test(mixedReply) },
+      { name:'an inconclusive read is re-tested with a sharper design, then escalated to asking the student for the specific decision', passed:computeNextDiagnosticAction(entryOf(mixed)).action === 'sharpen_test' && (await (async function() {
+        var sharper = await launch(mixed);
+        await say('1-C, 2-B, 3-D');
+        return sharper.exercise.experiment.purpose === 'sharpen' && status(mixed) === 'inconclusive' && computeNextDiagnosticAction(entryOf(mixed)).action === 'ask_for_observation';
+      })()) },
+      { name:'an inconclusive result never overwrites a read that observed attempts already support', passed:(await (async function() {
+        reset();
+        var steady = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+        await launch(steady);
+        await say('1-B, 2-B, 3-D');
+        var supportedBefore = status(steady);
+        await launch(steady);
+        await say('1-B, 2-C, 3-A');
+        var rowsAfter = experimentRows(steady);
+        return supportedBefore === 'supported' && rowsAfter.length === 2 && rowsAfter[1].supports === null && status(steady) === 'supported' && observedDiagnosisEvidenceCounts(entryOf(steady)).supporting === 1;
+      })()) }
+    );
+
+    // 5b. answers can arrive across messages; too few answers are not evidence
+    reset();
+    var partial = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    var partialLaunch = await launch(partial);
+    var callsBeforePartial = modelCalls.length;
+    var firstPartial = await say('1-B');
+    var afterPartial = { calls:modelCalls.length - callsBeforePartial, rows:experimentRows(partial).length, awaiting:activeGeneratedExercise.awaitingAnswers, status:status(partial) };
+    var secondPartial = await say('2-B');
+    results.push(
+      { name:'one answer is not treated as a test result: nothing is recorded and the student is asked for the rest', passed:afterPartial.rows === 0 && afterPartial.awaiting === true && afterPartial.status === 'hypothesis' && /1 of the 3 answers/.test(firstPartial) && afterPartial.calls === 0 },
+      { name:'answers sent in separate messages accumulate and the test is evaluated once enough have arrived', passed:experimentRows(partial).length === 1 && status(partial) === 'supported' && /lined up/.test(secondPartial) && activeGeneratedExercise.experimentEvaluation.counts.answered === 2 }
+    );
+
+    // 5c. an exercise that was not built for the hypothesis is not evidence about it
+    reset();
+    var plainEntry = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    var foreign = { id:'practice-1', type:'varc', source:'prediction-validation', title:'x', hypothesis:plainEntry, content:{ questions:draft(function(questions) { questions.forEach(function(question) { delete question.hypothesisSignals; }); }).questions }, awaitingAnswers:false };
+    var foreignResult = completeHypothesisExperiment(foreign, { 1:'B', 2:'B', 3:'B' });
+    var legacyEvaluation = evaluateStoredHypothesisAttempt(foreign, { 1:'B', 2:'B', 3:'B' });
+    results.push(
+      { name:'an exercise with no signals for this hypothesis cannot record evidence on it', passed:foreignResult.ok === false && foreignResult.reason === 'not_designed_for_hypothesis' && experimentRows(plainEntry).length === 0 && observedRows(plainEntry).length === 0 && status(plainEntry) === 'hypothesis' },
+      { name:'signals stamped for another hypothesis are ignored when evaluating this one', passed:(function() {
+        var other = draft(); bindHypothesisExperimentSignals(other, { hypothesisId:'h-someoneelse', patternId:'mh-x' });
+        var question = other.questions[0];
+        return questionHypothesisSignals(question, plainEntry) === null && questionHypothesisSignals(question, { hypothesisId:'h-someoneelse', patternId:'mh-x' }) !== null && legacyEvaluation.counts.designed === 0;
+      })() }
+    );
+
+    // 6. the loop through persistence, hydration, carryover and resume
+    reset({ keepIdentity:true });
+    var tables = { mentor_diagnoses:[], mentor_tasks:[], mentor_task_attempts:[], mentor_diagnosis_evidence:[] };
+    var sequence = 1;
+    currentUser = { id:'loop-user' }; SUPABASE_TOKEN = 'loop-token'; isGuestMode = false;
+    authenticatedSupabaseFetch = async function(url, options) {
+      var rest = String(url).split('/rest/v1/')[1];
+      if (!rest) return { ok:true, status:200, json:async function() { return []; }, text:async function() { return ''; } };
+      var path = rest.split('?')[0];
+      var method = String(options && options.method || 'GET').toUpperCase();
+      var rowsForPath = tables[path] || (tables[path] = []);
+      if (method === 'GET') return { ok:true, status:200, json:async function() { return JSON.parse(JSON.stringify(rowsForPath)); } };
+      if (method === 'PATCH') {
+        var match = /[?&]id=eq\.([^&]+)/.exec(String(url));
+        var patch = JSON.parse(options.body);
+        rowsForPath.forEach(function(row) { if (match && row.id === decodeURIComponent(match[1])) Object.assign(row, patch); });
+        return { ok:true, status:204, json:async function() { return {}; } };
+      }
+      var body = JSON.parse(options.body);
+      var index = rowsForPath.findIndex(function(row) { return row.user_id === body.user_id && row.client_ref === body.client_ref; });
+      var row = Object.assign({}, index >= 0 ? rowsForPath[index] : { id:path + '-' + (sequence++) }, body);
+      if (index >= 0) rowsForPath[index] = row; else rowsForPath.push(row);
+      return { ok:true, status:201, json:async function() { return [JSON.parse(JSON.stringify(row))]; } };
+    };
+    saveChatMessage = async function(role, content) {
+      if (/^\[MARG_INTERNAL:/.test(String(content || ''))) margAllChatMessages.push({ role:role, content:content });
+      return true;
+    };
+    var durable = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    var durableLaunch = await launch(durable);
+    var taskRef = mentorTaskClientRefForDiagnosis(durable);
+    var openTask = tables.mentor_tasks.find(function(row) { return row.client_ref === taskRef; });
+    results.push(
+      { name:'launching the test saves a task row for that hypothesis, identified by its id and success metric', passed:!!openTask && openTask.action_payload.hypothesisId === durable.hypothesisId && hypothesisIdFromTask(openTask) === durable.hypothesisId && /Supported if:/.test(openTask.success_metric) && /Weakened if:/.test(openTask.success_metric) && openTask.action_payload.artifact_snapshot.experiment.hypothesisId === durable.hypothesisId && openTask.artifact_ref === durableLaunch.exercise.id }
+    );
+    await say('1-B, 2-B, 3-D');
+    await settle();
+    var taskRow = tables.mentor_tasks.find(function(row) { return row.client_ref === taskRef; });
+    var attemptRow = tables.mentor_task_attempts.find(function(row) { return row.task_id === taskRow.id; });
+    var diagnosisRow = tables.mentor_diagnoses.find(function(row) { return row.client_ref === mentorDiagnosisClientRef(durable); });
+    var evidenceRow = tables.mentor_diagnosis_evidence.find(function(row) { return row.evidence_payload && row.evidence_payload.experiment_ref; });
+    results.push(
+      { name:'the saved attempt carries the hypothesis id, the outcome and the observed pick counts', passed:!!attemptRow && attemptRow.behaviour_data.hypothesis.hypothesisId === durable.hypothesisId && attemptRow.behaviour_data.hypothesis.outcome === 'supported' && attemptRow.behaviour_data.observables.hypothesis_supporting_picks === 2 && attemptRow.behaviour_data.observables.hypothesis_trials === 3 && attemptRow.verdict === 'supported' && attemptRow.behaviour_data.hypothesis.next_action === 'replicate' },
+      { name:'the saved diagnosis row follows the evidence-driven status', passed:!!diagnosisRow && diagnosisRow.status === 'supported' && diagnosisRow.pattern_id === durable.patternId },
+      { name:'the saved evidence row points at the saved attempt and the same hypothesis, not at a client-side id', passed:!!evidenceRow && evidenceRow.evidence_type === 'observed_attempt' && evidenceRow.supports === true && evidenceRow.diagnosis_id === diagnosisRow.id && evidenceRow.evidence_payload.attempt_id === attemptRow.id && evidenceRow.evidence_payload.hypothesis_id === durable.hypothesisId && evidenceRow.evidence_payload.exercise_id === durableLaunch.exercise.id },
+      { name:'the saved task carries the evaluated result and is marked reviewed once the result was shown', passed:taskRow.action_payload.artifact_snapshot.experimentEvaluation.outcome === 'supported' && taskRow.action_payload.artifact_snapshot.nextDiagnosticAction.action === 'replicate' && taskRow.action_payload.hypothesisId === durable.hypothesisId && taskRow.status === 'reviewed' }
+    );
+
+    // 6b. a fresh browser: the same state is rebuilt from the saved rows and snapshots
+    var storedExercise = null;
+    diagnosticMemory = {}; studentProfile.diagnosticMemory = diagnosticMemory; conversationHistory = []; activeGeneratedExercise = null; pendingHypothesisExperiment = null;
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    wipeStorage();
+    try { localStorage.removeItem(diagnosticKey); } catch(e) {}
+    var loaded = await loadMentorExecutionLoop();
+    var rebuilt = findMentorHypothesis(durable.hypothesisId);
+    var rebuiltRow = rebuilt && experimentRows(durable)[0];
+    results.push(
+      { name:'after a reload the hypothesis is rebuilt with the same id, status, prediction and observed experiment evidence', passed:loaded === true && !!rebuilt && rebuilt.hypothesisId === durable.hypothesisId && normalizeDiagnosisStatus(rebuilt) === 'supported' && rebuilt.prediction === durable.prediction && rebuilt.weakensIf === durable.weakensIf && observedDiagnosisEvidenceCounts(rebuilt).supporting === 1 && !!rebuiltRow && rebuiltRow.attemptId === attemptRow.id },
+      { name:'after a reload the next diagnostic action is recomputed from the rebuilt evidence', passed:computeNextDiagnosticAction(rebuilt).action === 'replicate' && isTestableMentorHypothesis(rebuilt) && rebuilt.lastExperiment.outcome === 'supported' },
+      { name:'after a reload the home screen offers the next test for that hypothesis', passed:(function() { var recommendation = getHypothesisFollowUpRecommendation(); return !!recommendation && recommendation.action.destination === 'hypothesis_experiment' && recommendation.action.hypothesisId === durable.hypothesisId && /fresh items/.test(recommendation.copy); })() }
+    );
+    margActiveThreadId = 'thread-b'; conversationHistory = [];
+    var carryAnalysis = buildDiagnosisDirective('How should I approach RC? What should I work on?');
+    var carryContext = buildMentorTurnContext('How should I approach RC? What should I work on?', carryAnalysis, { surface:'chat', useWebGrounding:false });
+    margActiveThreadId = 'thread-a';
+    results.push(
+      { name:'in a new chat the observed-supported read is carried with its disproof condition and the next diagnostic step', passed:carryContext.indexOf(durable.claim.slice(0, 50)) !== -1 && /Next diagnostic step: repeat the test on fresh items/.test(carryContext) }
+    );
+
+    // 6c. resume: the saved test comes back as the same exercise for the same hypothesis, without a model call
+    var home = buildHomeRecommendation();
+    modelCalls.length = 0;
+    script.push(JSON.stringify(draft()));
+    homeRecommendationAction = home && home.action;
+    await runHomeRecommendation();
+    await settle();
+    var resumed = activeGeneratedExercise;
+    results.push(
+      { name:'the home action for the follow-up launches a new experiment for the same hypothesis', passed:!!home && home.action.destination === 'hypothesis_experiment' && isHypothesisExperiment(resumed) && resumed.experiment.hypothesisId === durable.hypothesisId && resumed.experiment.purpose === 'replicate' }
+    );
+    var unanswered = activeGeneratedExercise;
+    var savedTask = tables.mentor_tasks.find(function(row) { return row.client_ref === taskRef; });
+    results.push(
+      { name:'the same task row is reused for the second test of that hypothesis and now holds the new unanswered exercise', passed:tables.mentor_tasks.filter(function(row) { return row.client_ref === taskRef; }).length === 1 && savedTask.action_payload.artifact_snapshot.id === unanswered.id && savedTask.action_payload.artifact_snapshot.awaitingAnswers === true && !savedTask.action_payload.artifact_snapshot.experimentEvaluation }
+    );
+    diagnosticMemory = {}; studentProfile.diagnosticMemory = diagnosticMemory; conversationHistory = []; activeGeneratedExercise = null;
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    wipeStorage();
+    try { localStorage.removeItem(diagnosticKey); } catch(e) {}
+    await loadMentorExecutionLoop();
+    modelCalls.length = 0;
+    var resumeTask = mentorExecutionLoop.tasks.find(function(row) { return row.client_ref === taskRef; });
+    await resumeDurableMentorTask(resumeTask.id);
+    await settle();
+    var replayed = activeGeneratedExercise;
+    results.push(
+      { name:'resuming the saved task puts the exact same unanswered questions back in chat for the same hypothesis, with no model call and no new test', passed:modelCalls.length === 0 && !!replayed && replayed.id === unanswered.id && replayed.experiment.hypothesisId === durable.hypothesisId && lastAssistant().indexOf(STEMS[1]) !== -1 && conversationHistory[conversationHistory.length - 1].exerciseId === unanswered.id && isActiveExerciseCurrentInConversation() }
+    );
+    await say('1-B, 2-D, 3-B');
+    await settle();
+    var finalEntry = findMentorHypothesis(durable.hypothesisId);
+    var experimentEvidence = experimentRows(durable);
+    results.push(
+      { name:'answering the resumed test records a second observed attempt on the same hypothesis and confirms it, still without a model call', passed:modelCalls.length === 0 && normalizeDiagnosisStatus(finalEntry) === 'confirmed' && experimentEvidence.length === 2 && experimentEvidence.every(function(row) { return row.payload.hypothesis_id === durable.hypothesisId; }) && computeNextDiagnosticAction(finalEntry).action === 'intervene' },
+      { name:'the saved diagnosis row now says confirmed, with two attempts on the same task', passed:tables.mentor_diagnoses.find(function(row) { return row.client_ref === mentorDiagnosisClientRef(durable); }).status === 'confirmed' && tables.mentor_task_attempts.filter(function(row) { return row.task_id === taskRow.id; }).length === 2 && tables.mentor_diagnosis_evidence.filter(function(row) { return row.evidence_payload && row.evidence_payload.experiment_ref; }).length === 2 }
+    );
+    results.push(
+      { name:'once confirmed, the saved task is no longer recommended as something to resume and the follow-up test is not offered', passed:getHypothesisFollowUpRecommendation() === null && !isTestableMentorHypothesis(finalEntry) }
+    );
+  } finally {
+    restore();
+  }
+  return results;
+}
+window.runHypothesisExperimentLoopTests = runHypothesisExperimentLoopTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
