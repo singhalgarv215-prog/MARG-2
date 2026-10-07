@@ -6101,7 +6101,7 @@ function interpretHypothesisEvidence(entry) {
   else if (status === 'rejected') state = 'contradicted';
   else if (measurement.fidelity === 'unmeasurable' && counts.observed) state = 'insufficient';
   else if (status === 'confirmed') state = disputed ? 'under_verification' : intervention === 'resolved' ? 'resolved' : intervention === 'effective' ? 'improving' : intervention === 'adjust' ? 'intervention_not_working' : 'confirmed';
-  else if (status === 'supported') state = disputed ? 'under_verification' : 'supported_unreplicated';
+  else if (status === 'supported') state = disputed ? 'under_verification' : counts.contradicting > 0 ? 'mixed' : 'supported_unreplicated';
   else if (status === 'inconclusive') state = intervention === 'failed' ? 'intervention_failed' : counts.supporting > 0 && counts.contradicting > 0 ? 'mixed' : 'inconclusive';
   else if (!counts.observed) state = 'untested';
   else if (counts.contradicting > 0) state = 'contradicted_unreplicated';
@@ -6143,9 +6143,9 @@ function computeNextDiagnosticAction(entry) {
     return act('intervene', 'The same pattern has been observed repeatedly: move from diagnosing to a targeted correction, then re-measure it.');
   }
   if (status === 'supported') {
-    return view.disputed
-      ? act('verify_disputed', 'One observed attempt supports this read but the student disputes it: repeat the test on fresh items and let that result decide.')
-      : act('replicate', 'One observed attempt supports this read; repeat it on fresh items before treating it as a pattern.');
+    if (view.disputed) return act('verify_disputed', 'One observed attempt supports this read but the student disputes it: repeat the test on fresh items and let that result decide.');
+    if (view.contradiction > 0) return act('replicate', 'Observed attempts lean toward this read (' + view.support + ' for, ' + view.contradiction + ' against) but are not settled: repeat the test on fresh items to see which way it holds.');
+    return act('replicate', 'One observed attempt supports this read; repeat it on fresh items before treating it as a pattern.');
   }
   if (status === 'inconclusive') {
     if (view.intervention === 'failed') {
@@ -6159,7 +6159,7 @@ function computeNextDiagnosticAction(entry) {
   }
   if (!view.observed) return act('run_test', 'No attempt has tested this read yet.');
   if (view.contradiction > 0 && !view.support) {
-    return testableRival && view.rivalLean > 0
+    return testableRival && hypothesisRivalLean(testableRival) > 0
       ? act('test_rival', 'A strong test went against this read and picks leaned toward the competing explanation: test that explanation directly.', { targetHypothesisId:testableRival.hypothesisId })
       : act('retest', 'One strong test went against this read. One test is not enough to retire it: test it again on fresh items before deciding.');
   }
@@ -8587,6 +8587,31 @@ function recordCrossHypothesisEvidence(exercise, entry, evaluation, ref) {
   return recorded.ok ? rival : null;
 }
 
+// A confirmed read leaves a durable behaviour pattern behind. If later evidence
+// takes the read back below confirmed, that pattern must stop being carried as
+// settled, and come back only if the read is confirmed again.
+function syncBehaviorPatternWithHypothesis(entry, previousStatus, status) {
+  if (!isMentorHypothesisEntry(entry)) return;
+  if (status === 'confirmed' && previousStatus !== 'confirmed') {
+    var recorded = recordBehaviorPattern(entry.topic, entry.confirmedDiagnosis, entry.selectedPattern, 'repeated-observed-diagnostic');
+    if (recorded && recorded.doNotReuse && recorded.status !== 'rejected') { recorded.doNotReuse = false; delete recorded.demotedAt; saveBehavioralMemory(); }
+    return;
+  }
+  var leavingConfirmed = previousStatus === 'confirmed' && status !== 'confirmed';
+  var retiring = status === 'rejected' && previousStatus !== 'rejected';
+  if (!leavingConfirmed && !retiring) return;
+  if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
+  var normalized = normalizeBehaviorPattern(entry.topic, entry.confirmedDiagnosis);
+  var changed = false;
+  behavioralMemory.patterns.forEach(function(pattern) {
+    if (pattern.section !== normalized.section || pattern.key !== normalized.key || pattern.source !== 'repeated-observed-diagnostic') return;
+    if (leavingConfirmed) { pattern.doNotReuse = true; pattern.demotedAt = new Date().toISOString(); }
+    if (retiring) { pattern.status = 'rejected'; pattern.doNotReuse = true; pattern.invalidatedBy = 'Later observed attempts went against this read.'; }
+    changed = true;
+  });
+  if (changed) saveBehavioralMemory();
+}
+
 function retireMissionOfRejectedRead(entry, now) {
   loadActiveMentorPlan();
   if (isOpenMentorPlan(activeMentorPlan) && sharesSpecificClaim(activeMentorPlan.mission, entry.claim || entry.confirmedDiagnosis, 2)) {
@@ -8686,7 +8711,7 @@ function completeHypothesisExperiment(exercise, choices) {
   var nextAction = computeNextDiagnosticAction(entry);
   entry.nextAction = nextAction;
   exercise.nextDiagnosticAction = nextAction;
-  if (status === 'confirmed' && previousStatus !== 'confirmed') recordBehaviorPattern(entry.topic, entry.confirmedDiagnosis, entry.selectedPattern, 'repeated-observed-diagnostic');
+  syncBehaviorPatternWithHypothesis(entry, previousStatus, status);
   if (status === 'rejected' && previousStatus !== 'rejected') retireMissionOfRejectedRead(entry, now);
   saveDiagnosticMemory();
   saveMentorHypothesisSnapshot(entry);
@@ -8779,8 +8804,9 @@ function describeExperimentResultForStudent(exercise) {
     lead = after === 'confirmed' ? 'That is the second observed test to come out the same way, so this is now a pattern I can work from and not a guess: “' + claim + '”'
       : after === 'supported' ? 'Your choices lined up with this read: “' + claim + '” That is one test, not yet a pattern.'
         : 'This test pointed toward the read, but an earlier test pointed against it, so the two cancel out and I am treating it as unsettled: “' + claim + '”';
-  } else if (evaluation.outcome === 'rejected') {
-    lead = after === 'rejected' ? 'That is the second test to go against this read, so I am setting it aside: “' + claim + '”'
+  } else   if (evaluation.outcome === 'rejected') {
+    var against = entry ? observedDiagnosisEvidenceCounts(entry) : { supporting:0 };
+    lead = after === 'rejected' ? (against.supporting > 0 ? 'Tests have now gone against this read often enough to outweigh the ones that supported it, so I am setting it aside: “' + claim + '”' : 'That is the second test to go against this read, so I am setting it aside: “' + claim + '”')
       : after === 'hypothesis' ? 'Your choices did not follow this read: “' + claim + '” One test is not enough to drop it, so I am treating it as doubtful and will test it again on new questions before deciding.'
         : 'This test went against the read, but an earlier test supported it, so the evidence is split and I will not call it either way yet: “' + claim + '”';
   } else if (evaluation.outcome === 'weakened') {
@@ -11398,15 +11424,25 @@ async function runStructuredHypothesisTests() {
     var confidenceAfterSelf = weak.confidence;
     var softObserved = recordMentorHypothesisEvidence(weak, observedRow(false, 'att-soft', 0.4));
     var strong = create(FIELDS.question).entry;
-    recordMentorHypothesisEvidence(strong, observedRow(true, 'att-s1'));
+    var firstContradiction = recordMentorHypothesisEvidence(strong, observedRow(false, 'att-s1'));
+    var statusAfterFirst = normalizeDiagnosisStatus(strong);
+    var reusableAfterFirst = strong.doNotReuse !== true;
     var contradicted = recordMentorHypothesisEvidence(strong, observedRow(false, 'att-s2'));
     var afterRejected = recordMentorHypothesisEvidence(strong, observedRow(true, 'att-s3'));
     results.push(
       { name:'a student disagreement or other non-observed contradiction weakens a hypothesis without rejecting it', passed:disagree.effect === 'weakened' && normalizeDiagnosisStatus(weak) === 'hypothesis' && confidenceAfterSelf < 0.4 && !weak.doNotReuse },
       { name:'a weak observed contradiction lowers confidence but does not reject', passed:softObserved.effect === 'weakened' && normalizeDiagnosisStatus(weak) === 'hypothesis' },
-      { name:'a strong observed contradiction rejects it through the existing ladder and keeps the stated reason', passed:contradicted.effect === 'rejected' && strong.status === 'rejected' && strong.doNotReuse === true && /restating the question|unchanged/.test(strong.rejectedBecause) },
+      { name:'one strong observed contradiction doubts a read without retiring it', passed:firstContradiction.effect === 'weakened' && statusAfterFirst === 'hypothesis' && reusableAfterFirst },
+      { name:'a second strong observed contradiction rejects it through the existing ladder and keeps the stated reason', passed:contradicted.effect === 'rejected' && strong.status === 'rejected' && strong.doNotReuse === true && /restating the question|unchanged/.test(strong.rejectedBecause) },
+
       { name:'later supporting evidence does not silently revive a rejected hypothesis', passed:afterRejected.effect === 'recorded_on_rejected' && strong.status === 'rejected' },
       { name:'a rejected hypothesis is not offered to the mentor again', passed:turn('How should I approach RC?').context.indexOf(strong.claim) === -1 }
+    );
+    recordMentorHypothesisEvidence(weak, observedRow(true, 'att-w1'));
+    var supportedBeforeSplit = normalizeDiagnosisStatus(weak);
+    var split = recordMentorHypothesisEvidence(weak, observedRow(false, 'att-w2'));
+    results.push(
+      { name:'a contradiction against a supported read makes it inconclusive instead of overwriting the earlier observation', passed:supportedBeforeSplit === 'supported' && split.effect === 'inconclusive' && normalizeDiagnosisStatus(weak) === 'inconclusive' && observedDiagnosisEvidenceCounts(weak).supporting === 1 && observedDiagnosisEvidenceCounts(weak).contradicting === 1 && !weak.doNotReuse }
     );
 
     // 8. survival across chats and thread isolation
@@ -11568,7 +11604,8 @@ window.runStructuredHypothesisTests = runStructuredHypothesisTests;
 // handling), the real quick-reply handler that launches the test, the real launcher
 // and its draft validation, and the real persistence/hydration functions. Only the
 // model endpoint (and, in the persistence section, the database) is scripted.
-async function runHypothesisExperimentLoopTests() {
+// Shared harness for the hypothesis experiment tests: the real chat path with only the model endpoint scripted.
+function createHypothesisExperimentHarness() {
   var saved = {
     memory:diagnosticMemory, thread:margActiveThreadId, loop:mentorExecutionLoop, profile:studentProfile, history:conversationHistory,
     all:typeof margAllChatMessages === 'undefined' ? undefined : margAllChatMessages, topic:activeDiagnosticTopic, flow:diagnosticFlowState,
@@ -11637,13 +11674,13 @@ async function runHypothesisExperimentLoopTests() {
     mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
     activeGeneratedExercise = null; pendingHypothesisExperiment = null; margPendingConversationOptions = null; guidedGenerationState = null;
     mentorEvidenceMemory = { corrections:[] };
-    onboardingComplete = true; isLoading = false; script.length = 0; modelCalls.length = 0;
+    onboardingComplete = true; isLoading = false; script.length = 0; modelCalls.length = 0; draftRound = 0;
     if (!options.keepIdentity) { currentUser = null; SUPABASE_TOKEN = null; isGuestMode = true; }
     saveDiagnosticMemory();
   }
   async function settle() { for (var index = 0; index < 400; index++) await Promise.resolve(); }
   function tag(fields) {
-    return '[HYPOTHESIS: ' + ['section', 'claim', 'prediction', 'weakens_if', 'basis', 'alternative'].filter(function(key) { return fields[key]; }).map(function(key) { return key + '=' + fields[key]; }).join(' | ') + ']';
+    return '[HYPOTHESIS: ' + ['section', 'claim', 'prediction', 'weakens_if', 'basis', 'alternative', 'observable', 'direction'].filter(function(key) { return fields[key]; }).map(function(key) { return key + '=' + fields[key]; }).join(' | ') + ']';
   }
   var OPTION = {
     section:'varc', claim:'The main cause may be that you eliminate options on intuition rather than checking each one against the passage',
@@ -11693,7 +11730,7 @@ async function runHypothesisExperimentLoopTests() {
     return Object.keys(diagnosticMemory).map(function(key) { return diagnosticMemory[key]; }).filter(isMentorHypothesisEntry);
   }
   async function launch(entry, set) {
-    script.push(JSON.stringify(set || draft()));
+    scriptDraft(entry, set);
     var before = modelCalls.length;
     var outcome = await launchHypothesisExperiment(entry.hypothesisId);
     await settle();
@@ -11704,6 +11741,97 @@ async function runHypothesisExperimentLoopTests() {
   function experimentRows(entry) { return localDiagnosisEvidence(entryOf(entry)).filter(function(row) { return row && row.payload && row.payload.experiment_ref; }); }
   function observedRows(entry) { return localDiagnosisEvidence(entryOf(entry)).filter(function(row) { return row && row.type === 'observed_attempt'; }); }
 
+
+  var draftRound = 0;
+  var SUBJECTS = ['printing costs', 'guild records', 'pamphlet sales', 'literacy rates', 'church tithes', 'ferry schedules', 'grain prices', 'town charters', 'bridge tolls', 'wool exports', 'harbour fees', 'salt taxes', 'river trade', 'market days', 'tax rolls'];
+  function autoDraft(design) {
+    var round = draftRound++;
+    var count = design.trials;
+    if (round === 0 && count === 3) return draft(design.rivalRequired ? null : function(questions) { questions.forEach(function(question) { question.hypothesisSignals = { supports:['B'], rival:[] }; }); });
+    var questions = [];
+    for (var index = 0; index < count; index++) {
+      var subject = SUBJECTS[(round * 5 + index) % SUBJECTS.length];
+      questions.push({
+        q:'Regarding ' + subject + ' (round ' + round + '), which of the following best states what the author concludes?',
+        options:['A. The practice amplified opinions that readers already held (' + round + '.' + index + ')', 'B. The practice alone created the movement (' + round + '.' + index + ')', 'C. The records prove nothing about the practice (' + round + '.' + index + ')', 'D. Printers ignored what readers wanted (' + round + '.' + index + ')'],
+        correct:0, solution:'The passage says printers followed demand and amplified existing views.', marg_insight:'Separates scope errors from misreading the question.',
+        hypothesisSignals:{ supports:['B'], rival:design.rivalRequired ? ['C'] : [] }
+      });
+    }
+    return { title:'Inference test ' + round, passage:'Round ' + round + ' passage. ' + PASSAGE, questions:questions };
+  }
+  function auditFor(set, mutate) {
+    var items = set.questions.map(function(question) {
+      var signals = question.hypothesisSignals || {};
+      var item = { answer:String.fromCharCode(65 + question.correct), cause_x:(signals.supports || [])[0] };
+      if ((signals.rival || []).length) item.cause_y = signals.rival[0];
+      return item;
+    });
+    if (mutate) mutate(items);
+    return JSON.stringify({ items:items });
+  }
+  function scriptDraft(reference, set, auditMutate) {
+    var id = typeof reference === 'string' ? reference : reference.hypothesisId;
+    var design = buildHypothesisExperimentDesign(findMentorHypothesis(id));
+    var chosen = set || autoDraft(design);
+    script.push(JSON.stringify(chosen), auditFor(chosen, auditMutate));
+    return chosen;
+  }
+  function ans(codes, startAt) {
+    var questions = rawExerciseQuestions(activeGeneratedExercise);
+    return codes.split('').map(function(code, offset) {
+      var index = (startAt || 1) - 1 + offset;
+      var question = questions[index];
+      var signals = question.hypothesisSignals;
+      var correct = experimentCorrectLetter(question);
+      var pick = code === 'c' ? correct : code === 's' ? signals.supports[0] : code === 'r' ? signals.rival[0]
+        : ['A', 'B', 'C', 'D'].filter(function(letter) { return letter !== correct && signals.supports.indexOf(letter) === -1 && signals.rival.indexOf(letter) === -1; })[0];
+      return (index + 1) + '-' + pick;
+    }).join(', ');
+  }
+  async function answer(codes, startAt) { return say(ans(codes, startAt)); }
+  function installDatabase() {
+    var tables = { mentor_diagnoses:[], mentor_tasks:[], mentor_task_attempts:[], mentor_diagnosis_evidence:[] };
+    var sequence = 1;
+    currentUser = { id:'loop-user' }; SUPABASE_TOKEN = 'loop-token'; isGuestMode = false;
+    authenticatedSupabaseFetch = async function(url, options) {
+      var rest = String(url).split('/rest/v1/')[1];
+      if (!rest) return { ok:true, status:200, json:async function() { return []; }, text:async function() { return ''; } };
+      var path = rest.split('?')[0];
+      var method = String(options && options.method || 'GET').toUpperCase();
+      var rowsForPath = tables[path] || (tables[path] = []);
+      if (method === 'GET') return { ok:true, status:200, json:async function() { return JSON.parse(JSON.stringify(rowsForPath)); } };
+      if (method === 'PATCH') {
+        var match = /[?&]id=eq\.([^&]+)/.exec(String(url));
+        var patch = JSON.parse(options.body);
+        rowsForPath.forEach(function(row) { if (match && row.id === decodeURIComponent(match[1])) Object.assign(row, patch); });
+        return { ok:true, status:204, json:async function() { return {}; } };
+      }
+      var body = JSON.parse(options.body);
+      var index = rowsForPath.findIndex(function(row) { return row.user_id === body.user_id && row.client_ref === body.client_ref; });
+      var row = Object.assign({}, index >= 0 ? rowsForPath[index] : { id:path + '-' + (sequence++) }, body);
+      if (index >= 0) rowsForPath[index] = row; else rowsForPath.push(row);
+      return { ok:true, status:201, json:async function() { return [JSON.parse(JSON.stringify(row))]; } };
+    };
+    saveChatMessage = async function(role, content) {
+      if (/^\[MARG_INTERNAL:/.test(String(content || ''))) margAllChatMessages.push({ role:role, content:content });
+      return true;
+    };
+    return tables;
+  }
+  return {
+    saved:saved, diagnosticKey:diagnosticKey, script:script, modelCalls:modelCalls, restore:restore, wipeStorage:wipeStorage, reset:reset, settle:settle, tag:tag,
+    OPTION:OPTION, QUESTION:QUESTION, RC_MESSAGE:RC_MESSAGE, PASSAGE:PASSAGE, STEMS:STEMS, draft:draft, autoDraft:autoDraft, auditFor:auditFor, scriptDraft:scriptDraft,
+    lastAssistant:lastAssistant, say:say, ans:ans, answer:answer, createFromChat:createFromChat, launch:launch, entryOf:entryOf, status:status,
+    experimentRows:experimentRows, observedRows:observedRows, installDatabase:installDatabase
+  };
+}
+
+async function runHypothesisExperimentLoopTests() {
+  var H = createHypothesisExperimentHarness();
+  var saved = H.saved, diagnosticKey = H.diagnosticKey, script = H.script, modelCalls = H.modelCalls, restore = H.restore, wipeStorage = H.wipeStorage, reset = H.reset, settle = H.settle, tag = H.tag;
+  var OPTION = H.OPTION, QUESTION = H.QUESTION, STEMS = H.STEMS, draft = H.draft, scriptDraft = H.scriptDraft, lastAssistant = H.lastAssistant, say = H.say, ans = H.ans, answer = H.answer;
+  var createFromChat = H.createFromChat, launch = H.launch, entryOf = H.entryOf, status = H.status, experimentRows = H.experimentRows, observedRows = H.observedRows;
   var results = [];
   try {
     // 1. failure -> hypothesis -> offer -> targeted test, all through the production chat path
@@ -11725,7 +11853,7 @@ async function runHypothesisExperimentLoopTests() {
     );
 
     var calls0 = modelCalls.length;
-    script.push(JSON.stringify(draft()));
+    scriptDraft(offered);
     margPendingConversationOptions = null;
     await handleConversationalResponse('Test this read', 'start_hypothesis_experiment');
     await settle();
@@ -11734,7 +11862,7 @@ async function runHypothesisExperimentLoopTests() {
     var testedId = experiment && experiment.experiment && experiment.experiment.hypothesisId;
     var tested = testedId && findMentorHypothesis(testedId);
     results.push(
-      { name:'tapping the offer builds one experiment bound to the offered hypothesis', passed:!!experiment && isHypothesisExperiment(experiment) && testedId === offered && experiment.hypothesis.hypothesisId === offered && experiment.source === 'prediction-validation-experiment' && modelCalls.length - calls0 === 1 },
+      { name:'tapping the offer builds one experiment bound to the offered hypothesis', passed:!!experiment && isHypothesisExperiment(experiment) && testedId === offered && experiment.hypothesis.hypothesisId === offered && experiment.source === 'prediction-validation-experiment' && modelCalls.length - calls0 === 2 },
       { name:'the generation request is built from that hypothesis: its claim, prediction, disproof condition and competing explanation', passed:!!tested && requestText.indexOf(tested.prediction) !== -1 && requestText.indexOf(tested.weakensIf) !== -1 && requestText.indexOf(tested.claim.slice(0, 60)) !== -1 && /competing explanation/i.test(requestText) && /rival\\?"/.test(requestText) },
       { name:'every question carries answer signals stamped with the hypothesis id: one option for the claim, a different one for the competitor, never the correct one', passed:!!experiment && experiment.content.questions.length === 3 && experiment.content.questions.every(function(question) {
         var signals = question.hypothesisSignals, correct = String.fromCharCode(65 + question.correct);
@@ -11776,12 +11904,13 @@ async function runHypothesisExperimentLoopTests() {
     var retryEntry = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
     script.length = 0; modelCalls.length = 0;
     var generic = draft(function(questions) { questions.forEach(function(question) { delete question.hypothesisSignals; }); });
-    script.push(JSON.stringify(generic), JSON.stringify(draft()));
+    script.push(JSON.stringify(generic));
+    scriptDraft(retryEntry);
     var historyBefore = conversationHistory.length;
     await launchHypothesisExperiment(retryEntry.hypothesisId);
     await settle();
     results.push(
-      { name:'when the first draft cannot discriminate, the launcher asks again with the reason and shows only the valid second draft', passed:modelCalls.length === 2 && /PREVIOUS DRAFT WAS REJECTED \(no_claim_option_1\)/.test(modelCalls[1].text) && modelCalls[0].text.indexOf('PREVIOUS DRAFT') === -1 && isHypothesisExperiment(activeGeneratedExercise) && lastAssistant().indexOf(STEMS[0]) !== -1 }
+      { name:'when the first draft cannot discriminate, the launcher asks again with the reason and shows only the valid second draft', passed:modelCalls.length === 3 && /PREVIOUS DRAFT WAS REJECTED \(no_claim_option_1\)/.test(modelCalls[1].text) && /independent checker/.test(modelCalls[2].text) && modelCalls[0].text.indexOf('PREVIOUS DRAFT') === -1 && isHypothesisExperiment(activeGeneratedExercise) && lastAssistant().indexOf(STEMS[0]) !== -1 }
     );
     reset();
     var failEntry = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
@@ -11799,7 +11928,7 @@ async function runHypothesisExperimentLoopTests() {
     var routes = [];
     async function viaRoute(run) {
       activeGeneratedExercise = null; script.length = 0; modelCalls.length = 0;
-      script.push(JSON.stringify(draft()));
+      scriptDraft(routed);
       await run();
       await settle();
       routes.push({ bound:isHypothesisExperiment(activeGeneratedExercise) && activeGeneratedExercise.experiment.hypothesisId === routed.hypothesisId, calls:modelCalls.length });
@@ -11811,7 +11940,7 @@ async function runHypothesisExperimentLoopTests() {
     await viaRoute(function() { return generateGuidedMiniMock(routed); });
     await viaRoute(function() { return launchVerifiedStrategyDecisionLab(routed); });
     results.push(
-      { name:'diagnostic launch, retry, timed-test, mini-mock and strategy-lab routes all open the bound experiment for a mentor hypothesis instead of a generic check', passed:routes.length === 6 && routes.every(function(route) { return route.bound && route.calls === 1; }) },
+      { name:'diagnostic launch, retry, timed-test, mini-mock and strategy-lab routes all open the bound experiment for a mentor hypothesis instead of a generic check', passed:routes.length === 6 && routes.every(function(route) { return route.bound && route.calls === 2; }) },
       { name:'the legacy focus builder describes the experiment, not a one-per-section pattern', passed:getPredictionValidationFocus(routed).indexOf('HYPOTHESIS UNDER TEST') !== -1 && getPredictionValidationFocus(routed).indexOf(routed.prediction) !== -1 }
     );
 
@@ -11821,7 +11950,7 @@ async function runHypothesisExperimentLoopTests() {
     var launched = await launch(main);
     var exerciseId = launched.exercise.id;
     var callsBeforeAnswer = modelCalls.length;
-    var reply = await say('1-B, 2-B, 3-D');
+    var reply = await answer('ssn');
     var live = entryOf(main);
     var rows = experimentRows(main);
     var evidence = rows[0];
@@ -11850,36 +11979,47 @@ async function runHypothesisExperimentLoopTests() {
     var afterDispute = entryOf(main);
     results.push(
       { name:'a student disagreeing marks the read as disputed but the observed attempt stays on record and the status holds', passed:!!afterDispute.disputedAt && observedDiagnosisEvidenceCounts(afterDispute).supporting === 1 && experimentRows(main).length === 1 && status(main) === 'supported' },
-      { name:'the next action after a dispute is to repeat the test, so a new observation decides', passed:computeNextDiagnosticAction(afterDispute).action === 'replicate' && /student disputes/.test(computeNextDiagnosticAction(afterDispute).reason) },
+      { name:'the next action after a dispute is a fresh verification test, so a new observation decides', passed:computeNextDiagnosticAction(afterDispute).action === 'verify_disputed' && /student disputes/.test(computeNextDiagnosticAction(afterDispute).reason) && interpretHypothesisEvidence(afterDispute).state === 'under_verification' },
       { name:'the mentor sees the recorded test result and is told it cannot be re-graded', passed:(function() { var ctx = getGeneratedExerciseMemoryContext('I disagree with that result', { intent:'general' }); return /HYPOTHESIS TEST RESULT/.test(ctx) && /do not re-grade/.test(ctx) && ctx.indexOf('outcome supported') !== -1; })() }
     );
 
-    // 3d. a second supporting test confirms; a confirmed read is not tested again
+    // 3d. a disputed read is verified by a fresh test, and that test decides the dispute; a second supporting test confirms
     var secondLaunch = await launch(main);
     var secondDesign = secondLaunch.exercise.experiment;
-    await say('1-B, 2-D, 3-B');
+    var secondReply = await answer('ssns');
     var confirmedEntry = entryOf(main);
-    var third = await launchHypothesisExperiment(main.hypothesisId);
     results.push(
-      { name:'a supported read is re-tested on fresh items with a replicate design', passed:secondDesign.purpose === 'replicate' && secondDesign.statusAtDesign === 'supported' && secondLaunch.exercise.id !== exerciseId && secondLaunch.exercise.experiment.hypothesisId === main.hypothesisId },
-      { name:'a second supporting attempt confirms the read and the next action becomes a targeted correction', passed:status(main) === 'confirmed' && experimentRows(main).length === 2 && observedDiagnosisEvidenceCounts(confirmedEntry).supporting === 2 && computeNextDiagnosticAction(confirmedEntry).action === 'intervene' },
-      { name:'a confirmed read is not offered, tested again or counted as a follow-up test', passed:third === 'already_confirmed' && !isTestableMentorHypothesis(confirmedEntry) && offerHypothesisExperiment([confirmedEntry]) === null && !testableHypothesesFor('').some(function(item) { return item.hypothesisId === main.hypothesisId; }) }
+      { name:'a disputed read is re-tested with a verification design on fresh items that quotes the dispute', passed:secondDesign.purpose === 'verify' && secondDesign.trials === 4 && secondDesign.statusAtDesign === 'supported' && /not what happened/.test(secondDesign.dispute) && secondLaunch.exercise.id !== exerciseId && /disagreed with this read/.test(lastAssistantLead(secondLaunch)) },
+      { name:'a second supporting attempt confirms the read, resolves the dispute with the evidence, and the next action becomes a targeted correction', passed:status(main) === 'confirmed' && experimentRows(main).length === 2 && observedDiagnosisEvidenceCounts(confirmedEntry).supporting === 2 && computeNextDiagnosticAction(confirmedEntry).action === 'intervene' && hypothesisDisputeState(confirmedEntry).outcome === 'for_read' && /second observed test/.test(secondReply) && /You had disagreed/.test(secondReply) },
+      { name:'the confirmed read is offered a targeted practice set, not another test of the same thing', passed:!!pendingHypothesisExperiment && pendingHypothesisExperiment.action === 'intervene' && pendingHypothesisExperiment.hypothesisId === main.hypothesisId && !!margPendingConversationOptions && margPendingConversationOptions.options[0] === 'Start targeted practice' && !isTestableMentorHypothesis(confirmedEntry) && isLaunchableMentorHypothesis(confirmedEntry) && !testableHypothesesFor('').some(function(item) { return item.hypothesisId === main.hypothesisId; }) }
     );
+    function lastAssistantLead(launchedSet) { return conversationHistory.map(function(item) { return item.role === 'assistant' ? String(item.content || '') : ''; }).filter(function(text) { return text.indexOf('I am testing one read') !== -1; }).slice(-1)[0] || ''; }
 
-    // 4. rejected by evidence, then retired for good
+    // 4. one strong contradiction doubts a read, a second retires it, and the competing explanation is carried through
     reset();
     var pair = await createFromChat([OPTION, QUESTION]);
     var target = pair.find(function(item) { return /eliminate options/.test(item.claim); });
     var sibling = pair.find(function(item) { return /misread what/.test(item.claim); });
     var targetLaunch = await launch(target);
-    var rejectedReply = await say('1-C, 2-C, 3-A');
+    var rejectedReply = await answer('rrc');
+    var doubted = entryOf(target);
+    var doubtedRow = experimentRows(target)[0];
+    var nextAfterDoubt = computeNextDiagnosticAction(doubted);
+    var leaned = localDiagnosisEvidence(entryOf(sibling)).filter(function(row) { return row.payload && row.payload.cross_test; });
+    results.push(
+      { name:'one strong test against a read is recorded as a strong contradiction but does not retire it', passed:status(target) === 'hypothesis' && doubtedRow.supports === false && doubtedRow.strength >= 0.65 && doubted.lastExperiment.outcome === 'rejected' && !doubted.doNotReuse && observedDiagnosisEvidenceCounts(doubted).contradicting === 1 && /One test is not enough to drop it/.test(rejectedReply) && rejectedReply.indexOf('setting it aside') === -1 && doubted.confidence <= 0.4 },
+      { name:'the picks that followed the competing explanation are credited to that competitor as leaning evidence, without counting as a test of it', passed:leaned.length === 1 && leaned[0].supports === true && leaned[0].type === 'other' && leaned[0].payload.picks === 2 && observedRows(sibling).length === 0 && status(sibling) === 'hypothesis' && hypothesisRivalLean(entryOf(sibling)) === 1 },
+      { name:'because the competitor leaned, the next action is to test it, and that is what is offered', passed:nextAfterDoubt.action === 'test_rival' && nextAfterDoubt.targetHypothesisId === sibling.hypothesisId && pendingHypothesisExperiment && pendingHypothesisExperiment.hypothesisId === sibling.hypothesisId && pendingHypothesisExperiment.action === 'test_rival' && margPendingConversationOptions.options[0] === 'Test the other explanation' },
+      { name:'the competitor is now tested before an equally untested read, since picks led toward it', passed:hypothesisTestPriority(entryOf(sibling)) < 1 }
+    );
+    var retestLaunch = await launch(target);
+    var retiredReply = await answer('rrn');
     var rejectedEntry = entryOf(target);
-    var rejectedRow = experimentRows(target)[0];
     var nextAfterReject = computeNextDiagnosticAction(rejectedEntry);
     results.push(
-      { name:'two picks that follow the competing explanation and none that follow the claim reject the hypothesis from observed evidence', passed:status(target) === 'rejected' && rejectedRow.supports === false && rejectedRow.strength >= 0.65 && rejectedEntry.lastExperiment.outcome === 'rejected' && /setting it aside/.test(rejectedReply) },
+      { name:'a second strong contradiction rejects the read from observed evidence and says so', passed:status(target) === 'rejected' && experimentRows(target).length === 2 && observedDiagnosisEvidenceCounts(rejectedEntry).contradicting === 2 && rejectedEntry.doNotReuse === true && /setting it aside/.test(retiredReply) && retestLaunch.exercise.experiment.purpose === 'retest' },
       { name:'the next diagnostic action is to test the tracked competing explanation', passed:nextAfterReject.action === 'test_rival' && nextAfterReject.targetHypothesisId === sibling.hypothesisId },
-      { name:'the competing hypothesis stays untested and open', passed:status(sibling) === 'hypothesis' && observedRows(sibling).length === 0 && isTestableMentorHypothesis(entryOf(sibling)) }
+      { name:'the competing hypothesis stays open and untested by its own test', passed:status(sibling) === 'hypothesis' && observedRows(sibling).length === 0 && isTestableMentorHypothesis(entryOf(sibling)) }
     );
     modelCalls.length = 0;
     var relaunch = await launchHypothesisExperiment(target.hypothesisId);
@@ -11900,8 +12040,9 @@ async function runHypothesisExperimentLoopTests() {
     reset();
     var lateTarget = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
     var lateLaunch = await launch(lateTarget);
-    recordMentorHypothesisEvidence(lateTarget.hypothesisId, { kind:'observed_attempt', supports:false, strength:0.85, attemptId:'att-external', claim:'A separate recorded check went against this read.' });
-    var lateReply = await say('1-B, 2-B, 3-B');
+    recordMentorHypothesisEvidence(lateTarget.hypothesisId, { kind:'observed_attempt', supports:false, strength:0.85, attemptId:'att-external-1', claim:'A separate recorded check went against this read.' });
+    recordMentorHypothesisEvidence(lateTarget.hypothesisId, { kind:'observed_attempt', supports:false, strength:0.85, attemptId:'att-external-2', claim:'A second separate recorded check went against this read.' });
+    var lateReply = await answer('sss');
     results.push(
       { name:'a late supporting attempt on an already rejected hypothesis is recorded on it but the hypothesis stays rejected', passed:status(lateTarget) === 'rejected' && experimentRows(lateTarget).length === 1 && experimentRows(lateTarget)[0].supports === true && entryOf(lateTarget).lastExperiment.effect === 'recorded_on_rejected' && /set aside/.test(lateReply) && lateReply.indexOf('lined up') === -1 }
     );
@@ -11913,7 +12054,7 @@ async function runHypothesisExperimentLoopTests() {
     var retiredLaunch = await launch(retiredTarget);
     entryOf(retiredTarget).status = 'superseded'; entryOf(retiredTarget).doNotReuse = true;
     var supersededRecord = recordMentorHypothesisEvidence(retiredTarget.hypothesisId, { kind:'observed_attempt', supports:true, strength:0.85, attemptId:'att-x', claim:'late' });
-    var supersededReply = await say('1-B, 2-B, 3-B');
+    var supersededReply = await answer('sss');
     modelCalls.length = 0;
     results.push(
       { name:'a superseded hypothesis cannot be launched or recorded against, and a late attempt does not move it', passed:supersededRecord.ok === false && (await launchHypothesisExperiment(retiredTarget.hypothesisId)) === 'retired' && modelCalls.length === 0 && status(retiredTarget) === 'superseded' && observedRows(retiredTarget).length === 0 && /retired/.test(supersededReply) }
@@ -11924,19 +12065,21 @@ async function runHypothesisExperimentLoopTests() {
     var duel = await createFromChat([OPTION, QUESTION]);
     var loser = duel.find(function(item) { return /eliminate options/.test(item.claim); });
     var winner = duel.find(function(item) { return /misread what/.test(item.claim); });
-    await launch(winner); await say('1-B, 2-B, 3-D');
-    await launch(winner); await say('1-B, 2-D, 3-B');
-    await launch(loser); await say('1-C, 2-C, 3-A');
+    await launch(winner); await answer('ssn');
+    await launch(winner); await answer('sns');
+    await launch(loser); await answer('rrc');
+    var loserAfterOne = status(loser);
+    await launch(loser); await answer('rrc');
     var duelNext = computeNextDiagnosticAction(entryOf(loser));
     results.push(
-      { name:'when the rejected read lost to a confirmed competitor the next action is to work from that competitor, not to test it again', passed:status(winner) === 'confirmed' && status(loser) === 'rejected' && duelNext.action === 'follow_rival' && duelNext.targetHypothesisId === winner.hypothesisId }
+      { name:'when the rejected read lost to a confirmed competitor the next action is to work from that competitor, not to test it again', passed:status(winner) === 'confirmed' && loserAfterOne === 'hypothesis' && status(loser) === 'rejected' && duelNext.action === 'follow_rival' && duelNext.targetHypothesisId === winner.hypothesisId }
     );
 
     // 5. weakened and inconclusive outcomes, and the actions they lead to
     reset();
     var weak = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
     await launch(weak);
-    var weakReply = await say('1-D, 2-D, 3-A');
+    var weakReply = await answer('nnc');
     var weakFirst = entryOf(weak);
     var weakFirstConfidence = weakFirst.confidence;
     results.push(
@@ -11944,7 +12087,7 @@ async function runHypothesisExperimentLoopTests() {
       { name:'a weakened read needs another test, and the next action says so', passed:computeNextDiagnosticAction(weakFirst).action === 'retest' && describeHypothesisAssessment(weakFirst) === 'weakened' && isTestableMentorHypothesis(weakFirst) }
     );
     var weakLaunch = await launch(weak);
-    await say('1-D, 2-A, 3-D');
+    await answer('ncn');
     var weakSecond = entryOf(weak);
     results.push(
       { name:'the retest is designed as a retest, and a second weak result sends the mentor to look for a different explanation', passed:weakLaunch.exercise.experiment.purpose === 'retest' && status(weak) === 'hypothesis' && experimentRows(weak).length === 2 && computeNextDiagnosticAction(weakSecond).action === 'revisit_explanation' && weakSecond.confidence < weakFirstConfidence }
@@ -11953,22 +12096,22 @@ async function runHypothesisExperimentLoopTests() {
     reset();
     var mixed = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
     await launch(mixed);
-    var mixedReply = await say('1-B, 2-C, 3-A');
+    var mixedReply = await answer('src');
     results.push(
       { name:'a test where both the claim and the competitor were chosen leaves the read inconclusive', passed:status(mixed) === 'inconclusive' && entryOf(mixed).lastExperiment.outcome === 'inconclusive' && experimentRows(mixed)[0].supports === null && /did not settle/.test(mixedReply) },
       { name:'an inconclusive read is re-tested with a sharper design, then escalated to asking the student for the specific decision', passed:computeNextDiagnosticAction(entryOf(mixed)).action === 'sharpen_test' && (await (async function() {
         var sharper = await launch(mixed);
-        await say('1-C, 2-B, 3-D');
+        await answer('rsn');
         return sharper.exercise.experiment.purpose === 'sharpen' && status(mixed) === 'inconclusive' && computeNextDiagnosticAction(entryOf(mixed)).action === 'ask_for_observation';
       })()) },
       { name:'an inconclusive result never overwrites a read that observed attempts already support', passed:(await (async function() {
         reset();
         var steady = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
         await launch(steady);
-        await say('1-B, 2-B, 3-D');
+        await answer('ssn');
         var supportedBefore = status(steady);
         await launch(steady);
-        await say('1-B, 2-C, 3-A');
+        await answer('src');
         var rowsAfter = experimentRows(steady);
         return supportedBefore === 'supported' && rowsAfter.length === 2 && rowsAfter[1].supports === null && status(steady) === 'supported' && observedDiagnosisEvidenceCounts(entryOf(steady)).supporting === 1;
       })()) }
@@ -11979,9 +12122,9 @@ async function runHypothesisExperimentLoopTests() {
     var partial = (await createFromChat([OPTION, QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
     var partialLaunch = await launch(partial);
     var callsBeforePartial = modelCalls.length;
-    var firstPartial = await say('1-B');
+    var firstPartial = await answer('s');
     var afterPartial = { calls:modelCalls.length - callsBeforePartial, rows:experimentRows(partial).length, awaiting:activeGeneratedExercise.awaitingAnswers, status:status(partial) };
-    var secondPartial = await say('2-B');
+    var secondPartial = await answer('s', 2);
     results.push(
       { name:'one answer is not treated as a test result: nothing is recorded and the student is asked for the rest', passed:afterPartial.rows === 0 && afterPartial.awaiting === true && afterPartial.status === 'hypothesis' && /1 of the 3 answers/.test(firstPartial) && afterPartial.calls === 0 },
       { name:'answers sent in separate messages accumulate and the test is evaluated once enough have arrived', passed:experimentRows(partial).length === 1 && status(partial) === 'supported' && /lined up/.test(secondPartial) && activeGeneratedExercise.experimentEvaluation.counts.answered === 2 }
@@ -12037,7 +12180,7 @@ async function runHypothesisExperimentLoopTests() {
     results.push(
       { name:'launching the test saves a task row for that hypothesis, identified by its id and success metric', passed:!!openTask && openTask.action_payload.hypothesisId === durable.hypothesisId && hypothesisIdFromTask(openTask) === durable.hypothesisId && /Supported if:/.test(openTask.success_metric) && /Weakened if:/.test(openTask.success_metric) && openTask.action_payload.artifact_snapshot.experiment.hypothesisId === durable.hypothesisId && openTask.artifact_ref === durableLaunch.exercise.id }
     );
-    await say('1-B, 2-B, 3-D');
+    await answer('ssn');
     await settle();
     var taskRow = tables.mentor_tasks.find(function(row) { return row.client_ref === taskRef; });
     var attemptRow = tables.mentor_task_attempts.find(function(row) { return row.task_id === taskRow.id; });
@@ -12075,7 +12218,7 @@ async function runHypothesisExperimentLoopTests() {
     // 6c. resume: the saved test comes back as the same exercise for the same hypothesis, without a model call
     var home = buildHomeRecommendation();
     modelCalls.length = 0;
-    script.push(JSON.stringify(draft()));
+    scriptDraft(durable);
     homeRecommendationAction = home && home.action;
     await runHomeRecommendation();
     await settle();
@@ -12099,9 +12242,9 @@ async function runHypothesisExperimentLoopTests() {
     await settle();
     var replayed = activeGeneratedExercise;
     results.push(
-      { name:'resuming the saved task puts the exact same unanswered questions back in chat for the same hypothesis, with no model call and no new test', passed:modelCalls.length === 0 && !!replayed && replayed.id === unanswered.id && replayed.experiment.hypothesisId === durable.hypothesisId && lastAssistant().indexOf(STEMS[1]) !== -1 && conversationHistory[conversationHistory.length - 1].exerciseId === unanswered.id && isActiveExerciseCurrentInConversation() }
+      { name:'resuming the saved task puts the exact same unanswered questions back in chat for the same hypothesis, with no model call and no new test', passed:modelCalls.length === 0 && !!replayed && replayed.id === unanswered.id && replayed.experiment.hypothesisId === durable.hypothesisId && lastAssistant().indexOf(unanswered.content.questions[1].q) !== -1 && conversationHistory[conversationHistory.length - 1].exerciseId === unanswered.id && isActiveExerciseCurrentInConversation() }
     );
-    await say('1-B, 2-D, 3-B');
+    await answer('sns');
     await settle();
     var finalEntry = findMentorHypothesis(durable.hypothesisId);
     var experimentEvidence = experimentRows(durable);
@@ -12110,7 +12253,7 @@ async function runHypothesisExperimentLoopTests() {
       { name:'the saved diagnosis row now says confirmed, with two attempts on the same task', passed:tables.mentor_diagnoses.find(function(row) { return row.client_ref === mentorDiagnosisClientRef(durable); }).status === 'confirmed' && tables.mentor_task_attempts.filter(function(row) { return row.task_id === taskRow.id; }).length === 2 && tables.mentor_diagnosis_evidence.filter(function(row) { return row.evidence_payload && row.evidence_payload.experiment_ref; }).length === 2 }
     );
     results.push(
-      { name:'once confirmed, the saved task is no longer recommended as something to resume and the follow-up test is not offered', passed:getHypothesisFollowUpRecommendation() === null && !isTestableMentorHypothesis(finalEntry) }
+      { name:'once confirmed, the saved task is no longer a test to resume: the home screen now points at the targeted practice instead', passed:(function() { var recommendation = getHypothesisFollowUpRecommendation(); return !!recommendation && recommendation.title === 'One read is ready to work on.' && recommendation.action.hypothesisId === durable.hypothesisId && !isTestableMentorHypothesis(finalEntry) && isLaunchableMentorHypothesis(finalEntry); })() }
     );
   } finally {
     restore();
@@ -12118,6 +12261,299 @@ async function runHypothesisExperimentLoopTests() {
   return results;
 }
 window.runHypothesisExperimentLoopTests = runHypothesisExperimentLoopTests;
+
+// Lifecycle tests: whether the experiment measures what it claims, and whether the
+// evidence it produces is carried correctly through every later decision (more
+// tests, a competitor, a dispute, a targeted fix, its failure, and later evidence
+// that overturns an earlier conclusion). Every step runs the production path.
+async function runHypothesisLifecycleTests() {
+  var H = createHypothesisExperimentHarness();
+  var script = H.script, modelCalls = H.modelCalls, restore = H.restore, reset = H.reset, settle = H.settle, tag = H.tag;
+  var OPTION = H.OPTION, QUESTION = H.QUESTION, STEMS = H.STEMS, draft = H.draft, scriptDraft = H.scriptDraft, lastAssistant = H.lastAssistant, say = H.say, answer = H.answer;
+  var createFromChat = H.createFromChat, launch = H.launch, entryOf = H.entryOf, status = H.status, experimentRows = H.experimentRows, observedRows = H.observedRows;
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  function isMain(item) { return /eliminate options/.test(item.claim); }
+  function isRival(item) { return /misread what/.test(item.claim); }
+  var savedBehavior = behavioralMemory;
+  async function fresh(fields) {
+    reset();
+    behavioralMemory = { patterns:[] };
+    var created = await createFromChat(fields || [OPTION, QUESTION]);
+    return { main:created.find(isMain), rival:created.find(isRival) };
+  }
+  async function viaOffer(entry, label) {
+    scriptDraft(entry);
+    margPendingConversationOptions = null;
+    await handleConversationalResponse(label, 'start_hypothesis_experiment');
+    await settle();
+    return activeGeneratedExercise;
+  }
+  function draftPrompt() { return modelCalls[modelCalls.length - 2].text; }
+  async function confirmedRead() {
+    var pair = await fresh();
+    await launch(pair.main); await answer('ssn');
+    await launch(pair.main); await answer('sns');
+    return pair;
+  }
+  function optionText(question, letter) { return String(question.options[letter.charCodeAt(0) - 65]).replace(/^[A-D]\.\s*/, ''); }
+  async function auditRejection(mutate) {
+    var pair = await fresh();
+    script.length = 0; modelCalls.length = 0;
+    scriptDraft(pair.main, null, mutate);
+    scriptDraft(pair.main);
+    var outcome = await launchHypothesisExperiment(pair.main.hypothesisId);
+    await settle();
+    var found = /PREVIOUS DRAFT WAS REJECTED \(([a-z_0-9]+)\)/.exec(modelCalls[2] ? modelCalls[2].text : '');
+    return { reason:found && found[1], outcome:outcome, calls:modelCalls.length, shown:isHypothesisExperiment(activeGeneratedExercise) };
+  }
+
+  try {
+    // A. The test measures what it claims to measure
+    var keyMismatch = await auditRejection(function(items) { items[1].answer = 'B'; });
+    var claimMismatch = await auditRejection(function(items) { items[0].cause_x = 'D'; });
+    var rivalMismatch = await auditRejection(function(items) { items[2].cause_y = 'B'; });
+    var unreadable = await (async function() {
+      var pair = await fresh();
+      script.length = 0; modelCalls.length = 0;
+      var set = draft();
+      script.push(JSON.stringify(set), JSON.stringify({ items:[] }));
+      scriptDraft(pair.main);
+      await launchHypothesisExperiment(pair.main.hypothesisId);
+      await settle();
+      return /PREVIOUS DRAFT WAS REJECTED \(audit_unreadable\)/.test(modelCalls[2].text);
+    })();
+    check('a draft whose answer key disagrees with an independent blind solve is rejected before it is shown, and the retry is told why', keyMismatch.reason === 'audit_key_mismatch_2' && keyMismatch.calls === 4 && keyMismatch.shown === true);
+    check('a draft whose claim-cause option disagrees with the blind labelling is rejected', claimMismatch.reason === 'audit_claim_label_mismatch_1' && claimMismatch.shown === true);
+    check('a draft whose competing-cause option disagrees with the blind labelling is rejected', rivalMismatch.reason === 'audit_rival_label_mismatch_3' && rivalMismatch.shown === true);
+    check('an unreadable audit rejects the draft instead of trusting it', unreadable === true);
+
+    var both = await (async function() {
+      var pair = await fresh();
+      script.length = 0; modelCalls.length = 0;
+      scriptDraft(pair.main, null, function(items) { items[0].answer = 'C'; });
+      scriptDraft(pair.main, null, function(items) { items[0].answer = 'C'; });
+      var outcome = await launchHypothesisExperiment(pair.main.hypothesisId);
+      await settle();
+      return { outcome:outcome, shown:activeGeneratedExercise, rows:observedRows(pair.main).length, status:status(pair.main), calls:modelCalls.length };
+    })();
+    check('when no draft survives the audit nothing is shown or recorded and the hypothesis is untouched', both.outcome === false && both.shown === null && both.rows === 0 && both.status === 'hypothesis' && both.calls === 4);
+
+    var seeds = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'];
+    var shuffledSets = seeds.map(function(seed) { var set = draft(); bindHypothesisExperimentSignals(set, { hypothesisId:'h-x', patternId:'mh-x' }); return shuffleHypothesisExperimentOptions(set, seed); });
+    var repeatShuffle = shuffleHypothesisExperimentOptions(bindHypothesisExperimentSignals(draft(), { hypothesisId:'h-x', patternId:'mh-x' }), 'a');
+    check('option order is owned by the system: shuffling moves the correct option for different seeds but never changes what any option means', shuffledSets.some(function(set) { return set.questions.some(function(question) { return question.correct !== 0; }); }) && shuffledSets.every(function(set) {
+      return set.questions.every(function(question) {
+        var signals = question.hypothesisSignals;
+        return /amplified/.test(optionText(question, String.fromCharCode(65 + question.correct))) && /alone created/.test(optionText(question, signals.supports[0])) && /prove nothing/.test(optionText(question, signals.rival[0])) &&
+          question.options.map(function(option) { return option.charAt(0); }).join('') === 'ABCD';
+      });
+    }) && JSON.stringify(repeatShuffle) === JSON.stringify(shuffledSets[0]));
+
+    var shownPair = await fresh();
+    var shown = await launch(shownPair.main);
+    check('the launched exercise carries its audit and the claim, competitor and correct letters still point at the same option texts', shown.exercise.experiment.validity.audit === 'agreed' && shown.exercise.experiment.validity.draftsUsed === 1 && shown.exercise.content.questions.every(function(question) {
+      return /amplified/.test(optionText(question, String.fromCharCode(65 + question.correct))) && /alone created/.test(optionText(question, question.hypothesisSignals.supports[0])) && /prove nothing/.test(optionText(question, question.hypothesisSignals.rival[0]));
+    }));
+
+    // A2. the predicted observable decides how much a result is worth
+    async function evidenceFor(fields) {
+      var pair = await fresh([Object.assign({}, OPTION, fields), QUESTION]);
+      var intro = lastAssistant();
+      await launch(pair.main);
+      var lead = conversationHistory.map(function(item) { return String(item.content || ''); }).filter(function(text) { return text.indexOf('I am testing one read') !== -1; }).slice(-1)[0] || '';
+      var reply = await answer('ssn');
+      var row = experimentRows(pair.main)[0];
+      return { entry:entryOf(pair.main), row:row, lead:lead, reply:reply, pair:pair };
+    }
+    var proxy = await evidenceFor({});
+    var proxyStatus = status(proxy.pair.main);
+    var direct = await evidenceFor({ observable:'wrong_picks_per_set', direction:'decrease' });
+    var unmeasurable = await evidenceFor({ observable:'seconds_per_question', direction:'decrease' });
+    check('with no stated observable the result is a proxy measurement, weighted down, and says what was actually measured', proxy.row.payload.fidelity === 'proxy' && proxy.row.payload.measured_observable === 'signal_pick_rate' && Math.abs(proxy.row.strength - 0.765) < 0.001 && proxy.row.payload.evidence_factor === 0.9 && proxy.row.payload.actual.signal_pick_rate === 0.67 && proxy.row.payload.actual.accuracy === 0 && proxy.row.payload.actual.skip_rate === 0 && proxyStatus === 'supported');
+    check('a predicted observable that is about which options are chosen is measured directly, at full weight, and the prediction is stored with the result', direct.row.payload.fidelity === 'direct' && direct.row.strength === 0.85 && direct.row.payload.predicted_observable.observable === 'wrong_picks_per_set' && direct.row.payload.predicted_observable.direction === 'decrease');
+    check('a predicted observable a chat test cannot measure (time) is never allowed to move the status, whatever the picks were', unmeasurable.row.payload.fidelity === 'unmeasurable' && unmeasurable.row.strength < 0.65 && status(unmeasurable.pair.main) === 'hypothesis' && observedDiagnosisEvidenceCounts(unmeasurable.entry).supporting === 0 && interpretHypothesisEvidence(unmeasurable.entry).state === 'insufficient');
+    check('the student is told that limit before the test, and the next step asks for the real observation instead of testing again', /cannot measure/.test(unmeasurable.lead) && computeNextDiagnosticAction(unmeasurable.entry).action === 'ask_for_observation' && /cannot measure/.test(unmeasurable.reply) && !pendingHypothesisExperiment && !(margPendingConversationOptions && margPendingConversationOptions.context === 'start_hypothesis_experiment'));
+
+    var legacyPair = await fresh();
+    var legacyLaunch = await launch(legacyPair.main);
+    delete legacyLaunch.exercise.experiment.validity;
+    storeActiveGeneratedExercise(legacyLaunch.exercise);
+    await answer('ssn');
+    var legacyRow = experimentRows(legacyPair.main)[0];
+    check('an experiment that was never audited is weak evidence and cannot move the status', legacyRow.payload.audit === 'unaudited' && legacyRow.strength < 0.65 && status(legacyPair.main) === 'hypothesis');
+
+    // A3. a follow-up is built on, and cannot repeat, the earlier test
+    var repeatPair = await fresh();
+    await launch(repeatPair.main); await answer('ssn');
+    var repeatDesign = buildHypothesisExperimentDesign(entryOf(repeatPair.main));
+    var samePassage = draft();
+    var sameStem = H.autoDraft(repeatDesign);
+    sameStem.questions[0].q = STEMS[0];
+    var passageVerdict = validateHypothesisExperimentSet(samePassage, repeatDesign);
+    var stemVerdict = validateHypothesisExperimentSet(sameStem, repeatDesign);
+    script.length = 0; modelCalls.length = 0;
+    script.push(JSON.stringify(samePassage));
+    scriptDraft(repeatPair.main);
+    await launchHypothesisExperiment(repeatPair.main.hypothesisId);
+    await settle();
+    check('a follow-up that reuses the earlier passage or an earlier question is rejected before it is shown', passageVerdict.reason === 'repeats_previous_passage' && stemVerdict.reason === 'repeats_previous_question_1');
+    check('the launcher drops the repeated draft, asks again with that reason, and shows a different test', /PREVIOUS DRAFT WAS REJECTED \(repeats_previous_passage\)/.test(modelCalls[1].text) && isHypothesisExperiment(activeGeneratedExercise) && activeGeneratedExercise.content.passage !== samePassage.passage);
+    check('the follow-up prompt is built from the earlier result: it says it repeats a test and quotes what that test found', /REPEATS an earlier test/.test(modelCalls[0].text) && /first_test test: supported \(2 claim-cause picks/.test(modelCalls[0].text));
+
+    // B. Long lifecycles
+    // B1. inconclusive -> sharper test built from that result -> resolved
+    var inc = await fresh();
+    await launch(inc.main);
+    var incReply = await answer('src');
+    var incStatus = status(inc.main);
+    var incOffer = pendingHypothesisExperiment && pendingHypothesisExperiment.action;
+    var incLabel = margPendingConversationOptions && margPendingConversationOptions.options[0];
+    var incState = interpretHypothesisEvidence(entryOf(inc.main)).state;
+    var sharper = await launch(inc.main);
+    var sharperPrompt = draftPrompt();
+    var sharperReply = await answer('ssnsn');
+    var sharperRows = hypothesisLedger(entryOf(inc.main));
+    check('an inconclusive test leaves the read inconclusive, offers a sharper test and says it is unsettled', incStatus === 'inconclusive' && incState === 'inconclusive' && incOffer === 'sharpen_test' && incLabel === 'Run a sharper test' && /did not settle/.test(incReply) && experimentRows(inc.main)[0].strength < 0.65);
+    check('the sharper test is longer, built from the inconclusive result, and tells the writer to separate the two causes in every question', sharper.exercise.experiment.purpose === 'sharpen' && sharper.exercise.experiment.trials === 5 && /did not settle this read/.test(sharperPrompt) && /DIFFERENTLY in every single question/.test(sharperPrompt) && sharper.exercise.experiment.history.length === 1 && sharper.exercise.experiment.history[0].outcome === 'inconclusive');
+    check('a decisive result after an inconclusive one settles the read: the weak result is not counted, the strong one is', status(inc.main) === 'supported' && observedDiagnosisEvidenceCounts(entryOf(inc.main)).supporting === 1 && sharperRows.length === 2 && sharperRows[0].grade === 'weak' && sharperRows[1].grade === 'strong' && trailingUnsettledTests(entryOf(inc.main)) === 0 && /lined up/.test(sharperReply));
+
+    // B2. a competitor becomes the stronger explanation
+    var duel = await fresh();
+    await launch(duel.main);
+    await answer('rrc');
+    var duelOffer = pendingHypothesisExperiment;
+    var rivalTest = await viaOffer(duel.rival, 'Test the other explanation');
+    await answer('ssn');
+    var mainDoubted = status(duel.main), rivalSupported = status(duel.rival);
+    var nextWhileRivalLeads = computeNextDiagnosticAction(entryOf(duel.main));
+    await launch(duel.main);
+    await answer('rrn');
+    await launch(duel.rival);
+    var confirmReply = await answer('sns');
+    var nextAfterDuel = computeNextDiagnosticAction(entryOf(duel.main));
+    check('the picks that followed the competitor lead the mentor to offer a test of the competitor, and the offer opens a test bound to the competitor', !!duelOffer && duelOffer.hypothesisId === duel.rival.hypothesisId && duelOffer.action === 'test_rival' && rivalTest.experiment.hypothesisId === duel.rival.hypothesisId && rivalTest.experiment.rivals[0].hypothesisId === duel.main.hypothesisId);
+    check('while the competitor is supported and the first read is only doubted, both stay open and the action still points at the competitor', mainDoubted === 'hypothesis' && rivalSupported === 'supported' && nextWhileRivalLeads.action === 'test_rival' && nextWhileRivalLeads.targetHypothesisId === duel.rival.hypothesisId);
+    check('further evidence retires the first read and confirms the competitor, and the first read then points at the confirmed one', status(duel.main) === 'rejected' && status(duel.rival) === 'confirmed' && nextAfterDuel.action === 'follow_rival' && nextAfterDuel.targetHypothesisId === duel.rival.hypothesisId && /second observed test/.test(confirmReply));
+
+    // B3. the student disputes a supported read: a fresh test decides, not the argument
+    var dis = await fresh();
+    await launch(dis.main); await answer('ssn');
+    await say('That is not what happened, you misread my option elimination.', 'I hear that. The test showed what it showed, so let us check it again on fresh questions.');
+    var disBefore = interpretHypothesisEvidence(entryOf(dis.main));
+    var disBasis = describeHypothesisBasis(entryOf(dis.main));
+    var verify = await launch(dis.main);
+    var verifyPrompt = draftPrompt();
+    var verifyReply = await answer('rrnr');
+    var disAfter = entryOf(dis.main);
+    check('a dispute leaves the observed support on record but marks the read as under verification, in what the mentor is told as well', disBefore.state === 'under_verification' && observedDiagnosisEvidenceCounts(disAfter).supporting === 1 && /disputed by the student, and under verification/.test(disBasis));
+    check('the verification test quotes the dispute as data, not as an instruction, and is longer than a first test', verify.exercise.experiment.purpose === 'verify' && verify.exercise.experiment.trials === 4 && /treat this as data about their experience/.test(verifyPrompt) && /not what happened/.test(verifyPrompt));
+    check('a fresh decisive result against the read resolves the dispute in the student’s favour, turns the read inconclusive instead of erasing the earlier test, and says so', status(dis.main) === 'inconclusive' && hypothesisDisputeState(disAfter).outcome === 'against_read' && !hypothesisDisputeUnverified(disAfter) && observedDiagnosisEvidenceCounts(disAfter).supporting === 1 && observedDiagnosisEvidenceCounts(disAfter).contradicting === 1 && /evidence now agrees with you/.test(verifyReply) && /split/.test(verifyReply) && computeNextDiagnosticAction(disAfter).action === 'sharpen_test');
+
+    var und = await fresh();
+    await launch(und.main); await answer('ssn');
+    await say('That is not what happened, you misread my option elimination.', 'Understood, we can check it again.');
+    await launch(und.main);
+    var undFirst = await answer('srnc');
+    var stillOpen = hypothesisDisputeUnverified(entryOf(und.main));
+    await launch(und.main);
+    var undSecond = await answer('rsnn');
+    var undEntry = entryOf(und.main);
+    check('two fresh tests that cannot decide close the dispute as undecided, keep the earlier support, and stop asking for verification', stillOpen === true && hypothesisDisputeState(undEntry).outcome === 'undecided' && !hypothesisDisputeUnverified(undEntry) && status(und.main) === 'supported' && /stays unverified/.test(undSecond) && !/disagreed with this read/.test(undFirst) && computeNextDiagnosticAction(undEntry).action === 'replicate');
+
+    // B4. the read is confirmed, then worked on, and the fix succeeds
+    var win = await confirmedRead();
+    var winEntry = entryOf(win.main);
+    var winBaseline = hypothesisInterventionBaseline(winEntry);
+    var winOffer = pendingHypothesisExperiment && pendingHypothesisExperiment.action;
+    var practice = await viaOffer(win.main, 'Start targeted practice');
+    var practicePrompt = draftPrompt();
+    var leadText = conversationHistory.map(function(item) { return String(item.content || ''); }).filter(function(text) { return text.indexOf('moving from testing it to working on it') !== -1; }).slice(-1)[0] || '';
+    var firstFix = await answer('ncnc');
+    var fixEntry = entryOf(win.main);
+    var fixRow = experimentRows(win.main)[2];
+    var observedAfterFix = observedDiagnosisEvidenceCounts(fixEntry);
+    check('once a read is confirmed the next step is a targeted practice set, not another test of the same read', winOffer === 'intervene' && practice.experiment.kind === 'intervention' && practice.experiment.purpose === 'intervention' && practice.experiment.trials === 4 && practice.experiment.rivals.length === 0 && practice.experiment.hypothesisId === win.main.hypothesisId);
+    check('the practice set is built from the hypothesis itself: its own condition becomes the practice rule, and the earlier tests are its baseline', /justify every elimination with a passage line/.test(practice.experiment.rule) && /PRACTICE SET/.test(practicePrompt) && practicePrompt.indexOf(practice.experiment.rule) !== -1 && winBaseline.signalRate === 0.67 && winBaseline.answered === 6 && practice.experiment.baseline.signalRate === 0.67 && /moving from testing it to working on it/.test(leadText) && /67%/.test(leadText));
+    check('the practice result is measured against that baseline, stored as intervention evidence, and does not touch the diagnostic counts or the confirmed status', fixRow.type === 'practice_attempt' && fixRow.payload.evidence_role === 'intervention' && fixRow.payload.intervention_outcome === 'effective' && fixRow.supports === true && fixRow.payload.change.before === 0.67 && fixRow.payload.change.after === 0 && observedAfterFix.observed === 2 && observedAfterFix.supporting === 2 && status(win.main) === 'confirmed');
+    check('one good set is reported as encouraging but unproven, and the next action is to measure the change again', deriveInterventionState(fixEntry).state === 'effective' && /moved the behaviour/.test(firstFix) && /not proof the change holds/.test(firstFix) && computeNextDiagnosticAction(fixEntry).action === 'remeasure' && pendingHypothesisExperiment.action === 'remeasure' && margPendingConversationOptions.options[0] === 'Measure it again' && interpretHypothesisEvidence(fixEntry).state === 'improving');
+    var remeasure = await launch(win.main);
+    var secondFix = await answer('cccn');
+    var resolvedEntry = entryOf(win.main);
+    var callsBeforeGate = modelCalls.length;
+    var resolvedGate = await launchHypothesisExperiment(win.main.hypothesisId);
+    check('a second successful measurement resolves the problem: it is watched, not drilled again, and nothing more is offered', remeasure.exercise.experiment.purpose === 'intervention_remeasure' && deriveInterventionState(resolvedEntry).state === 'resolved' && computeNextDiagnosticAction(resolvedEntry).action === 'monitor' && /change held/.test(secondFix) && !pendingHypothesisExperiment && resolvedGate === 'already_confirmed' && modelCalls.length === callsBeforeGate && getHypothesisFollowUpRecommendation() === null && /two separate measurements/.test(describeHypothesisLevel(resolvedEntry)) && status(win.main) === 'confirmed');
+
+    // B5. the fix does not work: adjust once, then doubt the cause itself
+    var lose = await confirmedRead();
+    await viaOffer(lose.main, 'Start targeted practice');
+    var firstMiss = await answer('ssns');
+    var missState = deriveInterventionState(entryOf(lose.main));
+    var missAction = computeNextDiagnosticAction(entryOf(lose.main));
+    var missOffer = margPendingConversationOptions && margPendingConversationOptions.options[0];
+    check('a practice set that does not move the behaviour is not treated as working: the status holds, the practice is adjusted, and the student is told', status(lose.main) === 'confirmed' && missState.state === 'adjust' && missAction.action === 'adjust_intervention' && missOffer === 'Adjust the practice' && /did not change enough/.test(firstMiss) && interpretHypothesisEvidence(entryOf(lose.main)).state === 'intervention_not_working');
+    var adjusted = await launch(lose.main);
+    var secondMiss = await answer('sssn');
+    var failedEntry = entryOf(lose.main);
+    var failedAction = computeNextDiagnosticAction(failedEntry);
+    var confirmedPattern = function() { return (behavioralMemory.patterns || []).filter(function(pattern) { return pattern.source === 'repeated-observed-diagnostic'; }); };
+    check('a second failed practice puts the cause itself in doubt: the read drops back to inconclusive, the fix is not repeated, and the competing explanation is tested next', adjusted.exercise.experiment.purpose === 'intervention_adjusted' && deriveInterventionState(failedEntry).state === 'failed' && status(lose.main) === 'inconclusive' && failedEntry.confidence <= 0.45 && failedAction.action === 'test_rival' && failedAction.targetHypothesisId === lose.rival.hypothesisId && /cause itself is now in question/.test(secondMiss) && /in doubt/.test(describeHypothesisLevel(failedEntry)) && observedDiagnosisEvidenceCounts(failedEntry).supporting === 2);
+    check('the durable behaviour pattern left behind by the earlier confirmation is no longer carried as settled', confirmedPattern().length > 0 && confirmedPattern().every(function(pattern) { return pattern.doNotReuse === true; }));
+    var recoverLaunch = await launch(lose.main);
+    await answer('ssn');
+    var recovered = entryOf(lose.main);
+    check('new observed support after a failed fix restores the read, clears the failed-fix cap, and the targeted practice is available again', recoverLaunch.exercise.experiment.purpose === 'retest' && status(lose.main) === 'confirmed' && deriveInterventionState(recovered).state === null && computeNextDiagnosticAction(recovered).action === 'intervene' && confirmedPattern().some(function(pattern) { return pattern.doNotReuse !== true; }));
+
+    // B6. later evidence overturns an earlier conclusion, step by step, without ever jumping.
+    // A confirmed read is not re-tested for its own sake; the student disputing it is what
+    // opens a fresh diagnostic test, and that test's result is what moves the conclusion.
+    var flip = await confirmedRead();
+    await say('That is not what happened, you misread my option elimination.', 'The tests are on record, so a fresh one will decide it.');
+    var trail = [status(flip.main)];
+    var flipReplies = [];
+    var tests = ['rrrc', 'rrc', 'rrc', 'rrc'];
+    for (var step = 0; step < tests.length; step++) {
+      await launch(flip.main);
+      flipReplies.push(await answer(tests[step]));
+      trail.push(status(flip.main));
+    }
+    var flipEntry = entryOf(flip.main);
+    var flipRows = hypothesisLedger(flipEntry);
+    check('a confirmed read is taken back one step at a time as contradicting tests accumulate: confirmed, supported, inconclusive, inconclusive, rejected', trail.join(',') === 'confirmed,supported,inconclusive,inconclusive,rejected');
+    check('each stage is worded for what the evidence supports then: split, not decisive, until the balance reaches two against', /the evidence is split/.test(flipReplies[0]) && /split/.test(flipReplies[1]) && /second test to go against|setting it aside/.test(flipReplies[3]) && flipReplies.slice(0, 3).every(function(text) { return text.indexOf('setting it aside') === -1; }));
+    check('the history shows the whole sequence on one hypothesis: two supporting, four contradicting, nothing deleted, and the final read is retired', flipRows.length === 6 && flipRows.filter(function(row) { return row.outcome === 'supported'; }).length === 2 && flipRows.filter(function(row) { return row.outcome === 'rejected'; }).length === 4 && observedDiagnosisEvidenceCounts(flipEntry).supporting === 2 && observedDiagnosisEvidenceCounts(flipEntry).contradicting === 4 && flipEntry.doNotReuse === true && flipEntry.confidence <= 0.2);
+    check('the pattern recorded at confirmation is retired with the read', confirmedPattern().some(function(pattern) { return pattern.status === 'rejected' && pattern.doNotReuse === true; }));
+
+    // B7. the whole lifecycle survives a reload: ledger, intervention state, next action and anti-repeat history
+    reset({ keepIdentity:true });
+    var tables = H.installDatabase();
+    var durable = (await createFromChat([OPTION, QUESTION])).find(isMain);
+    await launch(durable); await answer('ssn');
+    await launch(durable); await answer('sns');
+    await viaOffer(durable, 'Start targeted practice');
+    await answer('ncnc');
+    await settle();
+    var beforeReload = { ledger:hypothesisLedger(entryOf(durable)).length, action:computeNextDiagnosticAction(entryOf(durable)).action };
+    var practiceStems = hypothesisItemFingerprints(entryOf(durable)).stems.length;
+    diagnosticMemory = {}; studentProfile.diagnosticMemory = diagnosticMemory; conversationHistory = []; activeGeneratedExercise = null; pendingHypothesisExperiment = null;
+    mentorExecutionLoop = { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:false, unavailable:false, evidenceUnavailable:false };
+    H.wipeStorage();
+    try { localStorage.removeItem(H.diagnosticKey); } catch(e) {}
+    await loadMentorExecutionLoop();
+    var rebuilt = findMentorHypothesis(durable.hypothesisId);
+    var restoredInterventionRows = rebuilt ? interventionEvidenceRows(rebuilt) : [];
+    check('after a reload the experiment ledger, the intervention measurements and the next action are rebuilt from the saved evidence rows', !!rebuilt && beforeReload.ledger === 3 && hypothesisLedger(rebuilt).length === 3 && restoredInterventionRows.length === 1 && deriveInterventionState(rebuilt).state === 'effective' && beforeReload.action === 'remeasure' && computeNextDiagnosticAction(rebuilt).action === 'remeasure' && normalizeDiagnosisStatus(rebuilt) === 'confirmed');
+    check('after a reload the earlier items are still remembered, so a follow-up cannot repeat them, and the practice rule and baseline are rebuilt', !!rebuilt && hypothesisItemFingerprints(rebuilt).stems.length === practiceStems && practiceStems === 10 && /justify every elimination/.test(hypothesisInterventionRule(rebuilt)) && hypothesisInterventionBaseline(rebuilt).signalRate === 0.67);
+    var practiceRowSaved = tables.mentor_diagnosis_evidence.find(function(row) { return row.evidence_payload && row.evidence_payload.evidence_role === 'intervention'; });
+    check('the saved intervention row is a practice measurement, not a diagnostic observation', !!practiceRowSaved && practiceRowSaved.evidence_type === 'practice_attempt' && practiceRowSaved.evidence_payload.intervention_outcome === 'effective' && practiceRowSaved.evidence_payload.ledger.role === 'intervention');
+  } finally {
+    behavioralMemory = savedBehavior;
+    try { localStorage.removeItem(getUserScopedKey('marg_behavioral_memory')); } catch(e) {}
+    restore();
+  }
+  return results;
+}
+window.runHypothesisLifecycleTests = runHypothesisLifecycleTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
