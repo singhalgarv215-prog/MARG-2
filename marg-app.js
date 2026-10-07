@@ -5104,28 +5104,29 @@ function observedDiagnosisEvidenceCounts(entry) {
 }
 
 // The state of the targeted fix is a pure function of its measurement rows, so
-// it survives a reload and a device change exactly like the evidence it comes
-// from. Two consecutive measurements that moved the behaviour resolve it, two
-// that did not mark it failed, and a failed fix stays failed until a newer
-// observed attempt supports the read again.
+// it survives a reload exactly like the evidence it comes from. A set that
+// cannot be judged does not count as success or failure and does not wipe a
+// streak. Two sets that cannot be judged, or two that show the fix did not
+// change the targeted behaviour, retire that fix. Later diagnostic support
+// does not reopen a retired fix: a failed fix is not a disproved diagnosis.
 function interventionEvidenceRows(entry) {
   return localDiagnosisEvidence(entry).filter(function(item) { return item && item.payload && item.payload.evidence_role === 'intervention' && item.payload.intervention_outcome; })
     .slice().sort(function(a, b) { return String(a.occurredAt || '').localeCompare(String(b.occurredAt || '')); });
 }
 
 function deriveInterventionState(entry) {
-  var streak = 0, misses = 0, failedAt = null, measured = 0;
+  var streak = 0, misses = 0, unmeasured = 0, measured = 0;
   interventionEvidenceRows(entry).forEach(function(item) {
     var outcome = item.payload.intervention_outcome;
+    if (outcome === 'insufficient' || outcome === 'inconclusive') { unmeasured++; return; }
     if (outcome !== 'effective' && outcome !== 'not_effective') return;
-    if (failedAt != null && Number(item.payload.support_at || 0) > failedAt) { streak = 0; misses = 0; failedAt = null; measured = 0; }
     measured++;
+    unmeasured = 0;
     if (outcome === 'effective') { streak++; misses = 0; }
-    else { streak = 0; misses++; if (misses >= 2) failedAt = Number(item.payload.support_at || 0); }
+    else { streak = 0; misses++; }
   });
-  if (failedAt != null && observedDiagnosisEvidenceCounts(entry).supporting > failedAt) return { state:null, streak:0, misses:0, measured:0, failedAtSupport:null };
-  var state = misses >= 2 ? 'failed' : misses === 1 ? 'adjust' : streak >= 2 ? 'resolved' : streak === 1 ? 'effective' : null;
-  return { state:state, streak:streak, misses:misses, measured:measured, failedAtSupport:failedAt };
+  var state = misses >= 2 ? 'failed' : streak >= 2 ? 'resolved' : unmeasured >= 2 ? 'unmeasured' : misses === 1 ? 'adjust' : streak === 1 ? 'effective' : null;
+  return { state:state, streak:streak, misses:misses, measured:measured, unmeasured:unmeasured };
 }
 
 // A mentor hypothesis is judged on the balance of its observed attempts, in
@@ -5150,9 +5151,8 @@ function assessMentorHypothesisStatus(entry) {
   else if (net === 1) status = 'supported';
   else if (net === -1) status = support > 0 ? 'inconclusive' : 'hypothesis';
   else status = previous === 'inconclusive' ? 'inconclusive' : 'hypothesis';
-  // A fix aimed at this cause that failed twice puts the cause itself in doubt
-  // until a newer observed attempt supports it again.
-  if (deriveInterventionState(entry).state === 'failed' && (status === 'confirmed' || status === 'supported')) status = 'inconclusive';
+  // A fix that failed is a result about the fix. It does not rewrite the
+  // diagnosis: the cause can still be right when the practice did not work.
   var confidence = Number(entry.confidence || 0.4);
   if (status === 'rejected') { entry.doNotReuse = true; confidence = Math.min(confidence, 0.2); }
   else if (status === 'confirmed') {
@@ -6100,9 +6100,9 @@ function interpretHypothesisEvidence(entry) {
   if (status === 'superseded') state = 'retired';
   else if (status === 'rejected') state = 'contradicted';
   else if (measurement.fidelity === 'unmeasurable' && counts.observed) state = 'insufficient';
-  else if (status === 'confirmed') state = disputed ? 'under_verification' : intervention === 'resolved' ? 'resolved' : intervention === 'effective' ? 'improving' : intervention === 'adjust' ? 'intervention_not_working' : 'confirmed';
+  else if (status === 'confirmed') state = disputed ? 'under_verification' : intervention === 'resolved' ? 'resolved' : intervention === 'effective' ? 'improving' : intervention === 'adjust' ? 'intervention_not_working' : intervention === 'failed' ? 'intervention_ineffective' : intervention === 'unmeasured' ? 'intervention_unmeasured' : 'confirmed';
   else if (status === 'supported') state = disputed ? 'under_verification' : counts.contradicting > 0 ? 'mixed' : 'supported_unreplicated';
-  else if (status === 'inconclusive') state = intervention === 'failed' ? 'intervention_failed' : counts.supporting > 0 && counts.contradicting > 0 ? 'mixed' : 'inconclusive';
+  else if (status === 'inconclusive') state = counts.supporting > 0 && counts.contradicting > 0 ? 'mixed' : 'inconclusive';
   else if (!counts.observed) state = 'untested';
   else if (counts.contradicting > 0) state = 'contradicted_unreplicated';
   else if (weakHypothesisContradictions(entry)) state = 'weakened';
@@ -6111,7 +6111,7 @@ function interpretHypothesisEvidence(entry) {
     state:state, status:status, support:counts.supporting, contradiction:counts.contradicting, observed:counts.observed,
     weakContradiction:weakHypothesisContradictions(entry), weakSupport:weakHypothesisSupport(entry),
     unsettled:trailingUnsettledTests(entry),
-    disputed:disputed, intervention:intervention, measurement:measurement, rivalLean:hypothesisRivalLean(entry)
+    disputed:disputed, intervention:intervention, unmeasured:deriveInterventionState(entry).unmeasured, measurement:measurement, rivalLean:hypothesisRivalLean(entry)
   };
 }
 
@@ -6137,9 +6137,12 @@ function computeNextDiagnosticAction(entry) {
   if (view.state === 'insufficient') return act('ask_for_observation', 'This read predicts something a chat test cannot measure (' + view.measurement.note + ') so the test cannot settle it: ask the student for that observation from real practice or a mock instead of testing again.');
   if (status === 'confirmed') {
     if (view.disputed) return act('verify_disputed', 'The student disputes a read that observed attempts support: run a fresh test and let that result decide before assigning a fix.');
-    if (view.intervention === 'resolved') return act('monitor', 'The targeted fix moved the observed behaviour in two separate measurements: keep watching it in later practice and mocks rather than testing it again.');
-    if (view.intervention === 'effective') return act('remeasure', 'The targeted fix moved the observed behaviour once: measure it again on fresh items later to see that the change holds.');
-    if (view.intervention === 'adjust') return act('adjust_intervention', 'The last fix attempt did not move the observed behaviour enough: adjust the practice rule and measure again before concluding anything.');
+    if (view.intervention === 'resolved') return act('monitor', 'The tempting option dropped and accuracy rose on two separate practice rounds. That is improvement on these items, not mastery: watch it in later practice rather than drilling this fix again or re-opening it as an unsolved problem.');
+    if (view.intervention === 'effective') return act('remeasure', 'One practice round moved both the tempting option and accuracy. One round is not proof the change holds: measure it again on fresh items.');
+    if (view.intervention === 'adjust') return act('adjust_intervention', 'The last practice round did not change the targeted behaviour. Adjust the practice once and measure again before deciding whether this fix works. The diagnosis itself is unchanged.');
+    if (view.intervention === 'failed') return act('stop_intervention', 'Two practice rounds did not change the targeted behaviour, so this fix is retired. The diagnosis still stands: a fix that did not work is not evidence the cause was wrong, and this practice will not be assigned again.');
+    if (view.intervention === 'unmeasured') return act('stop_intervention', 'Two practice rounds could not show whether the skill changed, so this fix is paused. The evidence is insufficient to call it a success or a failure, and the diagnosis still stands.');
+    if (view.unmeasured === 1) return act('intervene', 'The last practice round could not show whether the skill changed, so it is neither a success nor a failure. Try the practice once more; if it still cannot be judged, stop.');
     return act('intervene', 'The same pattern has been observed repeatedly: move from diagnosing to a targeted correction, then re-measure it.');
   }
   if (status === 'supported') {
@@ -6148,11 +6151,6 @@ function computeNextDiagnosticAction(entry) {
     return act('replicate', 'One observed attempt supports this read; repeat it on fresh items before treating it as a pattern.');
   }
   if (status === 'inconclusive') {
-    if (view.intervention === 'failed') {
-      return testableRival
-        ? act('test_rival', 'A fix aimed at this cause did not move the observed behaviour twice, so the cause itself is in question: test the competing explanation next.', { targetHypothesisId:testableRival.hypothesisId })
-        : act('propose_new_explanation', 'A fix aimed at this cause did not move the observed behaviour twice, so the cause itself is in question and no other explanation is tracked: look for a different cause.');
-    }
     if (view.support > 0 && view.contradiction > 0) return act('sharpen_test', 'Observed attempts point both ways: run a longer test whose options separate this read from the competing explanation to break the tie.');
     if (view.unsettled >= 2) return act('ask_for_observation', 'Two tests did not settle this read: ask the student for the specific decision they made rather than testing again.');
     return act('sharpen_test', 'The last test did not settle this read: run a sharper test whose options separate it from the competing explanation.');
@@ -6179,7 +6177,8 @@ function describeNextDiagnosticAction(action) {
     run_test:'run a short test of it', replicate:'repeat the test on fresh items', sharpen_test:'run a sharper test', retest:'test it once more',
     ask_for_observation:'ask for the specific decision the student made', revisit_explanation:'look for a different explanation', test_rival:'test the competing explanation',
     propose_new_explanation:'look for a different cause', follow_rival:'work from the competing explanation that is already confirmed', intervene:'move to a targeted correction and re-measure',
-    verify_disputed:'verify the disputed result on fresh items', adjust_intervention:'adjust the targeted practice and measure again', remeasure:'measure the fix again on fresh items', monitor:'keep watching it in later practice'
+    verify_disputed:'verify the disputed result on fresh items', adjust_intervention:'adjust the targeted practice and measure again', remeasure:'measure the fix again on fresh items', monitor:'keep watching it in later practice',
+    stop_intervention:'stop assigning this fix; the diagnosis still stands'
   }[action.action] || action.action;
   return label + ' (' + action.reason + ')';
 }
@@ -6298,7 +6297,8 @@ async function maybeStartHypothesisExperiment(text) {
 
 function describeHypothesisExperimentLead(design) {
   if (design.kind === 'intervention') {
-    return 'This read has held up across repeated tests, so I am moving from testing it to working on it: “' + design.claim + '” Before you pick each answer, apply this rule: ' + design.rule + ' I will then compare how often you take the tempting option with how often you took it in the earlier tests' + (design.baseline ? ' (' + Math.round(design.baseline.signalRate * 100) + '% of answers)' : '') + '.';
+    var earlierAccuracy = design.baseline && design.baseline.accuracy != null ? ', and ' + Math.round(design.baseline.accuracy * 100) + '% of those answers were right' : '';
+    return 'This read has held up across repeated tests, so I am moving from testing it to working on it: “' + design.claim + '” Before you pick each answer, apply this rule: ' + design.rule + ' I will then compare two things with the earlier tests: how often you take the tempting option' + (design.baseline ? ' (' + Math.round(design.baseline.signalRate * 100) + '% of answers then' + earlierAccuracy + ')' : '') + ', and whether the answer is actually right. A drop in the tempting option by itself is not enough to call the skill improved.';
   }
   var rival = design.rivals.length ? ' Each question also has an option that someone with a different cause would pick, so your choices can tell the two apart.' : ' Each question has an option that someone with this cause would pick, next to ordinary slips, so your choices can show whether it really happens.';
   var again = design.purpose === 'first_test' ? '' : design.purpose === 'replicate' ? ' This repeats an earlier test on fresh questions.'
@@ -6323,7 +6323,7 @@ async function launchHypothesisExperiment(target, options) {
   var gate = hypothesisExperimentGate(target);
   if (!gate.ok) {
     var notice = gate.reason === 'retired' ? 'That read has already been set aside, so I will not test it again. A different explanation needs its own evidence first.'
-      : gate.reason === 'already_confirmed' ? (gate.state === 'resolved' ? 'The targeted fix for that read has already moved the behaviour twice. The useful step now is to watch it in later practice, not to test it again.' : 'That read has already held up across repeated tests and there is no further test to run on it.')
+      : gate.reason === 'already_confirmed' ? (gate.state === 'resolved' ? 'Accuracy rose and the tempting option dropped on two practice rounds for that read. That is improvement on these items, not proof the problem is solved. The useful step is to watch it in later practice, not to drill it again.' : gate.state === 'intervention_ineffective' ? 'The practice aimed at that read did not change the behaviour on two rounds, so I have stopped assigning it. The earlier tests that established the read still stand.' : gate.state === 'intervention_unmeasured' ? 'I could not tell whether that practice changed the skill, so I have stopped assigning it. The earlier tests that established the read still stand.' : 'That read has already held up across repeated tests and there is no further test to run on it.')
         : gate.reason === 'no_testable_prediction' ? 'I cannot design a fair test for that read yet because it does not say what you would do differently if it were true or false.'
           : 'I could not find that read any more, so there is nothing to test.';
     addMentorLeadMessage(notice);
@@ -6502,14 +6502,78 @@ function hydrateMentorHypothesisRow(saved, topic) {
   return entry;
 }
 
+// What Marg currently believes about the student, derived from the live
+// hypothesis and its evidence. A hypothesis is the explanation under test.
+// This conclusion is the learning-state belief, and it moves when the evidence
+// moves. One mistake is not a trait, one correct answer is not mastery, one
+// successful practice set is not a solved problem, and one failed fix is not
+// a wrong diagnosis.
+function studentEvidenceGrounds(entry) {
+  var links = hypothesisEvidenceLinks(entry);
+  var rows = links.supporting.concat(links.contradicting, links.context);
+  var grounds = [];
+  if (rows.some(function(row) { return row.kind === 'observed_attempt' || row.kind === 'exercise_result' || row.kind === 'mock_data'; })) grounds.push('observed');
+  if (rows.some(function(row) { return row.kind === 'self_report'; })) grounds.push('self_report');
+  if (rows.some(function(row) { return row.kind === 'mentor_inference'; })) grounds.push('inferred');
+  return grounds.length ? grounds : ['untested'];
+}
+
+function studentConclusion(entry) {
+  if (!isMentorHypothesisEntry(entry)) return null;
+  var status = normalizeDiagnosisStatus(entry);
+  var counts = observedDiagnosisEvidenceCounts(entry);
+  var intervention = deriveInterventionState(entry);
+  var grounds = studentEvidenceGrounds(entry);
+  var effectiveSets = interventionEvidenceRows(entry).filter(function(item) { return item.payload.intervention_outcome === 'effective'; }).length;
+  var belief, strength, fix, summary;
+  if (status === 'rejected' || status === 'superseded') {
+    belief = 'not_current'; strength = 'revised'; fix = null;
+    summary = 'Marg no longer holds this as the student\'s current difficulty: later evidence outweighed it. It is not a permanent characteristic.';
+  } else if (status === 'confirmed' && (intervention.state === 'resolved' || (effectiveSets >= 2 && intervention.state !== 'failed'))) {
+    belief = 'improved'; strength = 'measured_twice'; fix = 'improved';
+    summary = 'The student has improved on the measured items for this difficulty: the tempting option dropped and accuracy rose on two practice rounds. That is not mastery, and it can be revised if later evidence goes the other way.';
+  } else if (status === 'confirmed' && intervention.state === 'failed') {
+    belief = 'established'; strength = 'repeated'; fix = 'ineffective';
+    summary = effectiveSets
+      ? 'An earlier practice round looked better, but later rounds did not change the targeted behaviour. This fix is retired. The diagnosis still stands, because a failed fix is not a wrong diagnosis.'
+      : 'The student has repeatedly demonstrated this difficulty. A targeted fix did not change it, which means the fix was ineffective, not that the diagnosis was wrong.';
+  } else if (status === 'confirmed' && intervention.state === 'effective') {
+    belief = 'improving'; strength = 'measured_once'; fix = 'improving';
+    summary = 'One practice round showed both the tempting option dropping and accuracy rising. The difficulty is still established; one round is not proof it is solved and it is not mastery.';
+  } else if (status === 'confirmed' && intervention.state === 'unmeasured' && effectiveSets >= 1) {
+    belief = 'improving'; strength = 'measured_once'; fix = 'unmeasured';
+    summary = 'One practice round showed both the tempting option dropping and accuracy rising, but later rounds could not show whether that held. The difficulty is still established, and the later rounds are neither a success nor a failure.';
+  } else if (status === 'confirmed' && intervention.state === 'unmeasured') {
+    belief = 'established'; strength = 'repeated'; fix = 'unmeasured';
+    summary = 'The student has repeatedly demonstrated this difficulty. Practice was tried, but the evidence is insufficient to say whether the skill changed. That is neither a success nor a failure of the fix.';
+  } else if (status === 'confirmed') {
+    belief = 'established'; strength = 'repeated'; fix = intervention.state === 'adjust' ? 'unproven' : null;
+    summary = 'The student has repeatedly demonstrated difficulty here, from repeated observed attempts. That is a current belief, not a permanent trait.';
+  } else if (status === 'supported') {
+    belief = 'possible'; strength = 'single_observation'; fix = null;
+    summary = counts.contradicting
+      ? 'Observed attempts lean toward this (' + counts.supporting + ' for, ' + counts.contradicting + ' against) but are not settled. This is not yet a characteristic of the student.'
+      : 'The student appears to struggle with this, from one observed test. One observation is not a characteristic of the student.';
+  } else if (counts.observed > 0) {
+    belief = 'insufficient'; strength = 'unsettled'; fix = null;
+    summary = 'There is some observed evidence, but it is currently insufficient to say whether this is a real difficulty.';
+  } else {
+    belief = 'insufficient'; strength = 'untested'; fix = null;
+    summary = grounds.indexOf('self_report') !== -1
+      ? 'The student said something, and Marg inferred a possible cause. Nothing has been observed yet, so the evidence is insufficient to treat this as a difficulty. It remains a hypothesis, not a belief about the student.'
+      : 'No observed attempt has tested this. It is a hypothesis under investigation, not a belief about the student.';
+  }
+  return { belief:belief, strength:strength, fix:fix, grounds:grounds, summary:summary, status:status };
+}
+
 function describeHypothesisLevel(entry) {
   var view = interpretHypothesisEvidence(entry);
   var text = {
     retired:'retired untested', contradicted:'ruled out', insufficient:'not measurable by a chat test: the observation it predicts has to come from real practice',
     confirmed:'confirmed: the same pattern has been observed repeatedly', under_verification:'supported by observed attempts but disputed by the student, and under verification',
-    resolved:'confirmed, and a targeted fix has moved the behaviour in two separate measurements', improving:'confirmed, and a targeted fix moved the behaviour once; the change is not yet shown to hold',
-    intervention_not_working:'confirmed, but the last targeted fix did not move the behaviour', supported_unreplicated:'supported once by an observed attempt, not yet repeated',
-    intervention_failed:'in doubt: a targeted fix aimed at it did not move the behaviour twice', mixed:'unsettled: observed attempts point both ways',
+    resolved:'confirmed, and on two separate practice rounds the tempting option dropped and accuracy rose; that is improvement on these items, not mastery', improving:'confirmed, and one practice round moved both the tempting option and accuracy; one round is not proof the change holds',
+    intervention_not_working:'confirmed, but the last practice round did not change the targeted behaviour, so the fix is being adjusted once', supported_unreplicated:'supported once by an observed attempt, not yet repeated',
+    intervention_ineffective:'confirmed; this fix is retired because two practice rounds did not change the targeted behaviour, and the diagnosis still stands', intervention_unmeasured:'confirmed; this fix is paused because two practice rounds could not show whether the skill changed, and the diagnosis still stands', mixed:'unsettled: observed attempts point both ways',
     inconclusive:'inconclusive: the last test did not settle it', untested:'a working hypothesis that no attempt has tested yet',
     contradicted_unreplicated:'doubtful: one strong test went against it, which is not yet enough to rule it out', weakened:'weakened by tests that did not show the predicted behaviour',
     needs_more_evidence:'a working hypothesis with observed evidence that does not settle it yet'
@@ -6534,6 +6598,8 @@ function describeHypothesisBasis(entry) {
   var competing = competingHypothesisClaims(entry);
   if (competing.length) lines.push('Still possible instead: ' + competing.join(' / '));
   if (entry.disputedAt) lines.push('The student has disputed this read. Observed attempts on record stay on record.');
+  var conclusion = studentConclusion(entry);
+  if (conclusion) lines.push('Current understanding of the student (this is a belief, not the hypothesis under test): ' + conclusion.summary + ' Grounds: ' + conclusion.grounds.join(', ') + '.');
   var nextStep = describeNextDiagnosticAction(computeNextDiagnosticAction(entry));
   if (nextStep) lines.push('Next diagnostic step: ' + nextStep);
   return lines.join('\n   ');
@@ -6568,6 +6634,8 @@ function mentorHypothesisContextSuffix(entry, message) {
   var competing = competingHypothesisClaims(entry, message);
   if (competing.length) parts.push('Competing explanation' + (competing.length > 1 ? 's' : '') + ': ' + competing.join(' / '));
   if (entry.disputedAt) parts.push('The student has disputed this. Observed attempts on record stay on record.');
+  var conclusion = studentConclusion(entry);
+  if (conclusion) parts.push('Current understanding of the student: ' + conclusion.summary);
   var nextStep = describeNextDiagnosticAction(computeNextDiagnosticAction(entry));
   if (nextStep && entry.lastExperiment) parts.push('Next diagnostic step: ' + nextStep);
   return parts.length ? ' ' + parts.join(' ') : '';
@@ -8450,10 +8518,11 @@ function evaluateHypothesisExperiment(exercise, entry, choices) {
   return result;
 }
 
-// A targeted-practice set is measured against what the same read showed in the
-// diagnostic tests: the rate of the claim's tempting pick before, and after the
-// student applied the practice rule. The rule being followed is not verified;
-// the measurement is only whether the behaviour changed.
+// A targeted-practice set is compared with the diagnostic tests on two numbers:
+// how often the claim's tempting option was chosen, and how often the answer
+// was right. The rule being followed is not verified. The tempting option
+// dropping is not, by itself, evidence the skill improved. A set that cannot
+// separate those is insufficient: neither a success nor a failure.
 function evaluateHypothesisIntervention(exercise, entry, choices) {
   var result = {
     deterministic:true, role:'intervention', verdict:'INCONCLUSIVE', outcome:'inconclusive', interventionOutcome:'inconclusive', strength:0.2, reason:'', observations:[], quality:null,
@@ -8471,24 +8540,45 @@ function evaluateHypothesisIntervention(exercise, entry, choices) {
   result.counts = tally.counts; result.observations = tally.observations; result.actual = tally.actual; result.factor = factor; result.baseline = baseline;
   var n = tally.counts.answered;
   if (tally.counts.designed) result.observables = { hypothesis_trials:n, hypothesis_supporting_picks:tally.counts.supports, hypothesis_signal_rate:tally.actual.signal_pick_rate, intervention_after_signal_rate:tally.actual.signal_pick_rate };
-  if (!tally.counts.designed || n < experimentMinAnswered(tally.counts.designed)) {
-    result.reason = 'Only ' + n + ' of the ' + tally.counts.designed + ' practice questions were answered, which is too few to measure a change.';
+  function insufficient(reason, studentReason) {
+    result.interventionOutcome = 'insufficient';
+    result.outcome = 'insufficient';
+    result.verdict = 'INCONCLUSIVE';
+    result.strength = Math.round(0.4 * (factor && factor.factor || 1) * 1000) / 1000;
+    result.reason = reason;
+    result.studentReason = studentReason;
     return result;
+  }
+  if (!tally.counts.designed || n < experimentMinAnswered(tally.counts.designed)) {
+    return insufficient('Only ' + n + ' of the ' + tally.counts.designed + ' practice questions were answered, which is too few to tell whether the skill changed.', 'Only ' + n + ' of the ' + tally.counts.designed + ' practice questions were answered, so this round is neither a success nor a failure.');
   }
   if (!baseline || baseline.signalRate == null) {
-    result.reason = 'There is no earlier measurement of this behaviour to compare against, so the change cannot be measured.';
-    return result;
+    return insufficient('There is no earlier measurement of this behaviour to compare against, so this round cannot show whether anything changed.', 'There is no earlier measurement to compare with, so this round is neither a success nor a failure.');
   }
   var after = tally.actual.signal_pick_rate;
+  var afterAccuracy = tally.actual ? tally.actual.accuracy : null;
   var drop = Math.round((baseline.signalRate - after) * 100) / 100;
-  var improved = drop >= 0.25 || (after === 0 && baseline.signalRate > 0);
-  result.interventionOutcome = improved ? 'effective' : 'not_effective';
-  result.outcome = result.interventionOutcome;
-  result.verdict = improved ? 'SUPPORTED' : 'INCONCLUSIVE';
-  result.change = { before:baseline.signalRate, after:after, drop:drop, answered:n };
-  result.strength = Math.round((improved ? 0.8 : 0.7) * factor.factor * 1000) / 1000;
-  result.reason = 'The claim’s tempting option was chosen in ' + tally.counts.supports + ' of ' + n + ' practice answers (' + Math.round(after * 100) + '%), against ' + Math.round(baseline.signalRate * 100) + '% across ' + baseline.answered + ' answers in the earlier tests: ' + (improved ? 'the behaviour moved.' : 'the behaviour did not move enough.');
-  result.studentReason = 'You took the tempting option in ' + tally.counts.supports + ' of ' + n + ' questions this time (' + Math.round(after * 100) + '%), against about ' + Math.round(baseline.signalRate * 100) + '% in the earlier tests.';
+  var signalMoved = drop >= 0.25 || (after === 0 && baseline.signalRate > 0);
+  var accuracyKnown = baseline.accuracy != null && afterAccuracy != null;
+  var accuracyRise = accuracyKnown ? Math.round((afterAccuracy - baseline.accuracy) * 100) / 100 : null;
+  var accuracyMoved = accuracyRise != null && accuracyRise >= 0.25;
+  var outcome = signalMoved && accuracyMoved ? 'effective' : (!signalMoved && !accuracyMoved) ? 'not_effective' : 'insufficient';
+  result.interventionOutcome = outcome;
+  result.outcome = outcome;
+  result.verdict = outcome === 'effective' ? 'SUPPORTED' : 'INCONCLUSIVE';
+  result.change = { before:baseline.signalRate, after:after, drop:drop, accuracyBefore:baseline.accuracy, accuracyAfter:afterAccuracy, accuracyRise:accuracyRise, answered:n, signalMoved:signalMoved, accuracyMoved:accuracyMoved, accuracyKnown:accuracyKnown };
+  result.strength = Math.round((outcome === 'effective' ? 0.8 : outcome === 'not_effective' ? 0.7 : 0.4) * factor.factor * 1000) / 1000;
+  var signalText = 'The tempting option was chosen in ' + tally.counts.supports + ' of ' + n + ' practice answers (' + Math.round(after * 100) + '%), against ' + Math.round(baseline.signalRate * 100) + '% across ' + baseline.answered + ' earlier answers.';
+  var accuracyText = accuracyKnown
+    ? ' Accuracy was ' + Math.round(afterAccuracy * 100) + '% against ' + Math.round(baseline.accuracy * 100) + '% earlier.'
+    : ' Accuracy on the earlier tests was not recorded, so a change in the skill cannot be judged.';
+  var judgement = outcome === 'effective' ? ' Both the tempting option and the accuracy moved, on this one set. That is not mastery.'
+    : outcome === 'not_effective' ? (accuracyKnown ? ' The targeted behaviour did not move, and accuracy did not rise.' : ' The targeted behaviour did not move.')
+      : !accuracyKnown ? ' The tempting option changed, but accuracy cannot be compared, so this does not show whether the skill improved. This set is neither a success nor a failure.'
+        : signalMoved ? ' The tempting option dropped, but accuracy did not rise, so this does not show the skill improved. This round is neither a success nor a failure.'
+          : ' Accuracy rose, but the targeted behaviour did not change, so this does not show the fix worked. This round is neither a success nor a failure.';
+  result.reason = signalText + accuracyText + judgement;
+  result.studentReason = signalText + accuracyText + (outcome === 'insufficient' ? ' This round is neither a success nor a failure.' : '');
   return result;
 }
 
@@ -8531,8 +8621,8 @@ function describeExperimentEvidenceClaim(evaluation, entry) {
 }
 
 function describeInterventionEvidenceClaim(evaluation, entry) {
-  var verb = evaluation.interventionOutcome === 'effective' ? 'Targeted practice moved the behaviour'
-    : evaluation.interventionOutcome === 'not_effective' ? 'Targeted practice did not move the behaviour' : 'Targeted practice could not be measured';
+  var verb = evaluation.interventionOutcome === 'effective' ? 'Targeted practice moved both the tempting option and accuracy'
+    : evaluation.interventionOutcome === 'not_effective' ? 'Targeted practice did not change the targeted behaviour' : 'Targeted practice could not show whether the skill changed';
   return verb + ': ' + (entry.claim || entry.confirmedDiagnosis) + ' — ' + evaluation.reason;
 }
 
@@ -8587,29 +8677,52 @@ function recordCrossHypothesisEvidence(exercise, entry, evaluation, ref) {
   return recorded.ok ? rival : null;
 }
 
-// A confirmed read leaves a durable behaviour pattern behind. If later evidence
-// takes the read back below confirmed, that pattern must stop being carried as
-// settled, and come back only if the read is confirmed again.
+function stampBehaviorPatternBelief(pattern, entry) {
+  var conclusion = studentConclusion(entry);
+  if (!pattern || !conclusion) return;
+  pattern.hypothesisId = entry.hypothesisId;
+  pattern.belief = conclusion.belief;
+  pattern.basis = conclusion.grounds.join(',');
+  pattern.fix = conclusion.fix || null;
+  pattern.beliefSummary = conclusion.summary;
+}
+
+function findHypothesisBehaviorPattern(entry) {
+  if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
+  var normalized = normalizeBehaviorPattern(entry.topic, entry.confirmedDiagnosis);
+  var patterns = behavioralMemory.patterns || [];
+  return patterns.find(function(pattern) {
+    return pattern.source === 'repeated-observed-diagnostic' && pattern.hypothesisId === entry.hypothesisId;
+  }) || patterns.find(function(pattern) {
+    return pattern.source === 'repeated-observed-diagnostic' && !pattern.hypothesisId && pattern.section === normalized.section && pattern.key === normalized.key;
+  }) || null;
+}
+
+// A confirmed read leaves a durable behaviour pattern behind, stamped with the
+// current student-model belief. Later intervention results refresh that belief
+// in place: they do not add another occurrence, and a failed fix does not
+// retire the difficulty. If later diagnostic evidence takes the read back
+// below confirmed, the pattern stops being carried as settled.
 function syncBehaviorPatternWithHypothesis(entry, previousStatus, status) {
   if (!isMentorHypothesisEntry(entry)) return;
-  if (status === 'confirmed' && previousStatus !== 'confirmed') {
-    var recorded = recordBehaviorPattern(entry.topic, entry.confirmedDiagnosis, entry.selectedPattern, 'repeated-observed-diagnostic');
-    if (recorded && recorded.doNotReuse && recorded.status !== 'rejected') { recorded.doNotReuse = false; delete recorded.demotedAt; saveBehavioralMemory(); }
+  if (status === 'confirmed') {
+    var current = previousStatus === 'confirmed' ? findHypothesisBehaviorPattern(entry) : null;
+    if (!current) current = recordBehaviorPattern(entry.topic, entry.confirmedDiagnosis, entry.selectedPattern, 'repeated-observed-diagnostic');
+    if (!current) return;
+    if (current.doNotReuse && current.status !== 'rejected') { current.doNotReuse = false; delete current.demotedAt; }
+    stampBehaviorPatternBelief(current, entry);
+    saveBehavioralMemory();
     return;
   }
   var leavingConfirmed = previousStatus === 'confirmed' && status !== 'confirmed';
   var retiring = status === 'rejected' && previousStatus !== 'rejected';
   if (!leavingConfirmed && !retiring) return;
-  if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
-  var normalized = normalizeBehaviorPattern(entry.topic, entry.confirmedDiagnosis);
-  var changed = false;
-  behavioralMemory.patterns.forEach(function(pattern) {
-    if (pattern.section !== normalized.section || pattern.key !== normalized.key || pattern.source !== 'repeated-observed-diagnostic') return;
-    if (leavingConfirmed) { pattern.doNotReuse = true; pattern.demotedAt = new Date().toISOString(); }
-    if (retiring) { pattern.status = 'rejected'; pattern.doNotReuse = true; pattern.invalidatedBy = 'Later observed attempts went against this read.'; }
-    changed = true;
-  });
-  if (changed) saveBehavioralMemory();
+  var linked = findHypothesisBehaviorPattern(entry);
+  if (!linked) return;
+  stampBehaviorPatternBelief(linked, entry);
+  if (leavingConfirmed) { linked.doNotReuse = true; linked.demotedAt = new Date().toISOString(); }
+  if (retiring) { linked.status = 'rejected'; linked.doNotReuse = true; linked.invalidatedBy = 'Later observed attempts went against this read.'; }
+  saveBehavioralMemory();
 }
 
 function retireMissionOfRejectedRead(entry, now) {
@@ -8686,7 +8799,6 @@ function completeHypothesisExperiment(exercise, choices) {
     });
     promoteDiagnosisFromEvidence(entry);
     recorded = { ok:!!item, effect:item ? 'intervention_' + evaluation.interventionOutcome : 'not_recorded' };
-    if (deriveInterventionState(entry).state === 'failed') entry.reconsideredAt = now;
     entry.updatedAt = now;
   } else {
     var settled = (evaluation.outcome === 'supported' || evaluation.outcome === 'rejected') && evaluation.strength >= 0.65;
@@ -8770,17 +8882,20 @@ function maybeCompleteHypothesisExperimentReview(message) {
 function describeInterventionResultForStudent(exercise, entry, evaluation) {
   var claim = entry && (entry.claim || entry.confirmedDiagnosis) || 'this read';
   var state = entry ? deriveInterventionState(entry) : { state:null };
+  var outcome = evaluation.interventionOutcome;
   var lead;
-  if (evaluation.interventionOutcome === 'effective') {
+  if (outcome === 'effective') {
     lead = state.state === 'resolved'
-      ? 'The change held on a second set, so this fix is working: “' + claim + '” I will keep watching it in later practice rather than drilling it again.'
-      : 'The targeted practice moved the behaviour: “' + claim + '” One good set is encouraging but it is not proof the change holds, so I will measure it again on fresh questions.';
-  } else if (evaluation.interventionOutcome === 'not_effective') {
+      ? 'On a second round the tempting option stayed down and accuracy stayed up: “' + claim + '” That is improvement on these items, not mastery and not proof the problem is solved. I will watch it in later practice rather than drilling this fix again.'
+      : 'This practice round moved both the tempting option and the accuracy: “' + claim + '” One round is encouraging, but it is not proof the change holds and it is not mastery.';
+  } else if (outcome === 'not_effective') {
     lead = state.state === 'failed'
-      ? 'The behaviour did not change on two practice sets in a row, so the fix is not the problem alone: the cause itself is now in question.'
-      : 'The behaviour did not change enough on this set, so I am not treating the fix as working.';
+      ? 'The targeted behaviour did not change on two practice rounds, so I am retiring this fix: “' + claim + '” The earlier tests that established the read still stand. A fix that did not work is not the same as a wrong diagnosis.'
+      : 'The targeted behaviour did not change enough on this round, so I am not treating the fix as working. The diagnosis itself is unchanged.';
+  } else if (state.state === 'unmeasured') {
+    lead = 'Two practice rounds in a row could not show whether the skill changed, so I am stopping this fix rather than repeating it. That is neither a success nor a failure, and the earlier tests still stand: “' + claim + '”';
   } else {
-    lead = 'This practice set could not be measured.';
+    lead = 'This practice round does not show whether the skill changed: “' + claim + '” It is neither a success nor a failure of the fix, and it does not change the diagnosis.';
   }
   var next = entry ? computeNextDiagnosticAction(entry) : null;
   return lead + ' ' + (evaluation.studentReason || evaluation.reason) + (next && next.action !== 'none' ? '\n\nNext: ' + next.reason : '') + '\n[HYPOTHESIS_VERDICT: ' + String(evaluation.verdict || 'INCONCLUSIVE').toLowerCase() + ']';
@@ -9148,9 +9263,22 @@ function getBehavioralMemoryContext(message, diagnosis) {
     return String(b.lastSeen || '').localeCompare(String(a.lastSeen || ''));
   }).slice(0, 6);
   if (!patterns.length) return '';
-  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(function(pattern) {
-    return '- ' + pattern.section.toUpperCase() + ': ' + pattern.label + '; seen ' + pattern.occurrences + ' time' + (pattern.occurrences === 1 ? '' : 's') + (pattern.previousSeen ? '; previous occurrence: ' + pattern.previousSeen : '') + '; latest: ' + pattern.lastSeen + '; latest evidence: ' + pattern.lastEvidence + '.';
-  }).join('\n') + '\nIf a current error matches a pattern seen 2+ times, explicitly call it the same recurring pattern. Otherwise treat it as a hypothesis.';
+  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student. If a current error matches a pattern seen 2+ times and no belief is linked, call it the same recurring error, still not a confirmed diagnosis.';
+}
+
+function describeBehavioralPatternLine(pattern) {
+  var live = pattern.hypothesisId ? findMentorHypothesis(pattern.hypothesisId) : null;
+  var conclusion = live && isMentorHypothesisEntry(live) ? studentConclusion(live) : null;
+  var belief = conclusion ? conclusion.belief : pattern.belief;
+  var summary = conclusion ? conclusion.summary : pattern.beliefSummary;
+  if (belief && summary) {
+    var fix = conclusion ? conclusion.fix : pattern.fix;
+    return '- ' + String(pattern.section || 'general').toUpperCase() + ': ' + summary + ' [belief=' + belief + (fix ? '; fix=' + fix : '') + ']';
+  }
+  if (Number(pattern.occurrences || 0) < 2) {
+    return '- ' + String(pattern.section || 'general').toUpperCase() + ': ' + pattern.label + '; one observation, not a characteristic of the student; latest: ' + pattern.lastSeen + '.';
+  }
+  return '- ' + String(pattern.section || 'general').toUpperCase() + ': ' + pattern.label + '; seen ' + pattern.occurrences + ' times' + (pattern.previousSeen ? '; previous occurrence: ' + pattern.previousSeen : '') + '; latest: ' + pattern.lastSeen + '; latest evidence: ' + pattern.lastEvidence + '.';
 }
 
 var activeMentorPlan = null;
@@ -12476,33 +12604,46 @@ async function runHypothesisLifecycleTests() {
     check('once a read is confirmed the next step is a targeted practice set, not another test of the same read', winOffer === 'intervene' && practice.experiment.kind === 'intervention' && practice.experiment.purpose === 'intervention' && practice.experiment.trials === 4 && practice.experiment.rivals.length === 0 && practice.experiment.hypothesisId === win.main.hypothesisId);
     check('the practice set is built from the hypothesis itself: its own condition becomes the practice rule, and the earlier tests are its baseline', /justify every elimination with a passage line/.test(practice.experiment.rule) && /PRACTICE SET/.test(practicePrompt) && practicePrompt.indexOf(practice.experiment.rule) !== -1 && winBaseline.signalRate === 0.67 && winBaseline.answered === 6 && practice.experiment.baseline.signalRate === 0.67 && /moving from testing it to working on it/.test(leadText) && /67%/.test(leadText));
     check('the practice result is measured against that baseline, stored as intervention evidence, and does not touch the diagnostic counts or the confirmed status', fixRow.type === 'practice_attempt' && fixRow.payload.evidence_role === 'intervention' && fixRow.payload.intervention_outcome === 'effective' && fixRow.supports === true && fixRow.payload.change.before === 0.67 && fixRow.payload.change.after === 0 && observedAfterFix.observed === 2 && observedAfterFix.supporting === 2 && status(win.main) === 'confirmed');
-    check('one good set is reported as encouraging but unproven, and the next action is to measure the change again', deriveInterventionState(fixEntry).state === 'effective' && /moved the behaviour/.test(firstFix) && /not proof the change holds/.test(firstFix) && computeNextDiagnosticAction(fixEntry).action === 'remeasure' && pendingHypothesisExperiment.action === 'remeasure' && margPendingConversationOptions.options[0] === 'Measure it again' && interpretHypothesisEvidence(fixEntry).state === 'improving');
+    check('one good set is reported as encouraging but unproven, and the next action is to measure the change again', deriveInterventionState(fixEntry).state === 'effective' && /not mastery/.test(firstFix) && /not proof the change holds/.test(firstFix) && computeNextDiagnosticAction(fixEntry).action === 'remeasure' && pendingHypothesisExperiment.action === 'remeasure' && margPendingConversationOptions.options[0] === 'Measure it again' && interpretHypothesisEvidence(fixEntry).state === 'improving' && studentConclusion(fixEntry).belief === 'improving' && fixRow.payload.change.accuracyMoved === true && fixRow.payload.change.signalMoved === true);
     var remeasure = await launch(win.main);
     var secondFix = await answer('cccn');
     var resolvedEntry = entryOf(win.main);
     var callsBeforeGate = modelCalls.length;
     var resolvedGate = await launchHypothesisExperiment(win.main.hypothesisId);
-    check('a second successful measurement resolves the problem: it is watched, not drilled again, and nothing more is offered', remeasure.exercise.experiment.purpose === 'intervention_remeasure' && deriveInterventionState(resolvedEntry).state === 'resolved' && computeNextDiagnosticAction(resolvedEntry).action === 'monitor' && /change held/.test(secondFix) && !pendingHypothesisExperiment && resolvedGate === 'already_confirmed' && modelCalls.length === callsBeforeGate && getHypothesisFollowUpRecommendation() === null && /two separate measurements/.test(describeHypothesisLevel(resolvedEntry)) && status(win.main) === 'confirmed');
+    var improvedBehavior = getBehavioralMemoryContext('Look at my VARC', { intent:'varc_diagnosis', requestedSection:'varc' });
+    var improvedMemory = getDiagnosticMemoryContext('Look at my VARC', { intent:'varc_diagnosis', requestedSection:'varc' });
+    var savedThread = margActiveThreadId;
+    margActiveThreadId = 'thread-later';
+    var improvedContext = getStudentStateContext('What should I work on in VARC today?', { intent:'general_mentor', requestedSection:null });
+    margActiveThreadId = savedThread;
+    var winPattern = (behavioralMemory.patterns || []).filter(function(pattern) { return pattern.source === 'repeated-observed-diagnostic' && pattern.hypothesisId === win.main.hypothesisId; });
+    check('a second successful measurement is improvement on these items, not a solved problem: it is watched, not drilled again, and nothing more is offered', remeasure.exercise.experiment.purpose === 'intervention_remeasure' && deriveInterventionState(resolvedEntry).state === 'resolved' && computeNextDiagnosticAction(resolvedEntry).action === 'monitor' && /not mastery/.test(secondFix) && /not proof the problem is solved/.test(secondFix) && !pendingHypothesisExperiment && resolvedGate === 'already_confirmed' && modelCalls.length === callsBeforeGate && getHypothesisFollowUpRecommendation() === null && /not mastery/.test(describeHypothesisLevel(resolvedEntry)) && /two separate practice rounds/.test(describeHypothesisLevel(resolvedEntry)) && status(win.main) === 'confirmed');
+    check('two measured improvements become a revisable student belief, carried into a later turn without becoming mastery or a second occurrence', studentConclusion(resolvedEntry).belief === 'improved' && studentConclusion(resolvedEntry).fix === 'improved' && /not mastery/.test(improvedContext) && /CONFIRMED REPEATED PATTERN/.test(improvedContext) && /not mastery/.test(improvedMemory) && /CONFIRMED REPEATED PATTERN/.test(improvedMemory) && /belief=improved/.test(improvedBehavior) && improvedBehavior.indexOf('one observation, not a characteristic') === -1 && winPattern.length === 1 && winPattern[0].occurrences === 1 && winPattern[0].belief === 'improved');
 
-    // B5. the fix does not work: adjust once, then doubt the cause itself
+    // B5. the fix does not work: adjust once, then retire the fix without rewriting the diagnosis
     var lose = await confirmedRead();
     await viaOffer(lose.main, 'Start targeted practice');
     var firstMiss = await answer('ssns');
     var missState = deriveInterventionState(entryOf(lose.main));
     var missAction = computeNextDiagnosticAction(entryOf(lose.main));
     var missOffer = margPendingConversationOptions && margPendingConversationOptions.options[0];
-    check('a practice set that does not move the behaviour is not treated as working: the status holds, the practice is adjusted, and the student is told', status(lose.main) === 'confirmed' && missState.state === 'adjust' && missAction.action === 'adjust_intervention' && missOffer === 'Adjust the practice' && /did not change enough/.test(firstMiss) && interpretHypothesisEvidence(entryOf(lose.main)).state === 'intervention_not_working');
+    check('a practice set that does not move the behaviour is not treated as working: the status holds, the practice is adjusted, and the student is told', status(lose.main) === 'confirmed' && missState.state === 'adjust' && missAction.action === 'adjust_intervention' && missOffer === 'Adjust the practice' && /did not change enough/.test(firstMiss) && interpretHypothesisEvidence(entryOf(lose.main)).state === 'intervention_not_working' && studentConclusion(entryOf(lose.main)).belief === 'established');
     var adjusted = await launch(lose.main);
     var secondMiss = await answer('sssn');
     var failedEntry = entryOf(lose.main);
     var failedAction = computeNextDiagnosticAction(failedEntry);
-    var confirmedPattern = function() { return (behavioralMemory.patterns || []).filter(function(pattern) { return pattern.source === 'repeated-observed-diagnostic'; }); };
-    check('a second failed practice puts the cause itself in doubt: the read drops back to inconclusive, the fix is not repeated, and the competing explanation is tested next', adjusted.exercise.experiment.purpose === 'intervention_adjusted' && deriveInterventionState(failedEntry).state === 'failed' && status(lose.main) === 'inconclusive' && failedEntry.confidence <= 0.45 && failedAction.action === 'test_rival' && failedAction.targetHypothesisId === lose.rival.hypothesisId && /cause itself is now in question/.test(secondMiss) && /in doubt/.test(describeHypothesisLevel(failedEntry)) && observedDiagnosisEvidenceCounts(failedEntry).supporting === 2);
-    check('the durable behaviour pattern left behind by the earlier confirmation is no longer carried as settled', confirmedPattern().length > 0 && confirmedPattern().every(function(pattern) { return pattern.doNotReuse === true; }));
-    var recoverLaunch = await launch(lose.main);
-    await answer('ssn');
-    var recovered = entryOf(lose.main);
-    check('new observed support after a failed fix restores the read, clears the failed-fix cap, and the targeted practice is available again', recoverLaunch.exercise.experiment.purpose === 'retest' && status(lose.main) === 'confirmed' && deriveInterventionState(recovered).state === null && computeNextDiagnosticAction(recovered).action === 'intervene' && confirmedPattern().some(function(pattern) { return pattern.doNotReuse !== true; }));
+    var confirmedPattern = function() { return (behavioralMemory.patterns || []).filter(function(pattern) { return pattern.source === 'repeated-observed-diagnostic' && pattern.hypothesisId === lose.main.hypothesisId; }); };
+    check('a second failed practice retires this fix without rewriting the diagnosis or offering the competing explanation', adjusted.exercise.experiment.purpose === 'intervention_adjusted' && deriveInterventionState(failedEntry).state === 'failed' && status(lose.main) === 'confirmed' && failedEntry.confidence >= 0.92 && failedAction.action === 'stop_intervention' && !failedAction.targetHypothesisId && /retiring this fix/.test(secondMiss) && /not the same as a wrong diagnosis/.test(secondMiss) && /diagnosis still stands/.test(describeHypothesisLevel(failedEntry)) && observedDiagnosisEvidenceCounts(failedEntry).supporting === 2 && !pendingHypothesisExperiment && studentConclusion(failedEntry).belief === 'established' && studentConclusion(failedEntry).fix === 'ineffective' && !failedEntry.reconsideredAt);
+    check('the difficulty stays a current belief: the pattern is not retired and is not counted again for the failed fix', confirmedPattern().length === 1 && confirmedPattern()[0].doNotReuse !== true && confirmedPattern()[0].belief === 'established' && confirmedPattern()[0].fix === 'ineffective' && confirmedPattern()[0].occurrences === 1);
+    await say('That is not what happened, you misread my option elimination.', 'The earlier tests still stand, so a fresh test can check the read. The failed practice does not decide that.');
+    var disputedAction = computeNextDiagnosticAction(entryOf(lose.main));
+    var verifyAfterFail = await launch(lose.main);
+    await answer('ssns');
+    var afterSupport = entryOf(lose.main);
+    check('later evidence can still recheck the diagnosis, and new support does not reopen a fix that already failed or treat the failure as disproof', disputedAction.action === 'verify_disputed' && verifyAfterFail.exercise.experiment.purpose === 'verify' && status(lose.main) === 'confirmed' && deriveInterventionState(afterSupport).state === 'failed' && computeNextDiagnosticAction(afterSupport).action === 'stop_intervention' && studentConclusion(afterSupport).belief === 'established' && studentConclusion(afterSupport).fix === 'ineffective');
+    var callsBeforeStop = modelCalls.length;
+    var stopped = await launchHypothesisExperiment(lose.main.hypothesisId);
+    check('the retired fix is not assigned again, even after another supporting test', stopped === 'already_confirmed' && modelCalls.length === callsBeforeStop && /stopped assigning it/.test(lastAssistant()) && /still stand/.test(lastAssistant()));
 
     // B6. later evidence overturns an earlier conclusion, step by step, without ever jumping.
     // A confirmed read is not re-tested for its own sake; the student disputing it is what
@@ -12522,7 +12663,8 @@ async function runHypothesisLifecycleTests() {
     check('a confirmed read is taken back one step at a time as contradicting tests accumulate: confirmed, supported, inconclusive, inconclusive, rejected', trail.join(',') === 'confirmed,supported,inconclusive,inconclusive,rejected');
     check('each stage is worded for what the evidence supports then: split, not decisive, until the balance reaches two against', /the evidence is split/.test(flipReplies[0]) && /split/.test(flipReplies[1]) && /second test to go against|setting it aside/.test(flipReplies[3]) && flipReplies.slice(0, 3).every(function(text) { return text.indexOf('setting it aside') === -1; }));
     check('the history shows the whole sequence on one hypothesis: two supporting, four contradicting, nothing deleted, and the final read is retired', flipRows.length === 6 && flipRows.filter(function(row) { return row.outcome === 'supported'; }).length === 2 && flipRows.filter(function(row) { return row.outcome === 'rejected'; }).length === 4 && observedDiagnosisEvidenceCounts(flipEntry).supporting === 2 && observedDiagnosisEvidenceCounts(flipEntry).contradicting === 4 && flipEntry.doNotReuse === true && flipEntry.confidence <= 0.2);
-    check('the pattern recorded at confirmation is retired with the read', confirmedPattern().some(function(pattern) { return pattern.status === 'rejected' && pattern.doNotReuse === true; }));
+    var flipPattern = (behavioralMemory.patterns || []).filter(function(pattern) { return pattern.source === 'repeated-observed-diagnostic' && pattern.hypothesisId === flip.main.hypothesisId; });
+    check('the pattern recorded at confirmation is retired with the read, and the student belief is no longer current', flipPattern.some(function(pattern) { return pattern.status === 'rejected' && pattern.doNotReuse === true && pattern.belief === 'not_current'; }) && studentConclusion(flipEntry).belief === 'not_current');
 
     // B7. the whole lifecycle survives a reload: ledger, intervention state, next action and anti-repeat history
     reset({ keepIdentity:true });
@@ -12542,10 +12684,46 @@ async function runHypothesisLifecycleTests() {
     await loadMentorExecutionLoop();
     var rebuilt = findMentorHypothesis(durable.hypothesisId);
     var restoredInterventionRows = rebuilt ? interventionEvidenceRows(rebuilt) : [];
-    check('after a reload the experiment ledger, the intervention measurements and the next action are rebuilt from the saved evidence rows', !!rebuilt && beforeReload.ledger === 3 && hypothesisLedger(rebuilt).length === 3 && restoredInterventionRows.length === 1 && deriveInterventionState(rebuilt).state === 'effective' && beforeReload.action === 'remeasure' && computeNextDiagnosticAction(rebuilt).action === 'remeasure' && normalizeDiagnosisStatus(rebuilt) === 'confirmed');
+    check('after a reload the experiment ledger, the intervention measurements, the next action and the student belief are rebuilt from the saved evidence rows', !!rebuilt && beforeReload.ledger === 3 && hypothesisLedger(rebuilt).length === 3 && restoredInterventionRows.length === 1 && deriveInterventionState(rebuilt).state === 'effective' && beforeReload.action === 'remeasure' && computeNextDiagnosticAction(rebuilt).action === 'remeasure' && normalizeDiagnosisStatus(rebuilt) === 'confirmed' && studentConclusion(rebuilt).belief === 'improving');
     check('after a reload the earlier items are still remembered, so a follow-up cannot repeat them, and the practice rule and baseline are rebuilt', !!rebuilt && hypothesisItemFingerprints(rebuilt).stems.length === practiceStems && practiceStems === 10 && /justify every elimination/.test(hypothesisInterventionRule(rebuilt)) && hypothesisInterventionBaseline(rebuilt).signalRate === 0.67);
     var practiceRowSaved = tables.mentor_diagnosis_evidence.find(function(row) { return row.evidence_payload && row.evidence_payload.evidence_role === 'intervention'; });
     check('the saved intervention row is a practice measurement, not a diagnostic observation', !!practiceRowSaved && practiceRowSaved.evidence_type === 'practice_attempt' && practiceRowSaved.evidence_payload.intervention_outcome === 'effective' && practiceRowSaved.evidence_payload.ledger.role === 'intervention');
+
+    // B8. the tempting option moving is not the skill moving, and an untested or once-seen read is not a trait
+    var thin = await confirmedRead();
+    await viaOffer(thin.main, 'Start targeted practice');
+    var thinReply = await answer('nnnn');
+    var thinEntry = entryOf(thin.main);
+    var thinRow = experimentRows(thin.main).slice(-1)[0];
+    check('dropping the tempting option without answering more correctly is neither a success nor a failure, and the diagnosis stays confirmed', thinRow.payload.intervention_outcome === 'insufficient' && thinRow.payload.change.signalMoved === true && thinRow.payload.change.accuracyMoved === false && thinRow.supports === null && deriveInterventionState(thinEntry).state === null && status(thin.main) === 'confirmed' && /neither a success nor a failure/.test(thinReply) && computeNextDiagnosticAction(thinEntry).action === 'intervene' && studentConclusion(thinEntry).belief === 'established' && !studentConclusion(thinEntry).fix);
+    var thinAgain = await launch(thin.main);
+    var thinStop = await answer('nnnn');
+    var thinAfter = entryOf(thin.main);
+    check('two practice sets that cannot show a skill change stop the fix instead of repeating it, without changing the diagnosis', thinAgain.exercise.experiment.kind === 'intervention' && deriveInterventionState(thinAfter).state === 'unmeasured' && computeNextDiagnosticAction(thinAfter).action === 'stop_intervention' && status(thin.main) === 'confirmed' && /stopping this fix/.test(thinStop) && /neither a success nor a failure/.test(thinStop) && !pendingHypothesisExperiment && studentConclusion(thinAfter).belief === 'established' && studentConclusion(thinAfter).fix === 'unmeasured');
+
+    var skillOnly = await confirmedRead();
+    await viaOffer(skillOnly.main, 'Start targeted practice');
+    var skillReply = await answer('csss');
+    var skillRow = experimentRows(skillOnly.main).slice(-1)[0];
+    check('accuracy rising while the targeted behaviour stays is not a successful fix', skillRow.payload.intervention_outcome === 'insufficient' && skillRow.payload.change.signalMoved === false && skillRow.payload.change.accuracyMoved === true && /neither a success nor a failure/.test(skillReply) && status(skillOnly.main) === 'confirmed' && studentConclusion(entryOf(skillOnly.main)).belief === 'established');
+
+    var unknown = await confirmedRead();
+    localDiagnosisEvidence(entryOf(unknown.main)).forEach(function(row) { if (row.payload && row.payload.actual) row.payload.actual.accuracy = null; });
+    await viaOffer(unknown.main, 'Start targeted practice');
+    var unknownReply = await answer('ncnc');
+    var unknownRow = experimentRows(unknown.main).slice(-1)[0];
+    check('a tempting-option drop cannot be called improvement when earlier accuracy was never recorded', unknownRow.payload.intervention_outcome === 'insufficient' && unknownRow.payload.change.signalMoved === true && unknownRow.payload.change.accuracyKnown === false && /neither a success nor a failure/.test(unknownReply) && studentConclusion(entryOf(unknown.main)).belief === 'established');
+
+    var once = await fresh();
+    await launch(once.main); await answer('ssn');
+    var onceEntry = entryOf(once.main);
+    var onceContext = getDiagnosticMemoryContext('Look at my VARC', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('one supporting test is a possible difficulty, not a characteristic, and stays labelled as supported once', studentConclusion(onceEntry).belief === 'possible' && /appears to struggle/.test(studentConclusion(onceEntry).summary) && /not a characteristic/.test(onceContext) && /SUPPORTED ONCE/.test(onceContext) && onceContext.indexOf('CONFIRMED REPEATED PATTERN') === -1 && studentConclusion(onceEntry).grounds.indexOf('observed') !== -1 && studentConclusion(onceEntry).grounds.indexOf('self_report') !== -1);
+
+    var raw = await fresh();
+    var rawEntry = entryOf(raw.main);
+    var rawContext = getDiagnosticMemoryContext('Look at my VARC', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('an untested hypothesis is not a belief about the student: what was said and what was inferred stay short of an observation', studentConclusion(rawEntry).belief === 'insufficient' && studentConclusion(rawEntry).strength === 'untested' && /not a belief about the student/.test(rawContext) && /WORKING HYPOTHESIS/.test(rawContext) && rawContext.indexOf('CONFIRMED REPEATED PATTERN') === -1 && studentConclusion(rawEntry).grounds.indexOf('observed') === -1 && studentConclusion(rawEntry).grounds.indexOf('self_report') !== -1 && studentConclusion(rawEntry).grounds.indexOf('inferred') !== -1);
   } finally {
     behavioralMemory = savedBehavior;
     try { localStorage.removeItem(getUserScopedKey('marg_behavioral_memory')); } catch(e) {}
