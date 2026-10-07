@@ -5430,7 +5430,7 @@ function storeMentorHypothesis(value, context) {
 
 function compactHypothesisSnapshot(entry) {
   var copy = {};
-  ['origin','hypothesisId','memoryKey','topic','selectedSection','patternId','selectedPattern','confirmedDiagnosis','claim','prediction','supportsIf','weakensIf','predictedObservable','alternativeClaim','competesWith','status','confidence','doNotReuse','sourceThreadId','createdAt','updatedAt','turnMode','supersededAt','supersededBy','supersedeReason','disputedAt','weakenedAt','reconsideredAt','rejectedBecause','validatedAt','confirmedAt'].forEach(function(key) {
+  ['origin','hypothesisId','memoryKey','topic','selectedSection','patternId','selectedPattern','confirmedDiagnosis','claim','prediction','supportsIf','weakensIf','predictedObservable','alternativeClaim','competesWith','status','confidence','doNotReuse','sourceThreadId','createdAt','updatedAt','turnMode','supersededAt','supersededBy','supersedeReason','disputedAt','weakenedAt','reconsideredAt','rejectedBecause','validatedAt','confirmedAt','lastExperiment'].forEach(function(key) {
     if (entry[key] !== undefined) copy[key] = entry[key];
   });
   copy.evidenceHistory = (entry.evidenceHistory || []).slice(-12);
@@ -5488,6 +5488,7 @@ function captureMentorHypotheses(responseText, userMessage, diagnosis) {
       if (touched.length) {
         saveDiagnosticMemory();
         touched.forEach(function(entry) { saveMentorHypothesisSnapshot(entry); persistMentorHypothesis(entry); });
+        offerHypothesisExperiment(proposedNow);
       }
     }
   } catch(error) {
@@ -5534,6 +5535,7 @@ function recordMentorHypothesisEvidence(target, evidence, options) {
   } else if (kind === 'observed_attempt') {
     promoteDiagnosisFromEvidence(entry);
     var after = normalizeDiagnosisStatus(entry);
+    var observedCounts = observedDiagnosisEvidenceCounts(entry);
     if (after === 'rejected') {
       entry.rejectedBecause = entry.weakensIf || '';
       entry.reconsideredAt = stamp;
@@ -5543,6 +5545,11 @@ function recordMentorHypothesisEvidence(target, evidence, options) {
       entry.confidence = Math.max(0.1, Number(entry.confidence || 0.4) - 0.1);
       entry.weakenedAt = stamp;
       effect = 'weakened';
+    } else if (options.outcome === 'inconclusive' && !observedCounts.supporting && !observedCounts.contradicting) {
+      // A test that did not settle the read is recorded as such; it never
+      // lowers a read that observed attempts already support.
+      entry.status = 'inconclusive';
+      effect = previous === 'inconclusive' ? 'recorded' : 'inconclusive';
     }
   } else if (supports === false) {
     entry.confidence = Math.max(0.1, Number(entry.confidence || 0.4) - (kind === 'self_report' ? 0.1 : 0.15));
@@ -5571,6 +5578,436 @@ function getHypothesisTestSpec(entry) {
     weakensIf:entry.weakensIf || '', predictedObservable:entry.predictedObservable || null,
     competesWith:(entry.competesWith || []).slice(), observedSupport:counts.supporting, observedContradiction:counts.contradicting,
     tested:counts.observed > 0, sourceThreadId:entry.sourceThreadId || null
+  };
+}
+
+// --- Hypothesis experiment loop --------------------------------------------------
+// A mentor hypothesis is tested by one bound experiment: the test is designed
+// from the hypothesis' own prediction, disproof condition and competing
+// explanation; the student's attempt is evaluated from the options they chose,
+// never from model prose; the evaluation becomes evidence on the same
+// hypothesis id; and the resulting state decides the next diagnostic action.
+// The only model-dependent step is writing the questions, and a draft that
+// cannot discriminate between the explanations is rejected before it is shown.
+var HYPOTHESIS_EXPERIMENT_SOURCE = 'prediction-validation-experiment';
+var HYPOTHESIS_EXPERIMENT_TRIALS = 3;
+var HYPOTHESIS_EXPERIMENT_MIN_ANSWERED = 2;
+var HYPOTHESIS_EXPERIMENT_OFFER_TTL_MS = 6 * 60 * 60 * 1000;
+var HYPOTHESIS_EXPERIMENT_WEAK_LIMIT = 2;
+var pendingHypothesisExperiment = null;
+
+function isHypothesisExperiment(exercise) {
+  return !!(exercise && exercise.experiment && exercise.experiment.hypothesisId && String(exercise.source || '') === HYPOTHESIS_EXPERIMENT_SOURCE);
+}
+
+function isTestableMentorHypothesis(entry) {
+  if (!isActiveMentorHypothesis(entry)) return false;
+  if (entry.structureMissing || !entry.prediction || !entry.weakensIf) return false;
+  return normalizeDiagnosisStatus(entry) !== 'confirmed';
+}
+
+// Always the live entry: an exercise, a saved task and a pending offer hold
+// copies, and a copy must never be the thing that records evidence.
+function liveExperimentHypothesis(reference) {
+  var id = typeof reference === 'string' ? reference : reference && reference.hypothesisId;
+  if (!id) return null;
+  var live = findMentorHypothesis(id);
+  if (live) return live;
+  try { if (restoreMentorHypothesesFromSnapshots()) return findMentorHypothesis(id); } catch(error) {}
+  return null;
+}
+
+function hypothesisIdFromTask(task) {
+  if (!task) return '';
+  var payload = task.action_payload || task.actionPayload || {};
+  if (payload.hypothesisId) return String(payload.hypothesisId);
+  var match = String(task.client_ref || '').match(/^validation:diagnosis:[a-z_]+:mh-([a-z0-9]+)$/);
+  return match ? 'h-' + match[1] : '';
+}
+
+function hypothesisRivals(entry) {
+  var rivals = [];
+  (entry && entry.competesWith || []).forEach(function(id) {
+    var sibling = findMentorHypothesis(id);
+    if (sibling && isActiveMentorHypothesis(sibling)) rivals.push({ hypothesisId:sibling.hypothesisId, claim:sibling.claim || sibling.confirmedDiagnosis });
+  });
+  if (entry && entry.alternativeClaim && !rivals.some(function(rival) { return hypothesisSimilarity(rival.claim, entry.alternativeClaim) >= MENTOR_HYPOTHESIS_COMPETITOR_THRESHOLD; })) {
+    rivals.push({ hypothesisId:null, claim:entry.alternativeClaim });
+  }
+  return rivals.slice(0, 2);
+}
+
+function hypothesisExperimentFormat(section) {
+  if (section === 'varc') return { format:'varc', guidedSection:'varc_mixed', storedType:'varc', chatSection:'varc_mixed' };
+  if (section === 'qa') return { format:'qa', guidedSection:'qa', storedType:'qa', chatSection:'qa' };
+  if (section === 'dilr') return { format:'dilr_selection', guidedSection:'dilr_selection', storedType:'dilr', chatSection:'dilr_selection' };
+  return { format:'decision', guidedSection:'strategy', storedType:'strategy', chatSection:'strategy' };
+}
+
+function hypothesisExperimentGate(target) {
+  var entry = liveExperimentHypothesis(target);
+  if (!entry) return { ok:false, reason:'unknown_hypothesis' };
+  var status = normalizeDiagnosisStatus(entry);
+  if (status === 'rejected' || status === 'superseded' || entry.doNotReuse) return { ok:false, reason:'retired', entry:entry };
+  if (status === 'confirmed') return { ok:false, reason:'already_confirmed', entry:entry };
+  if (!isTestableMentorHypothesis(entry)) return { ok:false, reason:'no_testable_prediction', entry:entry };
+  return { ok:true, entry:entry };
+}
+
+// What the test must do: the prediction and the observation that would weaken
+// the read, plus the competing explanation the options must separate it from.
+function buildHypothesisExperimentDesign(entry) {
+  var spec = getHypothesisTestSpec(entry);
+  var counts = observedDiagnosisEvidenceCounts(entry);
+  var format = hypothesisExperimentFormat(spec.section);
+  var rivals = hypothesisRivals(entry);
+  return {
+    version:1, hypothesisId:spec.hypothesisId, memoryKey:entry.memoryKey || mentorHypothesisKey(entry.topic, entry.hypothesisId),
+    diagnosisClientRef:spec.diagnosisClientRef, section:spec.section, format:format.format, guidedSection:format.guidedSection,
+    storedType:format.storedType, chatSection:format.chatSection, claim:spec.claim, prediction:spec.prediction, supportsIf:spec.supportsIf,
+    weakensIf:spec.weakensIf, predictedObservable:spec.predictedObservable, rivals:rivals, rivalRequired:rivals.length > 0,
+    trials:HYPOTHESIS_EXPERIMENT_TRIALS, statusAtDesign:spec.status, priorObserved:counts.observed,
+    purpose:spec.status === 'supported' ? 'replicate' : spec.status === 'inconclusive' ? 'sharpen' : counts.observed ? 'retest' : 'first_test',
+    designedAt:new Date().toISOString()
+  };
+}
+
+function buildHypothesisExperimentFocus(entry, design) {
+  design = design || buildHypothesisExperimentDesign(entry);
+  var rivalText = design.rivals.length
+    ? design.rivals.map(function(rival) { return '"' + rival.claim + '"'; }).join(' or ')
+    : 'a plain gap in the underlying skill, with none of the claimed habit';
+  return ' HYPOTHESIS UNDER TEST (a read, not a fact): "' + design.claim + '" It predicts: ' + design.prediction + ' It would be weakened if: ' + design.weakensIf + ' Competing explanation: ' + rivalText + '. This is an experiment, not practice: every question must make the answer pattern of a student with the claimed cause look different from the answer pattern of a student with the competing cause. ';
+}
+
+function buildHypothesisExperimentPrompt(design) {
+  var content = {
+    varc:'Write one 140-190 word passage in "passage" and exactly 3 questions about it. Use close options that differ in scope, author ownership, tone or logical force, so the claimed cause and the competing cause pull towards different wrong options.',
+    qa:'Write exactly 3 short quantitative questions, each solvable in under two minutes, where the claimed cause and the competing cause lead to different wrong answers. Use "passage": "".',
+    dilr_selection:'Write exactly 3 set-selection decisions. In each, show four compact previews of different logic or data-interpretation sets and ask which to attempt first under a stated condition. Use "passage": "".',
+    decision:'Write exactly 3 short CAT decision scenarios, each forcing a choice about attempt order, exit, revision, guessing or confidence. Use "passage": "".'
+  }[design.format] || '';
+  var rivalLine = design.rivals.length
+    ? 'In every question exactly one wrong option is what a student with the competing explanation would choose (its letter goes in "rival"). Competing explanation: ' + design.rivals.map(function(rival) { return '"' + rival.claim + '"'; }).join(' or ') + '.'
+    : 'No competing explanation was stated: treat a plain gap in the underlying skill as the competitor, and leave "rival" as an empty list.';
+  return 'You design one diagnostic experiment for a CAT student. The goal is to separate explanations, not to measure general skill.' +
+    buildHypothesisExperimentFocus(null, design) +
+    content + ' Every question has four plausible, distinct options and exactly one correct option, which a student reaches only by not acting on the claimed cause. In every question exactly one wrong option is what a student with the CLAIMED cause would choose (its letter goes in "supports"). ' + rivalLine +
+    ' The remaining wrong option is a neutral slip. A correct option can never be listed in "supports" or "rival". Each question must be answerable from what is shown, with no outside facts, and the correct option must not be guessable from length or wording. Keep "solution" to one clean sentence with no working shown.' +
+    ' Return ONLY valid JSON in this shape: {"title":"short title","passage":"text or empty string","questions":[{"q":"complete self-contained question","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"solution":"one clean sentence","marg_insight":"the observable choice this question separates","hypothesisSignals":{"supports":["B"],"rival":["C"]}}]} with exactly ' + design.trials + ' questions.';
+}
+
+function experimentSignalLetters(value) {
+  return uniqueList((Array.isArray(value) ? value : (value == null || value === '' ? [] : [value])).map(function(letter) {
+    return String(letter == null ? '' : letter).trim().toUpperCase().charAt(0);
+  }).filter(function(letter) { return /^[A-D]$/.test(letter); }));
+}
+
+function normalizeExperimentSignals(raw) {
+  var signals = raw && typeof raw === 'object' ? raw : {};
+  return { supports:experimentSignalLetters(signals.supports), rival:experimentSignalLetters(signals.rival), rejects:experimentSignalLetters(signals.rejects) };
+}
+
+// A draft is shown only if its answer options can tell the hypotheses apart.
+function validateHypothesisExperimentSet(data, design) {
+  if (!data || !Array.isArray(data.questions) || data.questions.length !== design.trials) return { ok:false, reason:'wrong_question_count' };
+  if (design.format === 'varc' && countPracticeWords(data.passage) < 60) return { ok:false, reason:'passage_missing' };
+  if (collectSolutionPresentationIssues(data, 'qa').length) return { ok:false, reason:'solution_shows_scratchwork' };
+  var stems = {};
+  for (var index = 0; index < data.questions.length; index++) {
+    var question = data.questions[index];
+    if (!isValidTimedTestQuestion(question)) return { ok:false, reason:'invalid_question_' + (index + 1) };
+    if (typeof question.solution !== 'string' || !cleanStudentFacingSolution(question.solution)) return { ok:false, reason:'missing_solution_' + (index + 1) };
+    var signals = normalizeExperimentSignals(question.hypothesisSignals);
+    var correctLetter = String.fromCharCode(65 + question.correct);
+    if (!signals.supports.length || signals.supports.length > 2) return { ok:false, reason:'no_claim_option_' + (index + 1) };
+    if (design.rivalRequired && (!signals.rival.length || signals.rival.length > 2)) return { ok:false, reason:'no_rival_option_' + (index + 1) };
+    if (!design.rivalRequired && signals.rival.length) return { ok:false, reason:'unexpected_rival_option_' + (index + 1) };
+    if (signals.supports.indexOf(correctLetter) !== -1 || signals.rival.indexOf(correctLetter) !== -1) return { ok:false, reason:'signal_on_correct_option_' + (index + 1) };
+    if (signals.supports.some(function(letter) { return signals.rival.indexOf(letter) !== -1; })) return { ok:false, reason:'options_cannot_separate_' + (index + 1) };
+    if (signals.supports.length + signals.rival.length >= 3) return { ok:false, reason:'no_neutral_option_' + (index + 1) };
+    stems[normalizePracticeTopicName(question.q).slice(0, 80)] = true;
+  }
+  if (Object.keys(stems).length < data.questions.length) return { ok:false, reason:'repeated_question' };
+  return { ok:true };
+}
+
+// Identity is stamped by the system, never read back from model text.
+function bindHypothesisExperimentSignals(data, entry) {
+  (data.questions || []).forEach(function(question) {
+    var signals = normalizeExperimentSignals(question.hypothesisSignals);
+    question.hypothesisSignals = { hypothesisId:entry.hypothesisId, patternId:entry.patternId, supports:signals.supports, rival:signals.rival, rejects:[] };
+  });
+  return data;
+}
+
+function weakHypothesisContradictions(entry) {
+  return localDiagnosisEvidence(entry).filter(function(item) { return item && item.type === 'observed_attempt' && item.supports === false && Number(item.strength || 0) < 0.65; }).length;
+}
+
+// The next diagnostic action is a pure function of the hypothesis' own state.
+function computeNextDiagnosticAction(entry) {
+  if (!isMentorHypothesisEntry(entry)) return null;
+  var status = normalizeDiagnosisStatus(entry);
+  var counts = observedDiagnosisEvidenceCounts(entry);
+  var weak = weakHypothesisContradictions(entry);
+  var rival = hypothesisRivals(entry).map(function(item) { return item.hypothesisId ? findMentorHypothesis(item.hypothesisId) : null; }).filter(isTestableMentorHypothesis)[0] || null;
+  var inconclusiveRows = localDiagnosisEvidence(entry).filter(function(item) { return item && item.type === 'observed_attempt' && item.supports == null; }).length;
+  var base = { hypothesisId:entry.hypothesisId, status:status, observedSupport:counts.supporting, observedContradiction:counts.contradicting, testedAttempts:counts.observed };
+  if (status === 'superseded') return Object.assign(base, { action:'none', reason:'This read was retired untested.' });
+  if (status === 'rejected') {
+    return rival
+      ? Object.assign(base, { action:'test_rival', targetHypothesisId:rival.hypothesisId, reason:'Observed attempts went against this read; the competing explanation is the next one to test.' })
+      : Object.assign(base, { action:'propose_new_explanation', reason:'Observed attempts went against this read and no competing explanation is tracked, so look for a different cause before assigning work.' });
+  }
+  if (status === 'confirmed') return Object.assign(base, { action:'intervene', reason:'The same pattern has been observed repeatedly: move from diagnosing to a targeted correction, then re-measure it.' });
+  if (status === 'supported') {
+    return Object.assign(base, entry.disputedAt
+      ? { action:'replicate', reason:'One observed attempt supports this read but the student disputes it: repeat the test on fresh items and let that result decide.' }
+      : { action:'replicate', reason:'One observed attempt supports this read; repeat it on fresh items before treating it as a pattern.' });
+  }
+  if (status === 'inconclusive') {
+    return inconclusiveRows >= 2
+      ? Object.assign(base, { action:'ask_for_observation', reason:'Two tests did not settle this read: ask the student for the specific decision they made rather than testing again.' })
+      : Object.assign(base, { action:'sharpen_test', reason:'The last test did not settle this read: run a sharper test whose options separate it from the competing explanation.' });
+  }
+  if (!counts.observed) return Object.assign(base, { action:'run_test', reason:'No attempt has tested this read yet.' });
+  if (weak >= HYPOTHESIS_EXPERIMENT_WEAK_LIMIT && !counts.supporting) {
+    return Object.assign(base, { action:'revisit_explanation', reason:'The predicted behaviour has not appeared in ' + weak + ' tests: look for a different explanation before testing this one again.' });
+  }
+  return Object.assign(base, { action:'retest', reason:'The last test weakened this read without settling it: test it once more on fresh items.' });
+}
+
+function describeNextDiagnosticAction(action) {
+  if (!action || action.action === 'none') return '';
+  var label = {
+    run_test:'run a short test of it', replicate:'repeat the test on fresh items', sharpen_test:'run a sharper test', retest:'test it once more',
+    ask_for_observation:'ask for the specific decision the student made', revisit_explanation:'look for a different explanation', test_rival:'test the competing explanation',
+    propose_new_explanation:'look for a different cause', intervene:'move to a targeted correction and re-measure'
+  }[action.action] || action.action;
+  return label + ' (' + action.reason + ')';
+}
+
+function describeHypothesisAssessment(entry) {
+  var status = normalizeDiagnosisStatus(entry);
+  if (status === 'hypothesis') {
+    var counts = observedDiagnosisEvidenceCounts(entry);
+    if (!counts.observed) return 'untested';
+    return entry.weakenedAt ? 'weakened' : 'needs_more_testing';
+  }
+  return status;
+}
+
+function savePendingHypothesisExperiment() {
+  try {
+    if (pendingHypothesisExperiment) localStorage.setItem(getUserScopedKey('marg_hypothesis_offer'), JSON.stringify(pendingHypothesisExperiment));
+    else localStorage.removeItem(getUserScopedKey('marg_hypothesis_offer'));
+  } catch(error) {}
+}
+
+function loadPendingHypothesisExperiment() {
+  if (!pendingHypothesisExperiment) {
+    try { pendingHypothesisExperiment = JSON.parse(localStorage.getItem(getUserScopedKey('marg_hypothesis_offer')) || 'null'); } catch(error) { pendingHypothesisExperiment = null; }
+  }
+  if (pendingHypothesisExperiment && Date.now() - Date.parse(pendingHypothesisExperiment.offeredAt || 0) > HYPOTHESIS_EXPERIMENT_OFFER_TTL_MS) pendingHypothesisExperiment = null;
+  if (pendingHypothesisExperiment && !hypothesisExperimentGate(pendingHypothesisExperiment.hypothesisId).ok) pendingHypothesisExperiment = null;
+  return pendingHypothesisExperiment;
+}
+
+function hypothesisTestPriority(entry) {
+  var status = normalizeDiagnosisStatus(entry);
+  var observed = observedDiagnosisEvidenceCounts(entry).observed;
+  if (status === 'inconclusive') return 0;
+  if (status === 'hypothesis' && !observed) return 1;
+  if (status === 'hypothesis') return 2;
+  return 3;
+}
+
+function testableHypothesesFor(message) {
+  var named = message ? sectionsNamedInMessage(message).map(function(section) { return normalizeMentorFocusTopic(section) || section; }) : [];
+  return Object.keys(diagnosticMemory || {}).map(function(key) { return diagnosticMemory[key]; }).filter(function(entry) {
+    if (!isTestableMentorHypothesis(entry)) return false;
+    if (named.length && named.indexOf(normalizeMentorFocusTopic(entry.topic) || entry.topic) === -1) return false;
+    return !message || scopedMentorMemoryAllowed(entry, message) || isObservedSupportEntry(entry);
+  }).sort(function(a, b) {
+    return hypothesisTestPriority(a) - hypothesisTestPriority(b) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+  });
+}
+
+// A turn that creates a testable read leaves one offer behind. The student
+// accepts it by tapping the option or by asking for the test in words.
+function offerHypothesisExperiment(entries) {
+  var candidates = (entries || []).filter(isTestableMentorHypothesis).sort(function(a, b) { return hypothesisTestPriority(a) - hypothesisTestPriority(b); });
+  if (!candidates.length) return null;
+  pendingHypothesisExperiment = { hypothesisId:candidates[0].hypothesisId, offeredAt:new Date().toISOString(), threadId:getCurrentMentorThreadId(), presented:false };
+  savePendingHypothesisExperiment();
+  return pendingHypothesisExperiment;
+}
+
+function presentHypothesisExperimentOffer() {
+  var offer = loadPendingHypothesisExperiment();
+  if (!offer || offer.presented) return false;
+  if (offer.threadId && offer.threadId !== getCurrentMentorThreadId()) return false;
+  if (activeGeneratedExercise && activeGeneratedExercise.awaitingAnswers) return false;
+  offer.presented = true;
+  savePendingHypothesisExperiment();
+  try { showConversationalOptions(['Test this read'], 'start_hypothesis_experiment'); } catch(error) { return false; }
+  return true;
+}
+
+function isHypothesisExperimentRequest(message) {
+  var text = String(message || '').toLowerCase().replace(/[’]/g, "'").trim();
+  if (!text || text.length > 160) return false;
+  return /\b(?:test|check|try|run|start|verify|prove)\b[^.?!]{0,30}\b(?:it|this|that|read|hypothesis|theory|idea|explanation|cause|guess|diagnosis)\b/.test(text) ||
+    /\b(?:let'?s|can we|could we|i want to|i'd like to|please)\b[^.?!]{0,20}\b(?:test|check)\b/.test(text) ||
+    /\bhow (?:can|do|would) (?:we|i) (?:test|check|verify|prove)\b/.test(text);
+}
+
+async function startHypothesisExperimentFromChat(message) {
+  var offer = loadPendingHypothesisExperiment();
+  var candidates = testableHypothesesFor(message);
+  var offered = offer && findMentorHypothesis(offer.hypothesisId);
+  var chosen = offered && isTestableMentorHypothesis(offered) && (!message || scopedMentorMemoryAllowed(offered, message) || isObservedSupportEntry(offered)) ? offered : candidates[0];
+  if (!chosen) return false;
+  pendingHypothesisExperiment = null;
+  savePendingHypothesisExperiment();
+  var launched = await launchHypothesisExperiment(chosen);
+  return launched !== false;
+}
+
+async function maybeStartHypothesisExperiment(text) {
+  if (!isHypothesisExperimentRequest(text)) return false;
+  if (activeGeneratedExercise && activeGeneratedExercise.awaitingAnswers && isPredictionValidationExercise(activeGeneratedExercise)) return false;
+  if (!testableHypothesesFor(text).length) return false;
+  return startHypothesisExperimentFromChat(text);
+}
+
+function describeHypothesisExperimentLead(design) {
+  var rival = design.rivals.length ? ' Each question also has an option that someone with a different cause would pick, so your choices can tell the two apart.' : ' Each question has an option that someone with this cause would pick, next to ordinary slips, so your choices can show whether it really happens.';
+  var again = design.purpose === 'first_test' ? '' : design.purpose === 'replicate' ? ' This repeats an earlier test on fresh questions.' : ' This is a sharper version of an earlier test.';
+  return 'I am testing one read, not teaching a topic: “' + design.claim + '” If it is right, I expect this: ' + design.prediction + ' If it is wrong, I expect this instead: ' + design.weakensIf + '.' + rival + again;
+}
+
+async function requestHypothesisExperimentDraft(design, previousFailure, timeoutMs) {
+  var prompt = buildHypothesisExperimentPrompt(design) + (previousFailure ? ' YOUR PREVIOUS DRAFT WAS REJECTED (' + previousFailure + '): write a new one that fixes exactly that.' : '');
+  var request = buildGeminiRequest('You design diagnostic experiments for CAT students. Return only valid JSON with independently verified answer keys.' + getDateContext(), [{ role:'user', content:prompt }], 8192, 'application/json');
+  request.generationConfig.thinkingConfig = { thinkingLevel:'minimal' };
+  var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(request) }, timeoutMs);
+  var payload = await response.json();
+  var parsed = parseGeneratedJson(getGeminiText(payload));
+  if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(normalizeCorrectIndex);
+  if (parsed) normalizeSolutionPresentation(parsed, 'qa');
+  return parsed;
+}
+
+// The one production entry point that turns a hypothesis into a student test.
+// Everything shown or stored is bound to the hypothesis id; if no draft can
+// separate the explanations, nothing is shown and the same task stays ready.
+async function launchHypothesisExperiment(target, options) {
+  options = options || {};
+  var gate = hypothesisExperimentGate(target);
+  if (!gate.ok) {
+    var notice = gate.reason === 'retired' ? 'That read has already been set aside, so I will not test it again. A different explanation needs its own evidence first.'
+      : gate.reason === 'already_confirmed' ? 'That read has already held up across repeated tests. The useful step now is a targeted correction, not another test of the same thing.'
+        : gate.reason === 'no_testable_prediction' ? 'I cannot design a fair test for that read yet because it does not say what you would do differently if it were true or false.'
+          : 'I could not find that read any more, so there is nothing to test.';
+    addMentorLeadMessage(notice);
+    return gate.reason === 'unknown_hypothesis' ? 'unknown' : gate.reason;
+  }
+  var entry = gate.entry;
+  var design = buildHypothesisExperimentDesign(entry);
+  var taskTitle = design.format === 'varc' ? 'VARC hypothesis test' : design.format === 'qa' ? 'QA hypothesis test' : design.format === 'dilr_selection' ? 'DILR hypothesis test' : 'Decision hypothesis test';
+  removeConversationalOptions();
+  isLoading = true;
+  var sendButton = document.getElementById('send-btn');
+  if (sendButton) sendButton.disabled = true;
+  var generationState = beginGuidedGenerationState(design.guidedSection, entry);
+  if (generationState.attempts === 1) addMentorLeadMessage(describeHypothesisExperimentLead(design));
+  hideTyping();
+  renderGuidedGenerationStatus(generationState);
+  var succeeded = false;
+  try {
+    try {
+      await upsertMentorTaskForDiagnosis(entry, { status:'generating', title:taskTitle, objective:'Test: ' + design.claim, actionPayload:{ hypothesisId:entry.hypothesisId, experiment:{ purpose:design.purpose, format:design.format, prediction:design.prediction, weakensIf:design.weakensIf, designedAt:design.designedAt } } });
+    } catch(error) {}
+    var parsed = null, failure = '';
+    for (var draft = 0; draft < 2 && !parsed; draft++) {
+      var candidate = await requestHypothesisExperimentDraft(design, failure, generationState.timeoutMs);
+      var verdict = validateHypothesisExperimentSet(candidate, design);
+      if (verdict.ok) parsed = candidate; else failure = verdict.reason;
+    }
+    if (!parsed) { var rejected = new Error('Experiment draft could not separate the explanations: ' + failure); rejected.name = 'ExperimentDesignError'; throw rejected; }
+    bindHypothesisExperimentSignals(parsed, entry);
+    var exerciseId = 'hx-' + entry.hypothesisId + '-' + Date.now();
+    var visible = formatGuidedExerciseForChat(design.chatSection, parsed, entry);
+    hideTyping();
+    addMessage('marg', renderGuidedExerciseHtml(visible), true);
+    conversationHistory.push({ role:'assistant', content:visible, exerciseId:exerciseId });
+    if (!isGuestMode) saveChatMessage('assistant', visible);
+    storeActiveGeneratedExercise({
+      id:exerciseId, type:design.storedType, source:HYPOTHESIS_EXPERIMENT_SOURCE, title:taskTitle,
+      purpose:'Test: ' + design.claim, hypothesis:entry, experiment:design, content:parsed
+    });
+    clearGuidedGenerationState();
+    completeChatFirstOnboarding(design.storedType === 'varc' ? 'rc' : design.storedType === 'strategy' ? null : design.storedType);
+    succeeded = true;
+  } catch(error) {
+    hideTyping();
+    console.error('Hypothesis experiment failed:', { hypothesisId:entry.hypothesisId, name:error && error.name, message:error && error.message });
+    markGuidedGenerationRetry(error);
+    try {
+      await upsertMentorTaskForDiagnosis(entry, { status:'ready', title:taskTitle, objective:'Test: ' + design.claim, actionPayload:{ hypothesisId:entry.hypothesisId, retry_section:design.guidedSection, interrupted_at:new Date().toISOString() } });
+    } catch(upsertError) {}
+  }
+  isLoading = false;
+  if (sendButton) sendButton.disabled = false;
+  focusComposer();
+  return succeeded;
+}
+
+// A saved experiment task resumes the same test for the same hypothesis: the
+// exact questions if they are unanswered, the recorded result if they were
+// answered, or a fresh designed test if the hypothesis still needs one. It
+// never falls back to the topic slot or to a retired hypothesis.
+async function resumeHypothesisExperimentTask(task, hypothesisId) {
+  switchTab('chat');
+  var snapshot = task.action_payload && task.action_payload.artifact_snapshot;
+  var restorable = snapshot && isHypothesisExperiment(snapshot) && snapshot.hypothesis && snapshot.hypothesis.hypothesisId === hypothesisId && snapshot.content;
+  if (restorable && snapshot.experimentEvaluation) {
+    activeGeneratedExercise = snapshot;
+    activeGeneratedExercise.mentorTaskId = task.id;
+    try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+    addMentorLeadMessage(stripInternalMentorTags(describeExperimentResultForStudent(snapshot)));
+    return true;
+  }
+  if (restorable && snapshot.awaitingAnswers !== false && hypothesisExperimentGate(hypothesisId).ok) {
+    var attempt = (mentorExecutionLoop.attempts || []).find(function(item) { return item.task_id === task.id; });
+    activeGeneratedExercise = snapshot;
+    activeGeneratedExercise.mentorTaskId = task.id;
+    if (attempt) activeGeneratedExercise.mentorAttemptId = attempt.id;
+    try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(activeGeneratedExercise)); } catch(e) {}
+    var replay = formatGuidedExerciseForChat(snapshot.experiment && snapshot.experiment.chatSection || hypothesisExperimentFormat(snapshot.type).chatSection, snapshot.content, liveExperimentHypothesis(hypothesisId));
+    addMessage('marg', renderGuidedExerciseHtml(replay), true);
+    conversationHistory.push({ role:'assistant', content:replay, exerciseId:snapshot.id });
+    if (!isGuestMode) saveChatMessage('assistant', replay);
+    markActiveExerciseDelivered('chat-replay');
+    return true;
+  }
+  return launchHypothesisExperiment(hypothesisId);
+}
+
+function getHypothesisFollowUpRecommendation() {
+  var entry = Object.keys(diagnosticMemory || {}).map(function(key) { return diagnosticMemory[key]; }).filter(function(item) {
+    if (!isTestableMentorHypothesis(item) || !observedDiagnosisEvidenceCounts(item).observed) return false;
+    return ['replicate', 'sharpen_test', 'retest'].indexOf((computeNextDiagnosticAction(item) || {}).action) !== -1;
+  }).sort(function(a, b) { return String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); })[0];
+  if (!entry) return null;
+  var next = computeNextDiagnosticAction(entry);
+  return {
+    title:'One read still needs another test.',
+    copy:compactHomeText(entry.claim + ' — ' + describeNextDiagnosticAction(next), 230),
+    label:'Next diagnostic step', cta:'Run the next test →',
+    action:{ destination:'hypothesis_experiment', hypothesisId:entry.hypothesisId }
   };
 }
 
@@ -5671,7 +6108,9 @@ function describeHypothesisBasis(entry) {
   if (entry.weakensIf) lines.push('What would change the read: ' + entry.weakensIf);
   var competing = competingHypothesisClaims(entry);
   if (competing.length) lines.push('Still possible instead: ' + competing.join(' / '));
-  if (entry.disputedAt) lines.push('The student has disputed this read.');
+  if (entry.disputedAt) lines.push('The student has disputed this read. Observed attempts on record stay on record.');
+  var nextStep = describeNextDiagnosticAction(computeNextDiagnosticAction(entry));
+  if (nextStep) lines.push('Next diagnostic step: ' + nextStep);
   return lines.join('\n   ');
 }
 
@@ -5703,7 +6142,9 @@ function mentorHypothesisContextSuffix(entry, message) {
   if (entry.weakensIf) parts.push('Would be reconsidered if: ' + entry.weakensIf);
   var competing = competingHypothesisClaims(entry, message);
   if (competing.length) parts.push('Competing explanation' + (competing.length > 1 ? 's' : '') + ': ' + competing.join(' / '));
-  if (entry.disputedAt) parts.push('The student has disputed this.');
+  if (entry.disputedAt) parts.push('The student has disputed this. Observed attempts on record stay on record.');
+  var nextStep = describeNextDiagnosticAction(computeNextDiagnosticAction(entry));
+  if (nextStep && entry.lastExperiment) parts.push('Next diagnostic step: ' + nextStep);
   return parts.length ? ' ' + parts.join(' ') : '';
 }
 
@@ -5730,6 +6171,7 @@ function mentorTaskDefinition(entry) {
   if (section === 'varc' && /last_two|scope|tone|extreme/.test(patternId)) successMetric = 'Compare each final option with the passage’s exact claim; record whether scope or tone—not comprehension—causes the loss.';
   if (section === 'dilr' && /dead_set|selection|time/.test(patternId)) successMetric = 'Record the stay-or-exit decision and the minute useful progress stopped; completed-set count is not the success measure.';
   if (section === 'qa' && /recogn|mixed|slow_method/.test(patternId)) successMetric = 'Separate concept recall, method recognition and execution from the pattern across the attempted questions.';
+  if (isMentorHypothesisEntry(entry) && entry.prediction && entry.weakensIf) successMetric = 'Supported if: ' + entry.prediction + ' Weakened if: ' + entry.weakensIf;
   return {
     section:section,
     taskType:section === 'mock' ? 'mock_review' : section === 'strategy' ? 'strategy_check' : section === 'confidence' || section === 'study_plan' ? 'reflection' : 'diagnostic',
@@ -5849,6 +6291,7 @@ function mergedMentorTaskActionPayload(existing, entry, incoming) {
   var extra = incoming && typeof incoming === 'object' ? incoming : {};
   var payload = Object.assign({}, previous, extra);
   if (entry && entry.patternId) payload.pattern_id = entry.patternId;
+  if (isMentorHypothesisEntry(entry)) payload.hypothesisId = entry.hypothesisId;
   if (entry && entry.confirmation != null) payload.confirmation = entry.confirmation;
   if (extra.timing) payload.timing = extra.timing;
   var target = knownInterventionTarget(
@@ -5934,6 +6377,11 @@ async function persistGeneratedExerciseTask(exercise) {
         cancelledAt:exercise.cancelledAt || null,
         validationVerdict:exercise.validationVerdict || null,
         hypothesisVerdict:exercise.hypothesisVerdict || null,
+        hypothesisOutcome:exercise.hypothesisOutcome || null,
+        experiment:exercise.experiment || null,
+        experimentEvaluation:exercise.experimentEvaluation || null,
+        partialChoices:exercise.partialChoices || null,
+        nextDiagnosticAction:exercise.nextDiagnosticAction || null,
         uiSelections:Array.isArray(exercise.uiSelections) ? exercise.uiSelections.slice(-30) : []
       } }
     });
@@ -5993,6 +6441,7 @@ async function persistMentorTaskAttempt(exercise, result) {
   if (isTimedExercise && typeof timedTestSecondsTotal === 'number' && typeof timedTestSecondsLeft === 'number' && timedTestSecondsTotal >= timedTestSecondsLeft) elapsed = timedTestSecondsTotal - timedTestSecondsLeft;
   var evidenceQuality = assessExerciseEvidenceQuality(exercise);
   var observables = observablesFromAttemptResult(task, result);
+  var experimentEvaluation = exercise.experimentEvaluation || null;
   var payload = {
     user_id:currentUser.id, task_id:task.id,
     client_ref:String(exercise.id + ':attempt:' + completedAt).slice(0, 200),
@@ -6011,7 +6460,13 @@ async function persistMentorTaskAttempt(exercise, result) {
       delivered_at:exercise.deliveredAt || null,
       generation_duration_ms:Number(exercise.generationDurationMs || 0) || null,
       evidence_quality:evidenceQuality,
-      observables:observables
+      observables:observables,
+      hypothesis:experimentEvaluation ? {
+        hypothesisId:experimentEvaluation.hypothesisId, diagnosis_client_ref:exercise.hypothesis ? mentorDiagnosisClientRef(exercise.hypothesis) : null,
+        outcome:experimentEvaluation.outcome, verdict:experimentEvaluation.verdict, counts:experimentEvaluation.counts,
+        observations:experimentEvaluation.observations, purpose:exercise.experiment && exercise.experiment.purpose || null,
+        status_after:exercise.hypothesisStatusAfter || null, next_action:exercise.nextDiagnosticAction && exercise.nextDiagnosticAction.action || null
+      } : null
     },
     evidence_summary:String(result.evidenceSummary || (Number(result.correct || 0) + '/' + total + ' correct; ' + Number(result.wrong || 0) + ' wrong; ' + Number(result.skipped || 0) + ' skipped.')).slice(0, 1600),
     verdict:getExerciseHypothesisVerdict(exercise),
@@ -6029,6 +6484,7 @@ async function persistMentorTaskAttempt(exercise, result) {
       mentorExecutionLoop.attempts.push(saved);
       exercise.mentorAttemptId = saved.id;
       try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(exercise)); } catch(e) {}
+      bindHypothesisEvidenceToAttempt(exercise, saved);
       await evaluatePersistedMentorTask(task, attemptsForMentorTask(task.id), {
         prose:result.prose || result.mentorProse || '',
         feedback:result.feedback || null,
@@ -6537,6 +6993,8 @@ function isActiveExerciseCurrentInConversation() {
   var material = normalize(content.exerciseText || '');
   var sets = content.structuredData && content.structuredData.sets || content.sets || [];
   var passage = normalize(sets[0] && (sets[0].passage || sets[0].setup) || '');
+  var firstQuestion = Array.isArray(content.questions) && content.questions[0] || sets[0] && sets[0].questions && sets[0].questions[0] || null;
+  var stem = firstQuestion && typeof firstQuestion.q === 'string' ? normalize(firstQuestion.q).slice(0, 60) : '';
   var history = typeof conversationHistory !== 'undefined' ? conversationHistory || [] : [];
   for (var i = history.length - 1; i >= 0; i--) {
     var item = history[i];
@@ -6554,6 +7012,9 @@ function isActiveExerciseCurrentInConversation() {
     // Its delivery baseline prevents that older chat from invalidating it.
     if (/practice|sectional|timed-test/i.test(activeGeneratedExercise.deliverySurface || '') && activeGeneratedExercise.visibleMaterialAtDelivery === visible) return true;
     if (item.exerciseId === activeGeneratedExercise.id) return true;
+    // Guided checks have no pasted material and chat history loses ad-hoc
+    // fields on reload, so the first question stem is the stable identity.
+    if (stem.length >= 24 && visible.indexOf(stem) !== -1) return true;
     if (passage.length > 80 && visible.indexOf(passage.slice(0, 180)) !== -1) return true;
     if (material.length > 80 && (visible === material || visible.indexOf(material.slice(0, 180)) !== -1)) return true;
     return false;
@@ -7305,6 +7766,7 @@ function ensureRCProgressionClose(text, diagnosis) {
 
 function buildPredictionValidationFallback(message) {
   if (!isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.hypothesis) return '';
+  if (activeGeneratedExercise.experimentEvaluation) return describeExperimentResultForStudent(activeGeneratedExercise);
   var localCheck = buildLocalAnswerCheck(message);
   if (localCheck) return localCheck;
   return 'I saved your response, but the evidence check did not finish cleanly. I’m not treating the earlier read as proven; retry the review and I’ll test it from the same answers.\n[HYPOTHESIS_VERDICT: inconclusive]';
@@ -7328,7 +7790,8 @@ function getGeneratedExerciseMemoryContext(message, diagnosis) {
   var text = String(message || '').toLowerCase();
   var reviewFollowUp = isAnswerReviewRequest(message) || isExerciseResultReviewRequest(message) || intent === 'answer_review';
   var validationFollowUp = isPredictionValidationExercise(activeGeneratedExercise) &&
-    (isPredictionValidationReply(message) || activeGeneratedExercise.lastSubmittedAnswers === String(message || '').substring(0, 1000));
+    (isPredictionValidationReply(message) || activeGeneratedExercise.lastSubmittedAnswers === String(message || '').substring(0, 1000) ||
+      (isHypothesisExperiment(activeGeneratedExercise) && activeGeneratedExercise.experimentEvaluation && Date.now() - Date.parse(activeGeneratedExercise.experimentEvaluation.evaluatedAt || 0) < 30 * 60 * 1000));
   if (activeGeneratedExercise.type === 'strategy' &&
       /\b(?:person|persons|standing|seating|line|constraint|condition|left of|right of|facing|corner|position)\b/.test(text) &&
       !/\b(?:decision lab|strategy lab|question\s*[123]|1\s*[-:.)]\s*[abcd])\b/.test(text)) {
@@ -7340,6 +7803,12 @@ function getGeneratedExerciseMemoryContext(message, diagnosis) {
   } else if (!reviewFollowUp && !validationFollowUp) return '';
   if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(message)) return '\n\nUse only the newly pasted passage/questions for this turn. The saved exercise key belongs to different material and must not be applied.';
   if (!isActiveExerciseCurrentInConversation()) return '\n\nEXERCISE IDENTITY: The newest passage/questions in this conversation are different from the saved exercise. Do not use the old key, score or selections. Check only the newest visible material and the answers supplied in this turn. If verification fails, leave it ungraded. Never ask the student to paste it again.';
+  if (isHypothesisExperiment(activeGeneratedExercise) && activeGeneratedExercise.experimentEvaluation) {
+    var experiment = activeGeneratedExercise.experimentEvaluation;
+    var tested = liveExperimentHypothesis(activeGeneratedExercise.hypothesis);
+    var following = tested ? describeNextDiagnosticAction(computeNextDiagnosticAction(tested)) : '';
+    return '\n\nHYPOTHESIS TEST RESULT (already evaluated by Marg from the options the student chose; do not re-grade or change it): the read “' + (tested && tested.claim || activeGeneratedExercise.hypothesis.claim) + '” — outcome ' + experiment.outcome + '; predicted choice ' + experiment.counts.supports + ', competing-explanation choice ' + experiment.counts.contradicts + ', neither ' + experiment.counts.neutral + ' of ' + experiment.counts.answered + ' answered. ' + experiment.reason + ' Status now: ' + (tested ? describeHypothesisLevel(tested) : activeGeneratedExercise.hypothesisStatusAfter) + '.' + (following ? ' Next diagnostic step: ' + following + '.' : '') + ' If the student disagrees, take it seriously and ask what they actually did, but the recorded choices stay on record and only a new test can change this read. Do not add a verdict tag.';
+  }
   if (!hasVerifiedActiveAnswerKey()) return '\n\nUNVERIFIED SAVED EXERCISE: The saved answer key has no valid verification status. Do not use it to grade, score or diagnose the student. The visible questions are still in conversation history; do not ask for another paste. Explain what can be established from the visible evidence, and leave any unchecked verdict ungraded.';
   var memoryJson = JSON.stringify(activeGeneratedExercise, function(key, value) { return key === 'visibleMaterialAtDelivery' ? undefined : value; });
   if (memoryJson.length > 24000) memoryJson = memoryJson.substring(0, 24000) + '...';
@@ -7355,7 +7824,10 @@ function markActiveExerciseAttempt(answerText, force) {
   activeGeneratedExercise.lastAttemptAt = new Date().toISOString();
   activeGeneratedExercise.awaitingAnswers = false;
   storeActiveGeneratedExercise(activeGeneratedExercise);
-  recordEngagementEvent('recommended_task_completed', {
+  if (isHypothesisExperiment(activeGeneratedExercise) && !activeGeneratedExercise.experimentEvaluation) {
+    completeHypothesisExperiment(activeGeneratedExercise, getActiveExerciseAnswerChoices(answerText));
+  }
+  if (activeGeneratedExercise.awaitingAnswers === false || !isHypothesisExperiment(activeGeneratedExercise)) recordEngagementEvent('recommended_task_completed', {
     id:activeGeneratedExercise.id,
     type:activeGeneratedExercise.type,
     source:activeGeneratedExercise.source || 'chat-exercise'
@@ -7421,22 +7893,32 @@ function questionHypothesisSignals(question, hypothesis) {
   if (!signals || typeof signals !== 'object') return null;
   var patternId = String(hypothesis && hypothesis.patternId || '');
   var signalPattern = String(signals.patternId || '');
-  if (signalPattern && signalPattern !== patternId && signalPattern !== hypothesisSignalKey(patternId)) return null;
+  var signalHypothesis = String(signals.hypothesisId || '');
+  // Signals stamped for one hypothesis are never read against another.
+  if (signalHypothesis && hypothesis && hypothesis.hypothesisId && signalHypothesis !== hypothesis.hypothesisId) return null;
+  if (!signalHypothesis && signalPattern && signalPattern !== patternId && signalPattern !== hypothesisSignalKey(patternId)) return null;
   function letters(value) {
     return (Array.isArray(value) ? value : []).map(function(letter) { return String(letter || '').trim().toUpperCase().charAt(0); }).filter(function(letter) { return /[A-D]/.test(letter); });
   }
-  return { supports:letters(signals.supports), rejects:letters(signals.rejects) };
+  var rival = letters(signals.rival);
+  return { supports:letters(signals.supports), rejects:letters(signals.rejects).concat(rival.filter(function(letter) { return letters(signals.rejects).indexOf(letter) === -1; })), rival:rival };
 }
 
-function evaluateStoredHypothesisAttempt(exercise, choices) {
-  var hypothesis = exercise && exercise.hypothesis;
-  if (!hypothesis) return { deterministic:false, verdict:'INCONCLUSIVE', reason:'No stored hypothesis is attached to this attempt.', observations:[] };
+function collectHypothesisChoices(exercise, choices) {
   var recorded = {};
   Object.keys(choices || {}).forEach(function(number) {
     if (choices[number] != null && String(choices[number]).trim()) recorded[number] = String(choices[number]).trim().toUpperCase().charAt(0);
   });
   var storedChoices = recordedHypothesisChoices(exercise);
   Object.keys(storedChoices).forEach(function(number) { if (!recorded[number]) recorded[number] = storedChoices[number]; });
+  return recorded;
+}
+
+function evaluateStoredHypothesisAttempt(exercise, choices) {
+  var hypothesis = exercise && exercise.hypothesis;
+  if (!hypothesis) return { deterministic:false, verdict:'INCONCLUSIVE', reason:'No stored hypothesis is attached to this attempt.', observations:[] };
+  if (isMentorHypothesisEntry(hypothesis)) return evaluateHypothesisExperiment(exercise, liveExperimentHypothesis(hypothesis) || hypothesis, choices);
+  var recorded = collectHypothesisChoices(exercise, choices);
   var hasAttempt = !!(exercise.result) || Object.keys(recorded).length > 0;
   if (!hasAttempt) return { deterministic:false, verdict:'INCONCLUSIVE', reason:'No stored attempt is available.', observations:[] };
   var quality = assessExerciseEvidenceQuality(exercise);
@@ -7466,6 +7948,251 @@ function evaluateStoredHypothesisAttempt(exercise, choices) {
   return { deterministic:true, verdict:verdict, reason:reason, observations:observations, quality:quality };
 }
 
+// The attempt is graded against the options the test itself declared: a pick
+// the claim predicts, a pick the competing explanation predicts, or neither.
+function evaluateHypothesisExperiment(exercise, entry, choices) {
+  var result = {
+    deterministic:true, verdict:'INCONCLUSIVE', outcome:'inconclusive', strength:0.2, reason:'', observations:[], quality:null,
+    observables:null, hypothesisId:entry && entry.hypothesisId || null,
+    counts:{ designed:0, answered:0, supports:0, rival:0, contradicts:0, neutral:0 }
+  };
+  if (!exercise || !entry) return Object.assign(result, { deterministic:false, reason:'No stored hypothesis is attached to this attempt.' });
+  var recorded = collectHypothesisChoices(exercise, choices);
+  if (!exercise.result && !Object.keys(recorded).length) return Object.assign(result, { deterministic:false, reason:'No stored attempt is available.' });
+  result.quality = assessExerciseEvidenceQuality(exercise);
+  if (!result.quality.usable) { result.reason = result.quality.reason; return result; }
+  var counts = result.counts;
+  rawExerciseQuestions(exercise).forEach(function(question, index) {
+    var signals = questionHypothesisSignals(question, entry);
+    if (!signals) return;
+    counts.designed++;
+    var choice = recorded[index + 1];
+    if (!choice) return;
+    counts.answered++;
+    var relation = signals.supports.indexOf(choice) !== -1 ? 'supports' : signals.rival.indexOf(choice) !== -1 ? 'rival' : signals.rejects.indexOf(choice) !== -1 ? 'rejects' : 'neutral';
+    if (relation === 'supports') counts.supports++;
+    else if (relation === 'neutral') counts.neutral++;
+    else { counts.contradicts++; if (relation === 'rival') counts.rival++; }
+    result.observations.push({ question:index + 1, choice:choice, relation:relation, patternId:String(entry.patternId || '') });
+  });
+  var s = counts.supports;
+  var c = counts.contradicts;
+  var n = counts.answered;
+  function conclude(outcome, strength, reason, studentReason) {
+    result.outcome = outcome; result.strength = strength; result.reason = reason; result.studentReason = studentReason;
+    result.verdict = outcome === 'supported' ? 'SUPPORTED' : outcome === 'rejected' ? 'REJECTED' : 'INCONCLUSIVE';
+  }
+  if (!counts.designed) {
+    conclude('inconclusive', 0.2, 'This attempt contains no question built to test this hypothesis, so it cannot move it.', 'None of these questions were built to test this read, so it cannot move it.');
+  } else if (n < HYPOTHESIS_EXPERIMENT_MIN_ANSWERED) {
+    conclude('inconclusive', 0.2, 'Only ' + n + ' of the ' + counts.designed + ' test questions were answered; one answer cannot show a pattern.', 'Only ' + n + ' of the ' + counts.designed + ' questions were answered, and one answer cannot show a pattern.');
+  } else if (s > 0 && c === 0) {
+    if (s / n >= 0.5) {
+      conclude('supported', s >= 2 ? 0.85 : 0.68,
+        'The student chose the option the claim predicts in ' + s + ' of ' + n + ' answered questions and never the competing explanation’s option.',
+        'You picked the option this read predicts in ' + s + ' of ' + n + ' questions, and never the option a different cause would lead to.');
+    } else {
+      conclude('inconclusive', 0.5, 'The predicted choice appeared in only ' + s + ' of ' + n + ' answers; one slip is not a pattern.', 'The predicted choice showed up in only ' + s + ' of ' + n + ' answers, and one slip is not a pattern.');
+    }
+  } else if (c > 0 && s === 0) {
+    if (c >= 2 && c / n >= 0.5) {
+      conclude('rejected', 0.85,
+        'The student’s wrong or alternative choices followed a different explanation in ' + c + ' of ' + n + ' answered questions and the predicted choice never appeared.',
+        'Your wrong picks followed a different cause in ' + c + ' of ' + n + ' questions, and the predicted choice never appeared.');
+    } else {
+      conclude('weakened', 0.5, 'A choice that follows a competing explanation appeared once and the predicted choice never did.', 'One pick followed a different cause and the predicted choice never appeared.');
+    }
+  } else if (s > 0 && c > 0) {
+    conclude('inconclusive', 0.5, 'Both the predicted choice (' + s + ') and a competing explanation’s choice (' + c + ') appeared, so this test does not separate them.', 'Both the predicted pick (' + s + ') and a different cause’s pick (' + c + ') showed up, so this test does not separate them.');
+  } else {
+    conclude('weakened', 0.5, 'The predicted choice did not appear in any of the ' + n + ' answered questions built to elicit it.', 'The predicted pick did not appear in any of the ' + n + ' questions built to bring it out.');
+  }
+  if (counts.designed) {
+    result.observables = { hypothesis_trials:n, hypothesis_supporting_picks:s, hypothesis_rival_picks:counts.rival, hypothesis_contradicting_picks:c };
+    if (n) result.observables.hypothesis_signal_rate = Math.round((s / n) * 100) / 100;
+  }
+  return result;
+}
+
+function ensureExperimentResult(exercise, choices) {
+  var recorded = collectHypothesisChoices(exercise, choices);
+  if (!exercise.result && !Object.keys(recorded).length) return null;
+  var questions = rawExerciseQuestions(exercise);
+  if (!exercise.result) {
+    var correct = 0, wrong = 0, skipped = 0;
+    questions.forEach(function(question, index) {
+      var choice = recorded[index + 1];
+      if (!choice) { skipped++; return; }
+      var right = Number.isInteger(question.correct) ? String.fromCharCode(65 + question.correct) : String(question.correct == null ? '' : question.correct).trim().toUpperCase().charAt(0);
+      if (choice === right) correct++; else wrong++;
+    });
+    exercise.result = {
+      correct:correct, wrong:wrong, skipped:skipped, total:questions.length, attempted:correct + wrong,
+      accuracy:correct + wrong ? (correct / (correct + wrong)) * 100 : 0,
+      answers:questions.map(function(_question, index) { return recorded[index + 1] || null; }), choices:recorded
+    };
+  } else if (!exercise.result.choices) {
+    exercise.result.choices = recorded;
+  }
+  exercise.completedAt = exercise.completedAt || new Date().toISOString();
+  if (exercise.reviewPending == null) exercise.reviewPending = true;
+  return recorded;
+}
+
+function hypothesisExperimentEvidenceRef(exercise) {
+  return 'experiment-' + String(exercise && exercise.id || 'unknown');
+}
+
+function describeExperimentEvidenceClaim(evaluation, entry) {
+  var counts = evaluation.counts;
+  var verb = evaluation.outcome === 'supported' ? 'Test attempt supported the read'
+    : evaluation.outcome === 'rejected' ? 'Test attempt went against the read'
+      : evaluation.outcome === 'weakened' ? 'Test attempt weakened the read'
+        : 'Test attempt did not settle the read';
+  return verb + ': ' + (entry.claim || entry.confirmedDiagnosis) + ' — ' + counts.supports + ' predicted choice(s), ' + counts.contradicts + ' competing choice(s), ' + counts.neutral + ' neither, of ' + counts.answered + ' answered. ' + evaluation.reason;
+}
+
+// The single production path from a finished attempt to the hypothesis it
+// tested: evaluate, record evidence on the live entry, move the status from
+// that evidence, decide the next action, and persist the same state.
+function experimentAnswerProgress(exercise, entry, choices) {
+  var recorded = collectHypothesisChoices(exercise, choices);
+  var progress = { designed:0, answered:0, recorded:recorded };
+  rawExerciseQuestions(exercise).forEach(function(question, index) {
+    if (!questionHypothesisSignals(question, entry)) return;
+    progress.designed++;
+    if (recorded[index + 1]) progress.answered++;
+  });
+  return progress;
+}
+
+function completeHypothesisExperiment(exercise, choices) {
+  if (!exercise || !isMentorHypothesisEntry(exercise.hypothesis)) return { ok:false, reason:'not_a_hypothesis_experiment' };
+  if (exercise.experimentEvaluation) {
+    return { ok:true, repeated:true, evaluation:exercise.experimentEvaluation, status:exercise.hypothesisStatusAfter || null, nextAction:exercise.nextDiagnosticAction || null };
+  }
+  var entry = liveExperimentHypothesis(exercise.hypothesis);
+  if (!entry) return { ok:false, reason:'unknown_hypothesis' };
+  // Answers can arrive over several messages; they accumulate until the test
+  // has enough answered questions to say anything.
+  choices = Object.assign({}, exercise.partialChoices || {}, choices || {});
+  var progress = experimentAnswerProgress(exercise, entry, choices);
+  if (!progress.designed) return { ok:false, reason:'not_designed_for_hypothesis' };
+  if (progress.answered < HYPOTHESIS_EXPERIMENT_MIN_ANSWERED) {
+    exercise.partialChoices = progress.recorded;
+    exercise.awaitingAnswers = true;
+    storeActiveGeneratedExercise(exercise);
+    return { ok:false, reason:'incomplete', answered:progress.answered, designed:progress.designed };
+  }
+  if (!ensureExperimentResult(exercise, choices)) return { ok:false, reason:'no_attempt' };
+  var evaluation = evaluateHypothesisExperiment(exercise, entry, choices);
+  if (!evaluation.deterministic) return { ok:false, reason:'no_attempt' };
+  var now = new Date().toISOString();
+  var ref = hypothesisExperimentEvidenceRef(exercise);
+  var attemptId = exercise.mentorAttemptId || exercise.id;
+  var previousStatus = normalizeDiagnosisStatus(entry);
+  exercise.hypothesisVerdict = evaluation.verdict;
+  exercise.hypothesisOutcome = evaluation.outcome;
+  exercise.validatedAt = now;
+  exercise.awaitingAnswers = false;
+  if (evaluation.observables) exercise.result.observables = Object.assign({}, exercise.result.observables || {}, evaluation.observables);
+  exercise.experimentEvaluation = {
+    hypothesisId:entry.hypothesisId, outcome:evaluation.outcome, verdict:evaluation.verdict, reason:evaluation.reason, strength:evaluation.strength,
+    counts:evaluation.counts, observations:evaluation.observations, qualityLevel:evaluation.quality && evaluation.quality.level || null, evaluatedAt:now,
+    studentReason:evaluation.studentReason || evaluation.reason
+  };
+  var supports = evaluation.outcome === 'supported' ? true : (evaluation.outcome === 'rejected' || evaluation.outcome === 'weakened') ? false : null;
+  var recorded = recordMentorHypothesisEvidence(entry, {
+    kind:'observed_attempt', supports:supports, strength:evaluation.strength, claim:describeExperimentEvidenceClaim(evaluation, entry),
+    attemptId:attemptId, clientRef:ref, occurredAt:now,
+    payload:{
+      experiment_ref:ref, exercise_id:exercise.id, hypothesis_id:entry.hypothesisId, outcome:evaluation.outcome, verdict:evaluation.verdict,
+      counts:evaluation.counts, observations:evaluation.observations, quality_level:evaluation.quality && evaluation.quality.level || null,
+      task_id:exercise.mentorTaskId || null, diagnosis_client_ref:mentorDiagnosisClientRef(entry), purpose:exercise.experiment && exercise.experiment.purpose || null
+    }
+  }, { save:false, outcome:evaluation.outcome });
+  exercise.experimentEvaluation.evidenceRecorded = !!recorded.ok;
+  exercise.experimentEvaluation.effect = recorded.ok ? recorded.effect : recorded.reason;
+  entry.lastExperiment = { exerciseId:exercise.id, outcome:evaluation.outcome, verdict:evaluation.verdict, at:now, effect:exercise.experimentEvaluation.effect };
+  entry.validationVerdict = evaluation.verdict;
+  entry.validatedAt = now;
+  var status = normalizeDiagnosisStatus(entry);
+  exercise.hypothesisStatusAfter = status;
+  var nextAction = computeNextDiagnosticAction(entry);
+  entry.nextAction = nextAction;
+  exercise.nextDiagnosticAction = nextAction;
+  if (status === 'confirmed' && previousStatus !== 'confirmed') recordBehaviorPattern(entry.topic, entry.confirmedDiagnosis, entry.selectedPattern, 'repeated-observed-diagnostic');
+  if (status === 'rejected' && previousStatus !== 'rejected') {
+    loadActiveMentorPlan();
+    if (isOpenMentorPlan(activeMentorPlan) && sharesSpecificClaim(activeMentorPlan.mission, entry.claim || entry.confirmedDiagnosis, 2)) {
+      activeMentorPlan.status = 'invalidated';
+      activeMentorPlan.invalidatedAt = now;
+      activeMentorPlan.invalidationReason = 'The validation evidence rejected the diagnosis behind this mission.';
+      saveActiveMentorPlan(activeMentorPlan);
+    }
+  }
+  saveDiagnosticMemory();
+  saveMentorHypothesisSnapshot(entry);
+  persistMentorHypothesis(entry);
+  storeActiveGeneratedExercise(exercise);
+  if (exercise.result) persistMentorTaskAttempt(exercise, exercise.result);
+  logMentorHypothesisCapture({ experiment:ref, hypothesisId:entry.hypothesisId, outcome:evaluation.outcome, previousStatus:previousStatus, status:status, nextAction:nextAction && nextAction.action });
+  return { ok:true, evaluation:evaluation, effect:exercise.experimentEvaluation.effect, previousStatus:previousStatus, status:status, nextAction:nextAction, entry:entry };
+}
+
+function bindHypothesisEvidenceToAttempt(exercise, attempt) {
+  if (!exercise || !exercise.experimentEvaluation || !attempt || !attempt.id) return false;
+  var entry = liveExperimentHypothesis(exercise.hypothesis);
+  if (!entry) return false;
+  var ref = hypothesisExperimentEvidenceRef(exercise);
+  var item = localDiagnosisEvidence(entry).find(function(row) { return row && row.payload && row.payload.experiment_ref === ref; });
+  if (!item || item.attemptId === attempt.id) return false;
+  item.attemptId = attempt.id;
+  item.payload = Object.assign({}, item.payload, { attempt_id:attempt.id, attempt_client_ref:attempt.client_ref || null });
+  saveDiagnosticMemory();
+  saveMentorHypothesisSnapshot(entry);
+  persistMentorHypothesis(entry);
+  return true;
+}
+
+// The reply to a submitted experiment is written from the evaluation, not by
+// the model, so prose cannot change what the attempt showed.
+function maybeCompleteHypothesisExperimentReview(message) {
+  if (!activeGeneratedExercise) loadActiveGeneratedExercise();
+  var exercise = activeGeneratedExercise;
+  if (!isHypothesisExperiment(exercise) || exercise.reviewedAt || !isActiveExerciseCurrentInConversation()) return false;
+  if (exercise.lastSubmittedAnswers !== String(message || '').substring(0, 1000)) return false;
+  var reply = '';
+  if (exercise.experimentEvaluation) reply = describeExperimentResultForStudent(exercise);
+  else if (exercise.partialChoices) {
+    var entry = liveExperimentHypothesis(exercise.hypothesis);
+    var progress = entry ? experimentAnswerProgress(exercise, entry, exercise.partialChoices) : { answered:0, designed:HYPOTHESIS_EXPERIMENT_TRIALS };
+    reply = 'I have ' + progress.answered + ' of the ' + progress.designed + ' answers. I need at least ' + HYPOTHESIS_EXPERIMENT_MIN_ANSWERED + ' to see whether there is a pattern, so send the rest in the same format (for example 2-B, 3-C) and I will count them together.';
+  }
+  if (!reply) return false;
+  if (exercise.experimentEvaluation) markExerciseReviewCompleted(reply);
+  var visible = stripInternalMentorTags(reply);
+  addMessage('marg', renderMentorStructuredText(visible));
+  conversationHistory.push({ role:'assistant', content:visible });
+  if (!isGuestMode) saveChatMessage('assistant', visible);
+  lastFailedOutgoingMessage = null;
+  showComposerStatus('', 'info');
+  return true;
+}
+
+function describeExperimentResultForStudent(exercise) {
+  var evaluation = exercise && exercise.experimentEvaluation;
+  if (!evaluation) return '';
+  var entry = liveExperimentHypothesis(exercise.hypothesis);
+  var claim = entry && (entry.claim || entry.confirmedDiagnosis) || exercise.hypothesis && exercise.hypothesis.claim || 'this read';
+  var lead = evaluation.outcome === 'supported' ? 'Your choices lined up with this read: “' + claim + '” That is one test, not yet a pattern.'
+    : evaluation.outcome === 'rejected' ? 'Your choices did not follow this read: “' + claim + '” They followed a different pattern, so I am setting it aside.'
+      : evaluation.outcome === 'weakened' ? 'This test weakened the read, but one test does not rule it out.'
+        : 'This test did not settle it either way.';
+  var next = computeNextDiagnosticAction(entry || exercise.hypothesis);
+  return lead + ' ' + (evaluation.studentReason || evaluation.reason) + (next && next.action !== 'none' ? '\n\nNext: ' + next.reason : '') + '\n[HYPOTHESIS_VERDICT: ' + String(evaluation.verdict || 'INCONCLUSIVE').toLowerCase() + ']';
+}
+
 function hypothesisEvaluationPayload(evidenceQuality, deterministic, entry) {
   var exercise = activeGeneratedExercise || {};
   return {
@@ -7484,6 +8211,13 @@ function hypothesisEvaluationPayload(evidenceQuality, deterministic, entry) {
 function applyPredictionValidationVerdict(responseText) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
   if (!isActiveExerciseCurrentInConversation() || !isPredictionValidationExercise(activeGeneratedExercise) || !activeGeneratedExercise.hypothesis) return null;
+  // A mentor hypothesis moves only through its own evidence path, from the
+  // options the student chose. Model prose never sets its status, and it never
+  // shares the legacy topic slot.
+  if (isMentorHypothesisEntry(activeGeneratedExercise.hypothesis)) {
+    var completed = completeHypothesisExperiment(activeGeneratedExercise, getActiveExerciseAnswerChoices(activeGeneratedExercise.lastSubmittedAnswers || ''));
+    return completed.ok ? completed.evaluation.verdict : null;
+  }
   var deterministic = evaluateStoredHypothesisAttempt(activeGeneratedExercise, getActiveExerciseAnswerChoices(activeGeneratedExercise.lastSubmittedAnswers || ''));
   var match = String(responseText || '').match(/\[HYPOTHESIS_VERDICT:\s*(supported|rejected|inconclusive)\s*\]/i) || String(responseText || '').match(/\b(SUPPORTED|REJECTED|INCONCLUSIVE)\b/i);
   if (!match && !deterministic.deterministic) return null;
@@ -14811,6 +15545,11 @@ async function handleConversationalResponse(answer, context) {
       else savePendingDiagnosticExercise(dilrEntry, 'retry');
     }
 
+  } else if (context === 'start_hypothesis_experiment') {
+    conversationHistory.push({ role:'user', content:answer });
+    if (!isGuestMode) saveChatMessage('user', answer);
+    await startHypothesisExperimentFromChat('');
+
   } else if (context === 'topic_sectional_timing') {
     conversationHistory.push({ role:'user', content:answer });
     if (!isGuestMode) saveChatMessage('user', answer);
@@ -16591,12 +17330,17 @@ async function sendMessage(fromQueue, submissionOptions) {
   var predictionValidationReply = isPredictionValidationReply(text);
   if (!studyOwned && !pendingExternalQuestionTurnMode && (isAnswerReviewRequest(text) || predictionValidationReply)) markActiveExerciseAttempt(text, predictionValidationReply);
 
+  if (!effectiveHasImages && !studyOwned && maybeCompleteHypothesisExperimentReview(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
+
   if (!effectiveHasImages && !studyOwned && maybeCompleteVerifiedAnswerReview(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
 
-  if (!effectiveHasImages && !studyOwned && (await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!effectiveHasImages && !studyOwned && (await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartHypothesisExperiment(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -16684,6 +17428,7 @@ async function sendMessage(fromQueue, submissionOptions) {
       checkAndRenderMargOptions(reply);
       checkAndRenderTestPrompt(reply);
       checkAndLogPracticeVolume(reply);
+      if (!margPendingConversationOptions) presentHypothesisExperimentOffer();
     }
     completePendingExternalQuestionTurn();
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
@@ -19292,7 +20037,9 @@ function studentFacingTaskObjective(task) {
 function getDurableMentorTaskRecommendation() {
   if (!mentorExecutionLoop || !mentorExecutionLoop.loaded) return null;
   var openTasks = (mentorExecutionLoop.tasks || []).filter(function(task) {
-    return task && ['ready','generating','in_progress','evidence_ready'].indexOf(task.status) !== -1;
+    if (!task || ['ready','generating','in_progress','evidence_ready'].indexOf(task.status) === -1) return false;
+    var testedHypothesis = hypothesisIdFromTask(task);
+    return !testedHypothesis || task.status === 'evidence_ready' || hypothesisExperimentGate(testedHypothesis).ok;
   }).sort(function(a, b) {
     var rank = { evidence_ready:0, in_progress:1, generating:2, ready:3 };
     var aRank = Object.prototype.hasOwnProperty.call(rank, a.status) ? rank[a.status] : 9;
@@ -19354,6 +20101,9 @@ function buildHomeRecommendation() {
   var durableTaskRecommendation = getDurableMentorTaskRecommendation();
   if (durableTaskRecommendation) return durableTaskRecommendation;
 
+  var hypothesisFollowUp = getHypothesisFollowUpRecommendation();
+  if (hypothesisFollowUp) return hypothesisFollowUp;
+
   if (studentProfile && studentProfile.lastTask) {
     return {
       title:'Finish the task already in motion.', copy:compactHomeText(studentProfile.lastTask, 220),
@@ -19402,7 +20152,7 @@ function renderMentorHome() {
   var title = document.getElementById('mentor-home-title');
   var name = currentUser && currentUser.user_metadata && currentUser.user_metadata.full_name ? currentUser.user_metadata.full_name.split(' ')[0] : '';
   var recommendation = buildHomeRecommendation();
-  if (title) title.textContent = 'Hi' + (name ? ', ' + name : '') + (recommendation.action && ['review_result','resume_diagnostic','resume_plan','durable_task'].indexOf(recommendation.action.destination) !== -1 ? '. Let’s pick up where you left off.' : '. Here’s what we can work on today.');
+  if (title) title.textContent = 'Hi' + (name ? ', ' + name : '') + (recommendation.action && ['review_result','resume_diagnostic','resume_plan','durable_task','hypothesis_experiment'].indexOf(recommendation.action.destination) !== -1 ? '. Let’s pick up where you left off.' : '. Here’s what we can work on today.');
   homeRecommendationAction = recommendation.action || { destination:'diagnosis' };
   var label = document.querySelector('#home-recommendation .home-rec-label');
   var recTitle = document.getElementById('home-rec-title');
@@ -19480,6 +20230,7 @@ function runHomeRecommendation() {
   if (action.destination === 'resume_diagnostic') { resumePendingDiagnosticFromHome(); return; }
   if (action.destination === 'resume_plan') { resumeActiveMentorPlanFromHome(); return; }
   if (action.destination === 'durable_task') { resumeDurableMentorTask(action.taskId); return; }
+  if (action.destination === 'hypothesis_experiment') { switchTab('chat'); launchHypothesisExperiment(action.hypothesisId); return; }
   if (action.destination === 'practice' && action.section) {
     if (typeof openMargTool === 'function') openMargTool('practice');
     else {
@@ -19494,6 +20245,8 @@ function runHomeRecommendation() {
 function resumeDurableMentorTask(taskId) {
   var task = (mentorExecutionLoop.tasks || []).find(function(item) { return item && item.id === taskId; });
   if (!task) { openHomeDestination('chat'); return; }
+  var testedHypothesisId = hypothesisIdFromTask(task);
+  if (testedHypothesisId) { resumeHypothesisExperimentTask(task, testedHypothesisId); return; }
   if (task.action_payload && task.action_payload.artifact_snapshot) {
     activeGeneratedExercise = task.action_payload.artifact_snapshot;
     activeGeneratedExercise.mentorTaskId = task.id;
@@ -21120,6 +21873,7 @@ function formatQuestionBlock(question, number) {
 
 function getPredictionValidationFocus(entry) {
   if (!entry) return '';
+  if (isMentorHypothesisEntry(entry)) return buildHypothesisExperimentFocus(entry);
   var patternDesign = {
     'varc:volatile':'Use different passage textures and close-option questions to distinguish unstable selection/second-guessing from comprehension weakness.',
     'varc:mixed':'Combine RC and VA decisions so scope precision can be compared across both formats.',
@@ -21333,6 +22087,7 @@ function getVerifiedStrategyDecisionLab(entry) {
 }
 
 function launchVerifiedStrategyDecisionLab(entry) {
+  if (isMentorHypothesisEntry(entry)) return launchHypothesisExperiment(entry);
   var parsed = getVerifiedStrategyDecisionLab(entry);
   if (!validateQASetShape(parsed, null, 3)) return false;
   var lead = 'This is not a syllabus test. Pick what you would actually do in each situation—your choices will show whether our read is right.';
@@ -21353,6 +22108,7 @@ function launchVerifiedStrategyDecisionLab(entry) {
 
 async function runPredictionValidationExercise(entry) {
   if (!entry) return false;
+  if (isMentorHypothesisEntry(entry)) return launchHypothesisExperiment(entry);
   recordEngagementEvent('recommended_task_started', {
     topic:entry.topic,
     pattern_id:entry.patternId || 'general',
@@ -21412,6 +22168,7 @@ function formatGuidedExerciseForChat(section, data, diagnosticEntry) {
 }
 
 async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
+  if (isMentorHypothesisEntry(diagnosticEntry)) return launchHypothesisExperiment(diagnosticEntry);
   section = section === 'varc' ? 'rc' : section;
   if (['rc','va','varc_mixed','qa','dilr','dilr_selection','strategy'].indexOf(section) === -1) return false;
   removeConversationalOptions();
@@ -21545,6 +22302,7 @@ function formatGuidedMiniMock(data) {
 }
 
 async function generateGuidedMiniMock(diagnosticEntry) {
+  if (isMentorHypothesisEntry(diagnosticEntry)) return launchHypothesisExperiment(diagnosticEntry);
   isLoading = true;
   var sendButton = document.getElementById('send-btn');
   if (sendButton) sendButton.disabled = true;
@@ -21580,6 +22338,7 @@ async function generateGuidedMiniMock(diagnosticEntry) {
 }
 
 async function startTimedTest(section, topic, questionCount, diagnosticEntry, generationAttempt, launchOptions) {
+  if (isMentorHypothesisEntry(diagnosticEntry)) return launchHypothesisExperiment(diagnosticEntry);
   launchOptions = launchOptions || {};
   function packMatchesRequestedDifficulty(data) {
     if (timedTestDifficulty !== 'hard') return true;
