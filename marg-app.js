@@ -5756,6 +5756,8 @@ function computeNextDiagnosticAction(entry) {
   var base = { hypothesisId:entry.hypothesisId, status:status, observedSupport:counts.supporting, observedContradiction:counts.contradicting, testedAttempts:counts.observed };
   if (status === 'superseded') return Object.assign(base, { action:'none', reason:'This read was retired untested.' });
   if (status === 'rejected') {
+    var confirmedRival = hypothesisRivals(entry).map(function(item) { return item.hypothesisId ? findMentorHypothesis(item.hypothesisId) : null; }).filter(function(item) { return item && normalizeDiagnosisStatus(item) === 'confirmed'; })[0] || null;
+    if (!rival && confirmedRival) return Object.assign(base, { action:'follow_rival', targetHypothesisId:confirmedRival.hypothesisId, reason:'Observed attempts went against this read, and the competing explanation is already confirmed by repeated attempts: work from that one.' });
     return rival
       ? Object.assign(base, { action:'test_rival', targetHypothesisId:rival.hypothesisId, reason:'Observed attempts went against this read; the competing explanation is the next one to test.' })
       : Object.assign(base, { action:'propose_new_explanation', reason:'Observed attempts went against this read and no competing explanation is tracked, so look for a different cause before assigning work.' });
@@ -5783,7 +5785,7 @@ function describeNextDiagnosticAction(action) {
   var label = {
     run_test:'run a short test of it', replicate:'repeat the test on fresh items', sharpen_test:'run a sharper test', retest:'test it once more',
     ask_for_observation:'ask for the specific decision the student made', revisit_explanation:'look for a different explanation', test_rival:'test the competing explanation',
-    propose_new_explanation:'look for a different cause', intervene:'move to a targeted correction and re-measure'
+    propose_new_explanation:'look for a different cause', follow_rival:'work from the competing explanation that is already confirmed', intervene:'move to a targeted correction and re-measure'
   }[action.action] || action.action;
   return label + ' (' + action.reason + ')';
 }
@@ -11321,6 +11323,19 @@ async function runHypothesisExperimentLoopTests() {
     modelCalls.length = 0;
     results.push(
       { name:'a superseded hypothesis cannot be launched or recorded against, and a late attempt does not move it', passed:supersededRecord.ok === false && (await launchHypothesisExperiment(retiredTarget.hypothesisId)) === 'retired' && modelCalls.length === 0 && status(retiredTarget) === 'superseded' && observedRows(retiredTarget).length === 0 && /retired/.test(supersededReply) }
+    );
+
+    // 4d. a read rejected in favour of an already confirmed competitor points at that competitor
+    reset();
+    var duel = await createFromChat([OPTION, QUESTION]);
+    var loser = duel.find(function(item) { return /eliminate options/.test(item.claim); });
+    var winner = duel.find(function(item) { return /misread what/.test(item.claim); });
+    await launch(winner); await say('1-B, 2-B, 3-D');
+    await launch(winner); await say('1-B, 2-D, 3-B');
+    await launch(loser); await say('1-C, 2-C, 3-A');
+    var duelNext = computeNextDiagnosticAction(entryOf(loser));
+    results.push(
+      { name:'when the rejected read lost to a confirmed competitor the next action is to work from that competitor, not to test it again', passed:status(winner) === 'confirmed' && status(loser) === 'rejected' && duelNext.action === 'follow_rival' && duelNext.targetHypothesisId === winner.hypothesisId }
     );
 
     // 5. weakened and inconclusive outcomes, and the actions they lead to
