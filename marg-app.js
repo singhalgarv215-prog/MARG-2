@@ -5876,8 +5876,25 @@ function hypothesisEvidenceFactor(experiment) {
   var measurement = experiment && experiment.measurement || { fidelity:'proxy' };
   var validity = experiment && experiment.validity || null;
   var fidelity = measurement.fidelity === 'direct' ? 1 : measurement.fidelity === 'unmeasurable' ? 0.5 : 0.9;
+  // Agreed means the second pass returned the same letters. It is a consistency
+  // gate, not proof the key is correct, so it does not raise this factor.
   var audit = validity && validity.audit === 'agreed' ? 1 : 0.7;
   return { factor:Math.round(fidelity * audit * 1000) / 1000, fidelity:measurement.fidelity || 'proxy', audit:validity && validity.audit || 'unaudited' };
+}
+
+function questionKeyLimitSentence() {
+  return 'A second model pass agreed with the keys, and that agreement does not prove the questions are correct.';
+}
+
+function hypothesisQuestionConfidence(entry) {
+  var confidence = 'none';
+  localDiagnosisEvidence(entry).forEach(function(item) {
+    var validity = item && item.payload && item.payload.validity;
+    if (!validity || !validity.questionConfidence) return;
+    if (validity.provesKey === true) confidence = 'verified';
+    else if (confidence !== 'verified') confidence = validity.questionConfidence;
+  });
+  return confidence;
 }
 
 function experimentCorrectLetter(question) {
@@ -5892,15 +5909,17 @@ function buildHypothesisExperimentAuditPrompt(data, design) {
     ? ' "cause_y": the single WRONG option a student with Cause Y would most likely choose (never the correct option, never the same as cause_x).'
     : '';
   var causes = 'Cause X (the claimed cause): "' + design.claim + '".' + (design.rivalRequired && design.rivals.length ? ' Cause Y (a competing cause): "' + design.rivals.map(function(item) { return item.claim; }).join('" or "') + '".' : '');
-  return 'You are an independent checker of a diagnostic test. You have not seen any answer key and must work from what is shown. ' +
-    (data.passage ? 'PASSAGE:\n' + data.passage + '\n\n' : '') + 'QUESTIONS:\n' + questions + '\n\n' + causes +
-    ' For every question give "answer": the one option that is actually correct, solved by you from what is shown; "cause_x": the single WRONG option a student with Cause X would most likely choose (never the correct option).' + rival +
-    ' Return ONLY valid JSON: {"items":[{"answer":"B","cause_x":"C"' + (rival ? ',"cause_y":"D"' : '') + '}]} with exactly ' + data.questions.length + ' items in question order.';
+  return 'You are an independent checker of a diagnostic test. You have not seen any answer key. Solve each question from the text shown before you consider any cause. If two options are both defensible, return {"items":[]} and do not guess. Do not change an answer so that it fits a cause. Agreement with another draft is not proof the key is correct. ' +
+    (data.passage ? 'PASSAGE:\n' + data.passage + '\n\n' : '') + 'QUESTIONS:\n' + questions + '\n\n' +
+    'First decide the correct option for each question. Only after that, use the causes. ' + causes +
+    ' For every question give "answer": the one option that is actually correct; "cause_x": the single WRONG option a student with Cause X would most likely choose (never the correct option).' + rival +
+    ' Return ONLY valid JSON: {"items":[{"answer":"B","cause_x":"C"' + (rival ? ',"cause_y":"D"' : '') + '}]} with exactly ' + data.questions.length + ' items in question order, or {"items":[]} when a question has more than one defensible answer.';
 }
 
-// Compares an independent blind pass with the draft's own key and labels. Any
-// disagreement rejects the draft, because one wrong key or label silently
-// turns a correct answer into evidence for or against the hypothesis.
+// Compares a second pass on the same model with the draft's own key and labels.
+// Matching letters are a consistency gate, not proof the key is correct. Any
+// disagreement rejects the draft, because one mismatched key or label would
+// turn a correct answer into evidence for or against the hypothesis.
 function compareHypothesisExperimentAudit(data, design, audit) {
   var items = audit && Array.isArray(audit.items) ? audit.items : null;
   if (!items || items.length !== data.questions.length) return { ok:false, reason:'audit_unreadable' };
@@ -6173,18 +6192,66 @@ function normalizeExperimentSignals(raw) {
   return { supports:experimentSignalLetters(signals.supports), rival:experimentSignalLetters(signals.rival), rejects:experimentSignalLetters(signals.rejects) };
 }
 
-// A draft is shown only if its answer options can tell the hypotheses apart.
+function experimentOptionBody(option) {
+  return String(option || '').replace(/^\s*[A-D][.):\-]\s*/, '').trim();
+}
+
+function experimentOptionIsAmbiguous(option) {
+  var text = experimentOptionBody(option);
+  return /\b(?:all|none)\s+of\s+the\s+above\b/i.test(text) ||
+    /\bboth\s+[A-D]\s+and\s+[A-D]\b/i.test(text) ||
+    /\b[A-D]\s+and\s+[A-D]\s+only\b/i.test(text) ||
+    /\b(?:either|neither)\s+[A-D]\s+(?:or|nor)\s+[A-D]\b/i.test(text);
+}
+
+function experimentOptionsTooSimilar(question) {
+  var bodies = (question.options || []).map(experimentOptionBody);
+  for (var left = 0; left < bodies.length; left++) {
+    for (var right = left + 1; right < bodies.length; right++) {
+      if (hypothesisSimilarity(bodies[left], bodies[right]) >= 0.8) return true;
+    }
+  }
+  return false;
+}
+
+function experimentCorrectOptionLengthTell(question) {
+  if (!Number.isInteger(question.correct) || !Array.isArray(question.options)) return false;
+  var counts = question.options.map(function(option) { return experimentOptionBody(option).split(/\s+/).filter(Boolean).length; });
+  var correctCount = counts[question.correct];
+  if (!(correctCount >= 8)) return false;
+  return counts.every(function(count, index) { return index === question.correct || correctCount >= count * 2; });
+}
+
+function experimentTextLeaksRule(text, rule) {
+  var ruleWords = String(rule || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(function(word) { return word.length >= 4; });
+  if (ruleWords.length < 4) return false;
+  var hay = ' ' + String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ') + ' ';
+  var hits = 0;
+  ruleWords.forEach(function(word) { if (hay.indexOf(' ' + word + ' ') !== -1) hits++; });
+  return hits >= 4 && hits / ruleWords.length >= 0.6;
+}
+
+// A draft is shown only if its answer options can tell the hypotheses apart
+// and the item is not structurally incapable of supporting that reading.
 function validateHypothesisExperimentSet(data, design) {
   if (!data || !Array.isArray(data.questions) || data.questions.length !== design.trials) return { ok:false, reason:'wrong_question_count' };
   if (design.format === 'varc' && countPracticeWords(data.passage) < 60) return { ok:false, reason:'passage_missing' };
+  if (design.kind === 'transfer' && design.format !== 'varc' && countPracticeWords(data.passage) >= 60) return { ok:false, reason:'transfer_still_passage' };
   if (collectSolutionPresentationIssues(data, 'qa').length) return { ok:false, reason:'solution_shows_scratchwork' };
   if (design.avoid && design.avoid.passages && design.avoid.passages.length && data.passage && design.avoid.passages.indexOf(String(simpleStableHash(normalizePracticeTopicName(data.passage).slice(0, 200)))) !== -1) return { ok:false, reason:'repeats_previous_passage' };
+  var practicedRule = (design.kind === 'intervention' || design.kind === 'independence' || design.kind === 'transfer') ? hypothesisInterventionRule({ prediction:design.prediction || '' }) : '';
   var stems = {};
   for (var index = 0; index < data.questions.length; index++) {
     var question = data.questions[index];
     if (!isValidTimedTestQuestion(question)) return { ok:false, reason:'invalid_question_' + (index + 1) };
+    if ((question.options || []).some(experimentOptionIsAmbiguous)) return { ok:false, reason:'ambiguous_option_' + (index + 1) };
+    if (experimentOptionsTooSimilar(question)) return { ok:false, reason:'options_too_similar_' + (index + 1) };
+    if (experimentCorrectOptionLengthTell(question)) return { ok:false, reason:'correct_option_length_tell_' + (index + 1) };
     if (typeof question.solution !== 'string' || !cleanStudentFacingSolution(question.solution)) return { ok:false, reason:'missing_solution_' + (index + 1) };
     if (/\b(?:option|choice|answer)\s*\(?[A-D]\b/i.test(String(question.solution) + ' ' + String(question.marg_insight || ''))) return { ok:false, reason:'solution_cites_option_letter_' + (index + 1) };
+    var shown = String(question.q || '') + (design.kind === 'intervention' ? '' : ' ' + String(data.passage || ''));
+    if (practicedRule && experimentTextLeaksRule(shown, practicedRule)) return { ok:false, reason:'rule_leaked_' + (index + 1) };
+    if (design.kind === 'transfer' && design.format !== 'varc' && /\b(?:the passage|the author)\b/i.test(String(question.q || ''))) return { ok:false, reason:'transfer_same_frame_' + (index + 1) };
     var signals = normalizeExperimentSignals(question.hypothesisSignals);
     var correctLetter = String.fromCharCode(65 + question.correct);
     if (!signals.supports.length || signals.supports.length > 2) return { ok:false, reason:'no_claim_option_' + (index + 1) };
@@ -6326,12 +6393,12 @@ function computeNextDiagnosticAction(entry) {
       var assisted = assistanceAfterLastUnaidedMiss(entry);
       if (independence === 'repeated') {
         var transfer = view.transfer;
-        if (transfer === 'repeated') return act('monitor', 'The skill held in two new situations. Stop drilling this skill. That is not a claim about every future context, and it is not a claim the skill will still hold later.');
+        if (transfer === 'repeated') return act('monitor', 'On these generated items, the skill held in two new situations. Stop drilling this skill. That is not a claim about every future context, and it is not a claim the skill will still hold later. ' + questionKeyLimitSentence());
         if (transfer === 'not_shown') return act('stop_transfer', 'Two new situations did not show the skill. Independent performance on the practiced items still stands, and the diagnosis still stands. This is not mastery. The evidence does not say whether the student learned the procedure without the concept, the practice was too narrow, the skill is not yet stable, or the diagnosis needs another look. Do not repeat this check.');
         if (transfer === 'unmeasured') return act('stop_transfer', 'Two checks in a new situation could not be judged. That is neither success nor failure. Independent performance on the practiced items still stands, and the diagnosis still stands.');
-        if (transfer === 'once') return act('recheck_transfer', 'The skill held in one new situation. One new situation is not mastery. Check it once more in another new situation, still without the rule.');
+        if (transfer === 'once') return act('recheck_transfer', 'On these generated items, the skill held in one new situation. One new situation is not mastery. Check it once more in another new situation, still without the rule. ' + questionKeyLimitSentence());
         if (transfer === 'once_missed') return act('recheck_transfer', 'The skill did not show up in one new situation. One check is not enough to conclude that transfer failed, and it is not proof the diagnosis was wrong. Check once more in another new situation, still without the rule.');
-        return act('check_transfer', 'The change held without the rule on two unaided checks. That is independent performance on the practiced form, not the skill in a new situation, and not mastery. Check once in a different kind of question, without the rule.');
+        return act('check_transfer', 'The change held without the rule on two unaided checks. That is independent performance on these generated items, not the skill in a new situation, and not mastery. ' + questionKeyLimitSentence() + ' Check once in a different kind of question, without the rule.');
       }
       if (independence === 'assisted_only') return act('stop_independence', 'Two unaided checks did not show the change holding without the rule. The rule helped, so do not repeat the unaided check and do not treat the diagnosis as wrong.');
       if (independence === 'unmeasured') return act('stop_independence', 'Two unaided checks could not show whether the change holds without the rule. That is neither a success nor a failure. The improvement with the rule still stands, and the unaided check will not be repeated.');
@@ -6508,10 +6575,10 @@ async function maybeStartHypothesisExperiment(text) {
 
 function describeHypothesisExperimentLead(design) {
   if (design.kind === 'transfer') {
-    return 'The practiced form held without the rule. This check uses a different kind of question and does not give that rule. It is not a mastery test. Answer on your own: “' + design.claim + '”';
+    return 'The practiced form held without the rule on the earlier generated items. This check uses a different kind of question and does not give that rule. It is not a mastery test. ' + questionKeyLimitSentence() + ' Answer on your own: “' + design.claim + '”';
   }
   if (design.kind === 'independence') {
-    return 'The earlier practice helped while the rule was available. This check does not give that rule, and it is not a mastery test. Answer the fresh questions on your own: “' + design.claim + '”';
+    return 'The earlier practice helped while the rule was available. This check does not give that rule, and it is not a mastery test. ' + questionKeyLimitSentence() + ' Answer the fresh questions on your own: “' + design.claim + '”';
   }
   if (design.kind === 'intervention') {
     var earlierAccuracy = design.baseline && design.baseline.accuracy != null ? ', and ' + Math.round(design.baseline.accuracy * 100) + '% of those answers were right' : '';
@@ -6526,7 +6593,7 @@ function describeHypothesisExperimentLead(design) {
 
 async function requestHypothesisExperimentDraft(design, previousFailure, timeoutMs) {
   var prompt = buildHypothesisExperimentPrompt(design) + (previousFailure ? ' YOUR PREVIOUS DRAFT WAS REJECTED (' + previousFailure + '): write a new one that fixes exactly that.' : '');
-  var parsed = await callHypothesisExperimentModel('You design diagnostic experiments for CAT students. Return only valid JSON with independently verified answer keys.', prompt, 8192, timeoutMs);
+  var parsed = await callHypothesisExperimentModel('You design diagnostic experiments for CAT students. Return only valid JSON. Each key must be the single option the question text supports. A later consistency check is not an independent proof of that key.', prompt, 8192, timeoutMs);
   if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(normalizeCorrectIndex);
   if (parsed) normalizeSolutionPresentation(parsed, 'qa');
   return parsed;
@@ -6540,7 +6607,7 @@ async function launchHypothesisExperiment(target, options) {
   var gate = hypothesisExperimentGate(target);
   if (!gate.ok) {
     var notice = gate.reason === 'retired' ? 'That read has already been set aside, so I will not test it again. A different explanation needs its own evidence first.'
-      : gate.reason === 'already_confirmed' ? (gate.state === 'mastered' ? 'The skill held in two new situations, so I will not drill it again. That is not a claim about every future context, and it is not a claim the skill will still hold later.' : gate.state === 'practiced_only' ? 'The skill held on the practiced items and did not show up in two new situations, so I will not call it learned in general and I will not repeat that check. The diagnosis still stands.' : gate.state === 'transfer_unmeasured' ? 'I could not tell whether the skill holds in a new situation, so I have stopped those checks. That is neither a success nor a failure. Independent performance on the practiced items still stands.' : gate.state === 'independent' ? 'The change held without the rule on two unaided checks. That is independent performance on these items, not mastery, so I will not drill it again.' : gate.state === 'assisted_only' ? 'The change did not hold without the rule on two checks, so I will not repeat the unaided check. The rule helped earlier. The diagnosis still stands.' : gate.state === 'unaided_unmeasured' ? 'I could not tell whether the change holds without the rule, so I have stopped the unaided checks. That is neither a success nor a failure. The earlier improvement with the rule still stands.' : gate.state === 'resolved' ? 'Accuracy rose and the tempting option dropped on two practice rounds for that read. That is improvement on these items, not proof the problem is solved. The useful step is to watch it in later practice, not to drill it again.' : gate.state === 'intervention_ineffective' ? 'The practice aimed at that read did not change the behaviour on two rounds, so I have stopped assigning it. The earlier tests that established the read still stand.' : gate.state === 'intervention_unmeasured' ? 'I could not tell whether that practice changed the skill, so I have stopped assigning it. The earlier tests that established the read still stand.' : 'That read has already held up across repeated tests and there is no further test to run on it.')
+      : gate.reason === 'already_confirmed' ? (gate.state === 'mastered' ? 'On these generated items, the skill held in two new situations, so I will not drill it again. That is not a claim about every future context, and it is not a claim the skill will still hold later. ' + questionKeyLimitSentence() : gate.state === 'practiced_only' ? 'The skill held on the practiced items and did not show up in two new situations, so I will not call it learned in general and I will not repeat that check. The diagnosis still stands.' : gate.state === 'transfer_unmeasured' ? 'I could not tell whether the skill holds in a new situation, so I have stopped those checks. That is neither a success nor a failure. Independent performance on the practiced items still stands.' : gate.state === 'independent' ? 'The change held without the rule on two unaided checks. That is independent performance on these generated items, not mastery, so I will not drill it again. ' + questionKeyLimitSentence() : gate.state === 'assisted_only' ? 'The change did not hold without the rule on two checks, so I will not repeat the unaided check. The rule helped earlier. The diagnosis still stands.' : gate.state === 'unaided_unmeasured' ? 'I could not tell whether the change holds without the rule, so I have stopped the unaided checks. That is neither a success nor a failure. The earlier improvement with the rule still stands.' : gate.state === 'resolved' ? 'Accuracy rose and the tempting option dropped on two practice rounds for that read. That is improvement on these items, not proof the problem is solved. The useful step is to watch it in later practice, not to drill it again. ' + questionKeyLimitSentence() : gate.state === 'intervention_ineffective' ? 'The practice aimed at that read did not change the behaviour on two rounds, so I have stopped assigning it. The earlier tests that established the read still stand.' : gate.state === 'intervention_unmeasured' ? 'I could not tell whether that practice changed the skill, so I have stopped assigning it. The earlier tests that established the read still stand.' : 'That read has already held up across repeated tests and there is no further test to run on it.')
         : gate.reason === 'no_testable_prediction' ? 'I cannot design a fair test for that read yet because it does not say what you would do differently if it were true or false.'
           : 'I could not find that read any more, so there is nothing to test.';
     addMentorLeadMessage(notice);
@@ -6577,7 +6644,7 @@ async function launchHypothesisExperiment(target, options) {
     var exerciseId = 'hx-' + entry.hypothesisId + '-' + Date.now();
     shuffleHypothesisExperimentOptions(parsed, exerciseId);
     bindHypothesisExperimentSignals(parsed, entry);
-    design.validity = { audit:'agreed', method:'blind_resolve_and_label', draftsUsed:auditedDrafts, auditedAt:new Date().toISOString() };
+    design.validity = { audit:'agreed', method:'same_model_agreement', questionConfidence:'model_agreement', provesKey:false, draftsUsed:auditedDrafts, auditedAt:new Date().toISOString() };
     var visible = formatGuidedExerciseForChat(design.chatSection, parsed, entry);
     hideTyping();
     addMessage('marg', renderGuidedExerciseHtml(visible), true);
@@ -6801,10 +6868,10 @@ function classifyStudentBelief(view) {
     summary = 'Marg no longer holds this as the student\'s current difficulty: later evidence outweighed it. It is not a permanent characteristic.';
   } else if (status === 'confirmed' && independenceState === 'repeated' && transferState === 'repeated') {
     belief = 'mastered'; strength = 'transfer_twice'; fix = 'mastered'; performance = 'transfer_repeated';
-    summary = 'The skill held in two new situations. Stop drilling this skill. That is not a claim about every context, and it is not a claim the skill will still hold later.';
+    summary = 'On these generated items, the skill held in two new situations. Stop drilling this skill. That is not a claim about every context, and it is not a claim the skill will still hold later. ' + questionKeyLimitSentence();
   } else if (status === 'confirmed' && independenceState === 'repeated' && transferState === 'once') {
     belief = 'transferred'; strength = 'transfer_once'; fix = 'transfer_once'; performance = 'transfer';
-    summary = 'The skill held in one new situation. One new situation is not mastery.';
+    summary = 'On these generated items, the skill held in one new situation. One new situation is not mastery. ' + questionKeyLimitSentence();
   } else if (status === 'confirmed' && independenceState === 'repeated' && transferState === 'once_missed') {
     belief = 'independent'; strength = 'unaided_twice'; fix = 'transfer_unproven'; performance = 'unaided_same_skill';
     summary = 'Independent performance on the practiced items still holds. One new situation did not show the skill. That is not enough to conclude that transfer failed, and it is not a wrong diagnosis. This is not mastery.';
@@ -6816,7 +6883,7 @@ function classifyStudentBelief(view) {
     summary = 'Independent performance on the practiced items still holds. Checks in a new situation could not be judged. That is neither success nor failure, and it is not mastery.';
   } else if (status === 'confirmed' && independenceState === 'repeated') {
     belief = 'independent'; strength = 'unaided_twice'; fix = 'independent'; performance = 'unaided_same_skill';
-    summary = 'The change held without the rule on two unaided checks. That is independent performance on these items, not mastery and not every context.';
+    summary = 'The change held without the rule on two unaided checks. That is independent performance on these generated items, not mastery and not every context. ' + questionKeyLimitSentence();
   } else if (status === 'confirmed' && independenceState === 'once') {
     belief = 'independent'; strength = 'unaided_once'; fix = 'unaided_once'; performance = 'unaided_same_skill';
     summary = 'The change held without the rule on one unaided check. That is one check, not independence across conditions, and it is not mastery.';
@@ -6831,7 +6898,7 @@ function classifyStudentBelief(view) {
     summary = 'The student improved while the rule was available. Unaided checks could not show whether that holds without the rule. That is neither a success nor a failure, and it is not mastery.';
   } else if (status === 'confirmed' && (interventionState === 'resolved' || (effectiveRounds >= 2 && interventionState !== 'failed'))) {
     belief = 'improved'; strength = 'measured_twice'; fix = 'improved'; performance = 'assisted_practice';
-    summary = 'The student has improved on the measured items: the tempting option dropped and accuracy rose on two practice rounds. That improvement does not prove the original cause was correct. That is not mastery, and it can be revised if later evidence goes the other way.';
+    summary = 'The student has improved on the measured items: the tempting option dropped and accuracy rose on two practice rounds. That improvement does not prove the original cause was correct. That is not mastery, and it can be revised if later evidence goes the other way. ' + questionKeyLimitSentence();
   } else if (status === 'confirmed' && interventionState === 'failed') {
     belief = 'persistent'; strength = 'repeated'; fix = 'ineffective'; performance = 'unestablished';
     summary = effectiveRounds
@@ -6946,13 +7013,14 @@ function studentConclusion(entry) {
   var grounds = studentEvidenceGrounds(entry);
   var effectiveRounds = interventionEvidenceRows(entry).filter(function(item) { return item.payload.intervention_outcome === 'effective'; }).length;
   var classified = classifyStudentBelief(studentBeliefView(entry, status, counts, intervention.state, independence.state, effectiveRounds, grounds.indexOf('self_report') !== -1, transfer.state, observedEvidenceFidelity(entry)));
+  var questionConfidence = hypothesisQuestionConfidence(entry);
   var revisions = studentBeliefRevisions(entry);
   if (revisions.length && revisions[revisions.length - 1].to !== classified.belief) {
     revisions = revisions.concat([{ at:entry.updatedAt || null, from:revisions[revisions.length - 1].to, to:classified.belief, because:'later_evidence' }]);
   } else if (!revisions.length && classified.belief !== 'insufficient') {
     revisions = [{ at:entry.updatedAt || null, from:'insufficient', to:classified.belief, because:'later_evidence' }];
   }
-  return { belief:classified.belief, strength:classified.strength, fix:classified.fix, grounds:grounds, summary:classified.summary, performance:classified.performance, status:status, reading:classified.reading, revisions:revisions, durability:'not_measured' };
+  return { belief:classified.belief, strength:classified.strength, fix:classified.fix, grounds:grounds, summary:classified.summary, performance:classified.performance, status:status, reading:classified.reading, questionConfidence:questionConfidence, revisions:revisions, durability:'not_measured' };
 }
 
 function assembleStudentModel(entries) {
@@ -7006,7 +7074,7 @@ function formatStudentModelContext(entries, options) {
   add('A previous intervention appeared to help', model.buckets.helped);
   add('A previous intervention did not help', model.buckets.failed);
   if (!lines.length) return '';
-  return '\n\nSTUDENT MODEL (what Marg currently believes from accumulated evidence across these reads. This is not a hypothesis and not new proof. A belief does not prove the weakness. A repeated choice pattern is not proof of the cause. Only a new observed attempt can change a belief. Assisted improvement is not mastery. Two checks in a new situation are not a claim the skill will hold later. A miss in a new situation is not proof the diagnosis was wrong. Do not repeat a fix that did not help.):\n' + lines.join('\n');
+  return '\n\nSTUDENT MODEL (what Marg currently believes from accumulated evidence across these reads. This is not a hypothesis and not new proof. A belief does not prove the weakness. A repeated choice pattern is not proof of the cause. Agreement between two model passes on an answer key is not independent proof that the question is correct. Only a new observed attempt can change a belief. Assisted improvement is not mastery. Two checks in a new situation are not a claim the skill will hold later. A miss in a new situation is not proof the diagnosis was wrong. Do not repeat a fix that did not help.):\n' + lines.join('\n');
 }
 
 function describeHypothesisLevel(entry) {
@@ -7018,8 +7086,8 @@ function describeHypothesisLevel(entry) {
     retired:'retired untested', contradicted:'ruled out', insufficient:'not measurable by a chat test: the observation it predicts has to come from real practice',
     confirmed:confirmedText, under_verification:'supported by observed attempts but disputed by the student, and under verification',
     resolved:'confirmed, and on two separate practice rounds the tempting option dropped and accuracy rose; that is improvement on these items, not mastery', improving:'confirmed, and one practice round moved both the tempting option and accuracy; one round is not proof the change holds',
-    independent:'confirmed, and the change held without the rule on two unaided checks; independent on these items, not mastery', unaided_once:'confirmed, and the change held without the rule on one unaided check; not mastery',
-    mastered:'confirmed, and the skill held in two new situations; stop drilling this skill; not a claim it will hold later or in every context', transferred:'confirmed, and the skill held in one new situation; not mastery',
+    independent:'confirmed, and the change held without the rule on two unaided checks; independent on these generated items, not mastery; model agreement on the keys does not prove the questions are correct', unaided_once:'confirmed, and the change held without the rule on one unaided check; not mastery',
+    mastered:'confirmed, and on these generated items the skill held in two new situations; stop drilling this skill; not a claim it will hold later or in every context; model agreement on the keys does not prove the questions are correct', transferred:'confirmed, and on these generated items the skill held in one new situation; not mastery; model agreement on the keys does not prove the questions are correct',
     practiced_only:'confirmed; independent on the practiced items, and two new situations did not show the skill; the diagnosis still stands and this is not mastery',
     transfer_uncertain:'confirmed; independent on the practiced items, and one new situation did not show the skill; not enough to conclude transfer failed',
     transfer_unmeasured:'confirmed; checks in a new situation could not be judged, which is neither a success nor a failure; practiced independence still stands',
@@ -9304,7 +9372,8 @@ function completeHypothesisExperiment(exercise, choices) {
     task_id:exercise.mentorTaskId || null, diagnosis_client_ref:mentorDiagnosisClientRef(entry), purpose:exercise.experiment && exercise.experiment.purpose || null,
     predicted_observable:measurement && measurement.predicted || null, measured_observable:measurement && measurement.measured || null,
     fidelity:evaluation.factor && evaluation.factor.fidelity || null, audit:evaluation.factor && evaluation.factor.audit || null,
-    evidence_factor:evaluation.factor && evaluation.factor.factor || null, actual:evaluation.actual, validity:validity
+    evidence_factor:evaluation.factor && evaluation.factor.factor || null, actual:evaluation.actual, validity:validity,
+    question_confidence:validity && validity.questionConfidence || null, proves_key:validity ? validity.provesKey === true : false
   };
   var recorded;
   if (intervention || independence || transfer) {
@@ -9410,7 +9479,7 @@ function describeInterventionResultForStudent(exercise, entry, evaluation) {
   var lead;
   if (outcome === 'effective') {
     lead = state.state === 'resolved'
-      ? 'On a second round the tempting option stayed down and accuracy stayed up: “' + claim + '” That is improvement on these items, not mastery and not proof the problem is solved. It does not prove the original cause was correct. The rule was available the whole time, so this is not yet independent performance.'
+      ? 'On a second round the tempting option stayed down and accuracy stayed up: “' + claim + '” That is improvement on these items, not mastery and not proof the problem is solved. It does not prove the original cause was correct. ' + questionKeyLimitSentence() + ' The rule was available the whole time, so this is not yet independent performance.'
       : 'This practice round moved both the tempting option and the accuracy: “' + claim + '” One round is encouraging, but it is not proof the change holds and it is not mastery.';
   } else if (outcome === 'not_effective') {
     lead = state.state === 'failed'
@@ -9432,7 +9501,7 @@ function describeIndependenceResultForStudent(exercise, entry, evaluation) {
   var lead;
   if (outcome === 'held') {
     lead = state.state === 'repeated'
-      ? 'The change held without the rule on a second check: “' + claim + '” That is independent performance on these items. It is not mastery and not every context.'
+      ? 'The change held without the rule on a second check: “' + claim + '” That is independent performance on these generated items. It is not mastery and not every context. ' + questionKeyLimitSentence()
       : 'The change held without the rule on this check: “' + claim + '” That is encouraging. It is not independence across conditions, and it is not mastery.';
   } else if (outcome === 'not_held') {
     lead = state.state === 'assisted_only'
@@ -9454,8 +9523,8 @@ function describeTransferResultForStudent(exercise, entry, evaluation) {
   var lead;
   if (outcome === 'held') {
     lead = state.state === 'repeated'
-      ? 'The skill held in a second new situation: “' + claim + '” Stop drilling this skill. That is not a claim it will hold later, and it is not a claim about every context.'
-      : 'The skill held in this new situation: “' + claim + '” That is encouraging. One new situation is not mastery.';
+      ? 'On these generated items, the skill held in a second new situation: “' + claim + '” Stop drilling this skill. That is not a claim it will hold later, and it is not a claim about every context. ' + questionKeyLimitSentence()
+      : 'On these generated items, the skill held in this new situation: “' + claim + '” That is encouraging. One new situation is not mastery. ' + questionKeyLimitSentence();
   } else if (outcome === 'not_held') {
     lead = state.state === 'not_shown'
       ? 'The skill did not show up in two new situations, so I am stopping these checks: “' + claim + '” Independent performance on the practiced items still stands. The diagnosis stands. This is not mastery. The evidence does not say which explanation of the miss is right.'
@@ -12448,6 +12517,24 @@ function createHypothesisExperimentHarness() {
   function autoDraft(design) {
     var round = draftRound++;
     var count = design.trials;
+    if (design.kind === 'transfer') {
+      var shifted = [];
+      for (var item = 0; item < count; item++) {
+        var topic = SUBJECTS[(round * 5 + item) % SUBJECTS.length];
+        shifted.push({
+          q:'With twenty minutes left, three unopened items remain on ' + topic + ' (round ' + round + ', item ' + item + '). Which should be attempted next?',
+          options:[
+            'A. Attempt the item whose method is already familiar (' + round + '.' + item + ')',
+            'B. Attempt the longest item first regardless of method (' + round + '.' + item + ')',
+            'C. Leave all three and revise completed work (' + round + '.' + item + ')',
+            'D. Guess the remaining items in listed order (' + round + '.' + item + ')'
+          ],
+          correct:0, solution:'The familiar method is the one that can be finished in the time left.', marg_insight:'Separates a usable choice from a time sink.',
+          hypothesisSignals:{ supports:['B'], rival:design.rivalRequired ? ['C'] : [] }
+        });
+      }
+      return { title:'Decision check ' + round, passage:'', questions:shifted };
+    }
     if (round === 0 && count === 3) return draft(design.rivalRequired ? null : function(questions) { questions.forEach(function(question) { question.hypothesisSignals = { supports:['B'], rival:[] }; }); });
     var questions = [];
     for (var index = 0; index < count; index++) {
@@ -13653,6 +13740,102 @@ async function runDiagnosticReliabilityTests() {
   return results;
 }
 window.runDiagnosticReliabilityTests = runDiagnosticReliabilityTests;
+
+// Constructed items, not an educator-reviewed corpus. Same-model agreement is
+// a consistency check, not an accuracy rate, and these checks must not be read
+// as one.
+async function runQuestionValidityTests() {
+  var H = createHypothesisExperimentHarness();
+  var restore = H.restore, reset = H.reset;
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  try {
+    reset();
+    var created = await H.createFromChat([H.OPTION, H.QUESTION]);
+    var main = created.find(function(item) { return /eliminate options/.test(item.claim); });
+    var design = buildHypothesisExperimentDesign(main);
+    check('a well-formed draft still validates', validateHypothesisExperimentSet(H.draft(), design).ok === true);
+
+    var mismatched = compareHypothesisExperimentAudit(H.draft(), design, JSON.parse(H.auditFor(H.draft(), function(items) { items[0].answer = 'C'; })));
+    var unreadable = compareHypothesisExperimentAudit(H.draft(), design, { items:[] });
+    check('an audit key mismatch still rejects the draft', mismatched.ok === false && mismatched.reason === 'audit_key_mismatch_1');
+    check('an ambiguous audit is not treated as agreement', unreadable.ok === false && unreadable.reason === 'audit_unreadable');
+
+    var ambiguous = validateHypothesisExperimentSet(H.draft(function(questions) { questions[0].options[1] = 'B. All of the above'; }), design);
+    check('an all-of-the-above option is rejected', ambiguous.ok === false && ambiguous.reason === 'ambiguous_option_1');
+
+    var similar = validateHypothesisExperimentSet(H.draft(function(questions) {
+      questions[0].options[1] = 'B. The pamphlets that sold best gave voice to opinions readers already held in town';
+      questions[0].options[2] = 'C. The pamphlets that sold best gave voice to opinions readers already held locally';
+    }), design);
+    check('near-duplicate options are rejected', similar.ok === false && similar.reason === 'options_too_similar_1');
+
+    var tell = validateHypothesisExperimentSet(H.draft(function(questions) {
+      questions[0].options[0] = 'A. Printers followed existing reader demand and amplified opinions that were already held';
+      questions[0].options[1] = 'B. Press invented it';
+      questions[0].options[2] = 'C. Archives are silent';
+      questions[0].options[3] = 'D. Printers ignored readers';
+    }), design);
+    check('a correct option that is much longer than the others is rejected', tell.ok === false && tell.reason === 'correct_option_length_tell_1');
+
+    var unaidedDesign = Object.assign({}, design, { kind:'independence', rivalRequired:false, rivals:[] });
+    var leaked = validateHypothesisExperimentSet(H.draft(function(questions) {
+      questions.forEach(function(question) { question.hypothesisSignals = { supports:['B'], rival:[] }; });
+      questions[0].q = 'When you must justify every elimination with a passage line, which conclusion follows?';
+    }), unaidedDesign);
+    check('an unaided stem that contains the practice rule is rejected', leaked.ok === false && leaked.reason === 'rule_leaked_1');
+
+    var transferDesign = Object.assign({}, design, { kind:'transfer', format:'decision', rivalRequired:false, rivals:[], trials:3 });
+    var stillPassage = validateHypothesisExperimentSet(H.draft(function(questions) {
+      questions.forEach(function(question) { question.hypothesisSignals = { supports:['B'], rival:[] }; });
+    }), transferDesign);
+    check('a transfer item that is still a long passage is rejected', stillPassage.ok === false && stillPassage.reason === 'transfer_still_passage');
+
+    var authorFrame = validateHypothesisExperimentSet({ title:'shift', passage:'', questions:H.draft(function(questions) {
+      questions.forEach(function(question) { question.hypothesisSignals = { supports:['B'], rival:[] }; });
+    }).questions }, transferDesign);
+    check('a transfer stem that still asks about the author is rejected', authorFrame.ok === false && authorFrame.reason === 'transfer_same_frame_1');
+
+    var shiftedDesign = Object.assign({}, transferDesign, { trials:4 });
+    var shifted = H.autoDraft(shiftedDesign);
+    var shiftedText = shifted.questions.map(function(question) { return question.q; }).join(' ');
+    check('a transfer draft in a decision frame still validates', validateHypothesisExperimentSet(shifted, shiftedDesign).ok === true && shifted.passage === '' && !/\b(?:the passage|the author)\b/i.test(shiftedText));
+
+    var prompt = buildHypothesisExperimentAuditPrompt(H.draft(), design);
+    check('the key check solves the question before it uses the causes', /independent checker/.test(prompt) && /before you consider any cause/.test(prompt) && /not proof the key is correct/.test(prompt) && prompt.indexOf('Cause X') > prompt.indexOf('before you consider any cause'));
+
+    var agreedFactor = hypothesisEvidenceFactor({ measurement:{ fidelity:'proxy' }, validity:{ audit:'agreed', provesKey:false, questionConfidence:'model_agreement' } });
+    var unauditedFactor = hypothesisEvidenceFactor({ measurement:{ fidelity:'proxy' }, validity:null });
+    check('model agreement does not change the proxy evidence weight, and an unaudited item stays below the counting bar', agreedFactor.factor === 0.9 && Math.abs(unauditedFactor.factor - 0.63) < 0.001 && unauditedFactor.factor < 0.65);
+
+    H.script.length = 0;
+    var bad = H.draft(function(questions) { questions[0].options[1] = 'B. None of the above'; });
+    H.script.push(JSON.stringify(bad), JSON.stringify(bad));
+    var rejected = await launchHypothesisExperiment(main.hypothesisId);
+    check('a structurally bad draft is never shown and never stored as student evidence', rejected === false && activeGeneratedExercise === null && H.observedRows(main).length === 0 && /ambiguous_option_1/.test(H.modelCalls.map(function(call) { return call.text; }).join('\n')));
+
+    reset();
+    var again = (await H.createFromChat([H.OPTION, H.QUESTION])).find(function(item) { return /eliminate options/.test(item.claim); });
+    var shown = await H.launch(again);
+    var validity = shown.exercise.experiment.validity;
+    await H.answer('ssn');
+    await H.launch(again);
+    await H.answer('sns');
+    var entry = H.entryOf(again);
+    var conclusion = studentConclusion(entry);
+    var row = H.experimentRows(again)[0];
+    check('a launched experiment records model agreement without treating it as proof of the key', validity.audit === 'agreed' && validity.method === 'same_model_agreement' && validity.questionConfidence === 'model_agreement' && validity.provesKey === false && row.payload.question_confidence === 'model_agreement' && row.payload.proves_key === false);
+    check('two proxy supports still confirm the choice pattern below direct certainty, and the conclusion does not call the key independently verified', H.status(again) === 'confirmed' && Math.abs(entry.confidence - 0.74) < 0.001 && entry.confidence < 0.92 && conclusion.reading === 'pattern' && conclusion.belief === 'established' && conclusion.questionConfidence === 'model_agreement' && conclusion.summary.indexOf('independently verified') === -1);
+
+    var mastered = classifyStudentBelief({ status:'confirmed', counts:{ supporting:2, contradicting:0, observed:2 }, interventionState:'resolved', independenceState:'repeated', transferState:'repeated', effectiveRounds:2, fidelity:'proxy' });
+    check('mastery stays a belief about these items and does not treat model agreement as proof the questions are correct', mastered.belief === 'mastered' && /these generated items/.test(mastered.summary) && /does not prove the questions are correct/.test(mastered.summary) && /Stop drilling this skill/.test(mastered.summary) && /hold later/.test(mastered.summary));
+    check('the student model separates a belief from proof that a question is correct', /not independent proof that the question is correct/.test(formatStudentModelContext([entry])) && /does not prove/.test(formatStudentModelContext([entry])));
+  } finally {
+    restore();
+  }
+  return results;
+}
+window.runQuestionValidityTests = runQuestionValidityTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
