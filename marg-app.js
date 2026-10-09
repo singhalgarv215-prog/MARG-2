@@ -5107,6 +5107,63 @@ function observedDiagnosisEvidenceCounts(entry) {
   };
 }
 
+// How directly the counting rows measured the predicted behaviour. A missing
+// fidelity is not treated as a direct measurement. Unmeasurable rows stay out
+// of this set because their strength is below the counting bar.
+function observedEvidenceFidelity(entry) {
+  var rows = localDiagnosisEvidence(entry).filter(function(item) {
+    return item && item.type === 'observed_attempt' && typeof item.supports === 'boolean' && Number(item.strength || 0) >= 0.65;
+  });
+  if (!rows.length) return 'none';
+  var direct = 0, named = 0, unknown = 0;
+  rows.forEach(function(item) {
+    var payload = item.payload || {};
+    var fidelity = payload.fidelity || (payload.ledger && payload.ledger.fidelity) || '';
+    if (fidelity === 'direct') direct++;
+    else if (fidelity) named++;
+    else unknown++;
+  });
+  if (!direct && !named) return 'unknown';
+  if (direct && !named && !unknown) return 'direct';
+  if (direct) return 'mixed';
+  return 'proxy';
+}
+
+function evidenceReading(fidelity) {
+  if (fidelity === 'direct') return 'direct';
+  if (fidelity === 'mixed') return 'mixed';
+  if (fidelity === 'proxy' || fidelity === 'unknown') return 'pattern';
+  return 'none';
+}
+
+// Status still follows the two-measurement ladder. Certainty does not: a proxy
+// answer pattern may confirm the pattern, but it must not be spoken at the
+// same confidence as a direct measurement of the predicted behaviour.
+function certaintyBand(status, fidelity, mentorHypothesis) {
+  var kind = fidelity;
+  if (kind === 'unknown' || kind === 'none') {
+    if (!mentorHypothesis) return null;
+    kind = 'proxy';
+  }
+  if (status === 'confirmed') {
+    if (kind === 'direct') return { floor:0.92, cap:1 };
+    if (kind === 'mixed') return { floor:0.8, cap:0.8 };
+    return { floor:0.74, cap:0.74 };
+  }
+  if (status === 'supported') {
+    if (kind === 'direct') return { floor:0.78, cap:1 };
+    if (kind === 'mixed') return { floor:0.7, cap:0.7 };
+    return { floor:0.62, cap:0.62 };
+  }
+  return null;
+}
+
+function applyCertainty(confidence, band, demoted) {
+  if (!band) return confidence;
+  if (demoted) return band.floor;
+  return Math.min(band.cap, Math.max(Number(confidence) || 0, band.floor));
+}
+
 // The state of the targeted fix is a pure function of its measurement rows, so
 // it survives a reload exactly like the evidence it comes from. A set that
 // cannot be judged does not count as success or failure and does not wipe a
@@ -5224,11 +5281,12 @@ function assessMentorHypothesisStatus(entry) {
   // A fix that failed is a result about the fix. It does not rewrite the
   // diagnosis: the cause can still be right when the practice did not work.
   var confidence = Number(entry.confidence || 0.4);
+  var band = certaintyBand(status, observedEvidenceFidelity(entry), true);
   if (status === 'rejected') { entry.doNotReuse = true; confidence = Math.min(confidence, 0.2); }
   else if (status === 'confirmed') {
-    entry.doNotReuse = false; confidence = Math.max(confidence, 0.92);
+    entry.doNotReuse = false; confidence = applyCertainty(confidence, band, false);
     if (previous !== 'confirmed') entry.confirmedAt = new Date().toISOString();
-  } else if (status === 'supported') { entry.doNotReuse = false; confidence = previous === 'confirmed' ? 0.78 : Math.max(confidence, 0.78); }
+  } else if (status === 'supported') { entry.doNotReuse = false; confidence = applyCertainty(confidence, band, previous === 'confirmed'); }
   else if (status === 'inconclusive') confidence = Math.min(confidence, 0.45);
   else confidence = Math.min(confidence, contradiction > 0 ? 0.4 : 0.65);
   entry.status = status;
@@ -5250,12 +5308,14 @@ function promoteDiagnosisFromEvidence(entry) {
   } else if (counts.supporting >= 2) {
     entry.status = 'confirmed';
     entry.doNotReuse = false;
-    entry.confidence = Math.max(Number(entry.confidence || 0), 0.92);
+    var confirmedBand = certaintyBand('confirmed', observedEvidenceFidelity(entry), false);
+    entry.confidence = confirmedBand ? applyCertainty(entry.confidence, confirmedBand, false) : Math.max(Number(entry.confidence || 0), 0.92);
     entry.confirmedAt = new Date().toISOString();
   } else if (counts.supporting === 1) {
     entry.status = 'supported';
     entry.doNotReuse = false;
-    entry.confidence = Math.max(Number(entry.confidence || 0), 0.78);
+    var supportedBand = certaintyBand('supported', observedEvidenceFidelity(entry), false);
+    entry.confidence = supportedBand ? applyCertainty(entry.confidence, supportedBand, false) : Math.max(Number(entry.confidence || 0), 0.78);
   } else if (entry.status !== 'inconclusive') {
     entry.status = 'hypothesis';
     entry.confidence = Math.min(Number(entry.confidence || 0.55), 0.65);
@@ -5630,7 +5690,6 @@ function captureMentorHypotheses(responseText, userMessage, diagnosis) {
       });
       bodies.slice(MENTOR_HYPOTHESIS_RESPONSE_LIMIT).forEach(function() { result.skipped.push({ reason:'over_response_limit' }); });
       var proposedNow = touched.filter(function(entry) { return result.created.concat(result.updated).indexOf(entry.hypothesisId) !== -1; });
-      proposedNow.forEach(function(entry) { proposedNow.forEach(function(other) { if (other !== entry && other.topic === entry.topic) linkCompetingHypotheses(entry, other); }); });
       if (touched.length) {
         saveDiagnosticMemory();
         touched.forEach(function(entry) { saveMentorHypothesisSnapshot(entry); persistMentorHypothesis(entry); });
@@ -6289,7 +6348,9 @@ function computeNextDiagnosticAction(entry) {
     if (view.intervention === 'failed') return act('stop_intervention', 'Two practice rounds did not change the targeted behaviour, so this fix is retired. The diagnosis still stands: a fix that did not work is not evidence the cause was wrong, and this practice will not be assigned again.');
     if (view.intervention === 'unmeasured') return act('stop_intervention', 'Two practice rounds could not show whether the skill changed, so this fix is paused. The evidence is insufficient to call it a success or a failure, and the diagnosis still stands.');
     if (view.unmeasured === 1) return act('intervene', 'The last practice round could not show whether the skill changed, so it is neither a success nor a failure. Try the practice once more; if it still cannot be judged, stop.');
-    return act('intervene', 'The same pattern has been observed repeatedly: move from diagnosing to a targeted correction, then re-measure it.');
+    return act('intervene', evidenceReading(observedEvidenceFidelity(entry)) === 'direct'
+      ? 'The measured choice pattern has been observed repeatedly: move from diagnosing to a targeted correction, then re-measure it. That does not prove every other explanation is false.'
+      : 'The answer pattern matched this read more than once. The cause is still an inference: move from diagnosing to a targeted correction, then re-measure it, and do not treat the cause as demonstrated.');
   }
   if (status === 'supported') {
     if (view.disputed) return act('verify_disputed', 'One observed attempt supports this read but the student disputes it: repeat the test on fresh items and let that result decide.');
@@ -6733,6 +6794,7 @@ function classifyStudentBelief(view) {
   var independenceState = view.independenceState;
   var transferState = view.transferState;
   var effectiveRounds = view.effectiveRounds || 0;
+  var reading = evidenceReading(view.fidelity);
   var belief, strength, fix, summary, performance;
   if (status === 'rejected' || status === 'superseded') {
     belief = 'not_current'; strength = 'revised'; fix = null; performance = 'unestablished';
@@ -6769,29 +6831,37 @@ function classifyStudentBelief(view) {
     summary = 'The student improved while the rule was available. Unaided checks could not show whether that holds without the rule. That is neither a success nor a failure, and it is not mastery.';
   } else if (status === 'confirmed' && (interventionState === 'resolved' || (effectiveRounds >= 2 && interventionState !== 'failed'))) {
     belief = 'improved'; strength = 'measured_twice'; fix = 'improved'; performance = 'assisted_practice';
-    summary = 'The student has improved on the measured items for this difficulty: the tempting option dropped and accuracy rose on two practice rounds. That is not mastery, and it can be revised if later evidence goes the other way.';
+    summary = 'The student has improved on the measured items: the tempting option dropped and accuracy rose on two practice rounds. That improvement does not prove the original cause was correct. That is not mastery, and it can be revised if later evidence goes the other way.';
   } else if (status === 'confirmed' && interventionState === 'failed') {
     belief = 'persistent'; strength = 'repeated'; fix = 'ineffective'; performance = 'unestablished';
     summary = effectiveRounds
-      ? 'An earlier practice round looked better, but later rounds did not change the targeted behaviour. This fix is retired and the difficulty is persistent for now. The diagnosis still stands, because a failed fix is not a wrong diagnosis.'
-      : 'The student has repeatedly demonstrated this difficulty. Two targeted fixes did not change it, so the difficulty is persistent for now. The diagnosis still stands, because a failed fix is not a wrong diagnosis.';
+      ? 'An earlier practice round looked better, but later rounds did not change the targeted behaviour. This fix is retired and the difficulty is persistent for now. The diagnosis still stands, because a failed fix is not a wrong diagnosis and it does not prove the cause.'
+      : (reading === 'direct'
+        ? 'The measured choice pattern has shown up repeatedly. Two targeted fixes did not change it, so that behaviour is persistent for now. The diagnosis still stands, because a failed fix is not a wrong diagnosis and it does not prove the cause.'
+        : 'The student repeatedly chose the option this read predicts. Two targeted fixes did not change that choice pattern, so the pattern is persistent for now. The cause is still an inference. The diagnosis still stands, because a failed fix is not a wrong diagnosis.');
   } else if (status === 'confirmed' && interventionState === 'effective') {
     belief = 'improving'; strength = 'measured_once'; fix = 'improving'; performance = 'assisted_practice';
-    summary = 'One practice round showed both the tempting option dropping and accuracy rising. The difficulty is still established; one round is not proof it is solved and it is not mastery.';
+    summary = 'One practice round showed both the tempting option dropping and accuracy rising. One round is not proof the change holds, it is not mastery, and it does not prove the original cause was correct.';
   } else if (status === 'confirmed' && interventionState === 'unmeasured' && effectiveRounds >= 1) {
     belief = 'improving'; strength = 'measured_once'; fix = 'unmeasured'; performance = 'assisted_practice';
-    summary = 'One practice round showed both the tempting option dropping and accuracy rising, but later rounds could not show whether that held. The difficulty is still established, and the later rounds are neither a success nor a failure.';
+    summary = 'One practice round showed both the tempting option dropping and accuracy rising, but later rounds could not show whether that held. The later rounds are neither a success nor a failure, and the improvement does not prove the original cause.';
   } else if (status === 'confirmed' && interventionState === 'unmeasured') {
     belief = 'established'; strength = 'repeated'; fix = 'unmeasured'; performance = 'unestablished';
-    summary = 'The student has repeatedly demonstrated this difficulty. Practice was tried, but the evidence is insufficient to say whether the skill changed. That is neither a success nor a failure of the fix.';
+    summary = reading === 'direct'
+      ? 'The measured choice pattern has shown up repeatedly. Practice was tried, but the evidence is insufficient to say whether the skill changed. That is neither a success nor a failure of the fix.'
+      : 'The student repeatedly chose the option this read predicts. Practice was tried, but the evidence is insufficient to say whether the skill changed. That is neither a success nor a failure of the fix, and the cause remains an inference.';
   } else if (status === 'confirmed') {
     belief = 'established'; strength = 'repeated'; fix = interventionState === 'adjust' ? 'unproven' : null; performance = 'unestablished';
-    summary = 'The student has repeatedly demonstrated difficulty here, from repeated observed attempts. That is a current belief, not a permanent trait.';
+    summary = reading === 'direct'
+      ? 'The measured choice pattern has been observed repeatedly. That is the behaviour the test recorded. It is a current belief about that behaviour, not a permanent trait, and it does not prove that every other explanation is false.'
+      : 'The student repeatedly chose the option this read predicts. That is a repeated choice pattern. The cause is an inference from those choices, not a direct observation of why the mistakes happen, and it does not show that other explanations are false. That is a current belief, not a permanent trait.';
   } else if (status === 'supported') {
     belief = 'possible'; strength = 'single_observation'; fix = null; performance = 'unestablished';
     summary = counts.contradicting
-      ? 'Observed attempts lean toward this (' + counts.supporting + ' for, ' + counts.contradicting + ' against) but are not settled. This is not yet a characteristic of the student.'
-      : 'The student appears to struggle with this, from one observed test. One observation is not a characteristic of the student.';
+      ? 'Observed attempts lean toward this (' + counts.supporting + ' for, ' + counts.contradicting + ' against) but are not settled. This is not yet a characteristic of the student, and support for one explanation is not proof the others are false.'
+      : (reading === 'direct'
+        ? 'The student appears to struggle with the measured behaviour, from one observed test. One observation is not a characteristic of the student.'
+        : 'The student appears to struggle with this choice pattern, from one observed test. One observation is not a characteristic of the student, and the cause is still an inference.');
   } else if (counts.observed > 0) {
     belief = 'insufficient'; strength = 'unsettled'; fix = null; performance = 'unestablished';
     summary = 'There is some observed evidence, but it is currently insufficient to say whether this is a real difficulty.';
@@ -6801,11 +6871,11 @@ function classifyStudentBelief(view) {
       ? 'The student said something, and Marg inferred a possible cause. Nothing has been observed yet, so the evidence is insufficient to treat this as a difficulty. It remains a hypothesis, not a belief about the student.'
       : 'No observed attempt has tested this. It is a hypothesis under investigation, not a belief about the student.';
   }
-  return { belief:belief, strength:strength, fix:fix, summary:summary, performance:performance, status:status };
+  return { belief:belief, strength:strength, fix:fix, summary:summary, performance:performance, status:status, reading:reading };
 }
 
-function studentBeliefView(entry, status, counts, interventionState, independenceState, effectiveRounds, selfReport, transferState) {
-  return { status:status, counts:counts, interventionState:interventionState, independenceState:independenceState, effectiveRounds:effectiveRounds, selfReport:selfReport, transferState:transferState || null };
+function studentBeliefView(entry, status, counts, interventionState, independenceState, effectiveRounds, selfReport, transferState, fidelity) {
+  return { status:status, counts:counts, interventionState:interventionState, independenceState:independenceState, effectiveRounds:effectiveRounds, selfReport:selfReport, transferState:transferState || null, fidelity:fidelity || 'none' };
 }
 
 // Replay the evidence in time order. When the belief name changes, keep the
@@ -6813,12 +6883,19 @@ function studentBeliefView(entry, status, counts, interventionState, independenc
 // not erase the fact that the understanding moved.
 function studentBeliefRevisions(entry) {
   var rows = localDiagnosisEvidence(entry).slice().sort(function(a, b) { return String(a.occurredAt || '').localeCompare(String(b.occurredAt || '')); });
-  var support = 0, contradiction = 0, observed = 0;
+  var support = 0, contradiction = 0, observed = 0, directRows = 0, namedRows = 0, unknownRows = 0;
   var interventionRows = [], independenceRows = [], transferRows = [];
   var effectiveRounds = 0;
   var status = 'hypothesis';
   var selfReport = studentEvidenceGrounds(entry).indexOf('self_report') !== -1;
-  var belief = classifyStudentBelief(studentBeliefView(entry, status, { supporting:0, contradicting:0, observed:0 }, null, null, 0, selfReport)).belief;
+  function replayFidelity() {
+    if (!directRows && !namedRows && !unknownRows) return 'none';
+    if (!directRows && !namedRows) return 'unknown';
+    if (directRows && !namedRows && !unknownRows) return 'direct';
+    if (directRows) return 'mixed';
+    return 'proxy';
+  }
+  var belief = classifyStudentBelief(studentBeliefView(entry, status, { supporting:0, contradicting:0, observed:0 }, null, null, 0, selfReport, null, 'none')).belief;
   var revisions = [];
   rows.forEach(function(item) {
     if (!item) return;
@@ -6826,6 +6903,10 @@ function studentBeliefRevisions(entry) {
     var because = null;
     if (item.type === 'observed_attempt' && !payload.evidence_role && Number(item.strength || 0) >= 0.65 && typeof item.supports === 'boolean') {
       observed++;
+      var rowFidelity = payload.fidelity || (payload.ledger && payload.ledger.fidelity) || '';
+      if (rowFidelity === 'direct') directRows++;
+      else if (rowFidelity) namedRows++;
+      else unknownRows++;
       if (item.supports) { support++; because = 'observed_support'; }
       else { contradiction++; because = 'observed_contradiction'; }
       status = hypothesisStatusFromCounts(support, contradiction, status);
@@ -6846,7 +6927,7 @@ function studentBeliefRevisions(entry) {
     var interventionName = interventionState.misses >= 2 ? 'failed' : interventionState.streak >= 2 ? 'resolved' : interventionState.unmeasured >= 2 ? 'unmeasured' : interventionState.misses === 1 ? 'adjust' : interventionState.streak === 1 ? 'effective' : null;
     var independenceName = independenceState.misses >= 2 ? 'assisted_only' : independenceState.streak >= 2 ? 'repeated' : independenceState.unmeasured >= 2 ? 'unmeasured' : independenceState.misses === 1 ? 'needs_support' : independenceState.streak === 1 ? 'once' : null;
     var transferName = transferStateName(transferState);
-    var next = classifyStudentBelief(studentBeliefView(entry, status, { supporting:support, contradicting:contradiction, observed:observed }, interventionName, independenceName, effectiveRounds, selfReport, transferName)).belief;
+    var next = classifyStudentBelief(studentBeliefView(entry, status, { supporting:support, contradicting:contradiction, observed:observed }, interventionName, independenceName, effectiveRounds, selfReport, transferName, replayFidelity())).belief;
     if (next !== belief) {
       revisions.push({ at:item.occurredAt || null, from:belief, to:next, because:because || 'evidence' });
       belief = next;
@@ -6864,14 +6945,14 @@ function studentConclusion(entry) {
   var transfer = deriveTransferState(entry);
   var grounds = studentEvidenceGrounds(entry);
   var effectiveRounds = interventionEvidenceRows(entry).filter(function(item) { return item.payload.intervention_outcome === 'effective'; }).length;
-  var classified = classifyStudentBelief(studentBeliefView(entry, status, counts, intervention.state, independence.state, effectiveRounds, grounds.indexOf('self_report') !== -1, transfer.state));
+  var classified = classifyStudentBelief(studentBeliefView(entry, status, counts, intervention.state, independence.state, effectiveRounds, grounds.indexOf('self_report') !== -1, transfer.state, observedEvidenceFidelity(entry)));
   var revisions = studentBeliefRevisions(entry);
   if (revisions.length && revisions[revisions.length - 1].to !== classified.belief) {
     revisions = revisions.concat([{ at:entry.updatedAt || null, from:revisions[revisions.length - 1].to, to:classified.belief, because:'later_evidence' }]);
   } else if (!revisions.length && classified.belief !== 'insufficient') {
     revisions = [{ at:entry.updatedAt || null, from:'insufficient', to:classified.belief, because:'later_evidence' }];
   }
-  return { belief:classified.belief, strength:classified.strength, fix:classified.fix, grounds:grounds, summary:classified.summary, performance:classified.performance, status:status, revisions:revisions, durability:'not_measured' };
+  return { belief:classified.belief, strength:classified.strength, fix:classified.fix, grounds:grounds, summary:classified.summary, performance:classified.performance, status:status, reading:classified.reading, revisions:revisions, durability:'not_measured' };
 }
 
 function assembleStudentModel(entries) {
@@ -6881,13 +6962,14 @@ function assembleStudentModel(entries) {
     if (!conclusion) return null;
     return { hypothesisId:entry.hypothesisId, topic:entry.topic || '', claim:entry.claim || entry.confirmedDiagnosis || '', conclusion:conclusion };
   }).filter(Boolean);
-  var buckets = { suspected:[], demonstrated:[], persistent:[], improving:[], improved:[], independent:[], transferred:[], mastered:[], practicedOnly:[], insufficient:[], retired:[], helped:[], failed:[] };
+  var buckets = { suspected:[], demonstrated:[], inferredPattern:[], persistent:[], improving:[], improved:[], independent:[], transferred:[], mastered:[], practicedOnly:[], insufficient:[], retired:[], helped:[], failed:[] };
   facets.forEach(function(facet) {
     var belief = facet.conclusion.belief;
     var fix = facet.conclusion.fix;
     var line = (facet.topic ? String(facet.topic).toUpperCase() + ': ' : '') + facet.claim;
     if (belief === 'possible') buckets.suspected.push(line);
-    else if (belief === 'established') buckets.demonstrated.push(line);
+    else if (belief === 'established' && facet.conclusion.reading === 'direct') buckets.demonstrated.push(line);
+    else if (belief === 'established') buckets.inferredPattern.push(line);
     else if (belief === 'persistent') buckets.persistent.push(line);
     else if (belief === 'improving') buckets.improving.push(line);
     else if (belief === 'improved' || belief === 'assisted_only') buckets.improved.push(line);
@@ -6910,7 +6992,8 @@ function formatStudentModelContext(entries, options) {
   var lines = [];
   function add(title, items) { if (items && items.length) lines.push('- ' + title + ': ' + items.join(' | ')); }
   add('Suspected, not yet a characteristic', model.buckets.suspected);
-  add('Demonstrated difficulty', model.buckets.demonstrated);
+  add('Demonstrated measured behaviour', model.buckets.demonstrated);
+  add('Repeated choice pattern; the cause is an inference', model.buckets.inferredPattern);
   add('Persistent difficulty, and the fix did not help', model.buckets.persistent);
   add('Improving, still not solved', model.buckets.improving);
   add('Improved with help, not solved and not mastery', model.buckets.improved);
@@ -6923,14 +7006,17 @@ function formatStudentModelContext(entries, options) {
   add('A previous intervention appeared to help', model.buckets.helped);
   add('A previous intervention did not help', model.buckets.failed);
   if (!lines.length) return '';
-  return '\n\nSTUDENT MODEL (what Marg currently believes from accumulated evidence across these reads. This is not a hypothesis and not new proof. A belief does not prove the weakness. Only a new observed attempt can change a belief. Assisted improvement is not mastery. Two checks in a new situation are not a claim the skill will hold later. A miss in a new situation is not proof the diagnosis was wrong. Do not repeat a fix that did not help.):\n' + lines.join('\n');
+  return '\n\nSTUDENT MODEL (what Marg currently believes from accumulated evidence across these reads. This is not a hypothesis and not new proof. A belief does not prove the weakness. A repeated choice pattern is not proof of the cause. Only a new observed attempt can change a belief. Assisted improvement is not mastery. Two checks in a new situation are not a claim the skill will hold later. A miss in a new situation is not proof the diagnosis was wrong. Do not repeat a fix that did not help.):\n' + lines.join('\n');
 }
 
 function describeHypothesisLevel(entry) {
   var view = interpretHypothesisEvidence(entry);
+  var confirmedText = evidenceReading(observedEvidenceFidelity(entry)) === 'direct'
+    ? 'confirmed: the measured choice pattern has been observed repeatedly; that is the behaviour the test recorded, not proof every other explanation is false'
+    : 'confirmed: the answer pattern matched this read repeatedly; the cause is still an inference and other explanations are not ruled out';
   var text = {
     retired:'retired untested', contradicted:'ruled out', insufficient:'not measurable by a chat test: the observation it predicts has to come from real practice',
-    confirmed:'confirmed: the same pattern has been observed repeatedly', under_verification:'supported by observed attempts but disputed by the student, and under verification',
+    confirmed:confirmedText, under_verification:'supported by observed attempts but disputed by the student, and under verification',
     resolved:'confirmed, and on two separate practice rounds the tempting option dropped and accuracy rose; that is improvement on these items, not mastery', improving:'confirmed, and one practice round moved both the tempting option and accuracy; one round is not proof the change holds',
     independent:'confirmed, and the change held without the rule on two unaided checks; independent on these items, not mastery', unaided_once:'confirmed, and the change held without the rule on one unaided check; not mastery',
     mastered:'confirmed, and the skill held in two new situations; stop drilling this skill; not a claim it will hold later or in every context', transferred:'confirmed, and the skill held in one new situation; not mastery',
@@ -9324,11 +9410,11 @@ function describeInterventionResultForStudent(exercise, entry, evaluation) {
   var lead;
   if (outcome === 'effective') {
     lead = state.state === 'resolved'
-      ? 'On a second round the tempting option stayed down and accuracy stayed up: “' + claim + '” That is improvement on these items, not mastery and not proof the problem is solved. The rule was available the whole time, so this is not yet independent performance.'
+      ? 'On a second round the tempting option stayed down and accuracy stayed up: “' + claim + '” That is improvement on these items, not mastery and not proof the problem is solved. It does not prove the original cause was correct. The rule was available the whole time, so this is not yet independent performance.'
       : 'This practice round moved both the tempting option and the accuracy: “' + claim + '” One round is encouraging, but it is not proof the change holds and it is not mastery.';
   } else if (outcome === 'not_effective') {
     lead = state.state === 'failed'
-      ? 'The targeted behaviour did not change on two practice rounds, so I am retiring this fix: “' + claim + '” The earlier tests that established the read still stand. A fix that did not work is not the same as a wrong diagnosis.'
+      ? 'The targeted behaviour did not change on two practice rounds, so I am retiring this fix: “' + claim + '” The earlier tests of this read still stand. A fix that did not work is not the same as a wrong diagnosis.'
       : 'The targeted behaviour did not change enough on this round, so I am not treating the fix as working. The diagnosis itself is unchanged.';
   } else if (state.state === 'unmeasured') {
     lead = 'Two practice rounds in a row could not show whether the skill changed, so I am stopping this fix rather than repeating it. That is neither a success nor a failure, and the earlier tests still stand: “' + claim + '”';
@@ -9400,7 +9486,10 @@ function describeExperimentResultForStudent(exercise) {
   var after = exercise.hypothesisStatusAfter || (entry ? normalizeDiagnosisStatus(entry) : 'hypothesis');
   var lead;
   if (evaluation.outcome === 'supported') {
-    lead = after === 'confirmed' ? 'That is the second observed test to come out the same way, so this is now a pattern I can work from and not a guess: “' + claim + '”'
+    var confirmedReading = entry ? evidenceReading(observedEvidenceFidelity(entry)) : 'pattern';
+    lead = after === 'confirmed' ? (confirmedReading === 'direct'
+      ? 'That is the second observed test to come out the same way, so the measured choice pattern is repeated: “' + claim + '” I can work from that measured behaviour. It does not prove that every other explanation is false.'
+      : 'That is the second observed test to come out the same way, so the choice pattern matches this read: “' + claim + '” The cause is still an inference, not a demonstrated fact, and other explanations are not ruled out.')
       : after === 'supported' ? 'Your choices lined up with this read: “' + claim + '” That is one test, not yet a pattern.'
         : 'This test pointed toward the read, but an earlier test pointed against it, so the two cancel out and I am treating it as unsettled: “' + claim + '”';
   } else   if (evaluation.outcome === 'rejected') {
@@ -13164,7 +13253,7 @@ async function runHypothesisLifecycleTests() {
     var failedLearning = chooseNextLearningAction('');
     var failedHome = getHypothesisFollowUpRecommendation();
     var failedContext = getDiagnosticMemoryContext('Look at my VARC', { intent:'varc_diagnosis', requestedSection:'varc' });
-    check('a second failed practice retires this fix without rewriting the diagnosis or offering the competing explanation', adjusted.exercise.experiment.purpose === 'intervention_adjusted' && deriveInterventionState(failedEntry).state === 'failed' && status(lose.main) === 'confirmed' && failedEntry.confidence >= 0.92 && failedAction.action === 'stop_intervention' && !failedAction.targetHypothesisId && /retiring this fix/.test(secondMiss) && /not the same as a wrong diagnosis/.test(secondMiss) && /diagnosis still stands/.test(describeHypothesisLevel(failedEntry)) && observedDiagnosisEvidenceCounts(failedEntry).supporting === 2 && !pendingHypothesisExperiment && studentConclusion(failedEntry).belief === 'persistent' && studentConclusion(failedEntry).fix === 'ineffective' && !failedEntry.reconsideredAt);
+    check('a second failed practice retires this fix without rewriting the diagnosis or offering the competing explanation', adjusted.exercise.experiment.purpose === 'intervention_adjusted' && deriveInterventionState(failedEntry).state === 'failed' && status(lose.main) === 'confirmed' && Math.abs(failedEntry.confidence - 0.74) < 0.001 && studentConclusion(failedEntry).reading === 'pattern' && failedAction.action === 'stop_intervention' && !failedAction.targetHypothesisId && /retiring this fix/.test(secondMiss) && /not the same as a wrong diagnosis/.test(secondMiss) && /diagnosis still stands/.test(describeHypothesisLevel(failedEntry)) && observedDiagnosisEvidenceCounts(failedEntry).supporting === 2 && !pendingHypothesisExperiment && studentConclusion(failedEntry).belief === 'persistent' && studentConclusion(failedEntry).fix === 'ineffective' && !failedEntry.reconsideredAt && /inference/.test(studentConclusion(failedEntry).summary));
     check('the difficulty stays a current belief: the pattern is not retired and is not counted again for the failed fix', confirmedPattern().length === 1 && confirmedPattern()[0].doNotReuse !== true && confirmedPattern()[0].belief === 'persistent' && confirmedPattern()[0].fix === 'ineffective' && confirmedPattern()[0].occurrences === 1);
     check('the retired fix is not the next learning action: the still-open read is chosen, and the model says not to repeat the fix', !!failedLearning && failedLearning.action === 'run_test' && failedLearning.entry.hypothesisId === lose.rival.hypothesisId && failedLearning.retiredFix === true && !!failedHome && failedHome.action.hypothesisId === lose.rival.hypothesisId && /not being repeated/.test(failedHome.copy) && /did not help/.test(failedContext) && /Do not repeat/.test(failedContext) && /not new proof/.test(failedContext) && /CONFIRMED REPEATED PATTERN/.test(failedContext));
     await say('That is not what happened, you misread my option elimination.', 'The earlier tests still stand, so a fresh test can check the read. The failed practice does not decide that.');
@@ -13251,7 +13340,7 @@ async function runHypothesisLifecycleTests() {
     await launch(once.main); await answer('ssn');
     var onceEntry = entryOf(once.main);
     var onceContext = getDiagnosticMemoryContext('Look at my VARC', { intent:'varc_diagnosis', requestedSection:'varc' });
-    check('one supporting test is a possible difficulty, not a characteristic, and stays labelled as supported once', studentConclusion(onceEntry).belief === 'possible' && /appears to struggle/.test(studentConclusion(onceEntry).summary) && /not a characteristic/.test(onceContext) && /SUPPORTED ONCE/.test(onceContext) && onceContext.indexOf('CONFIRMED REPEATED PATTERN') === -1 && studentConclusion(onceEntry).grounds.indexOf('observed') !== -1 && studentConclusion(onceEntry).grounds.indexOf('self_report') !== -1);
+    check('one supporting test is a possible difficulty, not a characteristic, and stays labelled as supported once', studentConclusion(onceEntry).belief === 'possible' && /appears to struggle/.test(studentConclusion(onceEntry).summary) && /inference/.test(studentConclusion(onceEntry).summary) && Math.abs(onceEntry.confidence - 0.62) < 0.001 && /not a characteristic/.test(onceContext) && /SUPPORTED ONCE/.test(onceContext) && onceContext.indexOf('CONFIRMED REPEATED PATTERN') === -1 && studentConclusion(onceEntry).grounds.indexOf('observed') !== -1 && studentConclusion(onceEntry).grounds.indexOf('self_report') !== -1);
 
     var raw = await fresh();
     var rawEntry = entryOf(raw.main);
@@ -13441,6 +13530,129 @@ async function runTransferMasteryTests() {
   return results;
 }
 window.runTransferMasteryTests = runTransferMasteryTests;
+
+// Constructed controls for diagnostic certainty. This repository has no
+// educator-reviewed student-attempt corpus, so these checks do not measure
+// agreement with CAT educators and must not be read as an accuracy rate.
+async function runDiagnosticReliabilityTests() {
+  var H = createHypothesisExperimentHarness();
+  var restore = H.restore, reset = H.reset, settle = H.settle;
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  function isElim(item) { return /eliminate options/.test(item.claim); }
+  function isPace(item) { return /Time pressure on the last passage/.test(item.claim); }
+  function isQuestion(item) { return /misread what the inference/.test(item.claim); }
+  var savedBehavior = behavioralMemory;
+  var ELIM = Object.assign({}, H.OPTION);
+  delete ELIM.alternative;
+  var PACE = {
+    section:'varc', claim:'Time pressure on the last passage may cause rushed eliminations instead of a reading gap',
+    prediction:'When you spend two extra minutes on the last passage, its accuracy should rise',
+    weakens_if:'If accuracy on the last passage stays the same with more time, pace is not the cause',
+    basis:'The misses cluster on the last passage'
+  };
+  var DIRECT = Object.assign({}, ELIM, { observable:'wrong_picks_per_set', direction:'decrease' });
+  function near(value, target) { return Math.abs(Number(value) - target) < 0.001; }
+  async function viaOffer(entry, label) {
+    H.scriptDraft(entry);
+    margPendingConversationOptions = null;
+    await handleConversationalResponse(label, 'start_hypothesis_experiment');
+    await settle();
+    return activeGeneratedExercise;
+  }
+  async function openPair(tags) {
+    reset();
+    behavioralMemory = { patterns:[] };
+    var created = await H.createFromChat(tags);
+    return { created:created, main:created.find(isElim), pace:created.find(isPace), question:created.find(isQuestion) };
+  }
+  try {
+    var separate = await openPair([ELIM, PACE]);
+    var separateDesign = buildHypothesisExperimentDesign(separate.main);
+    check('two explanations named together are stored apart when neither is the other\'s alternative', !!separate.main && !!separate.pace && separate.main.hypothesisId !== separate.pace.hypothesisId && separate.main.competesWith.indexOf(separate.pace.hypothesisId) === -1 && separate.pace.competesWith.indexOf(separate.main.hypothesisId) === -1 && separateDesign.rivalRequired === false && !separateDesign.rivals.some(function(rival) { return rival.hypothesisId === separate.pace.hypothesisId; }));
+    var firstSeparate = await H.launch(separate.main);
+    var firstReply = await H.answer('ssn');
+    var onceSeparate = H.entryOf(separate.main);
+    var paceAfter = H.entryOf(separate.pace);
+    check('one matching choice pattern supports a read without confirming it, and it does not count against a co-mentioned explanation', H.status(separate.main) === 'supported' && observedDiagnosisEvidenceCounts(onceSeparate).supporting === 1 && studentConclusion(onceSeparate).belief === 'possible' && studentConclusion(onceSeparate).belief !== 'established' && near(onceSeparate.confidence, 0.62) && studentConclusion(onceSeparate).reading === 'pattern' && /inference/.test(studentConclusion(onceSeparate).summary) && /one test, not yet a pattern/.test(firstReply) && H.status(separate.pace) === 'hypothesis' && observedDiagnosisEvidenceCounts(paceAfter).observed === 0 && observedDiagnosisEvidenceCounts(paceAfter).contradicting === 0);
+    var repeatedComplete = completeHypothesisExperiment(activeGeneratedExercise, { 1:'C', 2:'C', 3:'C' });
+    check('the same attempt is not counted a second time', repeatedComplete.repeated === true && H.experimentRows(separate.main).length === 1 && observedDiagnosisEvidenceCounts(H.entryOf(separate.main)).supporting === 1);
+    await H.launch(separate.main);
+    var secondReply = await H.answer('sns');
+    var patternEntry = H.entryOf(separate.main);
+    var patternAction = computeNextDiagnosticAction(patternEntry);
+    var patternDesign = buildHypothesisExperimentDesign(patternEntry);
+    check('two proxy matches confirm the choice pattern at a lower certainty than a direct measurement, and the cause stays an inference', H.status(separate.main) === 'confirmed' && observedEvidenceFidelity(patternEntry) === 'proxy' && near(patternEntry.confidence, 0.74) && patternEntry.confidence < 0.92 && studentConclusion(patternEntry).belief === 'established' && studentConclusion(patternEntry).reading === 'pattern' && /choice pattern/.test(studentConclusion(patternEntry).summary) && /inference/.test(studentConclusion(patternEntry).summary) && /other explanations are false/.test(studentConclusion(patternEntry).summary) && studentConclusion(patternEntry).summary.indexOf('repeatedly demonstrated') === -1 && /second observed test/.test(secondReply) && secondReply.indexOf('not a guess') === -1 && /inference/.test(secondReply) && patternAction.action === 'intervene' && patternAction.action !== 'run_test' && patternAction.action !== 'replicate' && patternDesign.kind === 'intervention' && patternDesign.purpose === 'intervention' && /cause is an inference/.test(formatStudentModelContext([patternEntry])) && formatStudentModelContext([patternEntry]).indexOf('Demonstrated measured behaviour') === -1 && H.status(separate.pace) === 'hypothesis' && observedDiagnosisEvidenceCounts(H.entryOf(separate.pace)).observed === 0);
+    var practice = await viaOffer(patternEntry, 'Start targeted practice');
+    var practiceReply = await H.answer('ncnc');
+    var afterPractice = H.entryOf(separate.main);
+    check('a successful practice round does not add diagnostic support and does not prove the original cause', practice.experiment.kind === 'intervention' && H.experimentRows(separate.main).slice(-1)[0].type === 'practice_attempt' && observedDiagnosisEvidenceCounts(afterPractice).supporting === 2 && near(afterPractice.confidence, 0.74) && studentConclusion(afterPractice).belief === 'improving' && /does not prove the original cause/.test(studentConclusion(afterPractice).summary) && /not mastery/.test(practiceReply));
+    await H.launch(separate.main);
+    var resolvedReply = await H.answer('cccn');
+    var resolved = H.entryOf(separate.main);
+    check('two successful practice rounds still do not prove the diagnosis or raise proxy certainty', deriveInterventionState(resolved).state === 'resolved' && observedDiagnosisEvidenceCounts(resolved).supporting === 2 && observedDiagnosisEvidenceCounts(resolved).contradicting === 0 && near(resolved.confidence, 0.74) && studentConclusion(resolved).belief === 'improved' && /does not prove the original cause/.test(studentConclusion(resolved).summary) && /does not prove the original cause/.test(resolvedReply) && /not mastery/.test(resolvedReply) && H.status(separate.pace) === 'hypothesis');
+
+    var directPair = await openPair([DIRECT]);
+    await H.launch(directPair.main); await H.answer('ssn');
+    var directOnce = H.entryOf(directPair.main);
+    check('one direct measurement supports the measured behaviour without confirming a lasting weakness', H.status(directPair.main) === 'supported' && directOnce.evidenceHistory.some(function(row) { return row.payload && row.payload.fidelity === 'direct'; }) && near(directOnce.confidence, 0.78) && studentConclusion(directOnce).reading === 'direct' && studentConclusion(directOnce).belief === 'possible' && studentConclusion(directOnce).belief !== 'established');
+    await H.launch(directPair.main);
+    var directReply = await H.answer('sns');
+    var directEntry = H.entryOf(directPair.main);
+    check('two direct measurements may use the higher certainty, and still do not prove every other explanation is false', H.status(directPair.main) === 'confirmed' && observedEvidenceFidelity(directEntry) === 'direct' && directEntry.confidence >= 0.92 && studentConclusion(directEntry).reading === 'direct' && /measured choice pattern/.test(studentConclusion(directEntry).summary) && /does not prove that every other explanation is false/.test(studentConclusion(directEntry).summary) && /measured choice pattern/.test(directReply) && directReply.indexOf('not a guess') === -1 && /Demonstrated measured behaviour/.test(formatStudentModelContext([directEntry])));
+
+    var ambiguous = await openPair([H.OPTION, H.QUESTION]);
+    check('a stated alternative is still linked, because the two reads were offered as competitors', ambiguous.main.competesWith.indexOf(ambiguous.question.hypothesisId) !== -1 && ambiguous.question.competesWith.indexOf(ambiguous.main.hypothesisId) !== -1 && buildHypothesisExperimentDesign(ambiguous.main).rivalRequired === true);
+    await H.launch(ambiguous.main);
+    var ambiguousReply = await H.answer('ssr');
+    var ambiguousEntry = H.entryOf(ambiguous.main);
+    var ambiguousRow = H.experimentRows(ambiguous.main)[0];
+    check('a test that shows both explanations does not confirm either one', ambiguousRow.supports === null && ambiguousRow.strength < 0.65 && H.status(ambiguous.main) === 'inconclusive' && observedDiagnosisEvidenceCounts(ambiguousEntry).supporting === 0 && observedDiagnosisEvidenceCounts(ambiguousEntry).contradicting === 0 && studentConclusion(ambiguousEntry).belief === 'insufficient' && /did not settle/.test(ambiguousReply) && computeNextDiagnosticAction(ambiguousEntry).action === 'sharpen_test' && H.status(ambiguous.question) === 'hypothesis' && observedDiagnosisEvidenceCounts(H.entryOf(ambiguous.question)).supporting === 0 && observedDiagnosisEvidenceCounts(H.entryOf(ambiguous.question)).contradicting === 0);
+
+    var split = await openPair([H.OPTION, H.QUESTION]);
+    await H.launch(split.main); await H.answer('ssn');
+    await H.launch(split.main); await H.answer('rrc');
+    var splitEntry = H.entryOf(split.main);
+    var splitRows = H.experimentRows(split.main);
+    check('support and contradiction are both kept, and the read stays unsettled instead of picking a winner', splitRows.length === 2 && splitRows[0].supports === true && splitRows[1].supports === false && H.status(split.main) === 'inconclusive' && observedDiagnosisEvidenceCounts(splitEntry).supporting === 1 && observedDiagnosisEvidenceCounts(splitEntry).contradicting === 1 && studentConclusion(splitEntry).belief === 'insufficient' && studentConclusion(splitEntry).revisions.some(function(item) { return item.to === 'possible'; }) && splitEntry.confidence <= 0.45 && H.status(split.question) === 'hypothesis');
+
+    var wrong = await openPair([H.OPTION, H.QUESTION]);
+    await H.launch(wrong.main); await H.answer('rrc');
+    var doubted = H.entryOf(wrong.main);
+    check('one test against a read does not retire it', H.status(wrong.main) === 'hypothesis' && observedDiagnosisEvidenceCounts(doubted).contradicting === 1 && studentConclusion(doubted).belief !== 'not_current' && !doubted.doNotReuse);
+    await H.launch(wrong.main); await H.answer('rrn');
+    var retired = H.entryOf(wrong.main);
+    check('two tests against a read retire it and keep the history', H.status(wrong.main) === 'rejected' && studentConclusion(retired).belief === 'not_current' && H.experimentRows(wrong.main).length === 2 && observedDiagnosisEvidenceCounts(retired).contradicting === 2 && retired.confidence <= 0.2 && localDiagnosisEvidence(retired).length >= 2);
+
+    var correctOnly = await openPair([H.OPTION, H.QUESTION]);
+    await H.launch(correctOnly.main);
+    await H.answer('ccc');
+    var correctEntry = H.entryOf(correctOnly.main);
+    check('one run of correct answers does not create a lasting strength or weakness', H.status(correctOnly.main) === 'hypothesis' && observedDiagnosisEvidenceCounts(correctEntry).supporting === 0 && observedDiagnosisEvidenceCounts(correctEntry).contradicting === 0 && studentConclusion(correctEntry).belief === 'insufficient' && studentConclusion(correctEntry).belief !== 'established' && studentConclusion(correctEntry).belief !== 'mastered');
+
+    var revise = await openPair([H.OPTION, H.QUESTION]);
+    await H.launch(revise.main); await H.answer('ssn');
+    await H.launch(revise.main); await H.answer('sns');
+    await H.say('That is not what happened, you misread my option elimination.', 'The earlier checks stay on record. A fresh test can look at the read again.');
+    var reviseLive = findMentorHypothesis(revise.main.hypothesisId);
+    var reviseLaunch = await H.launch(reviseLive);
+    await H.answer('rrrc');
+    var revised = H.entryOf(revise.main);
+    check('later evidence can leave a confirmed pattern without deleting the earlier rows', reviseLaunch.exercise.experiment.purpose === 'verify' && H.experimentRows(revise.main).length === 3 && observedDiagnosisEvidenceCounts(revised).supporting === 2 && observedDiagnosisEvidenceCounts(revised).contradicting === 1 && H.status(revise.main) === 'supported' && studentConclusion(revised).belief === 'possible' && studentConclusion(revised).revisions.some(function(item) { return item.to === 'established'; }) && studentConclusion(revised).revisions.some(function(item) { return item.from === 'established'; }) && near(revised.confidence, 0.62));
+
+    var mixed = await openPair([ELIM]);
+    await H.launch(mixed.main); await H.answer('ssn');
+    recordMentorHypothesisEvidence(H.entryOf(mixed.main), { kind:'observed_attempt', supports:true, strength:0.85, attemptId:'att-mixed-direct', claim:'A separate recorded attempt matched the predicted option picks.', payload:{ fidelity:'direct' } });
+    var mixedEntry = H.entryOf(mixed.main);
+    promoteDiagnosisFromEvidence(mixedEntry);
+    check('mixed direct and proxy evidence confirms the pattern below the direct certainty, and a later pass does not raise it', observedEvidenceFidelity(mixedEntry) === 'mixed' && H.status(mixed.main) === 'confirmed' && near(mixedEntry.confidence, 0.8) && mixedEntry.confidence < 0.92 && studentConclusion(mixedEntry).reading === 'mixed' && /inference/.test(studentConclusion(mixedEntry).summary) && observedDiagnosisEvidenceCounts(mixedEntry).supporting === 2);
+  } finally {
+    behavioralMemory = savedBehavior;
+    restore();
+  }
+  return results;
+}
+window.runDiagnosticReliabilityTests = runDiagnosticReliabilityTests;
 
 const onboardingFlow = [
   { message: "Most CAT plateaus aren't caused by low effort — they're caused by repeatedly practising the wrong failure pattern. Which section is exposing yours most right now?", key: 'weakestSection', options: ['VARC (Reading & Verbal)', 'DILR (Data & Logic)', 'QA (Quant)', 'It changes across mocks'], followUp: {
