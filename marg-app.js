@@ -2642,7 +2642,7 @@ When reviewing multiple answers, readability is mandatory. Give every question i
 
 You remember exercises you generated. When ACTIVE GENERATED EXERCISE MEMORY is present, it is your own passage, set or questions, including the hidden answer key and purpose. If the student says "check my answers" or submits choices such as "1-A, 2-C", check them immediately from that memory. Never ask them to resend your passage, questions or set. Diagnose the pattern across their choices, then give the smallest useful fix.
 
-EXERCISE TRUST OVERRIDES MENTORING: A missing question stem, incomplete condition, contradictory set, incorrect key, answer absent from the options, or solution that assumes unstated data is a Marg product failure—not evidence about the student. Say exactly what is broken, discard the item, and do not infer a cognitive pattern, weakness, careless mistake or score implication from it. Never repair the key by confidently inventing a new answer. Only independently verified exercises may support a diagnosis.
+EXERCISE TRUST OVERRIDES MENTORING: A missing question stem, incomplete condition, contradictory set, incorrect key, answer absent from the options, or solution that assumes unstated data is a Marg product failure—not evidence about the student. Say exactly what is broken, discard the item, and do not infer a cognitive pattern, weakness, careless mistake or score implication from it. Never repair the key by confidently inventing a new answer. Only an exercise with a stored key check may support a diagnosis. A second model pass can agree with a key, and that agreement does not prove the key is correct. Do not tell the student a key was independently verified unless the stored check is the local solver or a hand-checked pack.
 
 You also receive BEHAVIOURAL MEMORY, TOPIC PROGRESSION and ACTIVE PLAN MEMORY. Use them before advice. Begin from concrete evidence when it exists: "Last week you were at 86% in Percentages. Your ability did not disappear; your confidence in the source changed." Do not list memory mechanically. Use one relevant past result to show continuity, then make the current read. Never invent a score or previous event.
 
@@ -4981,6 +4981,9 @@ function runProductExperienceTests() {
     { name:'every selectable QA topic has a semantic guard', passed:Object.keys(qaTopicCategories).reduce(function(all, category) { return all.concat(qaTopicCategories[category]); }, []).every(function(topic) { return !!QA_TOPIC_SEMANTIC_RULES[normalizePracticeTopicName(topic)]; }) },
     { name:'mislabeled off-topic QA is rejected beyond percentages', passed:questionMatchesQATopic({ topic:'Probability', q:'A two-digit integer leaves remainder 2 when divided by 5.', solution:'Check the possible digits and remainders.', options:['A. 12','B. 17','C. 22','D. 27'] }, 'Probability') === false },
     { name:'low-level DILR fallback is disabled', passed:getVerifiedFallbackPractice('dilr', 4) === null },
+    { name:'a named DILR topic without a matching pack is not replaced', passed:getVerifiedFallbackPractice('dilr', 4, 'Routes & Networks') === null && getVerifiedFallbackPractice('dilr', 4, 'Venn Diagrams & Set Data') === null && requestedTopicAllowsReadySwap('dilr', 'Routes & Networks') === false },
+    { name:'an arrangement request keeps the checked schedule', passed:(function() { var pack = getVerifiedFallbackPractice('dilr', 4, 'Arrangements & Rankings'); return !!(pack && pack.sets && pack.sets[0] && pack.sets[0].set_title === 'Eight Workshop Schedule'); })() },
+    { name:'only an unnamed or mixed DILR request may open another ready round', passed:requestedTopicAllowsReadySwap('dilr', '') === true && requestedTopicAllowsReadySwap('dilr', 'Mixed Set Selection') === true && requestedTopicAllowsReadySwap('dilr', 'Arrangements') === false },
     { name:'RC fallback meets CAT passage length', passed:validateRCPracticeSet(rcFallback) },
     { name:'exercise timing is student-selected', passed:diagnosticExerciseLabel({ topic:'qa' }).indexOf('timed QA') !== -1 },
     { name:'assistant-style opener is removed', passed:reduceAssistantStyleLanguage('Real talk... content is not the issue.') === 'content is not the issue.' },
@@ -4989,7 +4992,7 @@ function runProductExperienceTests() {
     { name:'fresh mock evidence can reset plan', passed:hasStrongPlanChangeEvidence('I scored 42 in my new mock') === true },
     { name:'complete roadmap receives planning intent', passed:detectMentorIntent('I am a third-attempt student. Build a complete VARC, DILR and QA roadmap with sectionals and mocks.') === 'planning' },
     { name:'explicit roadmap components retain sectionals and mocks', passed:(function() { var parts = getRequestedPlanningComponents('Build my VARC, DILR and QA roadmap with sectionals, mocks and revision.'); return parts.indexOf('sectional-test progression and cadence') !== -1 && parts.indexOf('full-mock cadence and analysis') !== -1 && parts.indexOf('revision and error-review loop') !== -1; })() },
-    { name:'multi-answer review formatter separates question blocks', passed:formatMultiAnswerReview('Q1 Your Answer: D Correct Answer: A Diagnosis: Scope. Fix: Verify. Q2 Your Answer: C Correct Answer: C Diagnosis: Correct. Pattern Check: 1/2 right.', { intent:'answer_review' }).indexOf('Q1\nYour Answer: D') !== -1 && formatMultiAnswerReview('Q1 Your Answer: D Correct Answer: A Diagnosis: Scope. Fix: Verify. Q2 Your Answer: C Correct Answer: C Diagnosis: Correct. Pattern Check: 1/2 right.', { intent:'answer_review' }).indexOf('\n\nQ2\n') !== -1 }
+    { name:'multi-answer review formatter separates question blocks', passed:formatMultiAnswerReview('Q1 Your Answer: D Correct Answer: A Diagnosis: Scope. Fix: Verify. Q2 Your Answer: C Correct Answer: C Diagnosis: Correct. Pattern Check: 1/2 right.', { intent:'answer_review' }).indexOf('Q1\nYour Answer: D') !== -1 && formatMultiAnswerReview('Q1 Your Answer: D Correct Answer: A Diagnosis: Scope. Fix: Verify. Q2 Your Answer: C Correct Answer: C Diagnosis: Correct. Pattern Check: 1/2 right.', { intent:'answer_review' }).indexOf('\n\nQ2\n') !== -1 && formatMultiAnswerReview('Q1 — You chose D; A is correct.', { intent:'answer_review' }).indexOf('Q1 — —') === -1 }
   ];
 }
 
@@ -8288,9 +8291,17 @@ function guardPastedAnswerChoiceIntegrity(response, diagnosis) {
   return owner + labels + '. I’m not going to replace them with choices you never gave. I can check each one against the passage, but I need the official key or explanation separately before comparing your answers with AIMCAT.';
 }
 
+function answerKeyVerificationStatus(verification) {
+  var method = String(verification && verification.method || '');
+  if (method === 'independent-numeric-code-solver' || method === 'exhaustive-code-solver') return 'verified_local';
+  return 'model_checked';
+}
+
 function hasVerifiedActiveAnswerKey() {
   var status = activeGeneratedExercise && activeGeneratedExercise.validationVerdict && activeGeneratedExercise.validationVerdict.status;
-  return /^(?:verified_local|independently_verified|preverified)$/.test(String(status || '')) && isActiveExerciseCurrentInConversation();
+  // model_checked means a second model pass agreed. It can be graded, and it is not independent proof.
+  // independently_verified remains only so an exercise saved before this distinction can still be graded.
+  return /^(?:verified_local|model_checked|independently_verified|preverified)$/.test(String(status || '')) && isActiveExerciseCurrentInConversation();
 }
 
 function getExerciseHypothesisVerdict(exercise) {
@@ -9868,7 +9879,7 @@ function recordBehaviorPattern(section, insight, evidence, source) {
   // cross-session memory.
   if (source === 'answer-review') {
     var status = activeGeneratedExercise && activeGeneratedExercise.validationVerdict && String(activeGeneratedExercise.validationVerdict.status || activeGeneratedExercise.validationVerdict).toLowerCase();
-    if (['verified_local','independently_verified'].indexOf(status) === -1) return null;
+    if (['verified_local','model_checked','independently_verified'].indexOf(status) === -1) return null;
   }
   if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
   var normalized = normalizeBehaviorPattern(section, insight);
@@ -11196,6 +11207,13 @@ async function runStudyExperienceTests() {
     var recovered = await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ thought:true, text:'thinking' }] } }] }, { contents:[{ role:'user', parts:[{ text:'x' }] }], generationConfig:{} }, 1000);
     check('thinking that consumes the whole budget is retried instead of failing', noTextCalls === 1 && recovered === 'A complete answer.');
     check('finished replies are returned untouched', (await resolveStudyReply({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'Done.' }] } }] }, { contents:[], generationConfig:{} }, 1000, { allowPartial:true })) === 'Done.');
+    var partialCalls = 0;
+    fetchWithTimeout = async function() {
+      partialCalls++;
+      return { json:async function() { return { candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'The useful part is that the claim narrowed.' }] } }] }; } };
+    };
+    var keptPartial = await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'The useful part is that the claim narrowed.' }] } }] }, { contents:[{ role:'user', parts:[{ text:'explain' }] }], generationConfig:{} }, 1000, { allowPartial:false });
+    check('a reply that stays cut off keeps the visible text and says it stopped', partialCalls === 3 && keptPartial.indexOf('The useful part is that the claim narrowed.') === 0 && /stopped before it was finished/.test(keptPartial));
     check('a dangling fragment is detected as cut off', MargStudy.looksCutOff('Q2. Which option is best?\nA. one\nB. two') && !MargStudy.looksCutOff('The author concedes the point.'));
 
     // 6. CAT layout: structure survives the guard, history cleaning and rendering.
@@ -11220,12 +11238,12 @@ async function runStudyExperienceTests() {
       { passage:'P3', q:'Which inference is most strongly supported by P3?', options:['A. A measure can be accurate and still conceal the interests that selected it', 'B. Accuracy is impossible in measurement', 'C. Yield per acre is a useless statistic', 'D. Interests rarely influence exchange'], correct:0, explanation:'P3 says measures are accurate about something that interests select, so accuracy does not remove selection.', trap_type:'extreme', sufficiency_check:'P3 says that something is selected by interests that rarely announce themselves.', option_check:'A restates the qualification; B and C overreach, while D contradicts the passage directly.' },
       { passage:'P2', q:'Which of the following would the author of P2 most likely accept?', options:['A. Who revises a standard matters as much as whether it exists', 'B. Uniform measures should be abolished', 'C. Custom guarantees fairness', 'D. Standards benefit everyone equally'], correct:0, explanation:'P2 ends by asking who decides when measures are revised, which is option A.', trap_type:'author view', sufficiency_check:'P2 concludes the question is not whether measures help but who decides when they are revised.', option_check:'A matches that conclusion; B, C and D contradict the concession that benefits were distributed unevenly.' }
     ];
-    var generationCalls = 0, auditCalls = 0;
+    var generationCalls = 0, auditCalls = 0, generationBody = '';
     var auditAgrees = true;
     fetchWithTimeout = async function(_url, options) {
       var body = String(options && options.body || '');
       var isAudit = body.indexOf('strict independent CAT question-set auditor') !== -1;
-      if (isAudit) auditCalls++; else generationCalls++;
+      if (isAudit) auditCalls++; else { generationCalls++; generationBody = body; }
       var payload = isAudit
         ? { valid:true, issues:[], verification:{ answer_indices:generated.map(function(question) { return auditAgrees ? question.correct : (question.correct + 1) % 4; }), answer_explanations:generated.map(function() { return 'The passage supports this option and the alternatives change its scope or force.'; }), feasible_base_case_counts:[] } }
         : { questions:generated };
@@ -11235,6 +11253,7 @@ async function runStudyExperienceTests() {
     var done = await generateQuestionsFromStudyMaterial('Okay, now let\'s do questions', { type:'generate_questions', owns:true, count:4, context:materialCtx });
     var visible = (conversationHistory[conversationHistory.length - 1] || {}).content || '';
     check('questions are generated from the same article and independently checked', done === true && generationCalls >= 1 && auditCalls >= 1 && /Which of the following best captures the claim of P1\?/.test(visible));
+    check('the question setter is not told the keys are already independently verified', generationBody.indexOf('independently verified answer keys') === -1 && activeGeneratedExercise.validationVerdict && activeGeneratedExercise.validationVerdict.status === 'model_checked');
     check('generated set is formatted as numbered questions with four lettered options', (visible.match(/^\d\. /gm) || []).length === 4 && (visible.match(/^[A-D]\. /gm) || []).length === 16 && /\(P2\) What does the author use the farmer/.test(visible) && /Reply in one line/.test(visible));
     check('generated set is stored for answer review without a saved-question lookup', !!activeGeneratedExercise && activeGeneratedExercise.source === 'study-material' && getActiveExerciseQuestions().length === 4 && getActiveExerciseQuestions()[0].correct === 'A' && isActiveExerciseCurrentInConversation());
     check('after questions exist, answers go to the exercise and not the study session', !getStudyTurn('1-A, 2-A, 3-A, 4-A').owns && !getStudyTurn('explain Q2').owns);
@@ -16895,13 +16914,16 @@ function formatMultiAnswerReview(text, diagnosis) {
   if (!diagnosis || diagnosis.intent !== 'answer_review') return String(text || '');
   var formatted = String(text || '').replace(/\r\n/g, '\n');
   formatted = formatted.replace(/[ \t]+(Q\s*\d{1,2}\b)/gi, '\n\n$1');
+  // A one-line review has to become separate blocks. The question label stays
+  // on its own line so "Q1" and "Your Answer" are not glued into one sentence.
+  formatted = formatted.replace(/(Q\s*\d{1,2}\b)\s+(Your Answer:)/gi, '$1\n$2');
   formatted = formatted.replace(/Q\s*(\d{1,2})\s*[:.)-]?\s*\n?\s*Your Answer:\s*([^\n]+)\s*\n\s*Correct Answer:\s*([^\n]+)\s*\n\s*Diagnosis:\s*/gi, 'Q$1 — You chose $2; $3 is correct.\n');
   formatted = formatted.replace(/^\s*Fix:\s*/gmi, 'Next time, ');
   formatted = formatted.replace(/^\s*(?:Diagnosis|Thinking Error|Evidence):\s*/gmi, '');
   formatted = formatted.replace(/^\s*Pattern Check:\s*/gmi, '');
-  // Normalise one separator after Q1/Q2. Gemini sometimes already supplies an
-  // em dash; the previous formatter added a second one ("Q1 — — You chose").
-  formatted = formatted.replace(/\n?(Q\s*\d{1,2}\b)\s*(?:[:.)-]|—)?\s*(?:—\s*)?/gi, '\n\n$1 — ');
+  // Add one em dash only when the label and the next words share a line and
+  // the label does not already have one. A newline after Q1 must survive.
+  formatted = formatted.replace(/(^|\n\n?)(Q\s*\d{1,2}\b)(?![ \t]*—)[ \t]*(?:[:.)-]\s*)?(?=\S)/gi, '$1$2 — ');
   return formatted.replace(/^\s+/, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -18624,12 +18646,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
       body: JSON.stringify(mentorRequest)
     }, mentorTimeout);
     var data = await res.json();
-    var geminiText = selectMentorModelText(data);
-    if (geminiText == null) {
-      var truncatedConversationalError = new Error('Mentor output hit the token ceiling');
-      truncatedConversationalError.name = 'GeminiEmptyResponseError';
-      throw truncatedConversationalError;
-    }
+    var geminiText = await resolveStudyReply(data, mentorRequest, mentorTimeout, {});
     var response = geminiText ? applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(geminiText, userMessage, mentorAnalysis.diagnosis).text), mentorAnalysis.diagnosis) : null;
     if (response) response = enforceVerifiedDILRChatBoundary(response, mentorAnalysis.diagnosis, userMessage, imageAttachments);
     if (response) response = ensureMockEvidenceContinuation(response, context, mentorAnalysis.diagnosis);
@@ -19915,8 +19932,10 @@ async function resolveStudyReply(payload, request, timeoutMs, options) {
     text = MargStudy.stitchContinuation(text, chunk);
   }
   if (!truncated) return text;
-  if (options.allowPartial) return trimDanglingStudyText(text);
-  // Still unfinished after several continuations: do not save a fragment.
+  // Study chat used to keep a trimmed fragment and ordinary chat used to drop
+  // it. Keep the visible text in both cases, and say that it stopped.
+  var partial = String(trimDanglingStudyText(text) || '').trim();
+  if (partial) return partial + '\n\nThis reply stopped before it was finished. Say continue and I will pick up from this point.';
   var unfinished = new Error('Mentor output hit the token ceiling');
   unfinished.name = 'GeminiEmptyResponseError';
   throw unfinished;
@@ -19972,7 +19991,7 @@ async function generateQuestionsFromStudyMaterial(text, turn) {
         exemplars:MargStudy.exemplarBlock(materialSection, ctx.id),
         stepsBlock:MargStudy.stepsForPrompt(ctx, 8)
       });
-      var request = buildGeminiRequest('You are an expert CAT question setter. Return only valid JSON, with independently verified answer keys.' + getDateContext(), [{ role:'user', content:prompt }], 16384, 'application/json', getStudyQuestionSchema(count));
+      var request = buildGeminiRequest('You are an expert CAT question setter. Return only valid JSON. Check each key before you return it, and do not describe the keys as independently verified.' + getDateContext(), [{ role:'user', content:prompt }], 16384, 'application/json', getStudyQuestionSchema(count));
       var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(request) }, 120000);
       var payload = await response.json();
       if (isGeminiStructuredResponseTruncated(payload)) throw new SyntaxError('Question JSON was truncated');
@@ -20016,14 +20035,14 @@ async function generateQuestionsFromStudyMaterial(text, turn) {
     MargStudy.updateContext({ questionsGenerated:(ctx.questionsGenerated || 0) + finalQuestions.length, pendingTask:'' });
     MargStudy.recordPractice(memorySection, materialSection === 'varc' ? { sets:[{ questions:finalQuestions }] } : accepted);
     var storedType = materialSection;
-    storeActiveGeneratedExercise({ id:'exercise-study-' + Date.now(), type:storedType, source:'study-material', title:'Questions on your ' + (materialSection === 'varc' ? 'passage' : materialSection === 'dilr' ? 'set' : 'material'), purpose:'Check the student against the material they supplied.', hypothesis:null, content:Object.assign({}, accepted, { exerciseText:visible }) });
+    storeActiveGeneratedExercise({ id:'exercise-study-' + Date.now(), type:storedType, source:'study-material', title:'Questions on your ' + (materialSection === 'varc' ? 'passage' : materialSection === 'dilr' ? 'set' : 'material'), purpose:'Check the student against the material they supplied. A second model pass agreed with the keys, and that agreement does not prove the questions are correct.', hypothesis:null, validationVerdict:{ status:answerKeyVerificationStatus(audit.verification), verification:audit.verification || null }, content:Object.assign({}, accepted, { exerciseText:visible }) });
     return true;
   } catch (error) {
     failure = error && error.message || 'failed';
     console.error('Study question generation failed:', failure);
   }
   hideTyping();
-  var notice = 'I could not get a clean, independently checked set of questions on this material just now. Your material is still saved here, so send the same request again and I will build them from it.';
+  var notice = 'I could not get a clean checked round of questions on this material just now. Your material is still saved here, so send the same request again and I will build them from it.';
   addMessage('marg', escapeChatHtml(notice), true);
   conversationHistory.push({ role:'assistant', content:notice });
   if (!isGuestMode) saveChatMessage('assistant', notice);
@@ -21142,7 +21161,7 @@ Each question must have exactly four distinct plausible options and one defensib
       storeActiveGeneratedExercise({
         type:'rc', source:'rc-lab-daily-cache', title:currentArticle.title,
         purpose:rcConfig.mode === 'diagnose' ? 'Evidence-based CAT RC diagnosis' : 'Targeted CAT RC skill practice',
-        validationVerdict:{ status:'independently_verified', verification:{ mode:'same-day-verified-cache' } },
+        validationVerdict:{ status:'model_checked', verification:{ mode:'same-day-model-check', provesKey:false } },
         content:{ exerciseText:cachedReply, answerKey:buildArticleRCAnswerMemory(cachedRCData), structuredData:cachedRCData, article:{ title:currentArticle.title, source:currentArticle.source||'Marg Original', url:currentArticle.url||'' }, rcLab:rcConfig }
       });
       addArticleRCAttemptMessage(activeGeneratedExercise);
@@ -21279,7 +21298,7 @@ Each question must have exactly four distinct plausible options and one defensib
       source:'rc-lab-verified',
       title:currentArticle.title,
       purpose:rcConfig.mode === 'diagnose' ? 'Evidence-based CAT RC diagnosis' : 'Targeted CAT RC skill practice',
-      validationVerdict:{ status:'independently_verified', verification:articleAudit.verification || null },
+      validationVerdict:{ status:'model_checked', verification:articleAudit.verification || null },
       content:{
         exerciseText:visibleReply,
         answerKey:buildArticleRCAnswerMemory(rcData),
@@ -22809,6 +22828,7 @@ var practiceTopicLog = {};
 var practiceTopicFlagged = {};
 
 var timedTestSection = null;
+var timedTestRecoveryNote = '';
 var timedTestGenerationSequence = 0;
 var timedTestGenerationController = null;
 var timedTestTopic = null;
@@ -23605,7 +23625,7 @@ var QA_CALIBRATION_EXAMPLE = ' CALIBRATION, this is the actual bar: REJECT quest
 var QA_STRUCTURAL_REQUIREMENTS = ' STRUCTURAL REQUIREMENTS — these are checks, not suggestions; silently apply them to every question before finalizing it: (1) The central difficulty must be choosing or deriving the setup, not executing a visible formula sequence. (2) Include at least one hidden relationship, invariant, feasibility restriction, case split, or equation that the student must infer; do not state every usable relationship explicitly. (3) Require at least 2 linked reasoning decisions before routine arithmetic begins; repeated percentage changes or substituting into the same formula twice do not count. (4) Use the minimum sufficient information. REJECT any question with redundant data, multiple explicit percentages that simply map to markup-discount-profit formulas, or an alternate-scenario condition added only to manufacture another equation. (5) REJECT "a quantity is changed by X%, then by Y%, find the result/original value" regardless of phrasing. (6) At least half the set should reward a non-obvious route such as ratios, bounding, parity, symmetry, invariance, smart substitution, or eliminating cases; they must not all be long algebra. (7) Across the complete set, vary both topic and reasoning mechanic. (8) Solve each draft yourself, confirm exactly one option is correct, confirm all supplied data is necessary, and rewrite it if a standard formula pipeline is apparent within 10 seconds.';
 var DILR_CALIBRATION_EXAMPLE = ' CALIBRATION — this is the bar, not a suggestion: a genuinely hard CAT DILR question looks like "If R does not sit at position 4, which of the following must be true?" — answering it means re-deriving part of the arrangement under a new hypothetical constraint, not reading an answer straight off the already-completed grid. A question is too easy if its answer is visible directly from the finished grid with zero further reasoning — rewrite it before including it.';
 var RC_CALIBRATION_EXAMPLE = ' CALIBRATION — this is the bar, not a suggestion: a genuinely hard CAT RC question asks something like "Which of the following, if true, would most weaken the position the author takes in paragraph 2?" — not "What does the author say in paragraph 2?" If a question can be answered by locating and restating one sentence in the passage, it is too easy — rewrite it to require synthesis across the passage, or inference about attitude/tone that isn\'t stated outright.';
-var CLEAN_SOLUTION_OUTPUT_REQUIREMENTS = ' STUDENT-FACING SOLUTION CONTRACT: do all scratch work privately. Every solution/explanation field must contain only one clean, final, independently verified derivation. Never expose drafting commentary, abandoned calculations, false starts, self-corrections, or phrases such as "wait", "let\'s recheck", "let\'s fix", "actually", "ignore that", or "start again". Never redefine the same variable after beginning a derivation. If your working changes, discard the entire draft field and rewrite it from the first valid step to the answer.';
+var CLEAN_SOLUTION_OUTPUT_REQUIREMENTS = ' STUDENT-FACING SOLUTION CONTRACT: do all scratch work privately. Every solution/explanation field must contain only one clean, final derivation. Never expose drafting commentary, abandoned calculations, false starts, self-corrections, or phrases such as "wait", "let\'s recheck", "let\'s fix", "actually", "ignore that", or "start again". Never redefine the same variable after beginning a derivation. If your working changes, discard the entire draft field and rewrite it from the first valid step to the answer.';
 
 function hasExposedSolutionScratchwork(value) {
   var text = String(value || '').replace(/<br\s*\/?>/gi, '\n').trim();
@@ -24062,6 +24082,36 @@ function getVerifiedTablesFallback() {
   }] };
 }
 
+function dilrEmbeddedFamily(topic) {
+  var name = String(topic || '');
+  if (!name.trim()) return '';
+  if (/distribution|grouping/i.test(name)) return 'distribution';
+  if (/games|tournaments/i.test(name)) return 'games';
+  if (/tables|charts|caselets/i.test(name)) return 'tables';
+  if (/arrangement|ranking|scheduling|allocation/i.test(name)) return 'arrangement';
+  if (/mixed|diagnostic/i.test(name)) return 'generic';
+  return '';
+}
+
+function requestedTopicAllowsReadySwap(section, topic) {
+  var name = String(topic || '').trim();
+  if (!name) return true;
+  if (section === 'dilr') return dilrEmbeddedFamily(name) === 'generic';
+  if (section === 'qa') return typeof isMixedQATopic === 'function' && isMixedQATopic(name);
+  return section === 'rc';
+}
+
+function familiarRoundNote() {
+  return 'This checked round may look familiar. It is not a new one. You can solve it again or choose another topic.';
+}
+
+function readySwapNote(section, data) {
+  var setObj = data && Array.isArray(data.sets) ? data.sets[0] : null;
+  var title = setObj && (setObj.set_title || setObj.topic);
+  var label = title ? ' (' + title + ')' : '';
+  return 'A new round was not ready, so a checked ' + String(section || '').toUpperCase() + ' round that was already on hand opened instead' + label + '. It is not a new one.';
+}
+
 function getVerifiedFallbackPractice(section, questionCount, topic) {
   if (section === 'rc') return getVerifiedRCFallback();
   if (section === 'qa' && normalizePracticeTopicName(topic) === 'percentages' && (questionCount || 3) <= 3) return getVerifiedPercentagesFallback();
@@ -24079,10 +24129,10 @@ function getVerifiedFallbackPractice(section, questionCount, topic) {
   if (section === 'dilr' && (questionCount || 4) <= 4 && /distribution|grouping/i.test(topic || '')) return getVerifiedDistributionFallback();
   if (section === 'dilr' && (questionCount || 4) <= 4 && /games|tournaments/i.test(topic || '')) return getVerifiedGamesFallback();
   if (section === 'dilr' && (questionCount || 4) <= 4 && /tables|charts|caselets/i.test(topic || '')) return getVerifiedTablesFallback();
-  if (section === 'dilr' && (questionCount || 4) <= 4 && (!topic || /arrangement|ranking|scheduling|allocation|mixed|diagnostic/i.test(topic))) {
-    // This set and all four keys are enumerated in the regression suite. It is
-    // the safe instant fallback for the two matching topic families only; a
-    // Routes/DI/Venn request must never be silently replaced by seating.
+  if (section === 'dilr' && (questionCount || 4) <= 4 && /arrangement|ranking|scheduling|allocation|mixed|diagnostic/i.test(String(topic || ''))) {
+    // This schedule and all four keys are enumerated in the regression suite.
+    // It is the checked pack for arrangement, scheduling, and mixed requests.
+    // An empty topic, or Routes/Venn, must not receive it from this function.
     return { sets:[{
       set_title:'Eight Workshop Schedule',
       difficulty:'Hard',
@@ -24305,7 +24355,7 @@ function getTodaysVerifiedPractice(section, questionCount, topic) {
     try { completedSignatures = JSON.parse(localStorage.getItem(getUserScopedKey('marg_completed_practice_v1')) || '[]'); } catch(e) {}
     if (Array.isArray(completedSignatures) && completedSignatures.indexOf(practiceContentSignature(section, candidate)) !== -1) continue;
     if (isPracticePackValidForRequest(section, candidate, topic, questionCount)) {
-      return { data:candidate, source:'verified-today-cache', repeated:false };
+      return { data:candidate, source:'verified-today-cache', repeated:false, verification:entry.verification || null };
     }
   }
   return null;
@@ -25035,7 +25085,7 @@ function formatGuidedExerciseForChat(section, data, diagnosticEntry) {
   }
   var reviewPromise = section === 'rc'
     ? ' I’ll check each choice against the passage, show you where any miss happened, and decide the next useful step with you.'
-    : ' I already have the answer key; I’ll use your choices to see whether the suspected problem actually appears.';
+    : ' I’ll compare your choices with the key from this check. A second pass agreed with that key, and that agreement does not prove it is correct.';
   var answerSlots = (data.questions || []).map(function(_question, index) { return (index + 1) + '-[your choice]'; }).join(', ');
   parts.push('Reply in one line using this format: ' + answerSlots + '.' + processRequest + reviewPromise);
   return parts.join('\n\n');
@@ -25084,7 +25134,7 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   var succeeded = false;
   try {
     var compactTaskHint = isCompactDecisionLab ? '\n[MARG_TASK: COMPACT_DECISION_LAB]' : '';
-    var guidedRequest = buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON, with independently verified answer keys.' + compactTaskHint + getDateContext(), [{ role:'user', content:prompt }], maxTokens, 'application/json');
+    var guidedRequest = buildGeminiRequest('You are an expert CAT exam question generator. Return only valid JSON. Do not describe the keys as independently verified.' + compactTaskHint + getDateContext(), [{ role:'user', content:prompt }], maxTokens, 'application/json');
     if (isCompactDecisionLab) {
       guidedRequest.generationConfig.maxOutputTokens = 4096;
       guidedRequest.generationConfig.thinkingConfig = { thinkingLevel:'minimal' };
@@ -25106,6 +25156,11 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
       : section === 'va' || section === 'varc_mixed' ? validateVerbalValidationSet(parsed, section === 'varc_mixed')
       : validateQASetShape(parsed, qaExpectedTopic, 3);
     if (!valid) throw new Error('Guided exercise failed validation');
+    var guidedAuditSection = section === 'rc' ? 'rc' : 'qa';
+    var guidedAudit = await auditGeneratedCATContent(guidedAuditSection, parsed, section === 'qa' ? qaExpectedTopic : null, [], { timeoutMs: Math.max(8000, Number(generationState.timeoutMs) || 60000) });
+    if (!guidedAudit.valid) throw new Error('Guided exercise failed its answer check');
+    if (guidedAudit.correctedData) parsed = guidedAudit.correctedData;
+    if (section === 'rc' && !validateRCPracticeSet(parsed)) throw new Error('Guided exercise failed validation');
     hideTyping();
     var visible = formatGuidedExerciseForChat(section, parsed, diagnosticEntry);
     var visibleHtml = renderGuidedExerciseHtml(visible);
@@ -25113,7 +25168,8 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
     conversationHistory.push({ role:'assistant', content:visible });
     if (!isGuestMode) saveChatMessage('assistant', visible);
     var storedType = section === 'rc' || section === 'va' || section === 'varc_mixed' ? 'varc' : section === 'dilr_selection' ? 'dilr' : section;
-    storeActiveGeneratedExercise({ type:storedType, source:'prediction-validation', title:(storedType === 'varc' ? 'VARC' : storedType.toUpperCase()) + ' prediction check', purpose:'Validate or reject: ' + (diagnosticEntry ? diagnosticEntry.confirmedDiagnosis : 'working diagnosis'), hypothesis:diagnosticEntry || null, content:parsed });
+    var guidedKeyStatus = answerKeyVerificationStatus(guidedAudit.verification);
+    storeActiveGeneratedExercise({ type:storedType, source:'prediction-validation', title:(storedType === 'varc' ? 'VARC' : storedType.toUpperCase()) + ' prediction check', purpose:'Validate or reject: ' + (diagnosticEntry ? diagnosticEntry.confirmedDiagnosis : 'working diagnosis') + (guidedKeyStatus === 'verified_local' ? ' The keys were checked by the local solver.' : ' A second model pass agreed with the keys, and that agreement does not prove the questions are correct.'), hypothesis:diagnosticEntry || null, validationVerdict:{ status:guidedKeyStatus, verification:guidedAudit.verification || null }, content:parsed });
     clearGuidedGenerationState();
     completeChatFirstOnboarding(storedType === 'varc' ? 'rc' : storedType);
     succeeded = true;
@@ -25247,6 +25303,9 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   timedTestSubmitted = false;
   timedTestGenerationStartedAt = new Date().toISOString();
   timedTestDifficulty = launchOptions.difficulty === 'hard' ? 'hard' : 'cat';
+  timedTestRecoveryNote = launchOptions.source === 'explicit-different-round'
+    ? 'This is a different checked round from the topic you asked for. It is not a new one.'
+    : '';
 
   var overlay = document.getElementById('timed-test-overlay');
   var titleEl = document.getElementById('tt-title');
@@ -25268,9 +25327,8 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   titleEl.textContent = (section === 'qa' ? 'QA' : 'DILR') + (isShortTimedCheck ? ' Timed Check — ' : ' Timed Practice — ') + topic;
   contentEl.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Marg is building ' + timedDifficultyLabel + ' ' + (section === 'qa' ? 'QA practice' : 'DILR practice') + ' on ' + topic + '...</div></div>';
 
-  // Short diagnostic checks should open immediately whenever a matching,
-  // independently verified pack already exists. This avoids spending a model
-  // call and audit delay merely to validate a working hypothesis.
+  // Short checks open immediately when a matching hand-checked pack already
+  // exists. A named topic with no matching pack is not replaced here.
   if (isShortTimedCheck) {
     var instantExpectedTopic = expectedQATopic;
     var instantDiagnostic = getUnseenVerifiedFallbackPractice(section, timedTestRequestedCount, topic);
@@ -25322,7 +25380,9 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       readyButton.type = 'button';
       readyButton.className = 'pcard-nav-btn secondary timed-safe-alternative';
       readyButton.style.cssText = 'margin-top:12px;max-width:260px;';
-      readyButton.textContent = 'Start a checked DILR set now';
+      var readyForTopic = getReliablePracticeCandidate(section, 4, topic, true);
+      if (!readyForTopic || !readyForTopic.data) return;
+      readyButton.textContent = 'Start the checked DILR round for this topic';
       readyButton.onclick = openCheckedTimedRecovery;
       loading.appendChild(readyButton);
     }, 5000),
@@ -25435,7 +25495,8 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
     timedTestSecondsTotal = section === 'dilr' ? Math.min(2400,timedTestQuestions.length*240) : timedTestQuestions.length * 120;
     timedTestSecondsLeft = timedTestSecondsTotal;
-    storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation' : 'sectional', title:topic + ' sectional', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Timed CAT sectional diagnosis for ' + topic, hypothesis:timedTestDiagnosticEntry || null, generationStartedAt:timedTestGenerationStartedAt, validationVerdict:{ status:'independently_verified', verification:semanticAudit.verification || null }, content:{ questions:timedTestQuestions } });
+    timedTestRecoveryNote = '';
+    storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation' : 'sectional', title:topic + ' sectional', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : (answerKeyVerificationStatus(semanticAudit.verification) === 'verified_local' ? 'Timed CAT practice for ' + topic + '. The keys were checked by the local solver.' : 'Timed CAT practice for ' + topic + '. A second model pass agreed with the keys, and that agreement does not prove the questions are correct.'), hypothesis:timedTestDiagnosticEntry || null, generationStartedAt:timedTestGenerationStartedAt, validationVerdict:{ status:answerKeyVerificationStatus(semanticAudit.verification), verification:semanticAudit.verification || null }, content:{ questions:timedTestQuestions } });
 
     renderTimedTestQuestionNav();
     qnavEl.style.display = 'flex';
@@ -25452,23 +25513,34 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var fallbackCandidate = getReliablePracticeCandidate(section, expectedFallbackCount, topic, true);
     var verifiedFallback = fallbackCandidate && fallbackCandidate.data;
     var fallbackQuestions = verifiedFallback ? flattenTimedTestQuestions(section, verifiedFallback) : [];
-    var verifiedFallbackValid = verifiedFallback && packMatchesRequestedDifficulty(verifiedFallback) && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
-      ? validateQASetShape(verifiedFallback, expectedQATopic, expectedFallbackCount)
-      : validateDILRPracticeSet(verifiedFallback, Math.max(1, expectedFallbackCount / 4)));
-    if (!verifiedFallbackValid) {
+    var usedDifferentRound = false;
+    function timedFallbackValid(data, topicForShape, count) {
+      var questions = data ? flattenTimedTestQuestions(section, data) : [];
+      return !!(data && packMatchesRequestedDifficulty(data) && questions.length === count && questions.every(isValidTimedTestQuestion) && (section === 'qa'
+        ? validateQASetShape(data, topicForShape, count)
+        : validateDILRPracticeSet(data, Math.max(1, count / 4))));
+    }
+    var verifiedFallbackValid = timedFallbackValid(verifiedFallback, expectedQATopic, expectedFallbackCount);
+    if (verifiedFallbackValid) fallbackQuestions = flattenTimedTestQuestions(section, verifiedFallback);
+    // A named Routes, Venn, or other unmatched topic must not be replaced by
+    // the seating schedule. Only an empty or mixed request may open a ready round.
+    if (!verifiedFallbackValid && requestedTopicAllowsReadySwap(section, topic)) {
+      usedDifferentRound = true;
       fallbackCandidate = getReliablePracticeCandidate(section, expectedFallbackCount, null, true);
       verifiedFallback = fallbackCandidate && fallbackCandidate.data;
-      fallbackQuestions = verifiedFallback ? flattenTimedTestQuestions(section, verifiedFallback) : [];
-      verifiedFallbackValid = verifiedFallback && packMatchesRequestedDifficulty(verifiedFallback) && fallbackQuestions.length === expectedFallbackCount && fallbackQuestions.every(isValidTimedTestQuestion) && (section === 'qa'
-        ? validateQASetShape(verifiedFallback, null, expectedFallbackCount)
-        : validateDILRPracticeSet(verifiedFallback, Math.max(1, expectedFallbackCount / 4)));
+      verifiedFallbackValid = timedFallbackValid(verifiedFallback, null, expectedFallbackCount);
+      fallbackQuestions = verifiedFallbackValid ? flattenTimedTestQuestions(section, verifiedFallback) : [];
     }
     if (verifiedFallbackValid) {
       timedTestQuestions = fallbackQuestions;
       timedTestAnswers = new Array(timedTestQuestions.length).fill(null);
       timedTestSecondsTotal = section === 'dilr' ? Math.min(2400,timedTestQuestions.length*240) : timedTestQuestions.length * 120;
       timedTestSecondsLeft = timedTestSecondsTotal;
-      storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation-fallback' : 'sectional-fallback', title:topic + ' verified fallback', purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : 'Reliable timed CAT practice for ' + topic, hypothesis:timedTestDiagnosticEntry || null, generationStartedAt:timedTestGenerationStartedAt, validationVerdict:{ status:'verified_local' }, content:{ questions:timedTestQuestions } });
+      if (usedDifferentRound) timedTestRecoveryNote = readySwapNote(section, verifiedFallback);
+      else if (fallbackCandidate && fallbackCandidate.repeated) timedTestRecoveryNote = familiarRoundNote();
+      var fallbackTitle = usedDifferentRound ? ((section === 'qa' ? 'QA' : 'DILR') + ' checked round') : (topic + ' verified fallback');
+      if (usedDifferentRound && titleEl) titleEl.textContent = fallbackTitle;
+      storeActiveGeneratedExercise({ type:section, source:timedTestDiagnosticEntry ? 'prediction-validation-fallback' : 'sectional-fallback', title:fallbackTitle, purpose:timedTestDiagnosticEntry ? 'Validate or reject: ' + timedTestDiagnosticEntry.confirmedDiagnosis : (usedDifferentRound ? readySwapNote(section, verifiedFallback) : 'Checked timed practice for ' + topic), hypothesis:timedTestDiagnosticEntry || null, generationStartedAt:timedTestGenerationStartedAt, validationVerdict:{ status:'verified_local' }, content:{ questions:timedTestQuestions } });
       renderTimedTestQuestionNav();
       qnavEl.style.display = 'flex';
       renderTimedTestQuestion();
@@ -25486,8 +25558,11 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var shortRecovery = getReliablePracticeCandidate(section, section === 'qa' ? 3 : 4, topic, true);
     var shortRecoveryData = shortRecovery && shortRecovery.data;
     var shortRecoveryValid = shortRecoveryData && packMatchesRequestedDifficulty(shortRecoveryData) && (section === 'qa' ? validateQASetShape(shortRecoveryData, topic, 3) : validateDILRPracticeSet(shortRecoveryData, 1));
-    var shortRecoveryButton = shortRecoveryValid ? '<button class="pcard-nav-btn secondary" onclick="openCheckedTimedRecovery()" style="margin-top:12px;">Open a checked ' + (section === 'qa' ? '3-question QA' : '4-question DILR') + ' check instead</button>' : '';
-    var timedErrorMessage = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem. Your topic is saved; retrying immediately will not fix it.' : 'I could not open that timed set just now. Your section and topic are saved.';
+    var differentRoundReady = !shortRecoveryValid && getReliablePracticeCandidate(section, section === 'qa' ? 3 : 4, null, true);
+    var shortRecoveryButton = shortRecoveryValid
+      ? '<button class="pcard-nav-btn secondary" onclick="openCheckedTimedRecovery()" style="margin-top:12px;">Open the checked ' + (section === 'qa' ? 'QA' : 'DILR') + ' round for this topic</button>'
+      : (differentRoundReady ? '<button class="pcard-nav-btn secondary" onclick="openDifferentCheckedRound()" style="margin-top:12px;">Open a different checked ' + (section === 'qa' ? 'QA' : 'DILR') + ' round</button>' : '');
+    var timedErrorMessage = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem. Your topic is saved; retrying immediately will not fix it.' : 'I could not open that timed round just now. Your section and topic are saved.';
     var timedRetryButton = isGeminiLocationError(e) ? '' : '<button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button>';
     contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div>' + timedRetryButton + shortRecoveryButton + '</div>';
   }
@@ -25495,6 +25570,11 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
 
 function openCheckedTimedRecovery() {
   startTimedTest(timedTestSection, timedTestTopic, timedTestSection === 'qa' ? 3 : 4, null, 0, { difficulty:timedTestDifficulty, source:'timed-recovery' });
+}
+
+function openDifferentCheckedRound() {
+  if (timedTestSection === 'qa') startTimedTest('qa', 'Mixed QA', 3, null, 0, { difficulty:timedTestDifficulty, source:'explicit-different-round' });
+  else startTimedTest('dilr', 'Mixed Set Selection', 4, null, 0, { difficulty:timedTestDifficulty, source:'explicit-different-round' });
 }
 
 function retryTimedTest() {
@@ -25529,7 +25609,10 @@ function renderTimedTestQuestion() {
     ? '<button class="pcard-nav-btn primary" onclick="confirmSubmitTimedTest()">Submit Test</button>'
     : '<button class="pcard-nav-btn primary" onclick="goToTimedTestQuestion(' + (timedTestIndex + 1) + ')">Next question</button>';
 
-  contentEl.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Question ' + (timedTestIndex + 1) + ' of ' + timedTestQuestions.length + '</div></div><div class="pcard-body">' + setupHtml + '<div class="pcard-question">' + escapeChatHtml(convertLatexToPlainText(q.q)) + '</div><div class="pcard-options">' + optionsHtml + '</div></div><div class="pcard-nav">' + prevBtn + nextBtn + '</div></div>';
+  var recoveryHtml = timedTestRecoveryNote && timedTestIndex === 0
+    ? '<div class="practice-recovery-note" style="margin-bottom:12px;padding:11px 13px;border:1px solid rgba(201,168,76,.24);border-radius:10px;background:rgba(201,168,76,.07);color:var(--text-muted);font-size:12px;line-height:1.55;">' + escapeChatHtml(timedTestRecoveryNote) + '</div>'
+    : '';
+  contentEl.innerHTML = '<div class="practice-card"><div class="pcard-header"><div class="pcard-label">Question ' + (timedTestIndex + 1) + ' of ' + timedTestQuestions.length + '</div></div><div class="pcard-body">' + recoveryHtml + setupHtml + '<div class="pcard-question">' + escapeChatHtml(convertLatexToPlainText(q.q)) + '</div><div class="pcard-options">' + optionsHtml + '</div></div><div class="pcard-nav">' + prevBtn + nextBtn + '</div></div>';
 }
 
 function selectTimedTestAnswer(idx) {
@@ -25788,7 +25871,8 @@ async function loadDailyPractice() {
     if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
     practiceLoadMetrics.source = instantCandidate.source;
     practiceData[currentPracticeType] = instantVerifiedPractice;
-    storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-today-cache', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' daily practice', purpose:'Today’s topic-matched CAT practice with verified statements and answer keys', generationStartedAt:practiceGenerationStartedAt, generationDurationMs:0, validationVerdict:{ status:'independently_verified' }, content:instantVerifiedPractice });
+    var resumedStatus = answerKeyVerificationStatus(instantCandidate.verification);
+    storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-today-cache', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' daily practice', purpose:resumedStatus === 'verified_local' ? 'Today’s practice, resumed from earlier today. The keys were checked by the local solver.' : 'Today’s practice, resumed from earlier today. A second model pass agreed with the keys, and that agreement does not prove the questions are correct.', generationStartedAt:practiceGenerationStartedAt, generationDurationMs:0, validationVerdict:{ status:resumedStatus, verification:instantCandidate.verification || null }, content:instantVerifiedPractice });
     currentSetIndex = 0;
     currentQuestionIndex = 0;
     practiceAnswered = false;
@@ -25808,7 +25892,7 @@ async function loadDailyPractice() {
       var safeAlternativeCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'dilr' ? 4 : 3, null, true);
       var safeAlternative = safeAlternativeCandidate && safeAlternativeCandidate.data;
       if (safeAlternative && !content.querySelector('.practice-safe-alternative')) {
-        var recoveryLabel = currentPracticeType === 'qa' ? 'Open Mixed QA now' : currentPracticeType === 'dilr' ? 'Open a DILR set now' : 'Open an RC now';
+        var recoveryLabel = currentPracticeType === 'qa' ? 'Open Mixed QA now' : currentPracticeType === 'dilr' ? 'Open a different checked DILR round' : 'Open an RC now';
         var recoveryButton = document.createElement('button');
         recoveryButton.type = 'button';
         recoveryButton.className = 'pcard-nav-btn secondary practice-safe-alternative';
@@ -25953,7 +26037,7 @@ async function loadDailyPractice() {
     if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
     practiceLoadMetrics.source = 'generated-audited';
     practiceData[currentPracticeType] = practiceJson;
-    storeActiveGeneratedExercise({ type:currentPracticeType, source:'practice-tab', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' practice', purpose:'Targeted CAT practice based on the student’s current mistake patterns', generationStartedAt:practiceGenerationStartedAt, validationVerdict:{ status:'independently_verified', verification:practiceAudit.verification || null }, content:practiceJson });
+    storeActiveGeneratedExercise({ type:currentPracticeType, source:'practice-tab', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' practice', purpose:answerKeyVerificationStatus(practiceAudit.verification) === 'verified_local' ? 'Targeted CAT practice based on the student’s current mistake patterns. The keys were checked by the local solver.' : 'Targeted CAT practice based on the student’s current mistake patterns. A second model pass agreed with the keys, and that agreement does not prove the questions are correct.', generationStartedAt:practiceGenerationStartedAt, validationVerdict:{ status:answerKeyVerificationStatus(practiceAudit.verification), verification:practiceAudit.verification || null }, content:practiceJson });
     currentSetIndex = 0;
     currentQuestionIndex = 0;
     practiceAnswered = false;
@@ -25971,29 +26055,33 @@ async function loadDailyPractice() {
     var questionCount = currentPracticeType === 'dilr' ? 4 : 3;
     var fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, requestedPracticeTopic, false);
     var fallbackPractice = fallbackCandidate && fallbackCandidate.data;
-    var fallbackValid = fallbackPractice && (currentPracticeType === 'qa'
-      ? validateQASetShape(fallbackPractice, requestedPracticeTopic, 3)
-      : currentPracticeType === 'dilr'
-        ? validateDILRPracticeSet(fallbackPractice)
-        : validateRCPracticeSet(fallbackPractice));
-    // Do not leave the student on an error screen merely because the exact
-    // topic pack is unavailable. Continue with a checked pack in the same
-    // section and label the switch in ordinary student language.
-    if (!fallbackValid) {
+    function practiceFallbackValid(data, topicForShape) {
+      return !!(data && (currentPracticeType === 'qa'
+        ? validateQASetShape(data, topicForShape, 3)
+        : currentPracticeType === 'dilr'
+          ? validateDILRPracticeSet(data)
+          : validateRCPracticeSet(data)));
+    }
+    var fallbackValid = practiceFallbackValid(fallbackPractice, requestedPracticeTopic);
+    // A named topic with its own pack may be repeated, with a note. It must
+    // not be silently replaced by a different DILR or QA type.
+    if (!fallbackValid && requestedPracticeTopic && !requestedTopicAllowsReadySwap(currentPracticeType, requestedPracticeTopic)) {
+      fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, requestedPracticeTopic, true);
+      fallbackPractice = fallbackCandidate && fallbackCandidate.data;
+      fallbackValid = practiceFallbackValid(fallbackPractice, requestedPracticeTopic);
+      if (fallbackValid && fallbackCandidate.repeated) fallbackPractice._margRecoveryNote = familiarRoundNote();
+    }
+    if (!fallbackValid && requestedTopicAllowsReadySwap(currentPracticeType, requestedPracticeTopic)) {
       fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, null, false);
       fallbackPractice = fallbackCandidate && fallbackCandidate.data;
-      fallbackValid = fallbackPractice && (currentPracticeType === 'qa'
-        ? validateQASetShape(fallbackPractice, null, 3)
-        : currentPracticeType === 'dilr'
-          ? validateDILRPracticeSet(fallbackPractice)
-          : validateRCPracticeSet(fallbackPractice));
+      fallbackValid = practiceFallbackValid(fallbackPractice, null);
       if (fallbackValid) {
         selectedPracticeTopic = null;
-        fallbackPractice._margRecoveryNote = 'I kept you in ' + currentPracticeType.toUpperCase() + ' and opened a ready mixed set so your session can continue.';
+        fallbackPractice._margRecoveryNote = readySwapNote(currentPracticeType, fallbackPractice);
       }
     }
     if (fallbackValid) {
-      if (fallbackCandidate.repeated && !fallbackPractice._margRecoveryNote) fallbackPractice._margRecoveryNote = 'This checked topic set may look familiar. You can solve it again or choose another topic.';
+      if (fallbackCandidate.repeated && !fallbackPractice._margRecoveryNote) fallbackPractice._margRecoveryNote = familiarRoundNote();
       practiceLoadMetrics.source = fallbackCandidate.source;
       practiceData[currentPracticeType] = fallbackPractice;
       storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-fallback', title:(selectedPracticeTopic || currentPracticeType.toUpperCase()) + ' practice', purpose:'Continue the student’s CAT practice in the selected section', generationStartedAt:practiceGenerationStartedAt, validationVerdict:{ status:'verified_local' }, content:fallbackPractice });
@@ -26005,7 +26093,7 @@ async function loadDailyPractice() {
       return;
     }
     var errorMessage = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem. Your section and topic are saved; retrying immediately will not fix it.' : 'A fresh checked set isn’t ready for this topic yet. Your section and topic are still selected.';
-    var recoveryLabel = currentPracticeType === 'qa' ? 'Open Mixed QA' : currentPracticeType === 'dilr' ? 'Open another DILR set' : 'Open another RC';
+    var recoveryLabel = currentPracticeType === 'qa' ? 'Open Mixed QA' : currentPracticeType === 'dilr' ? 'Open a different checked DILR round' : 'Open another RC';
     var recoveryCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, null, true);
     if (recoveryCandidate && recoveryCandidate.repeated) recoveryLabel = 'Review a previous checked set';
     var recoveryData = recoveryCandidate && recoveryCandidate.data;
@@ -26042,8 +26130,9 @@ function useVerifiedPracticeRecovery() {
   // The user explicitly chose a mixed recovery pack. This is never presented
   // as if it matched the previously selected topic.
   selectedPracticeTopic = null;
+  recovery._margRecoveryNote = 'This is a checked round that was already on hand. It is not the topic you had selected, and it is not a new one.';
   practiceData[currentPracticeType] = recovery;
-  storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-recovery', title:(currentPracticeType === 'qa' ? 'Mixed QA' : currentPracticeType === 'dilr' ? 'Verified DILR' : 'Verified RC') + ' recovery set', purpose:'Reliable CAT practice selected after live topic generation failed', validationVerdict:{ status:'verified_local' }, content:recovery });
+  storeActiveGeneratedExercise({ type:currentPracticeType, source:'verified-practice-recovery', title:(currentPracticeType === 'qa' ? 'Mixed QA' : currentPracticeType === 'dilr' ? 'Checked DILR' : 'Checked RC') + ' recovery round', purpose:'A checked round opened after the student asked for it, because a new round on the selected topic was not ready.', validationVerdict:{ status:'verified_local' }, content:recovery });
   currentSetIndex = 0;
   currentQuestionIndex = 0;
   practiceAnswered = false;
