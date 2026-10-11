@@ -5943,7 +5943,7 @@ async function callHypothesisExperimentModel(system, prompt, maxTokens, timeoutM
   request.generationConfig.thinkingConfig = { thinkingLevel:'minimal' };
   var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(request) }, timeoutMs);
   var payload = await response.json();
-  return parseGeneratedJson(getGeminiText(payload));
+  return parseGeneratedJson(await resolveStudyReply(payload, request, timeoutMs, { json:true }));
 }
 
 async function auditHypothesisExperimentDraft(data, design, timeoutMs) {
@@ -11049,6 +11049,12 @@ function runOutputQualityTests() {
   ] : [{ name:'worker token resolver is available to output-quality tests', passed:false }];
   return [
     { name:'oversized normal response is reduced at a sentence boundary', passed:normalTrimmed.indexOf('alpha') === 0 && normalTrimmed.indexOf('gamma') !== -1 && normalTrimmed.indexOf('delta') === -1 && /[.!?]$/.test(normalTrimmed) },
+    { name:'a recovered reply keeps the ending the normal ceiling would delete', passed:(function() {
+      var kept = enforceMentorShapeLength(longReply, Object.assign({}, normalDiagnosis, { preserveFullReply:true }));
+      var saved = finalizeMentorSavedText(longReply, Object.assign({}, normalDiagnosis, { preserveFullReply:true }));
+      var questions = enforceTurnQuestionBudget('The setup is right. Does that help? Should I continue?', Object.assign({}, normalDiagnosis, { preserveFullReply:true }));
+      return kept.indexOf('delta') !== -1 && saved.indexOf('delta') !== -1 && questions.indexOf('Should I continue?') !== -1;
+    })() },
     { name:'oversized short response is reduced at a sentence boundary', passed:shortTrimmed.indexOf('One clear point.') === 0 && shortTrimmed.indexOf('Three clear points.') !== -1 && shortTrimmed.indexOf('Four clear points.') === -1 },
     { name:'complete response of the same size remains unchanged', passed:enforceMentorShapeLength(longReply, completeDiagnosis) === longReply },
     { name:'plan response remains unchanged', passed:enforceMentorShapeLength(longReply, planDiagnosis) === longReply },
@@ -11213,7 +11219,49 @@ async function runStudyExperienceTests() {
       return { json:async function() { return { candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'The useful part is that the claim narrowed.' }] } }] }; } };
     };
     var keptPartial = await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'The useful part is that the claim narrowed.' }] } }] }, { contents:[{ role:'user', parts:[{ text:'explain' }] }], generationConfig:{} }, 1000, { allowPartial:false });
-    check('a reply that stays cut off keeps the visible text and says it stopped', partialCalls === 3 && keptPartial.indexOf('The useful part is that the claim narrowed.') === 0 && /stopped before it was finished/.test(keptPartial));
+    check('a reply that cannot be resumed says so instead of posing the fragment as finished', partialCalls === 2 && keptPartial.indexOf('The useful part is that the claim narrowed.') === 0 && /could not finish the rest of this answer/.test(keptPartial) && /Say continue and I will finish it from there/.test(keptPartial) && resolveStudyReply.unfinished === true && resolveStudyReply.preserveFullReply === true);
+    var stopCalls = 0;
+    var stopBody = '';
+    fetchWithTimeout = async function(_url, options) {
+      stopCalls++;
+      stopBody = String(options && options.body || '');
+      return { json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'the condition is stated in the line.' }] } }] }; } };
+    };
+    var stopResult = await resolveStudyReply(
+      { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'The elimination works only when the line says and' }] } }] },
+      { contents:[{ role:'user', parts:[{ text:'explain' }] }], generationConfig:{ maxOutputTokens:2048 }, systemInstruction:{ parts:[{ text:'Use a normal mentoring reply, about 40-90 words.' }] } },
+      1000
+    );
+    var stopRequest = JSON.parse(stopBody);
+    check('a mid-sentence STOP is continued with a raised budget and kept in full', stopCalls === 1 && /and the condition is stated in the line\.$/.test(stopResult) && !/could not finish/.test(stopResult) && stopRequest.generationConfig.maxOutputTokens >= 8192 && /CONTINUATION OVERRIDE/.test(stopRequest.systemInstruction.parts[0].text) && resolveStudyReply.unfinished === false && resolveStudyReply.preserveFullReply === true);
+    check('a continued word is not fused to the previous word', MargStudy.stitchContinuation('The elimination works only when the line says and', 'does not make a blanket statement.') === 'The elimination works only when the line says and does not make a blanket statement.');
+    var jsonCalls = 0;
+    fetchWithTimeout = async function() {
+      jsonCalls++;
+      return { json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'1,"options":["3","4","5","6"]}] }' }] } }] }; } };
+    };
+    var jsonResult = await resolveStudyReply(
+      { candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'{"questions":[{"q":"What is two plus two?","correct":' }] } }] },
+      { contents:[{ role:'user', parts:[{ text:'json' }] }], generationConfig:{ maxOutputTokens:4096, responseMimeType:'application/json' } },
+      1000,
+      { json:true }
+    );
+    var parsedJson = parseGeneratedJson(jsonResult);
+    check('truncated question JSON is resumed into one object', jsonCalls === 1 && parsedJson.questions.length === 1 && parsedJson.questions[0].correct === 1 && parsedJson.questions[0].options.length === 4);
+    var completeJsonCalls = 0;
+    fetchWithTimeout = async function() { completeJsonCalls++; return { json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'{"extra":true}' }] } }] }; } }; };
+    var completeJson = await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'{"ok":true}' }] } }] }, { contents:[], generationConfig:{ responseMimeType:'application/json' } }, 1000, { json:true });
+    check('JSON that already parses is not continued just because the token flag is set', completeJsonCalls === 0 && completeJson === '{"ok":true}');
+    var jsonFailCalls = 0;
+    var jsonRejected = false;
+    fetchWithTimeout = async function() {
+      jsonFailCalls++;
+      return { json:async function() { return { candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'{"questions":[' }] } }] }; } };
+    };
+    try {
+      await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'{"questions":[' }] } }] }, { contents:[{ role:'user', parts:[{ text:'json' }] }], generationConfig:{} }, 1000, { json:true });
+    } catch (jsonError) { jsonRejected = jsonError instanceof SyntaxError && /stopped before it was complete/.test(jsonError.message); }
+    check('question JSON that cannot be resumed is rejected instead of saved', jsonRejected === true && jsonFailCalls === 2);
     check('a dangling fragment is detected as cut off', MargStudy.looksCutOff('Q2. Which option is best?\nA. one\nB. two') && !MargStudy.looksCutOff('The author concedes the point.'));
 
     // 6. CAT layout: structure survives the guard, history cleaning and rendering.
@@ -14557,8 +14605,9 @@ async function regenerateAssistantMessage(wrap) {
     }, getMentorRequestTimeout(diagnosis.diagnosis, false));
     if (!response.ok) throw new Error('Worker status ' + response.status);
     var payload = await response.json();
-    var regeneratedSource = selectMentorModelText(payload);
-    if (regeneratedSource == null) throw new Error('Regenerated mentor output hit the token ceiling');
+    var regeneratedSource = await resolveStudyReply(payload, request, getMentorRequestTimeout(diagnosis.diagnosis, false), {});
+    if (resolveStudyReply.unfinished) throw new Error('Regenerated mentor output hit the token ceiling');
+    if (diagnosis.diagnosis) diagnosis.diagnosis.preserveFullReply = resolveStudyReply.preserveFullReply === true;
     var regenerated = applyRegeneratedReplyGuard(preventStructuredOutputLeak(regeneratedSource), diagnosis.diagnosis);
     var previousSourceMarkers = previousContent.match(MARG_GROUNDING_SOURCE_PATTERN) || [];
     if (previousSourceMarkers.length && !/\[MARG_SOURCES:/.test(regenerated)) regenerated += '\n' + previousSourceMarkers.join('');
@@ -14799,17 +14848,18 @@ function showPathChoiceScreen() {
       if (!isGuestMode) saveChatMessage('user', question);
       showTyping();
       try {
+        var pathRequest = buildGeminiRequest(
+          SYSTEM_PROMPT + getDateContext() + profileContext,
+          cleanHistory(conversationHistory),
+          1500
+        );
         var res = await fetchWithTimeout(WORKER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildGeminiRequest(
-            SYSTEM_PROMPT + getDateContext() + profileContext,
-            cleanHistory(conversationHistory),
-            1500
-          ))
+          body: JSON.stringify(pathRequest)
         }, 45000);
         var data = await res.json();
-        var reply = getGeminiText(data);
+        var reply = await resolveStudyReply(data, pathRequest, 45000, {});
         hideTyping();
         if (reply) {
           var cleanReply = reply.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/^#{1,3}\s+/gm, '').replace(/^[-•*]\s+/gm, '').replace(/---+/g, '').trim();
@@ -14860,17 +14910,18 @@ async function startFromAttemptContext(attempt) {
   showTyping();
 
   try {
+    var attemptRequest = buildGeminiRequest(
+      SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: This user arrived after attempting a practice question. Lead with one specific inference from that live attempt, explain the next correction briefly, and give one immediate follow-up action. Do not start profile setup or ask for background details.',
+      cleanHistory(conversationHistory),
+      400
+    );
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: This user arrived after attempting a practice question. Lead with one specific inference from that live attempt, explain the next correction briefly, and give one immediate follow-up action. Do not start profile setup or ask for background details.',
-        cleanHistory(conversationHistory),
-        400
-      ))
+      body: JSON.stringify(attemptRequest)
     }, 45000);
     var data = await res.json();
-    var response = correctCalendarReferences(getGeminiText(data));
+    var response = correctCalendarReferences(await resolveStudyReply(data, attemptRequest, 45000, {}));
     hideTyping();
     if (response) {
       addMargMessage(response);
@@ -17910,6 +17961,7 @@ function mentorSentenceIsFollowUpQuestion(sentence) {
 }
 
 function enforceMentorShapeLength(text, diagnosis) {
+  if (diagnosis && diagnosis.preserveFullReply) return String(text || '');
   var shape = diagnosis && diagnosis.responseShape;
   if (shape !== 'short' && shape !== 'normal') return String(text || '');
   var separated = separateMentorControlTags(text);
@@ -17939,6 +17991,7 @@ function enforceMentorShapeLength(text, diagnosis) {
 }
 
 function enforceTurnQuestionBudget(text, diagnosis) {
+  if (diagnosis && diagnosis.preserveFullReply) return String(text || '');
   if (!diagnosis || (diagnosis.questionBudget !== 0 && diagnosis.questionBudget !== 1)) return String(text || '');
   if (diagnosis.rcProgressionReady || diagnosis.rcFunctionMapProgressionReady) return String(text || '');
   var separated = separateMentorControlTags(text);
@@ -18647,29 +18700,34 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     }, mentorTimeout);
     var data = await res.json();
     var geminiText = await resolveStudyReply(data, mentorRequest, mentorTimeout, {});
-    var response = geminiText ? applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(geminiText, userMessage, mentorAnalysis.diagnosis).text), mentorAnalysis.diagnosis) : null;
-    if (response) response = enforceVerifiedDILRChatBoundary(response, mentorAnalysis.diagnosis, userMessage, imageAttachments);
-    if (response) response = ensureMockEvidenceContinuation(response, context, mentorAnalysis.diagnosis);
-    if (response && context === 'mock_section_evidence') rememberMockWorkingRead(response);
-    if (response) response = stabilizeAndRememberMission(response, userMessage);
-    if (response) response = suppressUnrelatedActivePlanReminder(response, userMessage);
-    if (response) response = suppressUnrelatedExerciseContinuation(response, userMessage);
-    if (response && questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
+    rememberResolvedReply(mentorAnalysis.diagnosis);
+    var response = geminiText
+      ? (mentorAnalysis.diagnosis.replyUnfinished
+        ? finalizeMentorSavedText(preventStructuredOutputLeak(geminiText), mentorAnalysis.diagnosis)
+        : applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(geminiText, userMessage, mentorAnalysis.diagnosis).text), mentorAnalysis.diagnosis))
+      : null;
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished) response = enforceVerifiedDILRChatBoundary(response, mentorAnalysis.diagnosis, userMessage, imageAttachments);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished) response = ensureMockEvidenceContinuation(response, context, mentorAnalysis.diagnosis);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished && context === 'mock_section_evidence') rememberMockWorkingRead(response);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished) response = stabilizeAndRememberMission(response, userMessage);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished) response = suppressUnrelatedActivePlanReminder(response, userMessage);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished) response = suppressUnrelatedExerciseContinuation(response, userMessage);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished && questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
       response = await verifyQuestionResponseDraft(response, userMessage, imageAttachments, questionResolution);
       response = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(response), mentorAnalysis.diagnosis);
     }
-    if (response && typeof finaliseQuestionResponse === 'function') response = finaliseQuestionResponse(response, questionResolution);
-    if (response) markPersonalGoalFollowUpIfAsked(response);
-    if (response) markProgressiveProfileFollowUpIfAsked(response);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished && typeof finaliseQuestionResponse === 'function') response = finaliseQuestionResponse(response, questionResolution);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished) markPersonalGoalFollowUpIfAsked(response);
+    if (response && !mentorAnalysis.diagnosis.replyUnfinished) markProgressiveProfileFollowUpIfAsked(response);
     hideTyping();
     if (response) {
-      applyPredictionValidationVerdict(response);
+      if (!mentorAnalysis.diagnosis.replyUnfinished) applyPredictionValidationVerdict(response);
       captureChatReminderContext(response);
       response = stripInternalMentorTags(response);
       response = appendGroundingSources(response, data);
       response = finalizeMentorSavedText(response, mentorAnalysis.diagnosis);
-      markExerciseReviewCompleted(response);
-      if (!mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(userMessage)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
+      if (!mentorAnalysis.diagnosis.replyUnfinished) markExerciseReviewCompleted(response);
+      if (!mentorAnalysis.diagnosis.replyUnfinished && !mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(userMessage)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', response, userMessage, 'answer-review');
 
       var cleanResponse = response
         .replace(/\[OPTIONS:[^\n]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
@@ -18681,10 +18739,12 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
       if (!isGuestMode) saveChatMessage('assistant', cleanResponse);
 
 
-      checkAndRenderMargOptions(response);
-      checkAndRenderTestPrompt(response);
-      await maybeLaunchPromisedRCFromResponse(response);
-      checkAndLogPracticeVolume(response);
+      if (!mentorAnalysis.diagnosis.replyUnfinished) {
+        checkAndRenderMargOptions(response);
+        checkAndRenderTestPrompt(response);
+        await maybeLaunchPromisedRCFromResponse(response);
+        checkAndLogPracticeVolume(response);
+      }
       completePendingExternalQuestionTurn();
       await maybeScheduleChatGroundedReminder(userMessage, context);
 
@@ -18802,17 +18862,18 @@ async function sendPatternFallbackQuestion() {
   var instruction = '\n\nDIAGNOSIS MOMENT: Your guess was not quite right. Do not guess again and do not ask a fully open "what is going wrong" question. In your own natural voice, ask this one specific thing: ' + FAILURE_PATTERN_FALLBACK + '. 1-2 sentences. Do not use [OPTIONS].';
 
   try {
+    var fallbackRequest = buildGeminiRequest(
+      SYSTEM_PROMPT + getDateContext() + instruction,
+      cleanHistory(conversationHistory),
+      200
+    );
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        SYSTEM_PROMPT + getDateContext() + instruction,
-        cleanHistory(conversationHistory),
-        200
-      ))
+      body: JSON.stringify(fallbackRequest)
     }, 45000);
     var data = await res.json();
-    var response = getGeminiText(data);
+    var response = await resolveStudyReply(data, fallbackRequest, 45000, {});
     hideTyping();
 
     var guessText = response ? stripMarkdown(response) : ('no worries — ' + FAILURE_PATTERN_FALLBACK);
@@ -19895,50 +19956,113 @@ function trimDanglingStudyText(text) {
   return cut > value.length * 0.4 ? value.slice(0, cut).trim() : value;
 }
 
-// A reply that ends on the token ceiling is unfinished, not final. Resume it
-// from its exact endpoint instead of asking the student to type "continue" or
-// replacing it with a local fallback.
+function mentorReplyLooksUnfinished(text, truncated, jsonMode) {
+  var value = String(text || '');
+  if (jsonMode) {
+    if (!value.trim()) return true;
+    try { parseGeneratedJson(value); return false; } catch (error) { return true; }
+  }
+  return !!(truncated || (value && typeof MargStudy !== 'undefined' && MargStudy.looksCutOff(value)));
+}
+
+function copyRequestForContinuation(request, raiseBudget) {
+  var copy;
+  try { copy = JSON.parse(JSON.stringify(request || {})); } catch (error) { copy = {}; }
+  if (!copy || typeof copy !== 'object') copy = {};
+  copy.contents = Array.isArray(copy.contents) ? copy.contents : [];
+  copy.generationConfig = copy.generationConfig || {};
+  copy.generationConfig.thinkingConfig = { thinkingLevel:'minimal' };
+  if (raiseBudget) {
+    var current = Number(copy.generationConfig.maxOutputTokens) || 0;
+    copy.generationConfig.maxOutputTokens = Math.min(32768, Math.max(current, 8192));
+  }
+  return copy;
+}
+
+function applyContinuationOverride(request) {
+  var copy = copyRequestForContinuation(request, true);
+  var override = '\n\nCONTINUATION OVERRIDE: The 40-90 word limit does not apply. Finish the interrupted answer. Do not stop mid-sentence, mid-option, mid-question or mid-JSON value. Do not repeat text already written. Do not add an introduction.';
+  var parts = copy.systemInstruction && copy.systemInstruction.parts;
+  if (parts && parts[0] && typeof parts[0].text === 'string') {
+    if (parts[0].text.indexOf('CONTINUATION OVERRIDE:') === -1) parts[0].text += override;
+  } else copy.systemInstruction = { parts:[{ text:override.trim() }] };
+  return copy;
+}
+
+function unfinishedMentorReply(text) {
+  var trimmed = String(text || '').trim();
+  var split = splitCompleteMentorSentences(trimmed);
+  var prefix = trimmed;
+  if (split.remainder) {
+    var remainderAt = trimmed.lastIndexOf(split.remainder);
+    prefix = remainderAt > 0 ? trimmed.slice(0, remainderAt).replace(/\s+$/, '') : '';
+  }
+  if (prefix && typeof MargStudy !== 'undefined' && MargStudy.looksCutOff(prefix)) prefix = '';
+  var notice = 'I could not finish the rest of this answer.';
+  var stopped = split.remainder || (!prefix ? trimmed : '');
+  if (stopped) notice += '\nIt stopped here: "' + stopped.slice(-180).replace(/"/g, "'") + '"';
+  notice += '\nSay continue and I will finish it from there.';
+  return prefix ? prefix + '\n\n' + notice : notice;
+}
+
+function rememberResolvedReply(diagnosis) {
+  if (!diagnosis) return;
+  diagnosis.preserveFullReply = resolveStudyReply.preserveFullReply === true;
+  diagnosis.replyUnfinished = resolveStudyReply.unfinished === true;
+}
+
+// A STOP or a token ceiling is finished only when the visible answer is
+// finished. Resume from the exact endpoint, keep that recovered text, and
+// never present a fragment as the completed answer.
 async function resolveStudyReply(payload, request, timeoutMs, options) {
   options = options || {};
+  var jsonMode = options.json === true;
+  resolveStudyReply.unfinished = false;
+  resolveStudyReply.preserveFullReply = false;
   var truncated = isGeminiStructuredResponseTruncated(payload);
   var text = '';
   try { text = getGeminiText(payload); } catch (error) { if (!truncated) throw error; }
-  if (!truncated) return text;
   async function call(body) {
-    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) }, timeoutMs);
+    var init = { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) };
+    if (options.signal) init.signal = options.signal;
+    var response = await fetchWithTimeout(WORKER_URL, init, timeoutMs);
     return response.json();
   }
-  function leanCopy() {
-    var copy = JSON.parse(JSON.stringify(request));
-    copy.generationConfig = copy.generationConfig || {};
-    copy.generationConfig.thinkingConfig = { thinkingLevel:'minimal' };
-    return copy;
-  }
   if (!text) {
-    var retry = await call(leanCopy());
-    truncated = isGeminiStructuredResponseTruncated(retry);
-    text = getGeminiText(retry);
+    var retryPayload = await call(copyRequestForContinuation(request, true));
+    truncated = isGeminiStructuredResponseTruncated(retryPayload);
+    try { text = getGeminiText(retryPayload); } catch (error) { if (!truncated) throw error; text = ''; }
   }
-  for (var round = 0; truncated && round < 3; round++) {
-    var next = leanCopy();
+  var continued = false;
+  var noProgress = 0;
+  for (var round = 0; text && mentorReplyLooksUnfinished(text, truncated, jsonMode) && round < 4 && noProgress < 2; round++) {
+    var next = applyContinuationOverride(request);
     next.contents = next.contents.concat([
       { role:'model', parts:[{ text:text }] },
       { role:'user', parts:[{ text:MargStudy.buildContinuationPrompt(text) }] }
     ]);
     var payloadNext = await call(next);
+    continued = true;
     truncated = isGeminiStructuredResponseTruncated(payloadNext);
     var chunk = '';
-    try { chunk = getGeminiText(payloadNext); } catch (error) { break; }
+    try { chunk = getGeminiText(payloadNext); } catch (error) { noProgress++; continue; }
+    var before = text.length;
     text = MargStudy.stitchContinuation(text, chunk);
+    if (text.length - before <= 12) noProgress++;
+    else noProgress = 0;
   }
-  if (!truncated) return text;
-  // Study chat used to keep a trimmed fragment and ordinary chat used to drop
-  // it. Keep the visible text in both cases, and say that it stopped.
-  var partial = String(trimDanglingStudyText(text) || '').trim();
-  if (partial) return partial + '\n\nThis reply stopped before it was finished. Say continue and I will pick up from this point.';
-  var unfinished = new Error('Mentor output hit the token ceiling');
-  unfinished.name = 'GeminiEmptyResponseError';
-  throw unfinished;
+  if (text && !mentorReplyLooksUnfinished(text, truncated, jsonMode)) {
+    resolveStudyReply.preserveFullReply = continued;
+    return text;
+  }
+  if (jsonMode || !String(text || '').trim()) {
+    var failed = new SyntaxError(jsonMode ? 'Generated JSON stopped before it was complete' : 'Mentor output hit the token ceiling');
+    if (!jsonMode) failed.name = 'GeminiEmptyResponseError';
+    throw failed;
+  }
+  resolveStudyReply.unfinished = true;
+  resolveStudyReply.preserveFullReply = true;
+  return unfinishedMentorReply(text);
 }
 
 function getStudyQuestionSchema(count) {
@@ -19994,8 +20118,7 @@ async function generateQuestionsFromStudyMaterial(text, turn) {
       var request = buildGeminiRequest('You are an expert CAT question setter. Return only valid JSON. Check each key before you return it, and do not describe the keys as independently verified.' + getDateContext(), [{ role:'user', content:prompt }], 16384, 'application/json', getStudyQuestionSchema(count));
       var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(request) }, 120000);
       var payload = await response.json();
-      if (isGeminiStructuredResponseTruncated(payload)) throw new SyntaxError('Question JSON was truncated');
-      var parsed = parseGeneratedJson(getGeminiText(payload));
+      var parsed = parseGeneratedJson(await resolveStudyReply(payload, request, 120000, { json:true }));
       var list = parsed && Array.isArray(parsed.questions) ? parsed.questions : [];
       list.forEach(normalizeCorrectIndex);
       var shapeIssues = [];
@@ -20284,40 +20407,43 @@ async function sendMessage(fromQueue, submissionOptions) {
     enableWebGrounding(mentorRequest, useWebGrounding);
     const response = await fetchWithTimeout(WORKER_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mentorRequest) }, mentorTimeout);
     const data = await response.json();
-    var mentorModelText = await resolveStudyReply(data, mentorRequest, mentorTimeout, { allowPartial:studyReply });
+    var mentorModelText = await resolveStudyReply(data, mentorRequest, mentorTimeout, {});
+    rememberResolvedReply(mentorAnalysis.diagnosis);
     if (mentorModelText == null) {
       var truncatedMentorError = new Error('Mentor output hit the token ceiling');
       truncatedMentorError.name = 'GeminiEmptyResponseError';
       throw truncatedMentorError;
     }
-    let reply = applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(mentorModelText, text, mentorAnalysis.diagnosis).text), mentorAnalysis.diagnosis);
-    if (!studyReply) {
+    let reply = mentorAnalysis.diagnosis.replyUnfinished
+      ? finalizeMentorSavedText(preventStructuredOutputLeak(studyReply && ensureStudyConfigured() ? MargStudy.normalizeLayout(mentorModelText) : mentorModelText), mentorAnalysis.diagnosis)
+      : applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(mentorModelText, text, mentorAnalysis.diagnosis).text), mentorAnalysis.diagnosis);
+    if (!mentorAnalysis.diagnosis.replyUnfinished && !studyReply) {
       reply = stabilizeAndRememberMission(reply, text);
       reply = suppressUnrelatedActivePlanReminder(reply, text);
       reply = suppressUnrelatedExerciseContinuation(reply, text);
     }
-    if (questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
+    if (!mentorAnalysis.diagnosis.replyUnfinished && questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
       reply = await verifyQuestionResponseDraft(reply, text, effectiveImageAttachments, questionResolution);
       reply = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(reply), mentorAnalysis.diagnosis);
     }
-    if (typeof finaliseQuestionResponse === 'function') reply = finaliseQuestionResponse(reply, questionResolution);
-    finalizeMentorPlanCompletionReview(text, reply);
-    markPersonalGoalFollowUpIfAsked(reply);
-    markProgressiveProfileFollowUpIfAsked(reply);
+    if (!mentorAnalysis.diagnosis.replyUnfinished && typeof finaliseQuestionResponse === 'function') reply = finaliseQuestionResponse(reply, questionResolution);
+    if (!mentorAnalysis.diagnosis.replyUnfinished) finalizeMentorPlanCompletionReview(text, reply);
+    if (!mentorAnalysis.diagnosis.replyUnfinished) markPersonalGoalFollowUpIfAsked(reply);
+    if (!mentorAnalysis.diagnosis.replyUnfinished) markProgressiveProfileFollowUpIfAsked(reply);
     hideTyping();
-    applyPredictionValidationVerdict(reply);
+    if (!mentorAnalysis.diagnosis.replyUnfinished) applyPredictionValidationVerdict(reply);
     reply = stripInternalMentorTags(reply);
     reply = appendGroundingSources(reply, data);
     reply = finalizeMentorSavedText(reply, mentorAnalysis.diagnosis);
-    if (!studyReply) markExerciseReviewCompleted(reply);
+    if (!mentorAnalysis.diagnosis.replyUnfinished && !studyReply) markExerciseReviewCompleted(reply);
     if (studyReply) recordStudyMentorStep(studyTurn, reply);
-    if (!mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(text)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
+    if (!mentorAnalysis.diagnosis.replyUnfinished && !mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(text)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
     const formatted = renderGroundingSourcesForChat(renderMentorStructuredText(reply));
     addMessage('marg', formatted);
     lastFailedOutgoingMessage = null;
-    if (!studyReply) {
+    if (!studyReply && !mentorAnalysis.diagnosis.replyUnfinished) {
       checkAndRenderMargOptions(reply);
       checkAndRenderTestPrompt(reply);
       checkAndLogPracticeVolume(reply);
@@ -21188,22 +21314,22 @@ Each question must have exactly four distinct plausible options and one defensib
         attemptPrompt += '\n\nRepair this existing draft rather than repeating the same short summary. Exact application checks: ' + localIssues.join('; ') + '. Expand a short passage to 500-520 words by developing its argument, qualification and example, without filler or new unsupported premises. Preserve valid question mechanics but update their support if the passage changes. Return the entire repaired JSON with four questions. EXISTING DRAFT:\n' + JSON.stringify(rcData);
       }
       try {
+        var articleRequest = buildGeminiRequest(
+          'You are an expert CAT RC writer. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
+          [{ role:'user', content:attemptPrompt }],
+          8192,
+          'application/json',
+          getPracticeGenerationJsonSchema('rc', 4)
+        );
         const response = await fetchWithTimeout(WORKER_URL, {
           method:'POST',
           headers:{ 'Content-Type':'application/json' },
-          body:JSON.stringify(buildGeminiRequest(
-            'You are an expert CAT RC writer. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
-            [{ role:'user', content:attemptPrompt }],
-            8192,
-            'application/json',
-            getPracticeGenerationJsonSchema('rc', 4)
-          ))
+          body:JSON.stringify(articleRequest)
         }, remainingRCBudget(9500));
         if (!response.ok) throw new Error('Worker status ' + response.status);
         articleRCStage = 'generation_response';
         const data = await response.json();
-        if (isGeminiStructuredResponseTruncated(data)) throw new SyntaxError('Article RC JSON was truncated');
-        const reply = getGeminiText(data);
+        const reply = await resolveStudyReply(data, articleRequest, remainingRCBudget(9500), { json:true });
         articleRCStage = 'generation_parse';
         rcData = normalizePracticeAnswers(parseGeneratedJson(reply), 'rc');
         localIssues = collectArticleRCStructureIssues(rcData, 4)
@@ -21239,21 +21365,21 @@ Each question must have exactly four distinct plausible options and one defensib
       articleRCStage = 'semantic_repair_' + (semanticAttempt + 1);
       var auditRepairPrompt = prompt + '\n\nA separate solver rejected the previous draft because: ' + (articleAudit.issues || []).join('; ') + '. Rebuild the entire RC from scratch around the same theme. Remove the ambiguity or unsupported inference identified above. Keep 475-510 passage words, four paragraphs, four complete questions and exactly one passage-supported answer per question.';
       try {
+        var articleRepairRequest = buildGeminiRequest(
+          'You are an expert CAT RC writer repairing a rejected exercise. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
+          [{ role:'user', content:auditRepairPrompt }],
+          8192,
+          'application/json',
+          getPracticeGenerationJsonSchema('rc', 4)
+        );
         var repairResponse = await fetchWithTimeout(WORKER_URL, {
           method:'POST',
           headers:{ 'Content-Type':'application/json' },
-          body:JSON.stringify(buildGeminiRequest(
-            'You are an expert CAT RC writer repairing a rejected exercise. Return only the requested valid JSON. Never expose drafting notes, answers outside the JSON, or markdown.',
-            [{ role:'user', content:auditRepairPrompt }],
-            8192,
-            'application/json',
-            getPracticeGenerationJsonSchema('rc', 4)
-          ))
+          body:JSON.stringify(articleRepairRequest)
         }, remainingRCBudget(25000));
         if (!repairResponse.ok) throw new Error('RC repair returned status ' + repairResponse.status);
         var repairPayload = await repairResponse.json();
-        if (isGeminiStructuredResponseTruncated(repairPayload)) throw new SyntaxError('Repaired article RC JSON was truncated');
-        var repairedRC = normalizePracticeAnswers(parseGeneratedJson(getGeminiText(repairPayload)), 'rc');
+        var repairedRC = normalizePracticeAnswers(parseGeneratedJson(await resolveStudyReply(repairPayload, articleRepairRequest, remainingRCBudget(25000), { json:true })), 'rc');
         var repairIssues = collectArticleRCStructureIssues(repairedRC, 4)
           .concat(collectSolutionPresentationIssues(repairedRC, 'rc'))
           .concat(collectGeneratedPracticeCompletenessIssues(repairedRC, 'rc'));
@@ -22092,17 +22218,18 @@ async function sendReturningUserGreeting() {
 
   let greeting = '';
   try {
+    const greetingRequest = buildGeminiRequest(
+      SYSTEM_PROMPT + greetingContext,
+      cleanHistory(conversationHistory).concat([{ role: 'user', content: '[the student just opened the app — greet them]' }]),
+      200
+    );
     const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        SYSTEM_PROMPT + greetingContext,
-        cleanHistory(conversationHistory).concat([{ role: 'user', content: '[the student just opened the app — greet them]' }]),
-        200
-      ))
+      body: JSON.stringify(greetingRequest)
     }, 45000);
     const data = await res.json();
-    greeting = enforceIndiaTimeGreeting(correctCalendarReferences(getGeminiText(data)));
+    greeting = enforceIndiaTimeGreeting(correctCalendarReferences(await resolveStudyReply(data, greetingRequest, 45000, {})));
   } catch(e) {}
 
   if (!greeting) {
@@ -22230,18 +22357,19 @@ async function submitMockOnboarding() {
 
 Scores alone cannot reveal why the result happened or what the student is capable of. In 2-3 sentences, restate only the supplied values, say "I don't know yet" about the cause, and ask for one concrete decision from the mock. Do not compare section strength unless the paper-specific score scale is supplied. Do not invent attempts, accuracy, timing, wrong answers, skipped answers, or a total.`;
 
+    const scoreRequest = buildGeminiRequest(
+      SYSTEM_PROMPT + getDateContext() + '\n\nMOCK SCORECARD FIRST READ: Scores establish section balance only. They do not establish capability or cause. Separate observation from hypothesis, avoid unearned reassurance, and ask one evidence-seeking confirmation before diagnosing the mechanism.',
+      [{ role: 'user', content: prompt }],
+      150
+    );
     const response = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        SYSTEM_PROMPT + getDateContext() + '\n\nMOCK SCORECARD FIRST READ: Scores establish section balance only. They do not establish capability or cause. Separate observation from hypothesis, avoid unearned reassurance, and ask one evidence-seeking confirmation before diagnosing the mechanism.',
-        [{ role: 'user', content: prompt }],
-        150
-      ))
+      body: JSON.stringify(scoreRequest)
     }, 45000);
 
     const data = await response.json();
-    const diagnosis = getGeminiText(data);
+    const diagnosis = await resolveStudyReply(data, scoreRequest, 45000, {});
     if (!diagnosis) throw new Error('No response');
 
     diagnosisEl.className = 'mob-diagnosis';
@@ -22310,18 +22438,24 @@ async function finishMockOnboarding() {
   showTyping();
 
   try {
+    const mockRequest = buildGeminiRequest(
+      SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
+      cleanHistory(conversationHistory),
+      600
+    );
     const res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        SYSTEM_PROMPT + getDateContext() + mentorAnalysis.directive,
-        cleanHistory(conversationHistory),
-        600
-      ))
+      body: JSON.stringify(mockRequest)
     }, 45000);
     const data = await res.json();
-    const geminiText = getGeminiText(data);
-    const response = geminiText ? applyMentorResponseGuard(captureMentorHypotheses(geminiText, '', null).text, mentorAnalysis.diagnosis) : null;
+    const geminiText = await resolveStudyReply(data, mockRequest, 45000, {});
+    rememberResolvedReply(mentorAnalysis.diagnosis);
+    const response = geminiText
+      ? (mentorAnalysis.diagnosis.replyUnfinished
+        ? finalizeMentorSavedText(preventStructuredOutputLeak(geminiText), mentorAnalysis.diagnosis)
+        : applyMentorResponseGuard(captureMentorHypotheses(geminiText, '', null).text, mentorAnalysis.diagnosis))
+      : null;
     hideTyping();
     if (response) {
       addMargMessage(response);
@@ -24537,14 +24671,14 @@ async function repairCATDraftBeforeAudit(section, data, issues, options) {
   if (!count) return data;
   var prompt = 'Repair this existing CAT ' + section.toUpperCase() + ' draft. Return the complete JSON, not a patch. Exact application checks: ' + issues.join('; ') + '. Preserve the requested topic, number of sets and questions. Fix every missing task, required fact, ambiguity and exposed false start; solutions must contain only a final verifiable derivation. sufficiency_check must be a specific evidence sentence of at least 40 characters; option_check must be at least 60 characters stating why only one option survives and why the other choices fail. RC passages must have 500-520 words in four substantial paragraphs, with no filler. Do not invent verification. EXISTING DRAFT:\n' + JSON.stringify(data);
   try {
+    var repairRequest = buildGeminiRequest('You repair incomplete CAT drafts before a separate independent solver checks them. Return only complete valid JSON.', [{role:'user',content:prompt}], options.maxTokens || 8192, 'application/json', getPracticeGenerationJsonSchema(section, count));
     var response = await fetchWithTimeout(WORKER_URL, {
       method:'POST', headers:{'Content-Type':'application/json'}, signal:options.signal,
-      body:JSON.stringify(buildGeminiRequest('You repair incomplete CAT drafts before a separate independent solver checks them. Return only complete valid JSON.', [{role:'user',content:prompt}], options.maxTokens || 8192, 'application/json', getPracticeGenerationJsonSchema(section, count)))
+      body:JSON.stringify(repairRequest)
     }, Math.min(25000, remaining));
     if (!response.ok) throw new Error('Draft repair returned status ' + response.status);
     var payload = await response.json();
-    if (isGeminiStructuredResponseTruncated(payload)) throw new SyntaxError('Repaired practice JSON was truncated');
-    return normalizePracticeAnswers(parseGeneratedJson(getGeminiText(payload)), section);
+    return normalizePracticeAnswers(parseGeneratedJson(await resolveStudyReply(payload, repairRequest, Math.min(25000, remaining), { json:true, signal:options.signal })), section);
   } catch(e) {
     if (options.signal && options.signal.aborted) throw e;
     return data; // Retain the failure for the gate; never render this draft.
@@ -24607,20 +24741,20 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
     var remainingMs = auditDeadline - Date.now();
     if (remainingMs < 4000) break;
     try {
+      var auditRequest = buildGeminiRequest(
+        'You are a strict independent CAT question-set auditor. A plausible-looking but flawed item must fail. Never infer missing data and never repair the submitted material. Solve independently and return only valid JSON.',
+        [{ role:'user', content:auditPrompt }],
+        auditMaxTokens,
+        'application/json',
+        getPracticeAuditJsonSchema(section, answerCount, setCount)
+      );
       var auditResponse = await fetchWithTimeout(WORKER_URL, {
         method:'POST', headers:{ 'Content-Type':'application/json' }, signal:auditOptions.signal,
-        body:JSON.stringify(buildGeminiRequest(
-          'You are a strict independent CAT question-set auditor. A plausible-looking but flawed item must fail. Never infer missing data and never repair the submitted material. Solve independently and return only valid JSON.',
-          [{ role:'user', content:auditPrompt }],
-          auditMaxTokens,
-          'application/json',
-          getPracticeAuditJsonSchema(section, answerCount, setCount)
-        ))
+        body:JSON.stringify(auditRequest)
       }, remainingMs);
       if (!auditResponse.ok) throw new Error('Audit service failed');
       var auditPayload = await auditResponse.json();
-      if (isGeminiStructuredResponseTruncated(auditPayload)) throw new SyntaxError('Audit JSON was truncated');
-      var auditText = getGeminiText(auditPayload);
+      var auditText = await resolveStudyReply(auditPayload, auditRequest, remainingMs, { json:true, signal:auditOptions.signal });
       var audit = parseGeneratedJson(auditText || '');
       if (!audit || audit.valid !== true) {
         return { valid:false, issues:(audit && audit.issues) || ['Semantic audit failed'], correctedData:null, failureType:'semantic' };
@@ -25144,7 +25278,7 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
       body:JSON.stringify(guidedRequest)
     }, generationState.timeoutMs);
     var payload = await response.json();
-    var raw = getGeminiText(payload);
+    var raw = await resolveStudyReply(payload, guidedRequest, generationState.timeoutMs, { json:true });
     var parsed = parseGeneratedJson(raw);
     if (section === 'va' || section === 'varc_mixed' || section === 'strategy' || section === 'dilr_selection') {
       if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(normalizeCorrectIndex);
@@ -25400,17 +25534,18 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   var clearTimedStatus = function() { timedStatusTimers.forEach(function(timer) { clearTimeout(timer); }); };
 
   try {
+    var timedRequest = buildGeminiRequest(
+      'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
+      [{ role: 'user', content: prompt }],
+      maxTokens,
+      'application/json',
+      getPracticeGenerationJsonSchema(section, questionCount || (section === 'qa' ? 10 : 12))
+    );
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal:generationController.signal,
-      body: JSON.stringify(buildGeminiRequest(
-        'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().' + getDateContext(),
-        [{ role: 'user', content: prompt }],
-        maxTokens,
-        'application/json',
-        getPracticeGenerationJsonSchema(section, questionCount || (section === 'qa' ? 10 : 12))
-      ))
+      body: JSON.stringify(timedRequest)
     }, timedGenerationTimeoutMs);
 
     clearTimedStatus();
@@ -25420,7 +25555,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
 
     var data = await res.json();
     if (!isCurrentGeneration()) return;
-    var text = getGeminiText(data);
+    var text = await resolveStudyReply(data, timedRequest, timedGenerationTimeoutMs, { json:true, signal:generationController.signal });
     if (!text) throw new Error('No response');
 
     var parsed;
@@ -25922,17 +26057,18 @@ async function loadDailyPractice() {
   var practiceFailureStage = 'generation_request';
 
   try {
+    var practiceRequest = buildGeminiRequest(
+      'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().',
+      [{ role: 'user', content: prompt }],
+      maxTokens,
+      'application/json',
+      getPracticeGenerationJsonSchema(currentPracticeType, currentPracticeType === 'dilr' ? 4 : 3)
+    );
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: requestController.signal,
-      body: JSON.stringify(buildGeminiRequest(
-        'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text. The JSON must be parseable directly with JSON.parse().',
-        [{ role: 'user', content: prompt }],
-        maxTokens,
-        'application/json',
-        getPracticeGenerationJsonSchema(currentPracticeType, currentPracticeType === 'dilr' ? 4 : 3)
-      ))
+      body: JSON.stringify(practiceRequest)
     }, currentPracticeType === 'dilr' ? 50000 : currentPracticeType === 'rc' ? 42000 : 35000);
 
     clearGenerationStatus();
@@ -25943,8 +26079,7 @@ async function loadDailyPractice() {
     practiceFailureStage = 'generation_response';
     var data = await res.json();
     if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
-    if (isGeminiStructuredResponseTruncated(data)) throw new SyntaxError('Practice JSON was truncated');
-    var text = getGeminiText(data);
+    var text = await resolveStudyReply(data, practiceRequest, currentPracticeType === 'dilr' ? 50000 : currentPracticeType === 'rc' ? 42000 : 35000, { json:true, signal:requestController.signal });
     if (!text) throw new Error('No response');
 
     practiceFailureStage = 'generation_parse';
@@ -27015,17 +27150,18 @@ async function completeOnboarding() {
   showTyping();
 
   try {
+    var openingRequest = buildGeminiRequest(
+      SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: A new student just completed their profile. Give a warm 2-3 sentence opening that: 1) acknowledges ONE specific thing from their profile (attempt number or weak section), 2) shares your hypothesis in one line, 3) asks what they want to do first — discuss strategy or start practicing. Keep it conversational and warm, not robotic. Do NOT list all their profile details back at them.',
+      cleanHistory(conversationHistory),
+      300
+    );
     var res = await fetchWithTimeout(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildGeminiRequest(
-        SYSTEM_PROMPT + getDateContext() + '\n\nIMPORTANT: A new student just completed their profile. Give a warm 2-3 sentence opening that: 1) acknowledges ONE specific thing from their profile (attempt number or weak section), 2) shares your hypothesis in one line, 3) asks what they want to do first — discuss strategy or start practicing. Keep it conversational and warm, not robotic. Do NOT list all their profile details back at them.',
-        cleanHistory(conversationHistory),
-        300
-      ))
+      body: JSON.stringify(openingRequest)
     }, 45000);
     var data = await res.json();
-    var response = getGeminiText(data);
+    var response = await resolveStudyReply(data, openingRequest, 45000, {});
     hideTyping();
     if (response) {
       response = reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(response)));

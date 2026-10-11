@@ -848,6 +848,13 @@
   function stitchContinuation(previous, next) {
     var a = str(previous), b = str(next).replace(/^\s*(?:\.\.\.|…)\s*/, '');
     if (!b.trim()) return a;
+    // A continuation that restarts from the opening would duplicate every
+    // question already written. Drop that repeated prefix before joining.
+    if (a.length >= 24) {
+      var restarted = b.trimStart();
+      if (restarted.indexOf(a) === 0) b = restarted.slice(a.length);
+    }
+    if (!b) return a;
     var window = a.slice(-240);
     var best = 0;
     var maxOverlap = Math.min(window.length, b.length, 240);
@@ -864,8 +871,9 @@
       var lastLine = a.split('\n').pop().trim();
       if (lastLine.length >= 12 && b.trimStart().indexOf(lastLine) === 0) b = b.trimStart().slice(lastLine.length);
     }
-    var endsMidWord = /[A-Za-z]$/.test(a) && /^[a-z]/.test(b) && !/\s$/.test(a);
-    var joiner = endsMidWord && b.charAt(0) !== ' ' ? (/^[a-z]{1,3}\b/.test(b) ? ' ' : '') : (/\s$/.test(a) || /^\s/.test(b) ? '' : ' ');
+    // A new word needs a space. Gluing it on ("and" + "does" => "anddoes")
+    // corrupts the sentence; a split word can be read, a fused word cannot.
+    var joiner = (/\s$/.test(a) || /^\s/.test(b)) ? '' : ' ';
     if (/\n$/.test(a) || /^\n/.test(b)) joiner = '';
     return (a + joiner + b).replace(/\n{3,}/g, '\n\n');
   }
