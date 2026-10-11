@@ -953,7 +953,23 @@ function ensureMentorRichTextStyles() {
     '.mentor-rich .mentor-list-item{display:flex;align-items:flex-start;gap:8px;margin:5px 0}' +
     '.mentor-rich .mentor-list-mark{color:var(--gold-light);flex:0 0 auto;min-width:14px}' +
     '.mentor-rich strong{font-weight:650;color:var(--text)}' +
-    '.mentor-rich em{color:var(--text-muted)}';
+    '.mentor-rich em{color:var(--text-muted)}' +
+    '.mentor-table-wrap{overflow-x:auto;margin:10px 0 12px;-webkit-overflow-scrolling:touch}' +
+    '.mentor-table{border-collapse:collapse;width:100%;min-width:280px;font-size:13px}' +
+    '.mentor-table th,.mentor-table td{border:1px solid rgba(255,255,255,.1);padding:8px 10px;text-align:left;vertical-align:top;line-height:1.45}' +
+    '.mentor-table th{background:rgba(201,168,76,.1);color:var(--gold-light);font-weight:650}' +
+    '.marg-result{margin:4px 0 12px;padding:14px 16px 12px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#141414}' +
+    '.marg-result-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8e8a83;margin-bottom:4px}' +
+    '.marg-result-value{font-size:32px;font-weight:650;line-height:1.1;color:#F0EDE6}' +
+    '.marg-result-note{margin-top:8px;font-size:13px;line-height:1.5;color:#aaa69e}' +
+    '.marg-info-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin:8px 0 12px}' +
+    '.marg-info-card{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 12px 11px;background:#141414}' +
+    '.marg-info-card-title{font-size:13px;font-weight:650;color:#F0EDE6;margin-bottom:4px}' +
+    '.marg-info-card-body{font-size:13px;line-height:1.5;color:#c8c4bc}' +
+    '.marg-ask{margin:8px 0 4px}' +
+    '.marg-ask-prompt{font-size:15px;font-weight:650;color:#F0EDE6;line-height:1.45}' +
+    '.marg-ask-why{margin-top:4px;font-size:13px;line-height:1.5;color:#aaa69e}' +
+    '@media(max-width:600px){.marg-result-value{font-size:28px}.marg-info-cards{grid-template-columns:1fr}.mentor-table{font-size:12.5px}}';
   if (typeof MargStudy !== 'undefined' && MargStudy.styles) style.textContent += MargStudy.styles;
   // Reading is the task in RC, so passage text gets more contrast and a larger
   // mobile baseline than ordinary chat. This override also upgrades Practice.
@@ -1070,17 +1086,133 @@ function renderTrustedMentorVisual(spec) {
   return '<div class="marg-visual-card" role="figure" aria-label="' + title + '"><div class="marg-visual-kicker">Visual check</div><div class="marg-visual-title">' + title + '</div>' + body + (note ? '<div class="marg-visual-note">' + escapeVisualText(note) + '</div>' : '') + '</div>';
 }
 
+function renderMentorResultBlock(spec) {
+  if (!spec || typeof spec !== 'object') return '';
+  var value = cleanVisualLabel(spec.value, 32);
+  var label = cleanVisualLabel(spec.label, 80);
+  var note = cleanVisualLabel(spec.note, 320);
+  if (!value) return '';
+  var tone = String(spec.tone || 'fact').toLowerCase();
+  if (['target', 'estimate', 'caution', 'fact'].indexOf(tone) === -1) tone = 'fact';
+  // Green is reserved for a working target the student already stated.
+  // An estimate, a caution, or a plain fact must not look like a verified success.
+  var color = tone === 'target' ? '#4CAF7D' : tone === 'estimate' ? '#E8C96A' : tone === 'caution' ? '#C8C4BC' : '#F0EDE6';
+  return '<div class="marg-result' + (tone === 'target' ? ' marg-result-target' : '') + '" role="group">' +
+    (label ? '<div class="marg-result-label">' + escapeVisualText(label) + '</div>' : '') +
+    '<div class="marg-result-value" style="color:' + color + '">' + escapeVisualText(value) + '</div>' +
+    (note ? '<div class="marg-result-note">' + escapeVisualText(note) + '</div>' : '') +
+    '</div>';
+}
+
+function renderMentorCardsBlock(spec) {
+  var cards = Array.isArray(spec) ? spec : (spec && Array.isArray(spec.cards) ? spec.cards : []);
+  cards = cards.map(function(card) {
+    return {
+      title: cleanVisualLabel(card && card.title, 80),
+      body: cleanVisualLabel(card && card.body, 280)
+    };
+  }).filter(function(card) { return card.title || card.body; }).slice(0, 4);
+  if (!cards.length) return '';
+  if (cards.length === 1) {
+    return (cards[0].title ? '<div class="mentor-heading">' + escapeVisualText(cards[0].title) + '</div>' : '') +
+      (cards[0].body ? '<div class="mentor-paragraph">' + escapeVisualText(cards[0].body) + '</div>' : '');
+  }
+  return '<div class="marg-info-cards">' + cards.map(function(card) {
+    return '<div class="marg-info-card">' +
+      (card.title ? '<div class="marg-info-card-title">' + escapeVisualText(card.title) + '</div>' : '') +
+      (card.body ? '<div class="marg-info-card-body">' + escapeVisualText(card.body) + '</div>' : '') +
+      '</div>';
+  }).join('') + '</div>';
+}
+
+function renderMentorAskNote(spec) {
+  if (!spec || typeof spec !== 'object') return '';
+  var prompt = cleanVisualLabel(spec.prompt, 220);
+  var why = cleanVisualLabel(spec.why, 240);
+  if (!prompt && !why) return '';
+  return '<div class="marg-ask">' +
+    (prompt ? '<div class="marg-ask-prompt">' + escapeVisualText(prompt) + '</div>' : '') +
+    (why ? '<div class="marg-ask-why">' + escapeVisualText(why) + '</div>' : '') +
+    '</div>';
+}
+
+function renderMentorMarkdownTable(rows) {
+  if (!rows || rows.length < 2) return '';
+  var width = rows.reduce(function(max, row) { return Math.max(max, row.length); }, 0);
+  if (width < 2) return '';
+  var head = rows[0];
+  var body = rows.slice(1);
+  return '<div class="mentor-table-wrap"><table class="mentor-table"><thead><tr>' + head.map(function(cell) {
+    return '<th>' + cell + '</th>';
+  }).join('') + '</tr></thead><tbody>' + body.map(function(row) {
+    var cells = [];
+    for (var i = 0; i < width; i++) cells.push('<td>' + (row[i] || '') + '</td>');
+    return '<tr>' + cells.join('') + '</tr>';
+  }).join('') + '</tbody></table></div>';
+}
+
+function isMentorTableLine(line) {
+  var value = String(line || '').trim();
+  return (value.match(/\|/g) || []).length >= 2;
+}
+
+function isMentorTableRule(line) {
+  return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(String(line || '').trim());
+}
+
+function splitMentorTableCells(line, inline) {
+  var value = String(line || '').trim().replace(/^\|/, '').replace(/\|$/, '');
+  return value.split('|').map(function(cell) { return inline(cell.trim()); });
+}
+
+function expandMentorAskTags(text) {
+  return String(text || '').replace(/\[\[MARG_ASK\]\]([\s\S]*?)\[\[\/MARG_ASK\]\]/gi, function(_, json) {
+    var spec = null;
+    try { spec = JSON.parse(String(json || '').trim()); } catch(e) { return ''; }
+    var options = spec && Array.isArray(spec.options) ? spec.options.map(function(option) { return String(option || '').replace(/[|\]]/g, ' ').trim(); }).filter(Boolean).slice(0, 6) : [];
+    if (options.length < 2) return '';
+    var field = String(spec.field || 'detail').toLowerCase().replace(/[^a-z_]/g, '').slice(0, 40) || 'detail';
+    var prompt = cleanVisualLabel(spec.prompt || '', 220);
+    var why = cleanVisualLabel(spec.why || '', 240);
+    var visible = [prompt, why].filter(Boolean).join(' ');
+    return (visible ? visible + '\n' : '') + '[OPTIONS: ' + options.join('|') + '][CONTEXT: profile_' + field + ']';
+  });
+}
+
+function mentorTextIsCatExercise(value) {
+  if (typeof MargStudy === 'undefined' || !MargStudy.hasCatStructure(value)) return false;
+  var withoutTables = String(value || '').split('\n').filter(function(line) { return !isMentorTableLine(line) && !isMentorTableRule(line); }).join('\n');
+  if (MargStudy.hasCatStructure(withoutTables)) return true;
+  return /(?:^|\n)\s*(?:PASSAGE|Answer:|Explanation:)\b/i.test(value) || /(?:^|\n)\s*[A-D][.)]\s+\S/.test(value);
+}
+
 function renderMentorStructuredText(text) {
   ensureMentorRichTextStyles();
   var visualBlocks = [];
-  var sourceText = String(text || '').replace(/\[\[MARG_VISUAL\]\]([\s\S]*?)\[\[?\/MARG_VISUAL\]\]?/gi, function(_, json) {
-    var rendered = '';
-    try { rendered = renderTrustedMentorVisual(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
+  function hold(rendered) {
     if (!rendered) return '';
     var token = '@@MARG_VISUAL_' + visualBlocks.length + '@@';
     visualBlocks.push(rendered);
     return '\n\n' + token + '\n\n';
+  }
+  var sourceText = String(text || '').replace(/\[\[MARG_VISUAL\]\]([\s\S]*?)\[\[?\/MARG_VISUAL\]\]?/gi, function(_, json) {
+    var rendered = '';
+    try { rendered = renderTrustedMentorVisual(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
+    return hold(rendered);
   }).replace(/\[\[MARG_VISUAL\]\][\s\S]*?(?:\[\[?\/MARG_VISUAL\]\]?|$)/gi, '');
+  sourceText = sourceText.replace(/\[\[MARG_RESULT\]\]([\s\S]*?)\[\[\/MARG_RESULT\]\]/gi, function(_, json) {
+    var rendered = '';
+    try { rendered = renderMentorResultBlock(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
+    return hold(rendered);
+  }).replace(/\[\[MARG_CARDS\]\]([\s\S]*?)\[\[\/MARG_CARDS\]\]/gi, function(_, json) {
+    var rendered = '';
+    try { rendered = renderMentorCardsBlock(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
+    return hold(rendered);
+  }).replace(/\[\[MARG_ASK\]\]([\s\S]*?)\[\[\/MARG_ASK\]\]/gi, function(_, json) {
+    var rendered = '';
+    try { rendered = renderMentorAskNote(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
+    return hold(rendered);
+  });
   var value = convertLatexToPlainText(sourceText)
     .replace(/\[OPTIONS:[^\]]*\]/g, '')
     .replace(/\[START_TEST:[^\]]*\]/g, '')
@@ -1102,7 +1234,7 @@ function renderMentorStructuredText(text) {
     return escaped;
   }
 
-  if (typeof MargStudy !== 'undefined' && MargStudy.hasCatStructure(value)) {
+  if (mentorTextIsCatExercise(value)) {
     return '<div class="mentor-rich study-rich">' + MargStudy.renderBlocks(value, { inline: inline, raw: visualBlocks }) + '</div>';
   }
 
@@ -1113,16 +1245,28 @@ function renderMentorStructuredText(text) {
     blocks.push('<div class="mentor-paragraph">' + paragraph.map(inline).join('<br>') + '</div>');
     paragraph = [];
   }
-  value.split('\n').forEach(function(rawLine) {
-    var line = rawLine.trim();
-    if (!line) { flushParagraph(); return; }
+  var lines = value.split('\n');
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    var line = lines[lineIndex].trim();
+    if (!line) { flushParagraph(); continue; }
     var visualMatch = line.match(/^@@MARG_VISUAL_(\d+)@@$/);
     var heading = line.match(/^#{1,3}\s+(.+)$/);
     var bullet = line.match(/^(?:[-•*])\s+(.+)$/);
     var numbered = line.match(/^(\d+)[.)]\s+(.+)$/);
+    var nextLine = lineIndex + 1 < lines.length ? lines[lineIndex + 1].trim() : '';
     if (visualMatch) {
       flushParagraph();
       blocks.push(visualBlocks[Number(visualMatch[1])] || '');
+    } else if (isMentorTableLine(line) && (isMentorTableRule(nextLine) || isMentorTableLine(nextLine))) {
+      flushParagraph();
+      var tableRows = [];
+      while (lineIndex < lines.length && lines[lineIndex].trim() && (isMentorTableLine(lines[lineIndex]) || isMentorTableRule(lines[lineIndex]))) {
+        if (!isMentorTableRule(lines[lineIndex])) tableRows.push(splitMentorTableCells(lines[lineIndex], inline));
+        lineIndex++;
+      }
+      lineIndex--;
+      var tableHtml = renderMentorMarkdownTable(tableRows);
+      if (tableHtml) blocks.push(tableHtml);
     } else if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(line)) {
       flushParagraph();
     } else if (heading) {
@@ -1135,7 +1279,7 @@ function renderMentorStructuredText(text) {
       flushParagraph();
       blocks.push('<div class="mentor-list-item"><span class="mentor-list-mark">' + numbered[1] + '.</span><span>' + inline(numbered[2]) + '</span></div>');
     } else paragraph.push(line);
-  });
+  }
   flushParagraph();
   return '<div class="mentor-rich">' + blocks.join('') + '</div>';
 }
@@ -10984,6 +11128,78 @@ function runMentorTurnContextTests() {
 }
 window.runMentorTurnContextTests = runMentorTurnContextTests;
 
+function runAnswerPresentationTests() {
+  var previousProfile = progressiveProfileMemory;
+  var previousGoal = personalGoalMemory;
+  var profileKey = progressiveProfileStorageKey();
+  var storedProfile = null;
+  try { storedProfile = localStorage.getItem(profileKey); } catch(e) {}
+  function sentence(count, token) {
+    var words = [];
+    for (var i = 0; i < count; i++) words.push(token);
+    return words.join(' ') + '.';
+  }
+  var longReply = [sentence(30, 'alpha'), sentence(30, 'beta'), sentence(30, 'gamma'), sentence(30, 'delta')].join(' ');
+  var results = [];
+  try {
+    progressiveProfileMemory = null;
+    personalGoalMemory = null;
+    try { localStorage.removeItem(profileKey); } catch(e) {}
+    var plain = buildDiagnosisDirective('How should I approach QA?');
+    var factual = buildDiagnosisDirective('What is a CAT percentile?');
+    results.push({ name:'a simple coaching question stays a plain short reply', passed:plain.diagnosis.presentation === 'plain' && plain.diagnosis.responseShape === 'normal' && plain.diagnosis.questionBudget === 1 && getMentorResponseMaxTokens(plain.diagnosis) === 2048 && plain.directive.indexOf('PRESENTATION:') === -1 && factual.diagnosis.presentation === 'plain' && factual.diagnosis.responseShape === 'normal' });
+    var comparison = buildDiagnosisDirective('Compare VARC and DILR strategy for a first attempt');
+    var comparisonKept = enforceMentorShapeLength(longReply, comparison.diagnosis);
+    var structuredEscape = enforceMentorShapeLength(longReply, { responseShape:'normal', presentation:'structured', questionBudget:1 });
+    results.push({ name:'a comparison is structured and is not cut at the short reply ceiling', passed:comparison.diagnosis.presentation === 'structured' && comparison.diagnosis.responseShape === 'complete' && comparison.directive.indexOf('PRESENTATION: structured') !== -1 && comparisonKept.indexOf('delta') !== -1 && structuredEscape.indexOf('delta') !== -1 });
+    var table = renderMentorStructuredText('VARC and DILR ask for different decisions.\n\n| Section | First move |\n| --- | --- |\n| VARC | Mark the claim |\n| DILR | Choose a representation |');
+    var sentenceHtml = renderMentorStructuredText('You are rereading too early. Try marking the claim first.');
+    results.push({ name:'a comparison table renders as a table and a sentence does not', passed:table.indexOf('<table') !== -1 && table.indexOf('mentor-table') !== -1 && table.indexOf('Mark the claim') !== -1 && table.indexOf('study-rich') === -1 && sentenceHtml.indexOf('<table') === -1 && sentenceHtml.indexOf('study-rich') === -1 && sentenceHtml.indexOf('marg-result') === -1 });
+    var target = renderMentorStructuredText('[[MARG_RESULT]]{"value":"99","label":"Working target","tone":"target","note":"This is your stated target, not an official cutoff."}[[/MARG_RESULT]]\nThe figure above is only the target you named.');
+    var estimate = renderMentorStructuredText('[[MARG_RESULT]]{"value":"85","label":"Estimate","tone":"estimate","note":"This is an estimate, not a verified result."}[[/MARG_RESULT]]');
+    var caution = renderMentorStructuredText('[[MARG_RESULT]]{"value":"Limited","label":"Read","tone":"caution","note":"The academic record is still missing."}[[/MARG_RESULT]]');
+    results.push({ name:'a stated target can be green and an estimate or caution cannot', passed:target.indexOf('99') !== -1 && target.indexOf('marg-result-target') !== -1 && target.indexOf('#4CAF7D') !== -1 && target.indexOf('not an official cutoff') !== -1 && estimate.indexOf('marg-result-target') === -1 && estimate.indexOf('#4CAF7D') === -1 && estimate.indexOf('not a verified result') !== -1 && caution.indexOf('#4CAF7D') === -1 && caution.indexOf('still missing') !== -1 });
+    var cards = renderMentorStructuredText('[[MARG_CARDS]][{"title":"Read","body":"Mark the claim first."},{"title":"Check","body":"Test the option against that claim."}][[/MARG_CARDS]]');
+    var oneCard = renderMentorStructuredText('[[MARG_CARDS]][{"title":"Read","body":"Mark the claim first."}][[/MARG_CARDS]]');
+    results.push({ name:'cards are used for several findings and not for a single note', passed:(cards.match(/marg-info-card"/g) || []).length === 2 && oneCard.indexOf('marg-info-card') === -1 && oneCard.indexOf('Mark the claim first.') !== -1 });
+    progressiveProfileMemory = Object.assign(createEmptyProgressiveProfile(), { dreamCollege:'IIM Ahmedabad' });
+    var knownCollege = buildDiagnosisDirective('What percentile should I target?');
+    results.push({ name:'a known target college is reused and category is not requested', passed:knownCollege.diagnosis.presentation === 'result' && knownCollege.diagnosis.responseShape === 'complete' && knownCollege.diagnosis.questionBudget === 0 && getMentorResponseMaxTokens(knownCollege.diagnosis) === 4096 && knownCollege.directive.indexOf('IIM Ahmedabad') !== -1 && knownCollege.directive.indexOf('Do not ask for the college') !== -1 && knownCollege.directive.indexOf('Do not ask for category') !== -1 && knownCollege.directive.indexOf('Do not invent one') !== -1 && knownCollege.directive.indexOf('Ask only for category') === -1 });
+    progressiveProfileMemory = Object.assign(createEmptyProgressiveProfile(), { dreamCollege:'IIM Ahmedabad', statedTargetPercentile:'99' });
+    var statedTarget = buildDiagnosisDirective('What percentile should I target?');
+    results.push({ name:'a stated target is shown as a working target and not as a cutoff', passed:statedTarget.diagnosis.presentation === 'result' && statedTarget.directive.indexOf('"value":"99"') !== -1 && statedTarget.directive.indexOf('"tone":"target"') !== -1 && statedTarget.directive.indexOf('not an official cutoff and not a guarantee') !== -1 && statedTarget.directive.indexOf('green here means a stated target') !== -1 });
+    progressiveProfileMemory = null;
+    try { localStorage.removeItem(profileKey); } catch(e) {}
+    var profileRead = buildDiagnosisDirective('Assess my MBA profile for IIM Ahmedabad');
+    results.push({ name:'a profile read asks for marks and not for category or the named college', passed:profileRead.diagnosis.presentation === 'intake' && profileRead.directive.indexOf('Ask only for academics') !== -1 && profileRead.directive.indexOf('academic record') !== -1 && profileRead.directive.indexOf('Ask only for category') === -1 && profileRead.directive.indexOf('Ask only for the college') === -1 && profileRead.directive.indexOf('IIM Ahmedabad') !== -1 });
+    progressiveProfileMemory = null;
+    try { localStorage.removeItem(profileKey); } catch(e) {}
+    var intake = buildDiagnosisDirective('How does my category change the IIM Ahmedabad cutoff?');
+    var asked = intake.directive.indexOf('Ask only for category') !== -1 && intake.directive.indexOf('which cutoff band') !== -1 && /continue without/i.test(intake.directive) && intake.directive.indexOf('[CONTEXT: profile_category]') !== -1 && intake.directive.indexOf('Ask only for the college') === -1 && intake.directive.indexOf('IIM Ahmedabad') !== -1;
+    captureProgressiveProfileDetails('NC-OBC');
+    var stored = loadProgressiveProfileMemory();
+    var answered = buildDiagnosisDirective('How does my category change the IIM Ahmedabad cutoff?');
+    results.push({ name:'category is asked once, stored from the reply, and then reused', passed:asked && intake.diagnosis.presentation === 'intake' && stored.category === 'NC-OBC' && !stored.awaitingField && answered.diagnosis.presentation === 'result' && answered.directive.indexOf('NC-OBC') !== -1 && answered.directive.indexOf('Ask only for category') === -1 && answered.directive.indexOf('Do not ask for category') !== -1 });
+    progressiveProfileMemory = null;
+    try { localStorage.removeItem(profileKey); } catch(e) {}
+    buildDiagnosisDirective('How does my category change the IIM Ahmedabad cutoff?');
+    var expanded = expandMentorAskTags('[[MARG_ASK]]{"field":"category","prompt":"Which category should this use?","why":"The band changes with category.","options":["General","NC-OBC","Continue without this"]}[[/MARG_ASK]]');
+    captureProgressiveProfileDetails('General');
+    var afterChip = loadProgressiveProfileMemory();
+    var afterDirective = buildDiagnosisDirective('How does my category change the IIM Ahmedabad cutoff?');
+    results.push({ name:'a category chip is a real answer and changes the next read', passed:expanded.indexOf('[OPTIONS: General|NC-OBC|Continue without this]') !== -1 && expanded.indexOf('[CONTEXT: profile_category]') !== -1 && afterChip.category === 'General' && afterDirective.directive.indexOf('General') !== -1 && afterDirective.directive.indexOf('Ask only for category') === -1 });
+  } finally {
+    progressiveProfileMemory = previousProfile;
+    personalGoalMemory = previousGoal;
+    try {
+      if (storedProfile === null) localStorage.removeItem(profileKey);
+      else localStorage.setItem(profileKey, storedProfile);
+    } catch(e) {}
+  }
+  return results;
+}
+window.runAnswerPresentationTests = runAnswerPresentationTests;
+
 function runOutputQualityTests() {
   function sentence(count, token) {
     var words = [];
@@ -15863,7 +16079,7 @@ function progressiveProfileStorageKey() {
 }
 
 function createEmptyProgressiveProfile() {
-  return { mockSeries:[], dreamCollege:null, studyHours:null, attemptStrategy:null, prepResources:[], attemptNumber:null, targetYear:null, topicFamiliarity:{}, followUps:{}, awaitingField:null, awaitingTopic:null, awaitingPrompt:null, lastFollowUpUserTurn:0, updatedAt:null };
+  return { mockSeries:[], dreamCollege:null, studyHours:null, attemptStrategy:null, prepResources:[], attemptNumber:null, targetYear:null, topicFamiliarity:{}, academics:null, category:null, workExperience:null, statedTargetPercentile:null, gradeScale:null, categoryDeclined:false, collegeDeclined:false, academicsDeclined:false, workDeclined:false, followUps:{}, awaitingField:null, awaitingTopic:null, awaitingPrompt:null, lastFollowUpUserTurn:0, updatedAt:null };
 }
 
 function normalizeProfileList(values) {
@@ -16008,7 +16224,11 @@ function latestAssistantActuallyAskedProfileField(field) {
     attemptStrategy:/(?:fixed|current).{0,30}(?:attempt|pacing|mock)\s*strateg|following one fixed attempt strategy/i,
     prepResources:/(?:what|which).{0,30}(?:material|resource|book|course|coaching|source).{0,30}(?:using|use|most days|right now)/i,
     topicFamiliarity:/first proper pass|revising it after|comfortable.{0,15}rusty/i,
-    targetYear:/which CAT year|target exam year/i
+    targetYear:/which CAT year|target exam year/i,
+    category:/which category|category should this use|category this read should use/i,
+    academics:/10th, 12th and graduation|academic record/i,
+    workExperience:/years of work experience should this use/i,
+    statedTargetPercentile:/working target percentile/i
   };
   return !!(checks[field] && (checks[field].test(value) || checks[field].test(savedPrompt)));
 }
@@ -16030,6 +16250,53 @@ function looksLikeNamedMockSeries(text) {
   var value = String(text || '').trim();
   if (isClearlyNotAProfileAnswer(value)) return false;
   return /\b(?:mock|test)\s*series\b|\b(?:AIMCAT|SIMCAT|CDC|TIME|IMS|Career Launcher|Cracku)\b/i.test(value);
+}
+
+function namedCollegeInText(text) {
+  var match = String(text || '').match(/\b(IIM\s+(?:A|B|C|Ahmedabad|Bangalore|Bengaluru|Calcutta|Kolkata|Lucknow|Kozhikode|Indore|Mumbai|Shillong|Rohtak|Udaipur|Trichy)|FMS(?:\s+Delhi)?|XLRI(?:\s+Jamshedpur)?|SPJIMR(?:\s+Mumbai)?|MDI(?:\s+Gurgaon|\s+Gurugram)?|IIFT(?:\s+Delhi)?|JBIMS(?:\s+Mumbai)?|ISB(?:\s+Hyderabad)?)\b/i);
+  return match ? match[1].replace(/\s+/g, ' ').trim() : '';
+}
+
+function detectAdmissionCategory(text, awaiting) {
+  var value = String(text || '');
+  var asked = awaiting === 'category';
+  if (/continue without/i.test(value)) return '';
+  if (/\bNC[- ]?OBC\b|\bOBC[- ]?NCL\b|\bnon[- ]creamy\b/i.test(value)) return 'NC-OBC';
+  if (/\bEWS\b/i.test(value) && (asked || /\bcategory\b/i.test(value))) return 'EWS';
+  if (/\b(?:scheduled caste|\bSC category\b|category\s*(?:is|:)\s*SC)\b/i.test(value) || (asked && /^\s*SC\s*$/i.test(value))) return 'SC';
+  if (/\b(?:scheduled tribe|\bST category\b|category\s*(?:is|:)\s*ST)\b/i.test(value) || (asked && /^\s*ST\s*$/i.test(value))) return 'ST';
+  if (/\bgeneral category\b/i.test(value) || (asked && /^\s*general\s*$/i.test(value))) return 'General';
+  return '';
+}
+
+function detectStatedTargetPercentile(text) {
+  var value = String(text || '');
+  var match = value.match(/\b(?:my target(?: percentile)?(?: is)?|i want|i(?:'| a)?m targeting|aiming for)\b[^.!?\n]{0,30}(\d{2}(?:\.\d+)?)(?:\s*(?:percentile|%ile))?/i)
+    || value.match(/\b(\d{2}(?:\.\d+)?)\s*(?:percentile|%ile)\s+target\b/i);
+  if (!match) return '';
+  var number = Number(match[1]);
+  if (!isFinite(number) || number <= 0 || number > 100) return '';
+  return String(match[1]);
+}
+
+function detectAcademicRecord(text) {
+  var value = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!/\b(?:10th|12th|graduation|grad|cgpa|gpa)\b/i.test(value) || !/\d/.test(value)) return '';
+  if (value.length > 180 || isClearlyNotAProfileAnswer(value)) return '';
+  return value;
+}
+
+function detectWorkExperience(text, awaiting) {
+  var value = String(text || '').replace(/\s+/g, ' ').trim();
+  if (awaiting === 'workExperience') {
+    if (/^\s*none\s*$/i.test(value)) return 'none';
+    if (/^\s*under 1 year\s*$/i.test(value)) return 'under 1 year';
+    if (/^\s*1-2 years\s*$/i.test(value)) return '1-2 years';
+    if (/^\s*3 or more\s*$/i.test(value)) return '3 or more years';
+  }
+  var match = value.match(/\b(\d+(?:\.\d+)?)\s*(?:\+\s*)?(?:years?|yrs?)\b[^.!?\n]{0,24}\b(?:work|experience|job)\b/i)
+    || value.match(/\b(?:work ex(?:perience)?|work experience)\b[^.!?\n]{0,24}\b(\d+(?:\.\d+)?)\s*(?:years?|yrs?)?/i);
+  return match ? match[0].replace(/\s+/g, ' ').trim().slice(0, 80) : '';
 }
 
 function captureProgressiveProfileDetails(message) {
@@ -16073,8 +16340,35 @@ function captureProgressiveProfileDetails(message) {
 
   var goal = loadPersonalGoalMemory();
   if (goal && goal.target) memory.dreamCollege = goal.target;
-  var namedCollege = text.match(/\b(IIM\s+(?:A|B|C|Ahmedabad|Bangalore|Bengaluru|Calcutta|Kolkata|Lucknow|Kozhikode|Indore|Mumbai|Shillong|Rohtak|Udaipur|Trichy)|FMS(?:\s+Delhi)?|XLRI(?:\s+Jamshedpur)?|SPJIMR(?:\s+Mumbai)?|MDI(?:\s+Gurgaon|\s+Gurugram)?|IIFT(?:\s+Delhi)?|JBIMS(?:\s+Mumbai)?|ISB(?:\s+Hyderabad)?)\b/i);
-  if (namedCollege && (awaiting === 'dreamCollege' || /\b(?:dream|target|aim|goal)\b/i.test(text))) memory.dreamCollege = namedCollege[1];
+  var namedCollege = namedCollegeInText(text);
+  if (namedCollege && (awaiting === 'dreamCollege' || /\b(?:dream|target|aim|goal)\b/i.test(text))) memory.dreamCollege = namedCollege;
+  if (awaiting === 'dreamCollege' && /continue without/i.test(text)) {
+    memory.collegeDeclined = true;
+    memory.awaitingField = null;
+  }
+  var category = detectAdmissionCategory(text, awaiting);
+  if (category) memory.category = category;
+  if (awaiting === 'category' && /continue without/i.test(text)) {
+    memory.categoryDeclined = true;
+    memory.category = memory.category || null;
+    memory.awaitingField = null;
+  }
+  var academics = detectAcademicRecord(text);
+  if (academics && (awaiting === 'academics' || /\b(?:my|i have|i scored|i got)\b/i.test(text))) memory.academics = academics;
+  if (awaiting === 'academics' && /continue without/i.test(text)) {
+    memory.academicsDeclined = true;
+    memory.awaitingField = null;
+  }
+  var work = detectWorkExperience(text, awaiting);
+  if (work) memory.workExperience = work;
+  if (awaiting === 'workExperience' && /continue without/i.test(text)) {
+    memory.workDeclined = true;
+    memory.awaitingField = null;
+  }
+  var statedTarget = detectStatedTargetPercentile(text);
+  if (statedTarget) memory.statedTargetPercentile = statedTarget;
+  var scale = text.match(/\b(?:out of|on a|scale of)\s*(\d+(?:\.\d+)?)\b|\b(\d+(?:\.\d+)?)\s*-?\s*point scale\b/i);
+  if (scale && /\b(?:cgpa|gpa|grade)\b/i.test(text)) memory.gradeScale = scale[1] || scale[2];
 
   var hoursMatch = text.match(/\b(\d+(?:\.\d+)?(?:\s*[-–]\s*\d+(?:\.\d+)?)?)\s*(?:hours?|hrs?)\b/i);
   var hoursOpening = /\b(?:study|studying|prep|prepare|daily|every day|weekdays?|weekends?|routine|schedule|available|can (?:give|do|manage|spend)|put in)\b/i.test(text) || awaiting === 'studyHours';
@@ -16088,7 +16382,8 @@ function captureProgressiveProfileDetails(message) {
 
   if (awaiting === 'prepResources' && !resources.length && text.length >= 2 && text.length <= 180 && !isClearlyNotAProfileAnswer(text) && /\b(?:book|material|course|coaching|videos?|notes?|module|website|app)\b/i.test(text)) memory.prepResources = normalizeProfileList(memory.prepResources.concat([text]));
   if (awaiting === 'mockSeries' && !mockSeries.length && text.length >= 2 && text.length <= 100 && looksLikeNamedMockSeries(text)) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat([text]));
-  if (awaiting && ((awaiting === 'mockSeries' && memory.mockSeries.length) || (awaiting === 'dreamCollege' && memory.dreamCollege) || (awaiting === 'studyHours' && memory.studyHours) || (awaiting === 'attemptStrategy' && memory.attemptStrategy) || (awaiting === 'prepResources' && memory.prepResources.length) || (awaiting === 'attemptNumber' && memory.attemptNumber) || (awaiting === 'targetYear' && memory.targetYear))) memory.awaitingField = null;
+  if (awaiting && ((awaiting === 'mockSeries' && memory.mockSeries.length) || (awaiting === 'dreamCollege' && memory.dreamCollege) || (awaiting === 'studyHours' && memory.studyHours) || (awaiting === 'attemptStrategy' && memory.attemptStrategy) || (awaiting === 'prepResources' && memory.prepResources.length) || (awaiting === 'attemptNumber' && memory.attemptNumber) || (awaiting === 'targetYear' && memory.targetYear) || (awaiting === 'category' && memory.category) || (awaiting === 'academics' && memory.academics) || (awaiting === 'workExperience' && memory.workExperience) || (awaiting === 'statedTargetPercentile' && memory.statedTargetPercentile))) memory.awaitingField = null;
+  if (awaiting && memory.awaitingField && (/\?/.test(text) || isClearlyNotAProfileAnswer(text))) memory.awaitingField = null;
   if (!memory.awaitingField) memory.awaitingPrompt = null;
 
   if (JSON.stringify(memory) !== before) {
@@ -16134,6 +16429,11 @@ function getProgressiveProfileMemoryContext(message, diagnosis) {
   if (memory.prepResources.length) known.push('Current prep resources: ' + memory.prepResources.join(', '));
   if (memory.attemptNumber) known.push('CAT attempt: ' + memory.attemptNumber);
   if (memory.targetYear) known.push('Target exam: CAT ' + memory.targetYear);
+  if (memory.academics) known.push('Academics (self-report): ' + memory.academics);
+  if (memory.category) known.push('Admission category (self-report): ' + memory.category);
+  if (memory.workExperience) known.push('Work experience (self-report): ' + memory.workExperience);
+  if (memory.statedTargetPercentile) known.push('Stated target percentile: ' + memory.statedTargetPercentile + ' (a working target, not an official cutoff)');
+  if (memory.gradeScale) known.push('Grade scale (self-report): ' + memory.gradeScale);
   Object.keys(memory.topicFamiliarity || {}).slice(-4).forEach(function(key) {
     var item = memory.topicFamiliarity[key];
     if (item && item.topic && item.level) known.push(item.topic + ' familiarity: ' + item.level);
@@ -16749,6 +17049,7 @@ function buildDiagnosisDirective(message) {
   var turnContract = describeTurnResponseContract(message, diagnosis);
   diagnosis.responseShape = turnContract.shape;
   diagnosis.questionBudget = turnContract.budget;
+  diagnosis.presentation = turnContract.presentation || diagnosis.presentation || 'plain';
   diagnosis.turnMode = turnContract.decision.mode;
   diagnosis.turnBasis = turnContract.decision.basis;
   diagnosis.turnMissing = turnContract.decision.missing;
@@ -16863,6 +17164,138 @@ var TURN_DECISION_INSTRUCTIONS = {
   continue_flow:'Continue the active step from where it stands. Do not restart it or re-ask what is already settled.'
 };
 
+function requestsStructuredLayout(text) {
+  var value = String(text || '');
+  if (/\b(?:can(?:not|'t)|unable to|hard to)\s+compare\b/i.test(value)) return false;
+  return /\b(?:compare|comparison|difference between|pros and cons|trade-?offs?)\b/i.test(value) ||
+    /\bversus\b/i.test(value) ||
+    /\s+vs\.?\s+/i.test(value) ||
+    /\b(?:step[- ]by[- ]step|break (?:this|it|that) down|walk me through)\b/i.test(value);
+}
+
+function requestsPersonalAssessment(text) {
+  var value = String(text || '');
+  if (/\b(?:compare|comparison|difference between|pros and cons)\b/i.test(value) && !/\b(?:my profile|assess my|my chances)\b/i.test(value)) return false;
+  var aboutAdmission = /\b(?:percentile|profile|chances|eligib|shortlist|cutoff|cut-off|admission)\b/i.test(value);
+  var personal = /\b(?:\bi\b|\bmy\b|\bme\b)\b/i.test(value);
+  if (!aboutAdmission || !personal) return false;
+  return /\bwhat\s+(?:percentile|score)\s+(?:do|should|would)\s+i\b/i.test(value) ||
+    /\b(?:target percentile|my chances|assess my|evaluate my|my (?:mba )?profile)\b/i.test(value) ||
+    (/\b(?:category|reservation|work ex|work experience)\b/i.test(value) && /\b(?:cutoff|cut-off|call|percentile|chance|profile|weight)\b/i.test(value)) ||
+    /\b(?:assess|evaluate|eligible|eligibility)\b/i.test(value);
+}
+
+function presentationIsProtected(diagnosis) {
+  var intent = diagnosis && diagnosis.intent || '';
+  if (['greeting', 'privacy_request', 'score_correction', 'question_reference', 'image_question', 'answer_review', 'dilr_validity_review', 'seamless_continuation', 'study_activity', 'returning_memory', 'task_outcome_report'].indexOf(intent) !== -1) return true;
+  return !!(diagnosis && (diagnosis.rcWrongAnswerReview || diagnosis.requestedExistingSolutions || diagnosis.hintOnly || diagnosis.planSequenceAmbiguity));
+}
+
+function currentAssessmentFacts(text) {
+  var memory = loadProgressiveProfileMemory();
+  var goal = typeof loadPersonalGoalMemory === 'function' ? loadPersonalGoalMemory() : null;
+  var academics = memory.academics || '';
+  if (!academics && /\b(?:my|i have|i scored|i got)\b/i.test(text)) academics = detectAcademicRecord(text);
+  return {
+    memory:memory,
+    college:namedCollegeInText(text) || memory.dreamCollege || (goal && goal.target) || '',
+    category:detectAdmissionCategory(text, memory.awaitingField === 'category' ? 'category' : '') || memory.category || '',
+    academics:academics,
+    work:memory.workExperience || detectWorkExperience(text, ''),
+    targetPercentile:memory.statedTargetPercentile || detectStatedTargetPercentile(text) || '',
+    gradeScale:memory.gradeScale || ''
+  };
+}
+
+function missingAssessmentFact(text, facts) {
+  var needsCollege = /\b(?:percentile|target|chances|eligib|cutoff|cut-off|call|shortlist|college|iim|b-?school)\b/i.test(text);
+  var needsAcademics = /\b(?:profile|academics|10th|12th|graduation|cgpa)\b/i.test(text) && /\b(?:assess|evaluate|chances|profile|eligible|shortlist)\b/i.test(text);
+  var needsCategory = /\b(?:category|reservation)\b/i.test(text);
+  var needsWork = /\b(?:work ex|work experience|years of experience)\b/i.test(text);
+  var memory = facts.memory;
+  if (needsCollege && !facts.college && !memory.collegeDeclined) return 'college';
+  if (needsCategory && !facts.category && !memory.categoryDeclined) return 'category';
+  if (needsAcademics && !facts.academics && !memory.academicsDeclined) return 'academics';
+  if (needsWork && !facts.work && !memory.workDeclined) return 'work';
+  return '';
+}
+
+function assessmentKnownLines(facts) {
+  var lines = [];
+  if (facts.college) lines.push('Target college: ' + facts.college);
+  if (facts.category) lines.push('Category: ' + facts.category);
+  if (facts.academics) lines.push('Academics: ' + facts.academics);
+  if (facts.work) lines.push('Work experience: ' + facts.work);
+  if (facts.targetPercentile) lines.push('Stated working target: ' + facts.targetPercentile);
+  if (facts.gradeScale) lines.push('Grade scale: ' + facts.gradeScale);
+  return lines.length ? 'Known: ' + lines.join('; ') + '.' : 'Known: nothing beyond this message.';
+}
+
+function decideMentorPresentation(message, diagnosis, shape, budget) {
+  var text = String(message || '');
+  var decision = { presentation:'plain', shape:shape, budget:budget, block:'' };
+  if (!diagnosis || presentationIsProtected(diagnosis)) {
+    if (diagnosis) diagnosis.presentation = 'plain';
+    return decision;
+  }
+  var planning = diagnosis.intent === 'planning' || !!diagnosis.comprehensivePlanning;
+  var assessment = !planning && requestsPersonalAssessment(text);
+  var structured = requestsStructuredLayout(text);
+  if (!assessment && !structured) {
+    diagnosis.presentation = 'plain';
+    return decision;
+  }
+  if (!assessment) {
+    decision.presentation = 'structured';
+    diagnosis.presentation = 'structured';
+    if (decision.shape === 'normal') decision.shape = 'complete';
+    decision.block = '\n\nPRESENTATION: structured\nThis reply needs structure. Use short headings and, when two or more options are being compared, one markdown table. Use [[MARG_CARDS]][{"title":"...","body":"..."}][[/MARG_CARDS]] only for two to four distinct stages or findings. A single idea stays a sentence. Use one [[MARG_VISUAL]] bars block only when a few numbers are easier to compare that way, and keep the sentences complete without it. Do not invent numbers. Do not wrap a simple answer in a table, cards or a chart.';
+    return decision;
+  }
+  var facts = currentAssessmentFacts(text);
+  var missing = missingAssessmentFact(text, facts);
+  var limited = '';
+  if (missing && facts.memory.followUps && facts.memory.followUps['assessment:' + missing]) {
+    limited = missing;
+    missing = '';
+  }
+  var known = assessmentKnownLines(facts);
+  var unscaled = /\b(?:cgpa|gpa)\b/i.test(text + ' ' + facts.academics) && !facts.gradeScale && !/\b(?:out of|\/\s*10|\/\s*4|scale)\b/i.test(text + ' ' + facts.academics);
+  if (missing && decision.budget > 0) {
+    var prompts = {
+      college:{ field:'dreamCollege', ask:'Which college should this be read against?', why:'The college changes what a working percentile is for, so a number without it would not answer the question.', options:'IIM Ahmedabad|IIM Bangalore|IIM Calcutta|FMS Delhi|Continue without this', label:'the college' },
+      category:{ field:'category', ask:'Which category should this use?', why:'Category changes which cutoff band a profile is compared with, so the read would mix different bands without it.', options:'General|NC-OBC|EWS|SC|ST|Continue without this', label:'category' },
+      academics:{ field:'academics', ask:'What are your 10th, 12th and graduation marks?', why:'A profile read depends on the academic record, and that record is not here yet.', options:'', label:'academics' },
+      work:{ field:'workExperience', ask:'How many years of work experience should this use?', why:'Work experience changes the weight of that part of the profile, and the years are not here yet.', options:'None|Under 1 year|1-2 years|3 or more|Continue without this', label:'work experience' }
+    };
+    var prompt = prompts[missing];
+    facts.memory.awaitingField = prompt.field;
+    facts.memory.awaitingPrompt = prompt.ask;
+    facts.memory.awaitingTopic = null;
+    facts.memory.followUps = facts.memory.followUps || {};
+    facts.memory.followUps['assessment:' + missing] = new Date().toISOString();
+    saveProgressiveProfileMemory(facts.memory);
+    decision.presentation = 'intake';
+    diagnosis.presentation = 'intake';
+    decision.block = '\n\nPRESENTATION: intake\nAsk only for ' + prompt.label + '. ' + prompt.why + ' Ask: “' + prompt.ask + '” Say they can continue without it, and that doing so leaves this part out of the read. Do not ask for anything else. Do not invent a percentile or an official cutoff.' +
+      (prompt.options ? '\nAdd exactly [OPTIONS: ' + prompt.options + '][CONTEXT: profile_' + prompt.field + ']' : '') +
+      '\n' + known;
+    return decision;
+  }
+  decision.presentation = 'result';
+  diagnosis.presentation = 'result';
+  if (decision.shape === 'normal') decision.shape = 'complete';
+  decision.budget = 0;
+  var figure = facts.targetPercentile
+    ? 'The student stated a working target of ' + facts.targetPercentile + '. Show that number once with [[MARG_RESULT]]{"value":"' + facts.targetPercentile + '","label":"Working target","tone":"target","note":"This is your stated target, not an official cutoff and not a guarantee."}[[/MARG_RESULT]]. Tone target is the only tone that may use green, and green here means a stated target, not certainty or eligibility.'
+    : 'No working target percentile was stated. Do not invent one, and do not emit [[MARG_RESULT]] with a made-up number. Explain what is known, what is assumed, and what is still uncertain.';
+  decision.block = '\n\nPRESENTATION: result\nProceed from the known facts. Do not ask for the college. Do not ask for category. ' + figure +
+    (limited ? '\nThe missing ' + limited + ' was already requested. Continue without it and say what that leaves uncertain.' : '') +
+    (unscaled ? '\nA grade was given without a scale. State that assumption in the note. Do not stop to ask for it.' : '') +
+    '\nPut the reasoning under the takeaway. A recommendation is not a guarantee, and a working target is not an official cutoff.\n' + known;
+  return decision;
+}
+
 function describeTurnResponseContract(message, diagnosis) {
   var intent = diagnosis && diagnosis.intent || '';
   var supplied = !!(diagnosis && (diagnosis.hasImage || diagnosis.freshPastedMaterial || diagnosis.pastedAnswerEvidence || intent === 'question_reference' || intent === 'image_question' || intent === 'answer_review' || intent === 'dilr_validity_review'));
@@ -16906,6 +17339,9 @@ function describeTurnResponseContract(message, diagnosis) {
   } else if (budget === 1 && shape === 'normal' && (decision.mode === 'guide' && decision.observed || decision.mode === 'continue_flow' && intent === 'task_outcome_report')) {
     budget = 0;
   }
+  var presentation = decideMentorPresentation(message, diagnosis, shape, budget);
+  shape = presentation.shape;
+  budget = presentation.budget;
   var shapeLine = shape === 'short' ? 'Keep this reply to a few sentences.'
     : shape === 'complete' ? 'Finish the requested explanation, check or solution.'
       : shape === 'plan' ? 'Give the full plan that was requested.'
@@ -16918,8 +17354,9 @@ function describeTurnResponseContract(message, diagnosis) {
   return {
     shape:shape,
     budget:budget,
+    presentation:presentation.presentation,
     decision:decision,
-    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Turn decision: ' + decision.mode + '. ' + TURN_DECISION_INSTRUCTIONS[decision.mode] + '\n- Decision basis: ' + decision.basis + (decision.missing ? '\n- Missing information: ' + decision.missing + '.' : '') + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine + hypothesisLine
+    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Turn decision: ' + decision.mode + '. ' + TURN_DECISION_INSTRUCTIONS[decision.mode] + '\n- Decision basis: ' + decision.basis + (decision.missing ? '\n- Missing information: ' + decision.missing + '.' : '') + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine + hypothesisLine + presentation.block
   };
 }
 
@@ -17961,7 +18398,7 @@ function mentorSentenceIsFollowUpQuestion(sentence) {
 }
 
 function enforceMentorShapeLength(text, diagnosis) {
-  if (diagnosis && diagnosis.preserveFullReply) return String(text || '');
+  if (diagnosis && (diagnosis.preserveFullReply || diagnosis.presentation === 'structured' || diagnosis.presentation === 'result')) return String(text || '');
   var shape = diagnosis && diagnosis.responseShape;
   if (shape !== 'short' && shape !== 'normal') return String(text || '');
   var separated = separateMentorControlTags(text);
@@ -17991,7 +18428,7 @@ function enforceMentorShapeLength(text, diagnosis) {
 }
 
 function enforceTurnQuestionBudget(text, diagnosis) {
-  if (diagnosis && diagnosis.preserveFullReply) return String(text || '');
+  if (diagnosis && (diagnosis.preserveFullReply || diagnosis.presentation === 'structured' || diagnosis.presentation === 'result')) return String(text || '');
   if (!diagnosis || (diagnosis.questionBudget !== 0 && diagnosis.questionBudget !== 1)) return String(text || '');
   if (diagnosis.rcProgressionReady || diagnosis.rcFunctionMapProgressionReady) return String(text || '');
   var separated = separateMentorControlTags(text);
@@ -18893,6 +19330,7 @@ async function sendPatternFallbackQuestion() {
 }
 
 function checkAndRenderMargOptions(response) {
+  response = expandMentorAskTags(response);
   // The alternatives themselves can legitimately contain brackets, e.g.
   // sentence-placement choices [1], [2], [3], [4]. Stop at the control tag,
   // not at the first closing bracket inside an option.
@@ -19121,6 +19559,7 @@ function progressiveProfileFactsForTurn(message, diagnosis) {
 
 function chooseTurnFollowUp(message, diagnosis) {
   if (!diagnosis || diagnosis.questionBudget !== 1 || diagnosis.responseShape !== 'normal') return '';
+  if (diagnosis.presentation === 'intake' || diagnosis.presentation === 'result' || diagnosis.presentation === 'structured') return '';
   var practice = getPracticeThresholdNote();
   if (practice) return practice;
   var profile = getProgressiveProfileMemoryContext(message, diagnosis);
