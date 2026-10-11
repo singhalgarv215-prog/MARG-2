@@ -1094,8 +1094,8 @@ function renderMentorResultBlock(spec) {
   if (!value) return '';
   var tone = String(spec.tone || 'fact').toLowerCase();
   if (['target', 'estimate', 'caution', 'fact'].indexOf(tone) === -1) tone = 'fact';
-  // Green is reserved for a working target the student already stated.
-  // An estimate, a caution, or a plain fact must not look like a verified success.
+  // Green is only the working target the student already stated.
+  if (tone === 'target' && !statedTargetValueMatches(value)) tone = 'fact';
   var color = tone === 'target' ? '#4CAF7D' : tone === 'estimate' ? '#E8C96A' : tone === 'caution' ? '#C8C4BC' : '#F0EDE6';
   return '<div class="marg-result' + (tone === 'target' ? ' marg-result-target' : '') + '" role="group">' +
     (label ? '<div class="marg-result-label">' + escapeVisualText(label) + '</div>' : '') +
@@ -11155,10 +11155,13 @@ function runAnswerPresentationTests() {
     var table = renderMentorStructuredText('VARC and DILR ask for different decisions.\n\n| Section | First move |\n| --- | --- |\n| VARC | Mark the claim |\n| DILR | Choose a representation |');
     var sentenceHtml = renderMentorStructuredText('You are rereading too early. Try marking the claim first.');
     results.push({ name:'a comparison table renders as a table and a sentence does not', passed:table.indexOf('<table') !== -1 && table.indexOf('mentor-table') !== -1 && table.indexOf('Mark the claim') !== -1 && table.indexOf('study-rich') === -1 && sentenceHtml.indexOf('<table') === -1 && sentenceHtml.indexOf('study-rich') === -1 && sentenceHtml.indexOf('marg-result') === -1 });
+    progressiveProfileMemory = Object.assign(createEmptyProgressiveProfile(), { statedTargetPercentile:'99' });
     var target = renderMentorStructuredText('[[MARG_RESULT]]{"value":"99","label":"Working target","tone":"target","note":"This is your stated target, not an official cutoff."}[[/MARG_RESULT]]\nThe figure above is only the target you named.');
+    var invented = renderMentorStructuredText('[[MARG_RESULT]]{"value":"85","label":"Working target","tone":"target","note":"invented"}[[/MARG_RESULT]]');
     var estimate = renderMentorStructuredText('[[MARG_RESULT]]{"value":"85","label":"Estimate","tone":"estimate","note":"This is an estimate, not a verified result."}[[/MARG_RESULT]]');
     var caution = renderMentorStructuredText('[[MARG_RESULT]]{"value":"Limited","label":"Read","tone":"caution","note":"The academic record is still missing."}[[/MARG_RESULT]]');
-    results.push({ name:'a stated target can be green and an estimate or caution cannot', passed:target.indexOf('99') !== -1 && target.indexOf('marg-result-target') !== -1 && target.indexOf('#4CAF7D') !== -1 && target.indexOf('not an official cutoff') !== -1 && estimate.indexOf('marg-result-target') === -1 && estimate.indexOf('#4CAF7D') === -1 && estimate.indexOf('not a verified result') !== -1 && caution.indexOf('#4CAF7D') === -1 && caution.indexOf('still missing') !== -1 });
+    results.push({ name:'a stated target can be green and an estimate or caution cannot', passed:target.indexOf('99') !== -1 && target.indexOf('marg-result-target') !== -1 && target.indexOf('#4CAF7D') !== -1 && target.indexOf('not an official cutoff') !== -1 && invented.indexOf('#4CAF7D') === -1 && invented.indexOf('marg-result-target') === -1 && estimate.indexOf('marg-result-target') === -1 && estimate.indexOf('#4CAF7D') === -1 && estimate.indexOf('not a verified result') !== -1 && caution.indexOf('#4CAF7D') === -1 && caution.indexOf('still missing') !== -1 });
+    progressiveProfileMemory = null;
     var cards = renderMentorStructuredText('[[MARG_CARDS]][{"title":"Read","body":"Mark the claim first."},{"title":"Check","body":"Test the option against that claim."}][[/MARG_CARDS]]');
     var oneCard = renderMentorStructuredText('[[MARG_CARDS]][{"title":"Read","body":"Mark the claim first."}][[/MARG_CARDS]]');
     results.push({ name:'cards are used for several findings and not for a single note', passed:(cards.match(/marg-info-card"/g) || []).length === 2 && oneCard.indexOf('marg-info-card') === -1 && oneCard.indexOf('Mark the claim first.') !== -1 });
@@ -11199,6 +11202,81 @@ function runAnswerPresentationTests() {
   return results;
 }
 window.runAnswerPresentationTests = runAnswerPresentationTests;
+
+async function runLiveReplyIntegrityTests() {
+  var previousProfile = progressiveProfileMemory;
+  var previousGoal = personalGoalMemory;
+  var previousHistory = conversationHistory.slice();
+  var previousOptions = margPendingConversationOptions;
+  var previousFetch = fetchWithTimeout;
+  var previousGuest = isGuestMode;
+  var previousUser = currentUser;
+  var profileKey = progressiveProfileStorageKey();
+  var storedProfile = null;
+  try { storedProfile = localStorage.getItem(profileKey); } catch (error) {}
+  var results = [];
+  try {
+    var comparison = 'VARC starts by marking the claim.\n\n| Section | First move |\n| --- | --- |\n| VARC | Mark the claim |\n| DILR | Choose a representation |\n\n[OPTIONS: VARC passage selection|DILR set selection|Both equally]';
+    var comparisonCalls = 0;
+    fetchWithTimeout = async function() { comparisonCalls++; return { json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'extra' }] } }] }; } }; };
+    var keptComparison = await resolveStudyReply({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:comparison }] } }] }, { contents:[{ role:'user', parts:[{ text:'compare' }] }], generationConfig:{} }, 1000);
+    results.push({ name:'a finished comparison is kept, including its table and choices', passed:comparisonCalls === 0 && keptComparison === comparison && !MargStudy.looksCutOff(comparison) && keptComparison.indexOf('Choose a representation') !== -1 && keptComparison.indexOf('[OPTIONS: VARC passage selection|DILR set selection|Both equally]') !== -1 && !/could not finish/.test(keptComparison) });
+    var dangling = 'VARC starts by marking the claim.\n\n| Section | First move |\n| --- | --- |\n| VARC | Mark the claim |\n| DILR | Choose a representation |\n\nThe first move depends on';
+    var danglingCalls = 0;
+    fetchWithTimeout = async function() {
+      danglingCalls++;
+      return { json:async function() { return { candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:dangling }] } }] }; } };
+    };
+    var keptDangling = await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:dangling }] } }] }, { contents:[{ role:'user', parts:[{ text:'compare' }] }], generationConfig:{} }, 1000);
+    results.push({ name:'a comparison that stops early keeps the finished table and says what is missing', passed:danglingCalls === 2 && keptDangling.indexOf('VARC starts by marking the claim.') === 0 && keptDangling.indexOf('| DILR | Choose a representation |') !== -1 && /could not finish the rest of this answer/.test(keptDangling) && /The first move depends on/.test(keptDangling) && resolveStudyReply.unfinished === true });
+    var numeric = 'The checked percentile in this example is 99.9 for the stated rank. ' + ['alpha', 'beta', 'gamma', 'delta'].map(function(token) {
+      var words = [];
+      for (var i = 0; i < 30; i++) words.push(token);
+      return words.join(' ') + '.';
+    }).join(' ');
+    var trimmed = enforceMentorShapeLength(numeric, { responseShape:'normal', presentation:'plain', questionBudget:1 });
+    results.push({ name:'an ordinary reply keeps a decimal number intact', passed:trimmed.indexOf('99.9') !== -1 && trimmed.indexOf('99. 9') === -1 });
+    progressiveProfileMemory = Object.assign(createEmptyProgressiveProfile(), { statedTargetPercentile:'99', dreamCollege:'IIM Bangalore' });
+    var resultDiagnosis = { presentation:'result', responseShape:'complete', questionBudget:0, submittedAnswerText:'I am targeting 99 percentile for IIM Bangalore. General category, 10th 95, 12th 94, graduation CGPA 8.4 out of 10, and 2 years of work.' };
+    var resultReply = '[[MARG_RESULT]]{"value":"99","label":"Working target","tone":"target","note":"This is your stated target, not an official cutoff and not a guarantee."}[[/MARG_RESULT]] Your profile gives you a solid structural foundation for IIM Bangalore\'s shortlisting criteria. Your 10th and 12th scores fall into the top evaluation brackets. Two years of work places you near the optimal point for work-ex points in their scoring matrix. The actual CAT percentile required for an interview call often pushes higher (around 99.5+ percentile). Treating 99 percentile as a fixed safety threshold is risky. You stated 95 and 94. IIM Bangalore awards significant weight and a sectional cutoff is typically 80 percentile. Which section feels hardest?';
+    var guarded = finalizeMentorSavedText(resultReply, resultDiagnosis);
+    var inventedReply = finalizeMentorSavedText('[[MARG_RESULT]]{"value":"85","label":"Working target","tone":"target","note":"This is your stated target, not an official cutoff."}[[/MARG_RESULT]]\nThe figure is only a guess.', resultDiagnosis);
+    results.push({ name:'a result keeps the stated target, drops an extra question, and does not state an institute rule', passed:guarded.indexOf('"value":"99"') !== -1 && guarded.indexOf('"tone":"target"') !== -1 && guarded.indexOf('?') === -1 && guarded.indexOf('typically 80') === -1 && guarded.indexOf('significant weight') === -1 && guarded.indexOf('shortlisting criteria') === -1 && guarded.indexOf('evaluation brackets') === -1 && guarded.indexOf('scoring matrix') === -1 && guarded.indexOf('99.5') === -1 && guarded.indexOf('fixed safety threshold is risky.') !== -1 && /not treated as facts/.test(guarded) && guarded.indexOf('You stated 95 and 94.') !== -1 && inventedReply.indexOf('"tone":"fact"') !== -1 && inventedReply.indexOf('"tone":"target"') === -1 });
+    conversationHistory = [{ role:'assistant', content:'Which college should this be read against?\n[OPTIONS: IIM Ahmedabad|IIM Bangalore|Continue without this][CONTEXT: profile_dreamCollege]' }];
+    margPendingConversationOptions = null;
+    if (typeof margThreadStates !== 'undefined') margThreadStates = {};
+    if (typeof margActiveThreadId !== 'undefined') margActiveThreadId = 'legacy';
+    var restored = restorePendingConversationalOptions();
+    var restoredOptions = margPendingConversationOptions && margPendingConversationOptions.options;
+    conversationHistory.push({ role:'user', content:'IIM Bangalore' });
+    var afterAnswer = restorePendingConversationalOptions();
+    results.push({ name:'unanswered choices come back on restore and disappear after an answer', passed:restored === true && restoredOptions && restoredOptions.indexOf('IIM Ahmedabad') !== -1 && restoredOptions.indexOf('Continue without this') !== -1 && margPendingConversationOptions === null && afterAnswer === false });
+    localStorage.setItem('marg_progressive_profile_guest', JSON.stringify({ statedTargetPercentile:'99', category:'General', dreamCollege:'IIM Ahmedabad' }));
+    localStorage.setItem('marg_chat_topics_guest', JSON.stringify({ active:'legacy', states:{ legacy:{ optionsState:{ options:['General','SC'], context:'profile_category' } } } }));
+    localStorage.setItem('marg_personal_goal_guest', JSON.stringify({ kind:'dream_college', target:'IIM Ahmedabad' }));
+    progressiveProfileMemory = Object.assign(createEmptyProgressiveProfile(), { category:'General', statedTargetPercentile:'99' });
+    personalGoalMemory = { kind:'dream_college', target:'IIM Ahmedabad' };
+    margPendingConversationOptions = { options:['General','SC'], context:'profile_category' };
+    conversationHistory = [{ role:'assistant', content:'Previous guest' }];
+    currentUser = null;
+    startGuestMode();
+    results.push({ name:'a new guest does not inherit the previous guest profile or pending choices', passed:!localStorage.getItem('marg_progressive_profile_guest') && !localStorage.getItem('marg_chat_topics_guest') && !localStorage.getItem('marg_personal_goal_guest') && margPendingConversationOptions === null && conversationHistory.length === 0 && !(loadProgressiveProfileMemory() && loadProgressiveProfileMemory().category) });
+  } finally {
+    fetchWithTimeout = previousFetch;
+    progressiveProfileMemory = previousProfile;
+    personalGoalMemory = previousGoal;
+    conversationHistory = previousHistory;
+    margPendingConversationOptions = previousOptions;
+    isGuestMode = previousGuest;
+    currentUser = previousUser;
+    try {
+      if (storedProfile === null) localStorage.removeItem(profileKey);
+      else localStorage.setItem(profileKey, storedProfile);
+    } catch (error) {}
+  }
+  return results;
+}
+window.runLiveReplyIntegrityTests = runLiveReplyIntegrityTests;
 
 function runOutputQualityTests() {
   function sentence(count, token) {
@@ -17292,7 +17370,7 @@ function decideMentorPresentation(message, diagnosis, shape, budget) {
   decision.block = '\n\nPRESENTATION: result\nProceed from the known facts. Do not ask for the college. Do not ask for category. ' + figure +
     (limited ? '\nThe missing ' + limited + ' was already requested. Continue without it and say what that leaves uncertain.' : '') +
     (unscaled ? '\nA grade was given without a scale. State that assumption in the note. Do not stop to ask for it.' : '') +
-    '\nPut the reasoning under the takeaway. A recommendation is not a guarantee, and a working target is not an official cutoff.\n' + known;
+    '\nPut the reasoning under the takeaway. Do not state an institute cutoff, weight, or shortlist rule; those are not verified here. A recommendation is not a guarantee, and a working target is not an official cutoff.\n' + known;
   return decision;
 }
 
@@ -18369,17 +18447,30 @@ function separateMentorControlTags(text) {
 }
 
 function splitCompleteMentorSentences(text) {
-  var value = String(text || '').trim();
+  var source = String(text || '').trim();
+  var held = [];
+  function hold(match) {
+    held.push(match);
+    return '\u0002' + (held.length - 1) + '\u0002';
+  }
+  var value = source.replace(/\[\[MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\][\s\S]*?\[\[\/MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\]/gi, hold);
+  // A decimal point is part of the number. 99.9 must not become two sentences.
+  value = value.replace(/(\d)\.(\d)/g, '$1\u0001$2');
   var sentences = [];
   var pattern = /[^.!?]*[.!?]+(?:["')\]]+)?/g;
   var match;
   var end = 0;
+  function restore(part) {
+    return String(part || '').replace(/\u0001/g, '.').replace(/\u0002(\d+)\u0002/g, function(_token, index) {
+      return held[Number(index)] || '';
+    }).trim();
+  }
   while ((match = pattern.exec(value))) {
-    var sentence = String(match[0] || '').trim();
+    var sentence = restore(match[0]);
     if (sentence) sentences.push(sentence);
     end = pattern.lastIndex;
   }
-  return { sentences:sentences, remainder:value.slice(end).trim() };
+  return { sentences:sentences, remainder:restore(value.slice(end)) };
 }
 
 function mentorSentenceWordCount(sentence) {
@@ -18428,7 +18519,9 @@ function enforceMentorShapeLength(text, diagnosis) {
 }
 
 function enforceTurnQuestionBudget(text, diagnosis) {
-  if (diagnosis && (diagnosis.preserveFullReply || diagnosis.presentation === 'structured' || diagnosis.presentation === 'result')) return String(text || '');
+  // Structured and result replies stay long enough to keep their sections.
+  // The question limit still applies, including a result that should not ask again.
+  if (diagnosis && diagnosis.preserveFullReply) return String(text || '');
   if (!diagnosis || (diagnosis.questionBudget !== 0 && diagnosis.questionBudget !== 1)) return String(text || '');
   if (diagnosis.rcProgressionReady || diagnosis.rcFunctionMapProgressionReady) return String(text || '');
   var separated = separateMentorControlTags(text);
@@ -18456,8 +18549,94 @@ function enforceTurnQuestionBudget(text, diagnosis) {
   return (kept.join(' ').replace(/\s{2,}/g, ' ').trim() + (tags.length ? '\n' + tags.join('\n') : '')).replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function statedTargetValueMatches(value) {
+  var stated = '';
+  try {
+    var memory = typeof loadProgressiveProfileMemory === 'function' ? loadProgressiveProfileMemory() : null;
+    stated = memory && memory.statedTargetPercentile ? String(memory.statedTargetPercentile) : '';
+  } catch (error) { stated = ''; }
+  var numeric = String(value || '').replace(/[^\d.]/g, '');
+  return !!(stated && numeric === String(stated));
+}
+
+function alignStatedTargetResult(text, diagnosis) {
+  var stated = '';
+  try {
+    var memory = loadProgressiveProfileMemory();
+    stated = memory && memory.statedTargetPercentile ? String(memory.statedTargetPercentile) : '';
+  } catch (error) { stated = ''; }
+  if (!stated && diagnosis && diagnosis.submittedAnswerText) stated = detectStatedTargetPercentile(diagnosis.submittedAnswerText) || '';
+  return String(text || '').replace(/\[\[MARG_RESULT\]\]([\s\S]*?)\[\[\/MARG_RESULT\]\]/gi, function(_match, json) {
+    var spec = null;
+    try { spec = JSON.parse(String(json || '').trim()); } catch (error) { return ''; }
+    if (!spec || typeof spec !== 'object') return '';
+    var tone = String(spec.tone || 'fact').toLowerCase();
+    var numeric = String(spec.value || '').replace(/[^\d.]/g, '');
+    if (tone === 'target' && (!stated || numeric !== String(stated))) {
+      spec.tone = 'fact';
+      spec.note = stated ? 'This figure is not the working target you stated.' : 'No working target was stated, so this is not marked as one.';
+    }
+    return '[[MARG_RESULT]]' + JSON.stringify(spec) + '[[/MARG_RESULT]]';
+  });
+}
+
+function isUnverifiedInstituteClaim(sentence) {
+  var value = String(sentence || '').replace(/@@MARG_HELD_\d+@@/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!value) return false;
+  var namesInstitute = /\b(?:IIM|FMS|XLRI|SPJIMR|MDI|IIFT|JBIMS|ISB)\b/i.test(value);
+  var statesRule = /\b(?:cut-?offs?|shortlists?|shortlisting|weights?|weighted|weightage|criteria|score bands?|sweet spots?|typically|sectional|evaluation brackets?|scoring matrix|work-?ex(?:perience)? points?|optimal point)\b/i.test(value);
+  if (namesInstitute && statesRule) return true;
+  // The next sentence often drops the institute name and still states the rule.
+  if (/\b(?:evaluation brackets?|scoring matrix|work-?ex(?:perience)? points?|optimal point|sectional cut-?offs?)\b/i.test(value)) return true;
+  return statesUnsourcedCallThreshold(value);
+}
+
+function statesUnsourcedCallThreshold(sentence) {
+  var value = String(sentence || '');
+  if (!/\b(?:required|needed|cutoff|cut-off|shortlist|interview call)\b/i.test(value)) return false;
+  var stated = '';
+  try {
+    var memory = typeof loadProgressiveProfileMemory === 'function' ? loadProgressiveProfileMemory() : null;
+    stated = memory && memory.statedTargetPercentile ? String(memory.statedTargetPercentile) : '';
+  } catch (error) { stated = ''; }
+  var numbers = value.match(/\b\d{2}(?:\.\d+)?(?=\s*\+?\s*(?:percentile|%ile)\b)/gi) || [];
+  return numbers.some(function(numeric) { return numeric !== stated; });
+}
+
+function guardUnverifiedInstituteClaims(text, diagnosis) {
+  if (!diagnosis || diagnosis.presentation !== 'result') return String(text || '');
+  var held = [];
+  var source = String(text || '').replace(/\[\[MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\][\s\S]*?\[\[\/MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\]/gi, function(match) {
+    held.push(match);
+    return '\n@@MARG_HELD_' + (held.length - 1) + '@@\n';
+  });
+  var split = splitCompleteMentorSentences(source);
+  var pieces = split.sentences.slice();
+  if (split.remainder) pieces.push(split.remainder);
+  var removed = false;
+  var kept = [];
+  pieces.forEach(function(sentence) {
+    var placeholders = sentence.match(/@@MARG_HELD_\d+@@/g) || [];
+    var prose = sentence.replace(/@@MARG_HELD_\d+@@/g, ' ').replace(/\s+/g, ' ').trim();
+    if (prose && isUnverifiedInstituteClaim(prose)) {
+      removed = true;
+      if (placeholders.length) kept.push(placeholders.join('\n'));
+      return;
+    }
+    kept.push(sentence);
+  });
+  var body = kept.join(' ').replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  if (removed && !/not treated as facts/i.test(body)) body += (body ? '\n\n' : '') + 'I do not have a verified shortlist rule or cutoff for that institute, so those weights and percentile bands are not treated as facts.';
+  held.forEach(function(block, index) {
+    body = body.replace('@@MARG_HELD_' + index + '@@', block);
+  });
+  return body.trim();
+}
+
 function finalizeMentorSavedText(text, diagnosis) {
   var value = guardDeterministicArithmeticEqualities(String(text || ''));
+  value = alignStatedTargetResult(value, diagnosis);
+  value = guardUnverifiedInstituteClaims(value, diagnosis);
   value = guardUnconfirmedCertainty(value, diagnosis);
   value = enforceMentorShapeLength(value, diagnosis);
   value = enforceTurnQuestionBudget(value, diagnosis);
@@ -18795,13 +18974,40 @@ function showConversationalOptions(options, context, config) {
 }
 
 function restorePendingConversationalOptions() {
+  var history = (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : []).filter(function(message) {
+    return message && !(typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(message));
+  });
+  var last = history.length ? history[history.length - 1] : null;
+  if (last && last.role === 'user') {
+    removeConversationalOptions();
+    return false;
+  }
   var state = margPendingConversationOptions;
   if (!state && typeof margThreadStates !== 'undefined' && typeof margActiveThreadId !== 'undefined') {
     state = margThreadStates[margActiveThreadId] && margThreadStates[margActiveThreadId].optionsState;
   }
+  if ((!state || !Array.isArray(state.options) || !state.options.length) && last && last.role !== 'user') {
+    var recovered = pendingOptionsFromAssistantText(last.content);
+    if (recovered) {
+      state = recovered;
+      margPendingConversationOptions = recovered;
+      if (typeof margThreadStates !== 'undefined' && typeof margActiveThreadId !== 'undefined' && margThreadStates[margActiveThreadId]) margThreadStates[margActiveThreadId].optionsState = recovered;
+    }
+  }
   if (!state || !Array.isArray(state.options) || !state.options.length || !state.context) return false;
   if (document.getElementById('conv-options-' + state.context)) return true;
   return !!showConversationalOptions(state.options, state.context, state.config || null);
+}
+
+function pendingOptionsFromAssistantText(text) {
+  var expanded = expandMentorAskTags(String(text || ''));
+  var optMatch = expanded.match(/\[OPTIONS:\s*([\s\S]*?)\]\s*\[CONTEXT:/i) || expanded.match(/\[OPTIONS:\s*([^\n\]]*)\]/i);
+  if (!optMatch) return null;
+  var options = optMatch[1].split('|').map(function(option) { return option.trim(); }).filter(Boolean);
+  if (options.length < 2) return null;
+  if (typeof isGenericConversationalOptionSet === 'function' && isGenericConversationalOptionSet(options)) return null;
+  var contextMatch = expanded.match(/\[CONTEXT:\s*([^\]]+)\]/i);
+  return { options:options, context:contextMatch ? contextMatch[1].trim() : 'general', config:null };
 }
 
 async function handleConversationalResponse(answer, context) {
@@ -20428,20 +20634,61 @@ function applyContinuationOverride(request) {
   return copy;
 }
 
+function preservedMentorPieces(text) {
+  var value = String(text || '').replace(/\s+$/, '');
+  var controls = [];
+  value = value.replace(/(?:\n[ \t]*)?\[(?:OPTIONS|CONTEXT):\s*[^\]]+\]/gi, function(match) {
+    controls.push(match.trim());
+    return '';
+  });
+  var blocks = [];
+  value = value.replace(/\[\[MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\][\s\S]*?\[\[\/MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\]/gi, function(match) {
+    blocks.push(match);
+    return '';
+  });
+  var lines = value.split('\n');
+  var tables = [];
+  var proseLines = [];
+  for (var i = 0; i < lines.length; i++) {
+    var row = lines[i].trim();
+    var tableLine = /^\|.*\|\s*$/.test(row) || /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(row);
+    if (!tableLine) { proseLines.push(lines[i]); continue; }
+    var start = i;
+    while (i < lines.length) {
+      var next = lines[i].trim();
+      if (next && !/^\|/.test(next) && !/^\|?\s*:?-{3,}/.test(next)) break;
+      i++;
+    }
+    var table = lines.slice(start, i).join('\n').trim();
+    if ((table.match(/\|/g) || []).length >= 4) tables.push(table);
+    else proseLines.push(table);
+    i--;
+  }
+  var prose = proseLines.join('\n').trim();
+  var split = splitCompleteMentorSentences(prose);
+  var proseBody = '';
+  if (split.sentences.length) {
+    var lastSentence = split.sentences[split.sentences.length - 1];
+    var at = prose.lastIndexOf(lastSentence);
+    proseBody = at >= 0 ? prose.slice(0, at + lastSentence.length).trim() : split.sentences.join(' ');
+  }
+  var preserved = [proseBody].concat(tables).concat(blocks).concat(controls).filter(Boolean).join('\n\n').trim();
+  return { preserved:preserved, dangling:String(split.remainder || '').trim() };
+}
+
 function unfinishedMentorReply(text) {
   var trimmed = String(text || '').trim();
-  var split = splitCompleteMentorSentences(trimmed);
-  var prefix = trimmed;
-  if (split.remainder) {
-    var remainderAt = trimmed.lastIndexOf(split.remainder);
-    prefix = remainderAt > 0 ? trimmed.slice(0, remainderAt).replace(/\s+$/, '') : '';
-  }
-  if (prefix && typeof MargStudy !== 'undefined' && MargStudy.looksCutOff(prefix)) prefix = '';
+  var pieces = preservedMentorPieces(trimmed);
   var notice = 'I could not finish the rest of this answer.';
-  var stopped = split.remainder || (!prefix ? trimmed : '');
-  if (stopped) notice += '\nIt stopped here: "' + stopped.slice(-180).replace(/"/g, "'") + '"';
+  if (!pieces.preserved) {
+    var stopped = pieces.dangling || trimmed;
+    if (stopped) notice += '\nIt stopped here: "' + stopped.slice(-180).replace(/"/g, "'") + '"';
+    notice += '\nSay continue and I will finish it from there.';
+    return notice;
+  }
+  if (pieces.dangling) notice += '\nIt stopped here: "' + pieces.dangling.slice(-180).replace(/"/g, "'") + '"';
   notice += '\nSay continue and I will finish it from there.';
-  return prefix ? prefix + '\n\n' + notice : notice;
+  return pieces.preserved + '\n\n' + notice;
 }
 
 function rememberResolvedReply(diagnosis) {
@@ -22317,7 +22564,20 @@ async function checkVarcShownToday() {
 let guestMessageCount = 0;
 const GUEST_MESSAGE_LIMIT = 5;
 
+function clearPreviousGuestSession() {
+  progressiveProfileMemory = null;
+  personalGoalMemory = null;
+  margPendingConversationOptions = null;
+  conversationHistory = [];
+  if (typeof margAllChatMessages !== 'undefined') margAllChatMessages = [];
+  if (typeof margThreadStates !== 'undefined') margThreadStates = {};
+  ['marg_progressive_profile_guest', 'marg_personal_goal_guest', 'marg_chat_topics_guest'].forEach(function(key) {
+    try { localStorage.removeItem(key); } catch (error) {}
+  });
+}
+
 function startGuestMode() {
+  clearPreviousGuestSession();
   isGuestMode = true; guestMessageCount = 0; currentUser = null; SUPABASE_TOKEN = null;
   studentProfile = { attemptNumber: null, monthsLeft: null, weakestSection: null, dailyHours: null, situation: null };
   document.getElementById('loading-screen').style.display = 'none';
