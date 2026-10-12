@@ -5140,6 +5140,63 @@ function runProductExperienceTests() {
   ];
 }
 
+function runCATBankServingTests() {
+  var seenKey = getUserScopedKey('marg_seen_practice');
+  var memoryKey = getUserScopedKey('marg_practice_memory');
+  var savedSeen = localStorage.getItem(seenKey);
+  var savedMemory = localStorage.getItem(memoryKey);
+  var results = [];
+  function putBack() {
+    if (savedSeen == null) localStorage.removeItem(seenKey);
+    else localStorage.setItem(seenKey, savedSeen);
+    if (savedMemory == null) localStorage.removeItem(memoryKey);
+    else localStorage.setItem(memoryKey, savedMemory);
+  }
+  try {
+    localStorage.removeItem(seenKey);
+    localStorage.removeItem(memoryKey);
+    var hand = getVerifiedFallbackPractice('qa', 3);
+    var unseenMixed = getUnseenVerifiedFallbackPractice('qa', 3, null);
+    results.push({ name:'an unseen mixed QA request keeps the hand-checked pack', passed:!!(unseenMixed && hand && unseenMixed.questions[0].q === hand.questions[0].q) });
+    var percentages = getUnseenVerifiedFallbackPractice('qa', 3, 'Percentages');
+    var handPercent = getVerifiedFallbackPractice('qa', 3, 'Percentages');
+    results.push({ name:'an unseen percentages request keeps the hand-checked pack', passed:!!(percentages && handPercent && percentages.questions[0].q === handPercent.questions[0].q) });
+    results.push({ name:'a ten-question QA request does not open the checked bank', passed:getUnseenVerifiedFallbackPractice('qa', 10, null) === null });
+    results.push({ name:'Routes and Venn stay unavailable', passed:getUnseenVerifiedFallbackPractice('dilr', 4, 'Routes & Networks') === null && getUnseenVerifiedFallbackPractice('dilr', 4, 'Venn Diagrams & Set Data') === null });
+    results.push({ name:'a named topic with no checked questions stays unavailable', passed:getUnseenVerifiedFallbackPractice('qa', 3, 'Linear Equations') === null });
+    localStorage.setItem(seenKey, JSON.stringify([{ signature:practiceContentSignature('qa', hand), fingerprint:practiceStructureFingerprint('qa', hand), section:'qa' }]));
+    var bankPack = getUnseenVerifiedFallbackPractice('qa', 3, null);
+    results.push({ name:'after the hand pack, mixed QA opens recomputed questions', passed:!!(bankPack && MargCATBank.isCheckedQAPack(bankPack) && bankPack.questions.length === 3 && bankPack.questions[0].q !== hand.questions[0].q && bankPack.questions.every(function(question) {
+      var entry = MargCATBank.items().filter(function(item) { return item.id === question.sourceId; })[0];
+      return !!(entry && MargCATBank.agreement(entry) && question.sourceId.indexOf('2017') === -1);
+    })) });
+    var numberPack = getUnseenVerifiedFallbackPractice('qa', 3, 'Number Systems');
+    results.push({ name:'a named topic opens only recomputed questions of that topic', passed:!!(numberPack && validateQASetShape(numberPack, 'Number Systems', 3) && MargCATBank.isCheckedQAPack(numberPack)) });
+    var longRC = getUnseenVerifiedFallbackPractice('rc', 3);
+    results.push({ name:'an unseen RC request still opens a long passage', passed:!!(longRC && countPracticeWords(longRC.sets[0].passage) >= 420 && MargCATBank.isCheckedVerbalPack(longRC, 3) === false) });
+    var articleSeen = getVerifiedArticleRCFallbackBank().map(function(item) {
+      var ready = JSON.parse(JSON.stringify(item));
+      ready.sets[0].questions = ready.sets[0].questions.slice(0, 3);
+      return { signature:practiceContentSignature('rc', ready), fingerprint:practiceStructureFingerprint('rc', ready), section:'rc' };
+    });
+    localStorage.setItem(seenKey, JSON.stringify(articleSeen));
+    var verbal = getUnseenVerifiedFallbackPractice('rc', 3);
+    results.push({ name:'paragraph summaries open only after the long passages are seen', passed:!!(verbal && MargCATBank.isCheckedVerbalPack(verbal, 3) && validateRCPracticeSet(verbal, 3)) });
+    var mutatedOk = false;
+    if (verbal) {
+      var mutated = JSON.parse(JSON.stringify(verbal));
+      mutated.sets[0].questions[0].correct = (mutated.sets[0].questions[0].correct + 1) % 4;
+      mutatedOk = validateRCPracticeSet(mutated, 3) === false;
+    }
+    results.push({ name:'a changed summary key is rejected', passed:mutatedOk });
+    results.push({ name:'complete CAT endings count as tasks and cut-off stems do not', passed:questionHasExplicitTask('The initial quantity, in kg, of grains is') && questionHasExplicitTask('Anjali exceeded Rama by') && !questionHasExplicitTask('Then') && !questionHasExplicitTask('The committee would hav') && !questionHasExplicitTask('The quantity would hav') });
+  } catch (error) {
+    results.push({ name:'checked bank serving tests ran', passed:false });
+  }
+  putBack();
+  return results;
+}
+
 function runVarcControlTests() {
   var pack = getVerifiedRCFallback();
   var exercise = {
@@ -24751,6 +24808,7 @@ function collectArticleRCStructureIssues(data, expectedQuestionCount) {
 }
 
 function validateRCPracticeSet(data, expectedQuestionCount) {
+  if (typeof MargCATBank !== 'undefined' && MargCATBank && typeof MargCATBank.isCheckedVerbalPack === 'function' && MargCATBank.isCheckedVerbalPack(data, expectedQuestionCount)) return true;
   if (!data || !Array.isArray(data.sets) || data.sets.length !== 1) return false;
   var setObj = data.sets[0];
   var requiredQuestions = Number(expectedQuestionCount) || 3;
@@ -25111,6 +25169,45 @@ function markPracticeSeen(section, data) {
   if (ensureStudyConfigured()) { try { MargStudy.recordPractice(section, data); } catch (error) { /* memory is best effort */ } }
 }
 
+function bankPackAlreadySeen(section, data) {
+  var signature = practiceContentSignature(section, data);
+  var fingerprint = practiceStructureFingerprint(section, data);
+  var recent = getSeenPracticeSignatures().filter(function(item) { return item && item.section === section; });
+  return recent.some(function(item) { return item && (item.signature === signature || (fingerprint && item.fingerprint === fingerprint)); });
+}
+
+function unseenCheckedBankPractice(section, questionCount, topic) {
+  if (typeof MargCATBank === 'undefined' || !MargCATBank) return null;
+  var count = Number(questionCount) || 3;
+  // Timed sectionals ask for more questions than this checked bank can fill
+  // without repeating a window. Leave those requests to generation.
+  if (count < 1 || count > 5) return null;
+  if (section === 'qa' && typeof MargCATBank.qaPacks === 'function') {
+    var expectedTopic = topic && !isMixedQATopic(topic) ? topic : null;
+    var packs = MargCATBank.qaPacks(count, expectedTopic || '');
+    for (var packIndex = 0; packIndex < packs.length; packIndex++) {
+      var pack = packs[packIndex];
+      if (!MargCATBank.isCheckedQAPack(pack)) continue;
+      if (!validateQASetShape(pack, expectedTopic, count)) continue;
+      if (!validateGeneratedPracticeCompleteness(pack, 'qa')) continue;
+      if (collectSolutionPresentationIssues(pack, 'qa').length) continue;
+      if (bankPackAlreadySeen('qa', pack)) continue;
+      return pack;
+    }
+  }
+  if (section === 'rc' && typeof MargCATBank.verbalPacks === 'function') {
+    var verbalPacks = MargCATBank.verbalPacks(count);
+    for (var verbalIndex = 0; verbalIndex < verbalPacks.length; verbalIndex++) {
+      var verbalPack = verbalPacks[verbalIndex];
+      if (!validateRCPracticeSet(verbalPack, count)) continue;
+      if (!validateGeneratedPracticeCompleteness(verbalPack, 'rc')) continue;
+      if (bankPackAlreadySeen('rc', verbalPack)) continue;
+      return verbalPack;
+    }
+  }
+  return null;
+}
+
 function getUnseenVerifiedFallbackPractice(section, questionCount, topic) {
   if (section === 'rc') {
     var rcBank = getVerifiedArticleRCFallbackBank();
@@ -25119,7 +25216,7 @@ function getUnseenVerifiedFallbackPractice(section, questionCount, topic) {
       readyRC.sets[0].questions = readyRC.sets[0].questions.slice(0, questionCount || 3);
       if (validateRCPracticeSet(readyRC, questionCount || 3) && !wasPracticeRecentlySeen(section, readyRC)) return readyRC;
     }
-    return null;
+    return unseenCheckedBankPractice('rc', questionCount || 3, topic);
   }
   if (section === 'dilr' && !topic) {
     var readyTopics = ['Arrangements', 'Distribution', 'Games & Tournaments', 'Tables'];
@@ -25130,7 +25227,9 @@ function getUnseenVerifiedFallbackPractice(section, questionCount, topic) {
     return null;
   }
   var practice = getVerifiedFallbackPractice(section, questionCount, topic);
-  return practice && !wasPracticeRecentlySeen(section, practice) ? practice : null;
+  if (practice && !wasPracticeRecentlySeen(section, practice)) return practice;
+  if (section === 'qa') return unseenCheckedBankPractice('qa', questionCount, topic);
+  return null;
 }
 
 var VERIFIED_PRACTICE_CACHE_LIMIT = 48;
@@ -25595,16 +25694,21 @@ function questionHasExplicitTask(stem) {
   var text = String(stem || '').trim();
   return /\?\s*$/.test(text) || /^(?:what|which|who|where|when|why|how|find|determine|calculate|compute|identify|select|choose|state|evaluate|solve)\b/i.test(text) ||
     /\b(?:what|which|who|where|when|why|how many|how much|find|determine|calculate|compute|identify|can be concluded|must be true|cannot be true)\b/i.test(text) ||
+    // Published CAT stems often end on the quantity itself: "is", "was",
+    // "will be", "nearest to", or "exceeded … by". A cut-off such as "Then"
+    // or "would hav" does not match these endings.
+    /\b(?:is|are|equals?|equal to|nearest to|closest to|was|were|will be|in the ratio)\s*$/i.test(text) ||
+    /\b(?:exceed(?:s|ed)?|increase(?:s|d)?|decrease(?:s|d)?)\b[\s\S]{0,80}\bby\s*$/i.test(text) ||
     // CAT stems often present a complete forced-choice task as a sentence
     // ending in a colon rather than a question mark. These are real tasks,
     // not truncated statements. The previous gate rejected them and also
     // rejected the verified RC fallback that was supposed to recover safely.
-    /:\s*$/.test(text) && (
+    (/:\s*$/.test(text) && (
       /\b(?:is|are|can be|could be|would be)\s+(?:best|most|least)?\s*(?:accurately\s+|appropriately\s+)?(?:described|characterised|characterized|summarised|summarized|inferred|concluded|supported)\s+as\b/i.test(text) ||
       /\b(?:primary purpose|central (?:claim|argument|idea)|author(?:'s|’s)? (?:attitude|tone|view|position)|function|role|inference|statement|option)\b/i.test(text) ||
       /\b(?:in order to|serves? to|functions? to|is (?:used|mentioned|introduced|intended) to|best (?:captures|explains|supports|weakens|strengthens)|can be (?:inferred|concluded)|would (?:weaken|strengthen)|except)\b/i.test(text) ||
       /\b(?:mentions?|discusses?|introduces?|cites?|compares?|contrasts?|acknowledges?|includes?|refers to|example)\b[\s\S]{0,260}\b(?:to|because|shows?|illustrates?|establishes?|demonstrates?|suggests?|highlights?)\s*:\s*$/i.test(text)
-    );
+    ));
 }
 
 function isValidTimedTestQuestion(q) {

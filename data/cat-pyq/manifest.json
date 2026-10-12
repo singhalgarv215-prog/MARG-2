@@ -3,7 +3,7 @@
   "exam": "CAT",
   "source_scope": "User-supplied CAT papers, 2017-2025",
   "duplicate_note": "CAt-2023-Question-Paper-slot-03 (1).pdf is byte-identical to Slot 03 and is intentionally not indexed twice.",
-  "student_facing_rule": "Only answer_key_ready records may be considered for direct use, and RC/DILR still require verified shared context before display.",
+  "student_facing_rule": "answer_key_ready records an extracted answer table, not an independent solution. Show a question only after its answer is independently checked. Reading comprehension and DILR stay unavailable until the shared passage or data is present and checked.",
   "totals": {
     "documents": 23,
     "questions_indexed": 1636,

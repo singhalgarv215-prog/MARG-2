@@ -760,6 +760,7 @@
     var options = (record.options || []).map(function (o) { return str(o); });
     if (stem.length < 50 || stem.length > 330 || options.length !== 4) return null;
     if (options.some(function (o) { return /\n|\bA\)|\bB\)|DIRECTIONS/i.test(o) || o.length > 40; })) return null;
+    if (/answer key|quantitative ability|verbal ability|data interpretation/i.test(stem + ' ' + options.join(' '))) return null;
     if (/[�]|\bwh\s+ere\b/.test(stem)) return null;
     return { stem: stem, options: options, correct: record.correct_index };
   }
@@ -1147,5 +1148,26 @@
     renderBlocks: renderBlocks,
     styles: STUDY_CSS,
     _library: library
+  };
+
+  root.runStudyLibraryTests = function () {
+    var leaked = cleanLibraryQuestion({
+      section: 'qa',
+      direct_use_status: 'answer_key_ready',
+      stem: 'A two-digit number is four times the sum of its digits, and reversing those digits increases the number by 18. What is the number?',
+      options: ['24', '36', '42', '48 Quantitative Ability'],
+      correct_index: 0
+    });
+    var clean = cleanLibraryQuestion({
+      section: 'qa',
+      direct_use_status: 'answer_key_ready',
+      stem: 'A two-digit number is four times the sum of its digits, and reversing those digits increases the number by 18. What is the number?',
+      options: ['24', '36', '42', '48'],
+      correct_index: 0
+    });
+    return [
+      { name: 'a leaked header is not used as a style reference', passed: leaked === null },
+      { name: 'a clean extracted question can still calibrate style', passed: !!(clean && clean.options.length === 4 && clean.correct === 0) }
+    ];
   };
 })(typeof window !== 'undefined' ? window : globalThis);
