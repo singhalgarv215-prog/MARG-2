@@ -752,7 +752,74 @@
   /* Content library as a style reference (never copied)                 */
   /* ------------------------------------------------------------------ */
 
-  var library = { qa: [], loaded: false, loading: null };
+  var library = { qa: [], frames: { parajumble: [], odd_one_out: [], summary: [], placement: [], rc_question: [], dilr_question: [], qa: [] }, styleCounts: {}, loaded: false, loading: null };
+
+  function styleKind(section, stem) {
+    var text = str(stem);
+    if (/jumbled|arrange the (?:four|following)|logical sequence|coherent paragraph/i.test(text)) return 'parajumble';
+    if (/odd (?:one|sentence)|does not belong|does not fit/i.test(text)) return 'odd_one_out';
+    if (/alternate summar|best captures the essence|provides a gist/i.test(text)) return 'summary';
+    if (/best fit|missing in the paragraph/i.test(text)) return 'placement';
+    if (section === 'dilr' || section === 'lrdi') return 'dilr_question';
+    if (section === 'varc' || section === 'rc' || section === 'va') return 'rc_question';
+    if (section === 'qa') return 'qa';
+    return '';
+  }
+
+  // Keep the instruction opening only. The sentences, passage and options that
+  // follow are the published item and are not a template to reuse.
+  function instructionalFrame(stem) {
+    var text = str(stem).replace(/\s+/g, ' ').trim();
+    if (text.length < 36) return '';
+    var cut = text.search(/\s(?:\(1\)|1\)|1\.|Sentence:|Paragraph:)(?=\s|$)/);
+    var frame = (cut > 48 ? text.slice(0, cut) : text).slice(0, 170).trim();
+    if (!/\b(?:which|arrange|identify|following|passage|sentence|paragraph|option|gist|summary|fit|belong|sequence|statements?)\b/i.test(frame)) return '';
+    if (/\b(?:correct_index|answer key)\b/i.test(frame)) return '';
+    return frame.replace(/[.:;\s]+$/, '') + '.';
+  }
+
+  function rememberStyle(record) {
+    if (!record) return;
+    var kind = styleKind(record.section, record.stem);
+    if (!kind || !library.frames[kind]) return;
+    library.styleCounts[kind] = (library.styleCounts[kind] || 0) + 1;
+    if (library.frames[kind].length >= 8) return;
+    var frame = instructionalFrame(record.stem);
+    if (!frame || library.frames[kind].indexOf(frame) !== -1) return;
+    library.frames[kind].push(frame);
+  }
+
+  function bankStyleBrief(format) {
+    var kind = format === 'parajumble' ? 'parajumble'
+      : format === 'odd_one_out' ? 'odd_one_out'
+      : format === 'summary' ? 'summary'
+      : format === 'placement' ? 'placement'
+      : format === 'dilr' ? 'dilr_question'
+      : format === 'qa' ? 'qa'
+      : 'rc_question';
+    var counts = library.styleCounts || {};
+    var labels = [
+      ['parajumble', 'paragraph-order stems'],
+      ['summary', 'summary stems'],
+      ['placement', 'sentence-placement stems'],
+      ['odd_one_out', 'odd-sentence stems'],
+      ['rc_question', 'passage questions'],
+      ['dilr_question', 'data-reasoning questions'],
+      ['qa', 'quantitative stems']
+    ];
+    var noted = labels.filter(function (pair) { return counts[pair[0]]; });
+    var lines = [];
+    if (noted.length) {
+      lines.push('BANK STYLE SCAN (instruction shape only; do not reuse the published topic or wording): ' + noted.map(function (pair) { return counts[pair[0]] + ' ' + pair[1]; }).join(', ') + '.');
+    }
+    var frames = (library.frames[kind] || []).slice(0, 2);
+    if (frames.length) {
+      lines.push('Instruction openings of this kind, trimmed before any source sentence, passage or number:');
+      frames.forEach(function (frame, index) { lines.push((index + 1) + '. ' + frame); });
+    }
+    lines.push('Write a new situation, new sentences and new numbers. Changing a name or a figure in a published item is still a copy.');
+    return lines.join('\n');
+  }
 
   function cleanLibraryQuestion(record) {
     if (!record || record.section !== 'qa' || record.direct_use_status !== 'answer_key_ready') return null;
@@ -780,6 +847,7 @@
       var seen = {};
       lists.forEach(function (list) {
         list.forEach(function (record) {
+          rememberStyle(record);
           var clean = cleanLibraryQuestion(record);
           if (clean && !seen[clean.stem]) { seen[clean.stem] = true; library.qa.push(clean); }
         });
@@ -1181,6 +1249,9 @@
     findRepeats: findRepeats,
     avoidBlock: avoidBlock,
     loadLibrary: loadLibrary,
+    bankStyleBrief: bankStyleBrief,
+    styleKind: styleKind,
+    instructionalFrame: instructionalFrame,
     exemplarBlock: exemplarBlock,
     libraryOverlap: libraryOverlap,
     looksCutOff: looksCutOff,
@@ -1209,9 +1280,11 @@
       options: ['24', '36', '42', '48'],
       correct_index: 0
     });
+    var frame = instructionalFrame('Five jumbled up sentences, related to a topic, are given below. Four of them can be put together to form a coherent paragraph. (1) Animals have an interest in fulfilling their basic needs and this published sentence must stay out of the style note.');
     return [
       { name: 'a leaked header is not used as a style reference', passed: leaked === null },
-      { name: 'a clean extracted question can still calibrate style', passed: !!(clean && clean.options.length === 4 && clean.correct === 0) }
+      { name: 'a clean extracted question can still calibrate style', passed: !!(clean && clean.options.length === 4 && clean.correct === 0) },
+      { name: 'a bank style note keeps the instruction and drops the published sentence', passed: styleKind('varc', 'Five jumbled up sentences are given below.') === 'parajumble' && frame.indexOf('jumbled') !== -1 && frame.indexOf('Animals have') === -1 }
     ];
   };
 })(typeof window !== 'undefined' ? window : globalThis);
