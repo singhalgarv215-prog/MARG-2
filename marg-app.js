@@ -5140,6 +5140,25 @@ function runProductExperienceTests() {
   ];
 }
 
+function runVarcControlTests() {
+  var pack = getVerifiedRCFallback();
+  var exercise = {
+    id:'rc-control-1',
+    title:'Checked RC',
+    awaitingAnswers:true,
+    content:{ structuredData:pack, exerciseText:'PASSAGE', rcLab:{ focusLabel:'mixed RC' } }
+  };
+  var widget = buildArticleRCAttemptHtml(exercise);
+  var clicks = widget.match(/onclick="([^"]+)"/g) || [];
+  var trusted = clicks.length >= 4 && clicks.every(function(attr) {
+    return isTrustedChatClick(attr.slice(9, -1));
+  });
+  return [
+    { name:'RC passage controls survive the chat click allowlist', passed:isTrustedChatClick('chooseArticleRCOption(0,this)') && isTrustedChatClick('moveArticleRCQuestion(1,this)') && isTrustedChatClick('goToArticleRCQuestion(2,this)') && isTrustedChatClick('toggleArticleRCPassage(this)') && isTrustedChatClick('submitArticleRCAttempt(this)') && isTrustedChatClick('openArticleRCPassageFocus(this)') && isTrustedChatClick('selectAnswer(1)') && isTrustedChatClick('selectTimedTestAnswer(2)') && !isTrustedChatClick('chooseArticleRCOption(0,this.ownerDocument)') && !isTrustedChatClick('alert(1)') && trusted && widget.indexOf('Question 1') !== -1 }
+  ];
+}
+window.runVarcControlTests = runVarcControlTests;
+
 function runSubmissionStateTests() {
   return [
     { name:'normal mobile tap sends', passed:getMessageSubmissionDecision({ hasContent:true, isLoading:false, queueFull:false, chatReady:true, duplicate:false, fromQueue:false }) === 'send' },
@@ -15025,18 +15044,23 @@ function addMessageActions(wrap, role) {
   stack.appendChild(actions);
 }
 
+function isTrustedChatClick(value) {
+  // `this` is the clicked control. It is allowed only as a bare argument of an
+  // already named handler, so the RC card can find its own passage.
+  return /^(?:chooseArticleRCOption|choosePathDiscuss|choosePathPractice|closePushReminderCard|closeTimedTest|confirmSubmitTimedTest|goToArticleRCQuestion|goToChatFromTimedTest|goToTimedTestQuestion|loadDailyPractice|moveArticleRCQuestion|nextQuestion|openArticleRCPassageFocus|openCheckedTimedRecovery|openPreviousMockAnalysis|prevQuestion|removePendingImageAttachment|retryArticleRCGeneration|retryTimedTest|reviewLatestPracticeWithMarg|selectAnswer|selectOption|selectPracticeTopic|selectQACategory|selectTimedTestAnswer|sendQuick|showQACategoryPicker|startLogin|submitArticleRCAttempt|submitFeedback|switchPracticeTab|toggleArticleRCPassage|tryAnotherArticleRC|useVerifiedPracticeRecovery)\s*\(\s*(?:(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*(?:,\s*(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*)*)?\)\s*;?$/.test(String(value || '').trim());
+}
+
 function sanitizeRenderedChatHtml(html) {
   var value = String(html === undefined || html === null ? '' : html);
   if (typeof document === 'undefined' || !document.createElement) return escapeChatHtml(value);
   var template = document.createElement('template');
   template.innerHTML = value;
   template.content.querySelectorAll('script,style,iframe,object,embed,form,meta,link,base').forEach(function(node) { node.remove(); });
-  var trustedClickInvocation = /^(?:chooseArticleRCOption|choosePathDiscuss|choosePathPractice|closePushReminderCard|closeTimedTest|confirmSubmitTimedTest|goToArticleRCQuestion|goToChatFromTimedTest|goToTimedTestQuestion|loadDailyPractice|moveArticleRCQuestion|nextQuestion|openArticleRCPassageFocus|openCheckedTimedRecovery|openPreviousMockAnalysis|prevQuestion|removePendingImageAttachment|retryArticleRCGeneration|retryTimedTest|reviewLatestPracticeWithMarg|selectAnswer|selectOption|selectPracticeTopic|selectQACategory|selectTimedTestAnswer|sendQuick|showQACategoryPicker|startLogin|submitArticleRCAttempt|submitFeedback|switchPracticeTab|toggleArticleRCPassage|tryAnotherArticleRC|useVerifiedPracticeRecovery)\s*\(\s*(?:(?:-?\d+(?:\.\d+)?|true|false|null|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*(?:,\s*(?:-?\d+(?:\.\d+)?|true|false|null|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*)*)?\)\s*;?$/;
   template.content.querySelectorAll('*').forEach(function(node) {
     Array.prototype.slice.call(node.attributes || []).forEach(function(attribute) {
       var name = String(attribute.name || '').toLowerCase();
       var attrValue = String(attribute.value || '').trim();
-      var allowedClick = name === 'onclick' && trustedClickInvocation.test(attrValue);
+      var allowedClick = name === 'onclick' && isTrustedChatClick(attrValue);
       if ((/^on/.test(name) && !allowedClick) || name === 'srcdoc' || ((name === 'href' || name === 'src' || name === 'xlink:href') && /^\s*(?:javascript|vbscript):/i.test(attrValue))) {
         node.removeAttribute(attribute.name);
       }
@@ -22418,7 +22442,7 @@ function goToArticleRCQuestion(questionIndex, button) {
 function moveArticleRCQuestion(direction, button) {
   if (!isCurrentArticleRCControl(button)) return;
   var state = ensureArticleRCState(activeGeneratedExercise);
-  goToArticleRCQuestion(state.currentIndex + Number(direction || 0));
+  goToArticleRCQuestion(state.currentIndex + Number(direction || 0), button);
 }
 
 function toggleArticleRCPassage(button) {
