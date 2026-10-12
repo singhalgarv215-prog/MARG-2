@@ -1049,6 +1049,18 @@
       }
       return count;
     }
+    function typeInAhead(from) {
+      var j = from, steps = 0;
+      while (j < lines.length && steps < 14) {
+        var line = lines[j].trim();
+        if (!line) { j++; continue; }
+        if (/^type in\b/i.test(line)) return true;
+        if (Q_START.test(lines[j])) return false;
+        j++;
+        steps++;
+      }
+      return false;
+    }
     while (i < lines.length) {
       var line = lines[i];
       var trimmed = line.trim();
@@ -1072,13 +1084,20 @@
       if (QUESTIONS_HEADER.test(trimmed)) { flush(); blocks.push({ type: 'label', text: 'Questions', level: 'questions' }); mode = ''; i++; continue; }
       var q = trimmed.match(Q_START);
       var explicitQ = q && q[1];
-      if (q && (explicitQ || optionsAhead(i + 1) >= 2 || (/\?\s*$/.test(q[3]) && optionsAhead(i + 1) >= 1))) {
+      var typedQuestion = q && typeInAhead(i + 1);
+      if (q && (explicitQ || optionsAhead(i + 1) >= 2 || (/\?\s*$/.test(q[3]) && optionsAhead(i + 1) >= 1) || typedQuestion)) {
         flush();
         mode = '';
         var stem = [q[3]];
         i++;
-        while (i < lines.length && lines[i].trim() && !OPT_PARSE.test(lines[i]) && !Q_START.test(lines[i]) && !ANSWER_LINE.test(lines[i]) && !EXPLANATION_LINE.test(lines[i])) { stem.push(lines[i].trim()); i++; }
+        while (i < lines.length && lines[i].trim() && !OPT_PARSE.test(lines[i]) && !Q_START.test(lines[i]) && !ANSWER_LINE.test(lines[i]) && !EXPLANATION_LINE.test(lines[i]) && !/^type in\b/i.test(lines[i].trim())) { stem.push(lines[i].trim()); i++; }
+        var typeHint = '';
+        if (i < lines.length && /^type in\b/i.test(lines[i].trim())) { typeHint = lines[i].trim(); i++; }
         var options = [];
+        if (typeHint) {
+          blocks.push({ type: 'question', number: Number(q[2]), stem: stem.join(' ').replace(/\s+/g, ' ').trim(), options: [], tita: true, typeHint: typeHint });
+          continue;
+        }
         while (i < lines.length) {
           if (!lines[i].trim()) {
             var peek = nextNonBlank(i);
@@ -1128,6 +1147,7 @@
     var blocks = parseBlocks(normalizeLayout(value));
     var questions = blocks.filter(function (b) { return b.type === 'question' && b.options.length >= 3; }).length;
     if (questions) return true;
+    if (blocks.some(function (b) { return b.type === 'question' && b.tita; })) return true;
     if (blocks.some(function (b) { return b.type === 'label' && b.level === 'passage'; }) && blocks.some(function (b) { return b.type === 'passage'; })) return true;
     return blocks.some(function (b) { return b.type === 'table' && b.rows.length >= 3; });
   }
@@ -1182,7 +1202,9 @@
             var label = o.key + '. ' + o.text;
             return '<button type="button" class="study-option" data-state="pending" data-marg-question="' + block.number + '" data-marg-choice="' + choiceAttr(label) + '"><span class="study-optkey">' + o.key + '.</span> <span class="study-opttext">' + inline(o.text) + '</span></button>';
           }).join('') + '</div>'
-          : (block.options.length ? '<div class="study-options">' + block.options.map(function (o) { return '<div class="study-option"><span class="study-optkey">' + o.key + '.</span> <span class="study-opttext">' + inline(o.text) + '</span></div>'; }).join('') + '</div>' : '');
+          : (block.tita
+            ? '<div class="study-typein"><input type="text" class="study-typein-input" data-marg-typein="' + block.number + '" autocomplete="off" enterkeyhint="done" placeholder="' + choiceAttr(/order/i.test(block.typeHint || '') ? '2413' : /sentence/i.test(block.typeHint || '') ? '3' : 'Answer') + '" aria-label="' + choiceAttr(block.typeHint || 'Type in the answer') + '" /><button type="button" class="study-typein-submit">Submit</button><div class="study-typein-hint">' + inline(block.typeHint || 'Type in the answer.') + '</div></div>'
+            : (block.options.length ? '<div class="study-options">' + block.options.map(function (o) { return '<div class="study-option"><span class="study-optkey">' + o.key + '.</span> <span class="study-opttext">' + inline(o.text) + '</span></div>'; }).join('') + '</div>' : ''));
         activity.push('<div class="study-question" data-marg-question="' + block.number + '" data-state="pending"><div class="study-qstem"><span class="study-qnum">' + block.number + '.</span> ' + stemHtml(block.stem) + '</div><div class="study-qstatus">Pending</div>' + choices + '</div>');
       } else if (block.type === 'answer') {
         html.push('<div class="study-answer"><span class="study-sublabel">Answer</span> <strong>' + block.key + '</strong>' + (block.rest ? ' <span class="study-answer-note">' + inline(block.rest) + '</span>' : '') + '</div>');
@@ -1213,6 +1235,14 @@
     '.study-rich .study-option.selected,.study-rich .study-option[data-state="selected"]{border-color:#c9a84c;background:rgba(201,168,76,.12);color:#f0ede6}' +
     '.study-rich .study-option:disabled{cursor:default;opacity:.5}' +
     '.study-rich .study-option.selected:disabled{opacity:1}' +
+    '.study-rich .study-typein{display:grid;grid-template-columns:minmax(140px,1fr) auto;gap:8px;align-items:center}' +
+    '.study-rich .study-typein-input{min-height:46px;width:100%;padding:10px 12px;border:1px solid rgba(232,201,106,.55);border-radius:10px;background:#242424;color:#f0ede6;-webkit-text-fill-color:#f0ede6;caret-color:#e8c96a;color-scheme:dark;font:600 16px/1.4 "DM Sans",sans-serif;letter-spacing:.04em}' +
+    '.study-rich .study-typein-input::placeholder{color:#b7b2a8;opacity:1;-webkit-text-fill-color:#b7b2a8}' +
+    '.study-rich .study-typein-input:focus{border-color:#e8c96a;outline:none;box-shadow:0 0 0 3px rgba(201,168,76,.18)}' +
+    '.study-rich .study-typein-submit{min-height:46px;padding:8px 14px;border:1px solid rgba(201,168,76,.45);border-radius:10px;background:rgba(201,168,76,.16);color:#f0ede6;font:600 13px "DM Sans",sans-serif;cursor:pointer}' +
+    '.study-rich .study-typein-hint{grid-column:1 / -1;color:#b7b2a8;font:12px/1.4 "DM Sans",sans-serif}' +
+    '.study-rich .study-activity .study-typein-submit{display:none}' +
+    '.study-rich .study-typein-input:disabled{opacity:.6}' +
     '.study-rich .study-activity{margin:8px 0 12px}' +
     '.study-rich .study-activity-nav{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}' +
     '.study-rich .study-activity-navbtn,.study-rich .study-activity-submit{min-height:40px;padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:#171717;color:#f0ede6;font:600 13px "DM Sans",sans-serif;cursor:pointer}' +
