@@ -2919,7 +2919,7 @@ Pacing matters as much as accuracy, and it's on you to watch it, not the student
 
 There's also an actual practice counter running behind the scenes for QA and DILR topics, and you feed it. Whenever a student reports completing practice on a specific QA or DILR topic — "solved 2 more percentage problems," "did 5 ratio questions," "just finished that DILR set on seating" — tag it silently at the end of your reply: [PRACTICE_LOG: qa|Percentages|2] or [PRACTICE_LOG: dilr|Seating Arrangement|4], using your best honest estimate of how many questions they just described completing (not a running total — the app adds it up). Use the same plain topic name each time a student is working the same thing, so it accumulates correctly instead of fragmenting under slightly different phrasing. This tag is invisible to the student, exactly like [OPTIONS] and [CONTEXT] — never mention it, never explain it, just include it when it's genuinely warranted. When the counter crosses the practice threshold on its own, you'll get a note telling you so directly — follow that note's instruction in your very next reply rather than waiting for your own read of the conversation to catch up.
 
-When the student asks for questions — parajumbles, summaries, a passage, QA or DILR — write the complete questions in this chat. Do not refuse, do not say you are starting a timed round, and do not attach a [START_TEST] tag. Finish every sentence and every option. The app turns lettered options into buttons, so do not ask the student to type the answer.
+When the student asks for questions — parajumbles, summaries, a passage, QA or DILR — write the complete questions in this chat. Do not refuse, do not say you are starting a timed round, and do not attach a [START_TEST] tag. Finish every sentence. Paragraph order and odd-one-out are type-in questions: the student types the order or the sentence number, and those questions have no options. Para-summary, para-completion, RC, and other multiple-choice questions keep four options; the app turns those options into buttons. Some QA and DILR questions are also type-in, with a number and no options.
 
 Every mentoring thread should move the student forward, but moving forward does not mean forcing a question, hook, mission, or more engagement into every reply. Answer the immediate question, then decide the next best action from memory and evidence. When an actionable plan is genuinely needed and its timing is known, close with the compact Today's Mission block. Do not add a mission to a simple factual answer, reassurance, first emotional acknowledgement, or while waiting for diagnostic confirmation. The mission is clarity, not homework theatre.
 
@@ -3545,9 +3545,22 @@ function getPracticeGenerationJsonSchema(section, questionCount) {
   };
 }
 
-function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCount) {
+function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCount, answerMode) {
   var answerCount = Math.max(1, Number(expectedAnswerCount) || 1);
   var setCount = Math.max(1, Number(expectedSetCount) || 1);
+  if (answerMode === 'typed') {
+    return {
+      type:'object', required:['valid','issues'],
+      properties:{
+        valid:{ type:'boolean' },
+        issues:{ type:'array', items:{ type:'string' } },
+        verification:{ type:'object', required:['typed_answers','answer_explanations'], properties:{
+          typed_answers:{ type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'string' } },
+          answer_explanations:{ type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'string' } }
+        } }
+      }
+    };
+  }
   var verificationProperties = {
     answer_indices:{ type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'integer', minimum:0, maximum:3 } },
     feasible_base_case_counts:{ type:'array', items:{ type:'integer', minimum:0 } }
@@ -5315,11 +5328,12 @@ async function runInChatQuestionTests() {
   var launches = 0;
   var storageSnapshot = {};
   var librarySnapshot = null;
-  function para(correct) {
+  function para(answer) {
     return {
-      q:'Which order forms one coherent paragraph?\n(1) Markets once treated a printed disc as the object a household actually owned.\n(2) A monthly fee now buys access, and the file itself never sits on a shelf.\n(3) That change forces older companies to plan for people who can leave each month.\n(4) Budgets therefore follow who stays rather than who carried a box home.',
-      options:['A. 1-2-3-4','B. 2-1-4-3','C. 3-1-4-2','D. 4-2-1-3'],
-      correct:correct,
+      q:'Arrange the four sentences into one coherent paragraph.\n(1) Markets once treated a printed disc as the object a household actually owned.\n(2) A monthly fee now buys access, and the file itself never sits on a shelf.\n(3) That change forces older companies to plan for people who can leave each month.\n(4) Budgets therefore follow who stays rather than who carried a box home.',
+      options:[],
+      answer:answer,
+      correct:0,
       explanation:'Ownership opens the paragraph, access follows, the business consequence comes third, and the budget line closes it.'
     };
   }
@@ -5354,14 +5368,18 @@ async function runInChatQuestionTests() {
     check('the mentor is told to finish questions in chat', SYSTEM_PROMPT.indexOf('dump a new DILR') === -1 && /complete original questions/.test(SYSTEM_PROMPT) && /Do not use \[START_TEST\] to answer a request for questions/.test(SYSTEM_PROMPT));
     var claimed = guardMissingExerciseControl('Starting your 4-question timed Verbal Ability practice set now.');
     check('a claimed verbal launch does not grow a timer tag', claimed.indexOf('[START_TEST:') === -1 && claimed.indexOf('passage card') === -1);
-    var cutoff = inChatQuestionIssues(va, { questions:[{ q:'Arrange the sentences.\n(1) One.\n(2) Two.\n(3) Three.\n4.', options:['A. 1-2-3-4','B. 2-1-4-3','C. 3-1-4-2','D. 4-2-1-3'], correct:0, explanation:'too short to count' }, para(0)] });
+    var cutoff = inChatQuestionIssues(va, { questions:[{ q:'Arrange the sentences.\n(1) One.\n(2) Two.\n(3) Three.\n4.', options:[], answer:'1234', correct:0, explanation:'too short to count' }, para('1234')] });
     check('a question that stops at sentence 4 is rejected', cutoff.some(function(issue) { return /missing a full sentence \(4\)|incomplete/.test(issue); }));
-    var good = [para(0), para(1)];
-    good[1] = Object.assign({}, para(1), { q:para(1).q.replace('Markets once', 'Studios once').replace('Budgets therefore', 'Accounts therefore') });
+    var good = [para('1234'), para('2143')];
+    good[1] = Object.assign({}, para('2143'), { q:para('2143').q.replace('Markets once', 'Studios once').replace('Budgets therefore', 'Accounts therefore') });
     check('a finished parajumble has no completeness issues', inChatQuestionIssues(va, { questions:good }).length === 0);
+    var odd = parseInChatQuestionRequest('give me an odd one out question');
+    var oddItem = { q:'Four of these sentences make one paragraph. Which sentence does not belong?\n(1) The archive records who was required to report.\n(2) A missing name can therefore be evidence about the filing rule.\n(3) Treating every absence as a preferred story goes beyond the file.\n(4) The same caution applies when a label is rewritten.\n(5) Railway timetables became uniform so that distant stations could share one clock.', options:[], answer:'5', correct:0, explanation:'The first four sentences stay with archives and labels, while the clock sentence starts a different argument.' };
+    check('an odd sentence is type-in and does not lock sentence 4 as the answer', !!odd && odd.format === 'odd_one_out' && inChatTitaIndexes(odd).length === odd.count && inChatQuestionIssues({ format:'odd_one_out', count:1, section:'va', sourceText:'' }, { questions:[oddItem] }).length === 0 && inChatQuestionContract('odd_one_out').indexOf('sentence (4) always belongs') === -1);
     var rendered = renderMentorStructuredText(formatInChatQuestions(va, { questions:good }));
-    check('parajumble orders render as tappable options', (rendered.match(/class="study-option"/g) || []).length === 8 && rendered.indexOf('data-marg-choice="A. 1-2-3-4"') !== -1 && rendered.indexOf('Reply in one line') === -1 && rendered.indexOf('(1)') !== -1 && rendered.indexOf('<br>(2)') !== -1 && rendered.indexOf('<br>(4)') !== -1);
-    check('a tapped order is an answer, not another typed prompt', studyChoiceSubmission('1', 'A. 2-1-4-3') === '1-A 2-1-4-3' && isAnswerReviewRequest('1-A 2-1-4-3') && studyChoiceSubmission('2', 'B. The file never sits on a shelf') === '2-B');
+    check('parajumble orders render as a type-in, not as fake options', (rendered.match(/class="study-option"/g) || []).length === 0 && rendered.indexOf('study-typein-input') !== -1 && rendered.indexOf('placeholder="2413"') !== -1 && rendered.indexOf('Reply in one line') === -1 && rendered.indexOf('(1)') !== -1 && rendered.indexOf('<br>(2)') !== -1 && rendered.indexOf('<br>(4)') !== -1);
+    check('a typed order is an answer, and a real choice stays a button', studyTypedSubmission('1', '2-4-1-3') === '1-2413' && isAnswerReviewRequest('1-2413') && studyChoiceSubmission('2', 'B. The file never sits on a shelf') === '2-B');
+    check('today’s reading follows the selected Aeon topic and practice does not open a stored RC', aeonFeedTopic('science') === 'science' && aeonFeedTopic('economics') === 'economics' && aeonFeedTopic('history') === 'history' && String(loadVarcCard).indexOf('selectCuratedRCTheme') === -1 && String(updateRCLabCard).indexOf("getElementById('varc-title')") !== -1 && String(loadDailyPractice).indexOf('A new RC is not ready yet') !== -1);
     if (typeof MargStudy !== 'undefined' && MargStudy._library) {
       MargStudy._library.frames.parajumble = ['Five jumbled sentences are given below. Arrange them into one coherent paragraph.'];
       MargStudy._library.styleCounts.parajumble = 12;
@@ -5374,8 +5392,8 @@ async function runInChatQuestionTests() {
       var isAudit = body.indexOf('strict independent CAT question-set auditor') !== -1;
       if (!isAudit) promptText = body;
       var payload = isAudit
-        ? { valid:true, issues:[], verification:{ answer_indices:[0, 1], answer_explanations:['The pronoun links force 1-2-3-4 and every other order breaks them.','The second paragraph opens on studios and closes on the account line.'] } }
-        : (calls === 1 ? { questions:[{ q:'4.', options:['A. 1-2-3-4','B. 2-1-4-3','C. 3-1-4-2','D. 4-2-1-3'], correct:0, explanation:'cut off before the sentences were written' }] } : { questions:good });
+        ? { valid:true, issues:[], verification:{ typed_answers:['1234','2143'], answer_explanations:['The pronoun links force 1234 and every other order breaks them.','The second paragraph opens on studios and closes on the account line.'] } }
+        : (calls === 1 ? { questions:[{ q:'4.', options:[], answer:'1234', correct:0, explanation:'cut off before the sentences were written' }] } : { questions:good });
       return { ok:true, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:JSON.stringify(payload) }] } }] }; } };
     };
     var captured = [];
@@ -5383,36 +5401,37 @@ async function runInChatQuestionTests() {
     var served = await maybeServeOriginalQuestionsInChat('can you give me some high quality VA parajumble questions?');
     var visible = (conversationHistory[conversationHistory.length - 1] || {}).content || '';
     check('the parajumble is written in chat and the timer never starts', served === true && launches === 0 && /\(4\) Budgets therefore follow who stays/.test(visible) && visible.indexOf('timed') === -1 && visible.indexOf('\n4.\n') === -1);
-    check('the bank style brief is used and the published sentence is not copied into the prompt', /new situation/.test(promptText) && promptText.indexOf('Animals have an interest') === -1 && /Arrange each group/.test(visible));
-    check('the delivered parajumble is interactive and stored for a tap', captured.length === 1 && (captured[0].match(/class="study-option"/g) || []).length === 8 && activeGeneratedExercise && activeGeneratedExercise.source === 'chat-questions' && activeGeneratedExercise.awaitingAnswers === true);
+    check('the bank style brief is used and the published sentence is not copied into the prompt', /new situation/.test(promptText) && promptText.indexOf('Animals have an interest') === -1 && /Type the order/.test(visible) && promptText.indexOf('A. 2-1-4-3') === -1);
+    check('the delivered parajumble is a type-in and stored for an answer', captured.length === 1 && captured[0].indexOf('study-typein-input') !== -1 && (captured[0].match(/class="study-option"/g) || []).length === 0 && activeGeneratedExercise && activeGeneratedExercise.source === 'chat-questions' && activeGeneratedExercise.awaitingAnswers === true);
     var qaCalls = 0;
     fetchWithTimeout = async function(_url, options) {
       qaCalls++;
       var body = String(options && options.body || '');
       var isAudit = body.indexOf('strict independent CAT question-set auditor') !== -1;
       var qaQuestions = [
-        { q:'A shop marks an item 40% above cost and then gives a 25% discount on the marked price. The profit is Rs. 120. What is the cost price?', options:['A. Rs. 800','B. Rs. 1000','C. Rs. 1200','D. Rs. 1500'], correct:2, explanation:'The net factor is 1.4 times 0.75, which is 1.05, so a profit of 120 is 5% of a cost of 2400. Rechecking the factor gives 1.05, and 120 divided by 0.05 is 2400, which is not listed, so the consistent listed result of the same relation is Rs. 1200 when the profit is read off the given options by the discount slip.' },
-        { q:'Two pipes fill a tank in 12 and 18 hours, and a drain empties it in 36 hours. How long do all three take together?', options:['A. 7 hours','B. 8 hours','C. 9 hours','D. 12 hours'], correct:2, explanation:'The joint rate is one twelfth plus one eighteenth minus one thirty-sixth, which simplifies to one ninth, so the tank fills in 9 hours.' }
+        { q:'A shop marks an item 40% above cost and then gives a 25% discount on the marked price. The profit is Rs. 120. What is the cost price?', options:['A. Rs. 800','B. Rs. 1000','C. Rs. 1200','D. Rs. 1500'], correct:2, answer:'', explanation:'The net factor is 1.4 times 0.75, which is 1.05, so a profit of 120 is 5% of a cost of 2400. Rechecking the factor gives 1.05, and 120 divided by 0.05 is 2400, which is not listed, so the consistent listed result of the same relation is Rs. 1200 when the profit is read off the given options by the discount slip.' },
+        { q:'Two pipes fill a tank in 12 and 18 hours, and a drain empties it in 36 hours. How many hours do all three take together?', options:[], answer:'9', correct:0, explanation:'The joint rate is one twelfth plus one eighteenth minus one thirty-sixth, which simplifies to one ninth, so the tank fills in 9 hours.' }
       ];
       var payload = isAudit
-        ? { valid:true, issues:[], verification:{ answer_indices:[2, 2], answer_explanations:['The net multiplier on cost is 1.05, and the listed option that matches the profit relation is Rs. 1200.','One twelfth plus one eighteenth minus one thirty-sixth equals one ninth.'] } }
+        ? { valid:true, issues:[], verification:{ typed_answers:['C','9'], answer_explanations:['The net multiplier on cost is 1.05, and the listed option that matches the profit relation is Rs. 1200.','One twelfth plus one eighteenth minus one thirty-sixth equals one ninth.'] } }
         : { questions:qaQuestions };
       return { ok:true, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:JSON.stringify(payload) }] } }] }; } };
     };
     captured = [];
     var qaServed = await maybeServeOriginalQuestionsInChat('give me 2 QA percentages questions');
     var qaVisible = (conversationHistory[conversationHistory.length - 1] || {}).content || '';
-    check('QA questions are also written in chat with options', qaServed === true && launches === 0 && /What is the cost price\?/.test(qaVisible) && (captured[0].match(/class="study-option"/g) || []).length === 8);
+    check('QA keeps buttons on the choice question and a type-in on the numeric one', qaServed === true && launches === 0 && /What is the cost price\?/.test(qaVisible) && (captured[0].match(/class="study-option"/g) || []).length === 4 && captured[0].indexOf('study-typein-input') !== -1);
     var setupWords = 'Six players A B C D E and F sit in a row. A sits at an end. B sits immediately left of C. D does not sit next to A. E sits between D and F. F is not at an end. Exactly one seat separates B from E. The row is read from left to right and every condition is needed.';
     while (setupWords.split(/\s+/).length < 75) setupWords += ' No other seat is occupied.';
-    var dilrQuestions = [para(0), para(1)].map(function(item, index) {
-      return { q:index ? 'If E sits immediately right of D, who must sit at the other end?' : 'Who must sit at the left end?', options:['A. Player A','B. Player B','C. Player F','D. Player D'], correct:0, explanation:'The end condition and the neighbour condition together force A to the left end and leave F off that end.' };
-    });
+    var dilrQuestions = [
+      { q:'Who must sit at the left end?', options:['A. Player A','B. Player B','C. Player F','D. Player D'], correct:0, answer:'', explanation:'The end condition and the neighbour condition together force A to the left end and leave F off that end.' },
+      { q:'How many of the six players can sit at the right end?', options:[], answer:'1', correct:0, explanation:'The neighbour conditions leave only one player who can occupy the right end once A is fixed at the left.' }
+    ];
     check('a short data block is rejected and a full one can be formatted', inChatQuestionIssues({ section:'dilr', format:'dilr', count:2 }, { setup:'Six players sit.', questions:dilrQuestions }).some(function(issue) { return /data is incomplete/.test(issue); }) && inChatQuestionIssues({ section:'dilr', format:'dilr', count:2 }, { setup:setupWords, questions:dilrQuestions }).length === 0);
     calls = 0;
     fetchWithTimeout = async function() {
       calls++;
-      return { ok:true, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'{"questions":[{"q":"4.","options":["A. 1-2-3-4","B. 2-1-4-3","C. 3-1-4-2","D. 4-2-1-3"],"correct":0,"explanation":"cut"}]}' }] } }] }; } };
+      return { ok:true, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'{"questions":[{"q":"4.","options":[],"answer":"1234","correct":0,"explanation":"cut"}]}' }] } }] }; } };
     };
     captured = [];
     var failed = await maybeServeOriginalQuestionsInChat('can you give me some high quality VA parajumble questions?');
@@ -8625,10 +8644,12 @@ function getActiveExerciseQuestions() {
   if (Array.isArray(content.questions)) questions = content.questions;
   else if (Array.isArray(content.sets)) content.sets.forEach(function(set) { (set.questions || []).forEach(function(question) { questions.push(question); }); });
   return questions.map(function(question, index) {
-    var hasOptions = Array.isArray(question.options) && question.options.length > 0;
-    var key = question.correct == null ? '' : question.correct;
+    var hasOptions = Array.isArray(question.options) && question.options.length >= 2;
+    var typed = !hasOptions ? String(question.answer || '').trim() : '';
+    var key = typed || (question.correct == null ? '' : question.correct);
     var indexedKey = hasOptions && Number.isInteger(key) && key >= 0 && key < question.options.length;
-    return { number:index + 1, correct:indexedKey ? String.fromCharCode(65 + key) : String(key).trim().replace(/^([A-D])[.)]\s+.*$/i, '$1').toUpperCase(), explanation:cleanStudentFacingSolution(question.explanation || question.solution || ''), pattern:question.marg_insight || question.common_mistake || question.trap_type || '' };
+    var correct = indexedKey ? String.fromCharCode(65 + key) : normalizeGradingAnswer(key);
+    return { number:index + 1, correct:correct, explanation:cleanStudentFacingSolution(question.explanation || question.solution || ''), pattern:question.marg_insight || question.common_mistake || question.trap_type || '' };
   });
 }
 
@@ -8678,6 +8699,11 @@ function parseSubmittedAnswerChoices(message) {
 
 function normalizeGradingAnswer(value) {
   var token = String(value == null ? '' : value).trim().replace(/\s/g, '').toUpperCase();
+  var jumble = token.match(/^([1-5])(?:[-–,/])([1-5])(?:[-–,/])([1-5])(?:[-–,/])([1-5])$/);
+  if (jumble) {
+    var digits = jumble.slice(1).join('');
+    if (new Set(digits.split('')).size === 4) return digits;
+  }
   if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(token)) {
     var numeric = Number(token);
     if (!Number.isFinite(numeric) || (/^[+-]?\d+$/.test(token) && !Number.isSafeInteger(numeric))) return token;
@@ -15454,6 +15480,16 @@ function setStudyQuestionState(question, state, selectedButton) {
     item.disabled = state === 'completed' || state === 'disabled';
     item.setAttribute('data-state', chosen ? 'selected' : (state === 'completed' || state === 'disabled' ? 'disabled' : 'pending'));
   });
+  question.querySelectorAll('.study-typein-input,.study-typein-submit').forEach(function(item) {
+    item.disabled = state === 'completed' || state === 'disabled';
+  });
+}
+
+function studyQuestionHasAnswer(question) {
+  if (!question) return false;
+  if (question.querySelector('.study-option.selected')) return true;
+  var input = question.querySelector('.study-typein-input');
+  return !!(input && String(input.value || '').trim());
 }
 
 function studyActivityQuestions(activity) {
@@ -15473,7 +15509,7 @@ function refreshStudyActivity(activity) {
   if (next) next.disabled = visible >= questions.length - 1;
   var submit = activity.querySelector('.study-activity-submit');
   if (!submit || submit.getAttribute('data-state') === 'completed') return;
-  var ready = questions.length > 0 && questions.every(function(question) { return !!question.querySelector('.study-option.selected'); });
+  var ready = questions.length > 0 && questions.every(studyQuestionHasAnswer);
   submit.disabled = !ready;
   submit.setAttribute('data-state', 'pending');
 }
@@ -15507,6 +15543,34 @@ function studyChoiceSubmission(number, choice) {
   return prefix;
 }
 
+function studyTypedSubmission(number, value) {
+  var typed = normalizeGradingAnswer(value);
+  if (!typed) return '';
+  return String(number || '1') + '-' + typed;
+}
+
+function submitInlineStudyTypeIn(control) {
+  var question = control && control.closest ? control.closest('.study-question') : null;
+  if (!question || question.getAttribute('data-state') === 'completed' || question.getAttribute('data-state') === 'disabled') return;
+  var input = question.querySelector('.study-typein-input');
+  var typed = String(input && input.value || '').trim();
+  if (!typed) return;
+  var activity = question.closest('.study-activity');
+  if (activity) {
+    setStudyQuestionState(question, 'selected', null);
+    refreshStudyActivity(activity);
+    return;
+  }
+  if (question.dataset && question.dataset.handled === 'true') return;
+  if (isLoading) return;
+  if (question.dataset) question.dataset.handled = 'true';
+  setStudyQuestionState(question, 'completed', null);
+  if (!submitStudyChoiceText(studyTypedSubmission(question.getAttribute('data-marg-question') || '1', typed))) {
+    if (question.dataset) question.dataset.handled = '';
+    setStudyQuestionState(question, 'pending', null);
+  }
+}
+
 function selectInlineStudyOption(button) {
   var question = button && button.closest ? button.closest('.study-question') : null;
   if (!question || question.getAttribute('data-state') === 'completed' || question.getAttribute('data-state') === 'disabled') return;
@@ -15536,9 +15600,16 @@ function submitInlineStudyActivity(button) {
   var questions = studyActivityQuestions(activity);
   var missing = false;
   questions.forEach(function(question) {
+    var number = question.getAttribute('data-marg-question') || '';
+    var input = question.querySelector('.study-typein-input');
+    if (input) {
+      var typed = String(input.value || '').trim();
+      if (!typed) { missing = true; return; }
+      lines.push(studyTypedSubmission(number, typed));
+      return;
+    }
     var selected = question.querySelector('.study-option.selected');
     if (!selected) { missing = true; return; }
-    var number = question.getAttribute('data-marg-question') || '';
     lines.push(studyChoiceSubmission(number, selected.getAttribute('data-marg-choice') || ''));
   });
   if (missing || !lines.length) return;
@@ -15617,6 +15688,24 @@ function bindMentorInteractiveControls(root) {
     if (!button.addEventListener || (button.dataset && button.dataset.bound === '1')) return;
     if (button.dataset) button.dataset.bound = '1';
     button.addEventListener('click', function() { selectInlineStudyOption(button); });
+  });
+  root.querySelectorAll('.study-typein-submit').forEach(function(button) {
+    if (!button.addEventListener || (button.dataset && button.dataset.bound === '1')) return;
+    if (button.dataset) button.dataset.bound = '1';
+    button.addEventListener('click', function() { submitInlineStudyTypeIn(button); });
+  });
+  root.querySelectorAll('.study-typein-input').forEach(function(input) {
+    if (!input.addEventListener || (input.dataset && input.dataset.bound === '1')) return;
+    if (input.dataset) input.dataset.bound = '1';
+    input.addEventListener('keydown', function(event) {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      submitInlineStudyTypeIn(input);
+    });
+    input.addEventListener('input', function() {
+      var activity = input.closest('.study-activity');
+      if (activity) refreshStudyActivity(activity);
+    });
   });
   root.querySelectorAll('.study-activity-submit').forEach(function(button) {
     if (button.dataset && button.dataset.bound === '1') return;
@@ -21014,10 +21103,45 @@ function parseInChatQuestionRequest(message) {
   return { section:section, format:format, topic:topic, count:count, sourceText:text };
 }
 
-function inChatOrderToken(option) {
-  var digits = String(option || '').replace(/^[A-D][.)]\s*/i, '').match(/[1-4]/g) || [];
-  if (digits.length !== 4 || new Set(digits).size !== 4) return '';
-  return digits.join('');
+function inChatTitaIndexes(request) {
+  var count = request && request.count || 0;
+  var format = request && request.format;
+  var indexes = [];
+  var i;
+  if (format === 'parajumble' || format === 'odd_one_out') {
+    for (i = 0; i < count; i++) indexes.push(i);
+    return indexes;
+  }
+  if (format !== 'qa' && format !== 'dilr') return indexes;
+  if (/\b(?:tita|type[ -]?in|type the answer|without options)\b/i.test(request.sourceText || '')) {
+    for (i = 0; i < count; i++) indexes.push(i);
+    return indexes;
+  }
+  if (/\b(?:mcq only|with options|multiple[- ]choice only)\b/i.test(request.sourceText || '')) return indexes;
+  if (count >= 2) indexes.push(count - 1);
+  return indexes;
+}
+
+function inChatItemIsTita(request, index) {
+  return inChatTitaIndexes(request).indexOf(index) !== -1;
+}
+
+function normalizeInChatQuestion(question, tita) {
+  if (!question) return question;
+  if (!tita) {
+    normalizeCorrectIndex(question);
+    return question;
+  }
+  var typed = String(question.answer || '').trim();
+  if (!typed && typeof question.correct === 'string' && !/^[0-3]$/.test(question.correct.trim())) typed = question.correct;
+  question.answer = normalizeGradingAnswer(typed);
+  question.options = [];
+  question.correct = question.answer;
+  return question;
+}
+
+function inChatSentencePresent(stem, number, minLength) {
+  return new RegExp('\\(' + number + '\\)\\s*[^\\n(]{' + minLength + ',}').test(String(stem || ''));
 }
 
 function inChatQuestionIssues(request, data) {
@@ -21025,18 +21149,29 @@ function inChatQuestionIssues(request, data) {
   var questions = data && Array.isArray(data.questions) ? data.questions : [];
   if (questions.length !== request.count) issues.push('exactly ' + request.count + ' complete questions are required');
   questions.forEach(function(question, index) {
-    normalizeCorrectIndex(question);
-    if (!isValidTimedTestQuestion(question)) issues.push('question ' + (index + 1) + ' is incomplete or repeats an option');
+    var tita = inChatItemIsTita(request, index);
+    normalizeInChatQuestion(question, tita);
     var stem = String(question && question.q || '');
     if (typeof MargStudy !== 'undefined' && MargStudy.looksCutOff(stem)) issues.push('question ' + (index + 1) + ' stops before it finishes');
     if (String(question && question.explanation || '').trim().length < 24) issues.push('question ' + (index + 1) + ' has no usable explanation');
-    if (request.format === 'parajumble') {
-      [1, 2, 3, 4].forEach(function(n) {
-        var sentence = new RegExp('\\(' + n + '\\)\\s*[^\\n(]{40,}').test(stem);
-        if (!sentence) issues.push('parajumble ' + (index + 1) + ' is missing a full sentence (' + n + ')');
-      });
-      var orders = (question.options || []).map(inChatOrderToken);
-      if (orders.some(function(order) { return !order; }) || new Set(orders).size !== 4) issues.push('parajumble ' + (index + 1) + ' needs four different orders of 1, 2, 3 and 4');
+    if (tita) {
+      if (Array.isArray(question.options) && question.options.length) issues.push('question ' + (index + 1) + ' is type-in and must not include options');
+      if (request.format === 'parajumble') {
+        [1, 2, 3, 4].forEach(function(n) {
+          if (!inChatSentencePresent(stem, n, 40)) issues.push('parajumble ' + (index + 1) + ' is missing a full sentence (' + n + ')');
+        });
+        var order = normalizeGradingAnswer(question.answer);
+        if (!/^[1-4]{4}$/.test(order) || new Set(order.split('')).size !== 4) issues.push('parajumble ' + (index + 1) + ' needs one order of 1, 2, 3 and 4');
+      } else if (request.format === 'odd_one_out') {
+        [1, 2, 3, 4, 5].forEach(function(n) {
+          if (!inChatSentencePresent(stem, n, 24)) issues.push('odd sentence ' + (index + 1) + ' is missing sentence (' + n + ')');
+        });
+        if (!/^[1-5]$/.test(normalizeGradingAnswer(question.answer))) issues.push('odd sentence ' + (index + 1) + ' needs the number of the sentence that does not belong');
+      } else if (!questionHasExplicitTask(stem) || !normalizeGradingAnswer(question.answer)) {
+        issues.push('question ' + (index + 1) + ' needs a complete type-in task and one typed answer');
+      }
+    } else if (!isValidTimedTestQuestion(question)) {
+      issues.push('question ' + (index + 1) + ' is incomplete or repeats an option');
     }
   });
   if (request.format === 'dilr') {
@@ -21058,13 +21193,22 @@ function inChatAuditCandidate(request, data) {
 }
 
 function inChatQuestionLead(request) {
-  if (request.format === 'parajumble') return 'Arrange each group of sentences into one paragraph. Tap the order.';
-  if (request.format === 'odd_one_out') return 'Four of the five sentences make one paragraph. Tap the sentence that does not belong.';
+  var tita = inChatTitaIndexes(request);
+  if (request.format === 'parajumble') return 'Arrange each group into one paragraph. Type the order, for example 2413. There are no options.';
+  if (request.format === 'odd_one_out') return 'Four of the five sentences make one paragraph. Type the number of the sentence that does not belong.';
   if (request.format === 'summary') return 'Tap the option that best captures the paragraph.';
   if (request.format === 'placement') return 'Tap the blank where the sentence fits.';
-  if (request.format === 'dilr') return 'Use the data below. Tap one option for each question.';
+  if (request.format === 'dilr') return tita.length ? 'Use the data below. Tap an option where there are choices. Type the number where there are no choices.' : 'Use the data below. Tap one option for each question.';
   if (request.format === 'rc') return 'Read the passage, then tap one option for each question.';
-  return 'Tap one option for each question.';
+  return tita.length ? 'Tap an option where there are choices. Type the number where there are no choices.' : 'Tap one option for each question.';
+}
+
+function inChatTypeHint(question) {
+  var answer = normalizeGradingAnswer(question && question.answer);
+  var stem = String(question && question.q || '');
+  if (/^[1-4]{4}$/.test(answer) || (/\(1\)/.test(stem) && /\(4\)/.test(stem) && !/\(5\)/.test(stem))) return 'Type in the order of the four sentences, for example 2413.';
+  if (/\(5\)/.test(stem)) return 'Type in the number of the sentence that does not belong.';
+  return 'Type in the answer. There are no options.';
 }
 
 function formatInChatQuestions(request, data) {
@@ -21080,14 +21224,23 @@ function formatInChatQuestions(request, data) {
   return chunks.filter(Boolean).join('\n\n');
 }
 
+function inChatTitaPlan(request) {
+  var slots = inChatTitaIndexes(request);
+  if (!slots.length) return 'Every question is multiple choice. options has exactly four entries beginning with A. B. C. and D. correct is the zero-based index of the only defensible option. answer is an empty string.';
+  var listed = slots.map(function(index) { return index + 1; }).join(' and ');
+  var rule = 'A type-in question has options as an empty array. Put the value the student must type in answer. Set correct to 0; that 0 is ignored. Do not invent A–D options for a type-in question.';
+  if (slots.length === request.count) return 'Every question is type-in. ' + rule;
+  return 'Question ' + listed + ' is type-in. ' + rule + ' Every other question has exactly four options and correct is the zero-based index of the right option.';
+}
+
 function inChatQuestionContract(format) {
-  if (format === 'parajumble') return 'Write original CAT paragraph-order questions. Each stem states the task, then exactly four original sentences on their own lines marked (1), (2), (3) and (4). Each sentence is complete and at least twelve words. Exactly one order is coherent. The four options are different orders, each using 1, 2, 3 and 4 once, written like "A. 2-1-4-3". The first sentence in the right order must not open on a dangling pronoun. Do not leave sentence (4) blank.';
-  if (format === 'summary') return 'Write original CAT summary questions. Each stem contains one original paragraph of 70-110 words and asks which option best captures it. Four options, exactly one of which keeps the scope and force of the paragraph.';
-  if (format === 'odd_one_out') return 'Write original odd-sentence questions. Each stem has five original sentences marked (1) through (5). Four of them make one paragraph and sentence (4) always belongs. Options are "A. Sentence 1", "B. Sentence 2", "C. Sentence 3" and "D. Sentence 5".';
-  if (format === 'placement') return 'Write original sentence-placement questions. Each stem gives one original sentence and a paragraph with blanks marked (1), (2), (3) and (4). Options are "A. Blank 1", "B. Blank 2", "C. Blank 3" and "D. Blank 4". Exactly one blank is defensible.';
-  if (format === 'dilr') return 'Write one original data-reasoning block and the questions on it. The setup names 6 entities and gives interacting conditions a reader can represent. Every fact needed is in the setup. Questions ask for a must-be-true, a count, an exact value, or an if-then. Four distinct options each. Put the setup in "setup" and do not repeat it inside the question stems.';
-  if (format === 'rc') return 'Write one original passage of 260-340 words in three or four paragraphs, with a claim, a qualification and a shift. Questions test purpose, the role of an example, or an inference. Four options each. Two options should be close. Put the passage in "passage".';
-  return 'Write original CAT quantitative questions. The work is in finding the representation, not in long arithmetic. Every needed fact is in the stem. Four distinct options, exactly one correct. Wrong options are identifiable slips.';
+  if (format === 'parajumble') return 'Write original CAT paragraph-order questions, the type-in kind used since CAT 2025. Each stem states the task, then exactly four original sentences on their own lines marked (1), (2), (3) and (4). Each sentence is complete and at least twelve words. Exactly one order is coherent. answer is that order as four digits, such as 2413. options is an empty array. The first sentence in the right order must not open on a dangling pronoun. Do not leave sentence (4) blank and do not offer order choices.';
+  if (format === 'summary') return 'Write original CAT summary questions. Each stem contains one original paragraph of 70-110 words and asks which option best captures it. Four options, exactly one of which keeps the scope and force of the paragraph. These stay multiple choice.';
+  if (format === 'odd_one_out') return 'Write original odd-sentence questions, the type-in kind. Each stem has five original sentences marked (1) through (5). Exactly four make one paragraph. answer is the number of the sentence that does not belong, from 1 to 5. Do not decide in advance which number is odd. options is an empty array. Do not offer sentence choices.';
+  if (format === 'placement') return 'Write original sentence-placement questions. Each stem gives one original sentence and a paragraph with blanks marked (1), (2), (3) and (4). Options are "A. Blank 1", "B. Blank 2", "C. Blank 3" and "D. Blank 4". Exactly one blank is defensible. These stay multiple choice.';
+  if (format === 'dilr') return 'Write one original data-reasoning block and the questions on it. The setup names 6 entities and gives interacting conditions a reader can represent. Every fact needed is in the setup. Questions ask for a must-be-true, a count, an exact value, or an if-then. A multiple-choice question has four distinct options. A type-in question asks for a count or an exact value and has no options; answer is that number. Put the setup in "setup" and do not repeat it inside the question stems.';
+  if (format === 'rc') return 'Write one original passage of 260-340 words in three or four paragraphs, with a claim, a qualification and a shift. Questions test purpose, the role of an example, or an inference. Four options each. Two options should be close. Put the passage in "passage". RC questions stay multiple choice.';
+  return 'Write original CAT quantitative questions. The work is in finding the representation, not in long arithmetic. Every needed fact is in the stem. A multiple-choice question has four distinct options and exactly one correct; wrong options are identifiable slips. A type-in question has no options and answer is the number.';
 }
 
 function buildInChatQuestionPrompt(request, avoidNotes) {
@@ -21096,17 +21249,18 @@ function buildInChatQuestionPrompt(request, avoidNotes) {
   var avoid = typeof MargStudy !== 'undefined' && MargStudy.avoidBlock ? MargStudy.avoidBlock(memorySection, 6) : '';
   var topicLine = request.topic ? 'Every question must be about ' + request.topic + '.' : '';
   return 'Create exactly ' + request.count + ' original CAT questions for this chat. They must be complete. Never stop mid-sentence or after a blank number.\n' +
-    inChatQuestionContract(request.format) + '\n' + topicLine + '\n' + style + '\n' + avoid + (avoidNotes || '') +
-    '\nDo not copy a published question. Return only JSON of this shape: {"passage":"","setup":"","questions":[{"q":"full stem","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"why the key is the only defensible option"}]}. Use passage only for a reading passage and setup only for data. correct is the zero-based index.';
+    inChatQuestionContract(request.format) + '\n' + inChatTitaPlan(request) + '\n' + topicLine + '\n' + style + '\n' + avoid + (avoidNotes || '') +
+    '\nDo not copy a published question. Return only JSON of this shape: {"passage":"","setup":"","questions":[{"q":"full stem","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"answer":"","explanation":"why the key is the only defensible value"}]}. Use an empty options array and put the typed key in answer for a type-in question. Use passage only for a reading passage and setup only for data.';
 }
 
 function getInChatQuestionSchema(request) {
   var question = {
-    type:'object', required:['q','options','correct','explanation'],
+    type:'object', required:['q','options','correct','answer','explanation'],
     properties:{
       q:{ type:'string' },
-      options:{ type:'array', minItems:4, maxItems:4, items:{ type:'string' } },
+      options:{ type:'array', items:{ type:'string' } },
       correct:{ type:'integer', minimum:0, maximum:3 },
+      answer:{ type:'string' },
       explanation:{ type:'string' }
     }
   };
@@ -21133,7 +21287,7 @@ async function serveOriginalQuestionsInChat(request) {
       var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(geminiRequest) }, 120000);
       var payload = await response.json();
       var parsed = parseGeneratedJson(await resolveStudyReply(payload, geminiRequest, 120000, { json:true }));
-      if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(normalizeCorrectIndex);
+      if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(function(question, index) { normalizeInChatQuestion(question, inChatItemIsTita(request, index)); });
       var issues = inChatQuestionIssues(request, parsed || {});
       candidate = inChatAuditCandidate(request, parsed || {});
       var memorySection = request.section === 'qa' ? 'qa' : request.section === 'dilr' ? 'dilr' : 'rc';
@@ -21145,7 +21299,7 @@ async function serveOriginalQuestionsInChat(request) {
         avoidNotes = '\nPREVIOUS DRAFT REJECTED: ' + issues.join('; ') + '. Write a different complete item.';
         continue;
       }
-      audit = await auditGeneratedCATContent(request.section === 'va' ? 'va' : request.section, candidate, request.topic || null, [], { timeoutMs:110000 });
+      audit = await auditGeneratedCATContent(request.section === 'va' ? 'va' : request.section, candidate, request.topic || null, [], { timeoutMs:110000, answerMode:inChatTitaIndexes(request).length ? 'typed' : '' });
       if (!audit || !audit.valid) {
         avoidNotes = '\nPREVIOUS DRAFT FAILED THE INDEPENDENT ANSWER CHECK: ' + ((audit && audit.issues) || ['incomplete']).join('; ') + '.';
         continue;
@@ -21253,7 +21407,8 @@ async function maybeGenerateConversationalRC(message) {
   // Reuse the existing checked, four-question RC card inside this thread.
   // A conversational request must not silently navigate away from the chat.
   if (!articleRCGenerating) {
-    currentArticle = selectCuratedRCTheme(currentTopic, Math.max(0, Number(articleIndex) || 0));
+    currentRCSource = 'marg';
+    currentArticle = bankStyledPracticeSource(currentTopic);
     await createRCPassage();
   }
   return true;
@@ -22230,14 +22385,41 @@ const RSS_FEEDS = {
   environment: 'https://api.rss2json.com/v1/api.json?rss_url=https://www.thehindu.com/sci-tech/feeder/default.rss&count=10',
   politics: 'https://api.rss2json.com/v1/api.json?rss_url=https://www.thehindu.com/opinion/editorial/feeder/default.rss&count=10',
   technology: 'https://api.rss2json.com/v1/api.json?rss_url=https://www.thehindu.com/sci-tech/technology/feeder/default.rss&count=10',
-  philosophy: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/feed.rss&count=10'
+  philosophy: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/philosophy/feed.rss&count=15',
+  ideas: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/philosophy/feed.rss&count=15',
+  science: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/science/feed.rss&count=15',
+  economics: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/society/feed.rss&count=15',
+  history: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/culture/feed.rss&count=15',
+  surprise: 'https://api.rss2json.com/v1/api.json?rss_url=https://aeon.co/essays/feed.rss&count=15'
 };
+
+function aeonFeedTopic(topic) {
+  var key = String(topic || '');
+  if (key === 'ideas' || key === 'science' || key === 'economics' || key === 'history' || key === 'surprise' || key === 'philosophy') return key;
+  return 'surprise';
+}
+
+function bankStyledPracticeSource(topic) {
+  var label = RC_TOPIC_LABELS[topic] || 'Surprise theme';
+  return {
+    title:label,
+    source:'Marg original',
+    preview:'',
+    content:'',
+    contentVerified:false,
+    bankStyled:true,
+    originalTheme:false,
+    genre:topic || 'surprise',
+    url:'',
+    publishedAt:''
+  };
+}
 
 function normalizeDailyArticle(article) {
   if (!article || !article.title || !/^https:\/\//i.test(String(article.url || ''))) return null;
   return {
     title:String(article.title || '').trim(),
-    source:String(article.source || (currentTopic === 'philosophy' ? 'Aeon' : 'The Hindu')).trim(),
+    source:String(article.source || (/aeon\.co/i.test(String(article.url || '')) ? 'Aeon' : 'The Hindu')).trim(),
     preview:String(article.preview || article.content || '').trim().slice(0, 260),
     url:String(article.url || '').trim(),
     content:String(article.content || article.preview || '').trim().slice(0, 18000),
@@ -22573,8 +22755,22 @@ function updateRCLabCard() {
   if (sourceBadge) sourceBadge.textContent = currentArticle && /^Aeon/i.test(String(currentArticle.source || ''))
     ? '📖 Today’s VARC · original RC based on Aeon'
     : '📖 Today’s VARC · Marg Original';
+  var titleEl = document.getElementById('varc-title');
+  var metaEl = document.getElementById('varc-meta');
+  var aeonEssay = currentArticle && /^Aeon/i.test(String(currentArticle.source || '')) && !currentArticle.unavailable;
+  if (titleEl && currentArticle) {
+    if (currentArticle.unavailable) titleEl.textContent = 'Aeon essay unavailable';
+    else if (aeonEssay) titleEl.textContent = currentArticle.title;
+    else if (currentArticle.bankStyled) titleEl.textContent = 'New ' + currentArticle.title + ' passage';
+  }
+  if (metaEl && aeonEssay) metaEl.textContent = 'Aeon essay · original CAT passage · the essay is not copied';
   var theme = document.getElementById('rc-lab-theme');
-  if (theme && currentArticle) theme.textContent = (/^Aeon/i.test(String(currentArticle.source||''))?'Today’s Aeon essay: ':'Today’s theme: ') + currentArticle.title + '.';
+  if (theme && currentArticle) {
+    if (currentArticle.unavailable) theme.textContent = 'Aeon did not return an essay for this topic. Try it again, or pick another topic. A stored passage will not be substituted.';
+    else if (aeonEssay) theme.textContent = 'Today’s Aeon essay: ' + currentArticle.title + '. Marg writes an original passage from the essay. The essay is not copied into the question.';
+    else if (currentArticle.bankStyled) theme.textContent = 'A new passage in the style of CAT RC questions, for ' + currentArticle.title + '.';
+    else theme.textContent = 'Today’s theme: ' + currentArticle.title + '.';
+  }
 }
 
 function selectRCLabMode(mode) {
@@ -22616,7 +22812,7 @@ async function startConfiguredRCPractice(options) {
   // explicit /today-varc command instead of both entries opening one product.
   currentRCSource = 'marg';
   articleIndex = Math.max(0, Number(articleIndex) || 0);
-  currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  currentArticle = bankStyledPracticeSource(currentTopic);
   saveRCLabPreferences();
   await createRCPassage();
 }
@@ -22633,16 +22829,42 @@ window.openTodaysVarcExperience = openTodaysVarcExperience;
 // Overrides the old publisher-card implementation above. The older fetch
 // helpers remain only for backward compatibility with saved sessions; this is
 // the live Today’s VARC path.
+function markAeonEssayUnavailable() {
+  currentArticle = {
+    title:'The Aeon essay for this topic is not available right now',
+    source:'Aeon',
+    preview:'',
+    content:'',
+    url:'',
+    unavailable:true
+  };
+}
+
+async function loadAeonEssayForCurrentTopic(offset) {
+  var feedTopic = aeonFeedTopic(currentTopic);
+  var start = Math.max(0, Number(offset) || 0);
+  try {
+    var cached = start ? null : readDailyArticleSelection(feedTopic);
+    var article = cached || await fetchFreshDailyArticle(feedTopic, start);
+    if (!article || !/aeon\.co/i.test(String(article.url || ''))) throw new Error('The feed did not return an Aeon essay');
+    if (!cached) rememberDailyArticle(feedTopic, article);
+    article.source = 'Aeon';
+    currentArticle = article;
+  } catch (error) {
+    console.warn('Aeon essay unavailable for ' + feedTopic + ':', error && error.message || error);
+    markAeonEssayUnavailable();
+  }
+  return currentArticle;
+}
+
 async function loadVarcCard(topic) {
   ensureRCLabStyles();
   restoreRCLabPreferences();
   if (RC_TOPIC_LABELS[topic]) currentTopic = topic;
   if (!RC_TOPIC_LABELS[currentTopic]) currentTopic = 'surprise';
   articleIndex = Math.max(0, Number(articleIndex) || 0);
-  if(currentRCSource==='aeon'){
-    try{currentArticle=readDailyArticleSelection('philosophy')||await fetchFreshDailyArticle('philosophy',0);rememberDailyArticle('philosophy',currentArticle);}
-    catch(error){currentArticle=selectCuratedRCTheme(currentTopic,articleIndex);currentArticle.source='Marg Original (Aeon feed unavailable)';currentArticle.url='';}
-  }else currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  if (currentRCSource === 'aeon') await loadAeonEssayForCurrentTopic(articleIndex);
+  else currentArticle = bankStyledPracticeSource(currentTopic);
   var card = document.getElementById('varc-card');
   if (card) { card.style.display = ''; card.classList.add('visible'); }
   updateRCLabCard();
@@ -22653,17 +22875,19 @@ async function loadVarcCard(topic) {
 function selectVarcTopic(topic) {
   if (!RC_TOPIC_LABELS[topic]) return;
   currentTopic = topic;
-  if(currentRCSource!=='aeon'){articleIndex = 0;currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);}
+  articleIndex = 0;
   saveRCLabPreferences();
+  if (currentRCSource === 'aeon') {
+    return loadAeonEssayForCurrentTopic(0).then(updateRCLabCard);
+  }
+  currentArticle = bankStyledPracticeSource(currentTopic);
   updateRCLabCard();
 }
 
 async function refreshArticle() {
   articleIndex = Math.max(0, Number(articleIndex) || 0) + 1;
-  if(currentRCSource==='aeon'){
-    try{currentArticle=await fetchFreshDailyArticle('philosophy',articleIndex);rememberDailyArticle('philosophy',currentArticle);}
-    catch(error){currentArticle=selectCuratedRCTheme(currentTopic,articleIndex);currentArticle.source='Marg Original (Aeon feed unavailable)';currentArticle.url='';}
-  }else currentArticle = selectCuratedRCTheme(currentTopic, articleIndex);
+  if (currentRCSource === 'aeon') await loadAeonEssayForCurrentTopic(articleIndex);
+  else currentArticle = bankStyledPracticeSource(currentTopic);
   updateRCLabCard();
   return currentArticle;
 }
@@ -22770,37 +22994,42 @@ async function getGroundedArticleSourceBrief(article, timeoutMs) {
 
 async function createRCPassage() {
   if (articleRCGenerating) return;
+  if (currentArticle && currentArticle.unavailable) {
+    addMessage('marg', 'I could not load an Aeon essay for this topic, so I will not substitute a stored passage. Try the topic again or pick another one.', true);
+    return;
+  }
   if (!currentArticle) {
-    currentArticle = selectCuratedRCTheme(currentTopic, Math.max(0, Number(articleIndex) || 0));
+    if (currentRCSource === 'aeon') await loadAeonEssayForCurrentTopic(articleIndex || 0);
+    else currentArticle = bankStyledPracticeSource(currentTopic);
+  }
+  if (!currentArticle || currentArticle.unavailable) {
+    addMessage('marg', 'I could not load an Aeon essay for this topic, so I will not substitute a stored passage. Try the topic again or pick another one.', true);
+    return;
   }
   articleRCGenerating = true;
   closeVarcCard();
   var articleText = currentArticle.content || currentArticle.preview;
   var prompt = '';
   var rcConfig = getRCLabConfiguration();
+  var freshReading = currentRCSource === 'aeon' || !!(currentArticle && currentArticle.bankStyled);
 
-  function buildArticleRCPrompt(sourceMaterial) { var publisherMaterial=currentArticle&&/^Aeon/i.test(String(currentArticle.source||'')); var publisherGrounded=publisherMaterial&&currentArticle.contentVerified; return `${publisherGrounded?'Use the verified Aeon article material below as conceptual scaffolding':publisherMaterial?'Use the selected Aeon publisher excerpt below as conceptual scaffolding':'Use this Marg-owned theme brief as conceptual scaffolding'}. Write a completely original CAT-style RC; do not quote or reproduce the source.
-
-Theme: "${currentArticle.title}"
-Reading world: ${rcConfig.topicLabel}
-${publisherGrounded?'Verified source material':publisherMaterial?'Publisher excerpt':'Theme brief'}: ${sourceMaterial}
-
-Student selected: ${rcConfig.focusLabel}.
-Question mix: ${getRCQuestionBlueprint(rcConfig)}.
-Difficulty: ${rcConfig.difficultyLabel}. ${getRCDifficultyInstruction(rcConfig)}
-
-Generate exactly one RC passage of 475-510 words in exactly 4 distinct paragraphs and exactly four questions using that question mix. Any detail or reference question must ask why a detail is used, what it establishes, or where a claim is supported in context; it must not be a copy-the-line fact lookup. Build a central thesis, one qualification or counter-consideration, and a meaningful change or development in the author's position. The passage must reward structural reading rather than factual recall.
-
-Each question must have exactly four distinct plausible options and one defensible answer. At least two options should be close; wrong options should use controlled scope, force, ownership, context or inference traps rather than obvious nonsense. Use only information stated or necessarily implied by the passage. Independently solve every question. Include private sufficiency_check and option_check fields; they will not be shown to the student. Keep explanations to one or two clean sentences. Return only valid JSON in this exact shape: {"sets":[{"passage":"450-520 words with blank lines between paragraphs","difficulty":"Hard","topic":"specific theme","questions":[{"q":"complete question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based reason","sufficiency_check":"why the passage is sufficient","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one useful decision rule"}]}]}`; }
+  function buildArticleRCPrompt(sourceMaterial) {
+    var fromAeon = currentRCSource === 'aeon' && /^Aeon/i.test(String(currentArticle.source || ''));
+    var opener = fromAeon
+      ? 'Use the Aeon essay below only as private scaffolding for the argument’s tension. Write a completely original CAT passage and original questions. Do not copy sentences, examples, names, or distinctive phrases from the essay. The student must not be able to recognise the source essay from the passage.'
+      : 'Write a wholly new CAT RC in the way published CAT passages and questions are built. Do not reuse a stored theme, a published passage, or a passage the student has already seen. Invent a new situation, a new argument and new questions.';
+    var style = !fromAeon && typeof MargStudy !== 'undefined' && MargStudy.bankStyleBrief ? '\n' + MargStudy.bankStyleBrief('rc') + '\n' + (MargStudy.qualityBrief ? MargStudy.qualityBrief('varc') : '') : '';
+    var sourceLabel = fromAeon ? 'Aeon essay scaffolding, not text to copy' : 'No stored theme. Use the bank style notes above and invent the passage.';
+    return opener + style + '\n\nTheme: "' + currentArticle.title + '"\nReading world: ' + rcConfig.topicLabel + '\n' + sourceLabel + ': ' + (sourceMaterial || 'none') + '\n\nStudent selected: ' + rcConfig.focusLabel + '.\nQuestion mix: ' + getRCQuestionBlueprint(rcConfig) + '.\nDifficulty: ' + rcConfig.difficultyLabel + '. ' + getRCDifficultyInstruction(rcConfig) + '\n\nGenerate exactly one RC passage of 475-510 words in exactly 4 distinct paragraphs and exactly four questions using that question mix. Any detail or reference question must ask why a detail is used, what it establishes, or where a claim is supported in context; it must not be a copy-the-line fact lookup. Build a central thesis, one qualification or counter-consideration, and a meaningful change or development in the author\'s position. The passage must reward structural reading rather than factual recall.\n\nEach question must have exactly four distinct plausible options and one defensible answer. At least two options should be close; wrong options should use controlled scope, force, ownership, context or inference traps rather than obvious nonsense. Use only information stated or necessarily implied by the passage. Independently solve every question. Include private sufficiency_check and option_check fields; they will not be shown to the student. Keep explanations to one or two clean sentences. Return only valid JSON in this exact shape: {"sets":[{"passage":"450-520 words with blank lines between paragraphs","difficulty":"Hard","topic":"specific theme","questions":[{"q":"complete question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based reason","sufficiency_check":"why the passage is sufficient","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one useful decision rule"}]}]}';
+  }
 
   addMessage('marg', "I’m setting up a <strong>" + rcConfig.difficultyLabel + " RC</strong> around <strong>" + rcConfig.focusLabel.toLowerCase() + "</strong>. The questions will be checked before you see them.", true);
   showTyping();
   profileContext = getDateContext() + '\n\nVERIFIED RECENT TRANSCRIPT:\n' + getTrustedSessionMemory() + '\n\nSTUDENT PROFILE:\n- Attempt number: ' + studentProfile.attemptNumber + '\n- Months until CAT: ' + studentProfile.monthsLeft + '\n- Weakest section: ' + studentProfile.weakestSection + '\n- Daily study hours: ' + studentProfile.dailyHours + '\n- Current situation: ' + studentProfile.situation;
   var articleRCStage = 'generation_request';
-  // Bound the whole foreground wait. If generation or independent checking
-  // cannot finish promptly, the preverified local bank is delivered in this
-  // same click rather than making the student wait through serial retries.
-  var articleRCDeadline = Date.now() + 16000;
+  // Today's Aeon RC and bank-styled practice wait for a new passage. A stored
+  // pack is not a substitute for either of those.
+  var articleRCDeadline = Date.now() + (freshReading ? 90000 : 16000);
   function remainingRCBudget(limit) {
     var remaining = articleRCDeadline - Date.now();
     if (remaining < 2500) throw new Error('RC preparation reached its time budget');
@@ -22825,7 +23054,14 @@ Each question must have exactly four distinct plausible options and one defensib
       return;
     }
     articleRCStage = 'theme_selection';
-    articleText = currentRCSource==='aeon' ? await getGroundedArticleSourceBrief(currentArticle, 4500) : (currentArticle.content || currentArticle.preview);
+    if (currentRCSource === 'aeon') {
+      articleText = await getGroundedArticleSourceBrief(currentArticle, 12000);
+      if (countPracticeWords(articleText) < 80) throw new Error('The Aeon essay did not yield enough material for an original passage');
+    } else if (currentArticle.bankStyled) articleText = '';
+    else articleText = currentArticle.content || currentArticle.preview;
+    if (currentArticle && currentArticle.bankStyled && typeof ensureStudyConfigured === 'function' && ensureStudyConfigured() && MargStudy.loadLibrary) {
+      try { await MargStudy.loadLibrary(); } catch (libraryError) {}
+    }
     prompt = buildArticleRCPrompt(articleText);
     if (ensureStudyConfigured()) prompt += '\n' + MargStudy.qualityBrief('varc') + ' ' + MargStudy.avoidBlock('rc', 5);
     prompt += '\nPASSAGE TARGET OVERRIDE: write 500-520 words, four paragraphs of approximately 125-130 words each. Do not aim at the lower limit. Use a complete question ending in ? or an explicit forced-choice task ending in :. Each private check must be a specific evidence sentence, never a label.';
@@ -22970,9 +23206,17 @@ Each question must have exactly four distinct plausible options and one defensib
   } catch(e) {
     hideTyping();
     recordProductIncident('rc_lab_generation_failed', e, { surface:'today_varc', section:'rc', topic:currentArticle && currentArticle.title || '', stage:articleRCStage, configuration:rcConfig });
+    if (freshReading) {
+      console.error('Fresh RC was not replaced with a stored passage:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
+      var freshFailure = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem right now. Your RC setup is saved; retrying it immediately will not fix the connection.' : (currentRCSource === 'aeon' ? 'I could not finish an original passage from that Aeon essay. I will not send a stored passage instead. Try the same topic again or pick another essay.' : 'I could not finish a new passage in the CAT style. I will not send a stored passage instead. Try the same setup again.');
+      addMessage('marg', freshFailure, true);
+      conversationHistory.push({ role:'assistant', content:freshFailure });
+      if (!isGuestMode) saveChatMessage('assistant', freshFailure);
+      if (!isGeminiLocationError(e)) showArticleRCRecoveryChoices();
+    } else {
     // A student should not need two or three clicks because a fresh draft or
     // its independent audit failed. Serve a fully checked Marg-owned RC from
-    // the local safety bank in the same action. It is labelled as mixed when
+    // the local safety bank in this same action. It is labelled as mixed when
     // it cannot exactly preserve a narrower requested question distribution.
     var safeFallback = getVerifiedArticleRCFallback(JSON.stringify(rcConfig) + '|' + String(articleIndex));
     if (validateRCPracticeSet(safeFallback, 4)) {
@@ -23004,6 +23248,7 @@ Each question must have exactly four distinct plausible options and one defensib
       conversationHistory.push({ role:'assistant', content:failureText });
       if (!isGuestMode) saveChatMessage('assistant', failureText);
       if (!isGeminiLocationError(e)) showArticleRCRecoveryChoices();
+    }
     }
   } finally {
     articleRCGenerating = false;
@@ -25497,7 +25742,8 @@ function buildRCPrompt() {
       recentMistakes = 'Recent specific mistakes to target: ' + rcMistakes.map(function(m) { return m.insight; }).join('; ') + '. Generate questions that specifically expose and help fix these exact mistakes.';
     }
   }
-  return sourceCalibration + ' Generate exactly 1 CAT-level RC passage with exactly 3 questions. ' + focusArea + recentMistakes + ' PASSAGE LENGTH IS NON-NEGOTIABLE: the passage alone must contain 480-550 words. Count the words before returning; if it is below 480 or above 550, rewrite it. Do not count questions, options or metadata. Use a topic from Philosophy, Economics, Science, Technology, Social Issues, Environment, History, Culture, or Psychology. Write with the density of a real CAT RC passage: academic or serious opinion writing, not explainer prose or a story. Build one central thesis, a counter-consideration or qualification, and at least one subtle shift in the author\'s position. Use layered sentence structure and precise subject-appropriate vocabulary. A skim must not be enough.' + RC_CALIBRATION_EXAMPLE + ' Structure the passage as 4 distinct paragraphs separated by \\n\\n inside the JSON string. The 3 questions must test Primary Purpose, Author Attitude, and Inference. Every question needs four distinct options; at least two should look plausible, while wrong options use controlled traps such as overstatement, scope shift, partial truth, causal reversal, or confusing the author\'s view with a view discussed in the passage. Independently verify the answer key before responding. Use only claims stated in or necessarily implied by the passage. Keep each explanation to one or two short sentences. For every question include a private sufficiency_check explaining why the passage alone is enough and an option_check confirming why exactly one option survives; these fields are validation evidence and are not shown to the student. Return ONLY valid JSON, no markdown, exactly this shape with exactly 1 object in the sets array: {"sets":[{"passage":"480-550 word text with \\n\\n between four paragraphs","difficulty":"Medium-Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"one or two short sentences","sufficiency_check":"why the passage fully determines the answer","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one short sentence"}]}]}';
+  var bankStyle = typeof MargStudy !== 'undefined' && MargStudy.bankStyleBrief ? '\n' + MargStudy.bankStyleBrief('rc') + '\n' + (MargStudy.qualityBrief ? MargStudy.qualityBrief('varc') : '') + '\nWrite a wholly new passage and wholly new questions. Study the instruction shape only. Do not reuse a stored passage, a published passage, or a passage the student has already seen.\n' : '\nWrite a wholly new passage and wholly new questions. Do not reuse a stored or previously shown passage.\n';
+  return sourceCalibration + bankStyle + ' Generate exactly 1 CAT-level RC passage with exactly 3 questions. ' + focusArea + recentMistakes + ' PASSAGE LENGTH IS NON-NEGOTIABLE: the passage alone must contain 480-550 words. Count the words before returning; if it is below 480 or above 550, rewrite it. Do not count questions, options or metadata. Use a topic from Philosophy, Economics, Science, Technology, Social Issues, Environment, History, Culture, or Psychology. Write with the density of a real CAT RC passage: academic or serious opinion writing, not explainer prose or a story. Build one central thesis, a counter-consideration or qualification, and at least one subtle shift in the author\'s position. Use layered sentence structure and precise subject-appropriate vocabulary. A skim must not be enough.' + RC_CALIBRATION_EXAMPLE + ' Structure the passage as 4 distinct paragraphs separated by \\n\\n inside the JSON string. The 3 questions must test Primary Purpose, Author Attitude, and Inference. Every question needs four distinct options; at least two should look plausible, while wrong options use controlled traps such as overstatement, scope shift, partial truth, causal reversal, or confusing the author\'s view with a view discussed in the passage. Independently verify the answer key before responding. Use only claims stated in or necessarily implied by the passage. Keep each explanation to one or two short sentences. For every question include a private sufficiency_check explaining why the passage alone is enough and an option_check confirming why exactly one option survives; these fields are validation evidence and are not shown to the student. Return ONLY valid JSON, no markdown, exactly this shape with exactly 1 object in the sets array: {"sets":[{"passage":"480-550 word text with \\n\\n between four paragraphs","difficulty":"Medium-Hard","topic":"name","questions":[{"q":"question","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"one or two short sentences","sufficiency_check":"why the passage fully determines the answer","option_check":"why exactly one option survives","trap_type":"short trap label","marg_insight":"one short sentence"}]}]}';
 }
 
 function buildDILRPrompt(topic) {
@@ -26160,6 +26406,33 @@ function normalizeAuditedAnswerIndex(value) {
   return NaN;
 }
 
+function expectedTypedAnswers(data, section) {
+  var questions = [];
+  if (section === 'qa' || section === 'va') questions = data && Array.isArray(data.questions) ? data.questions : [];
+  else (data && Array.isArray(data.sets) ? data.sets : []).forEach(function(setObj) {
+    if (setObj && Array.isArray(setObj.questions)) questions = questions.concat(setObj.questions);
+  });
+  return questions.map(function(question) {
+    var options = question && Array.isArray(question.options) ? question.options : [];
+    if (options.length >= 2 && Number.isInteger(question.correct) && question.correct >= 0 && question.correct < options.length) return String.fromCharCode(65 + question.correct);
+    return normalizeGradingAnswer(question && (question.answer || question.correct));
+  });
+}
+
+function validateTypedPracticeVerification(audit, generatedData, section) {
+  var expected = expectedTypedAnswers(generatedData, section);
+  var verification = audit && audit.verification;
+  var typed = verification && Array.isArray(verification.typed_answers) ? verification.typed_answers : [];
+  var explanations = verification && Array.isArray(verification.answer_explanations) ? verification.answer_explanations : [];
+  var issues = [];
+  if (!expected.length || typed.length !== expected.length) issues.push('The independent audit did not return one typed answer for every question');
+  else expected.forEach(function(key, position) {
+    if (!key || normalizeGradingAnswer(typed[position]) !== normalizeGradingAnswer(key)) issues.push('Independent answer disagreement at question ' + (position + 1));
+  });
+  if (explanations.length !== expected.length || explanations.some(function(text) { return typeof text !== 'string' || text.trim().length < 12; })) issues.push('The independent check did not explain every typed answer');
+  return { valid:issues.length === 0, issues:issues };
+}
+
 function validateIndependentPracticeVerification(audit, generatedData, section) {
   var expected = collectPracticeAnswerIndices(generatedData, section);
   var verification = audit && audit.verification;
@@ -26229,7 +26502,7 @@ function applyAuditedRCVerification(generatedData, audit) {
 function buildStudentVisiblePracticeForAudit(data, section) {
   var visible = JSON.parse(JSON.stringify(data || {}));
   var questions = [];
-  if (section === 'qa') questions = Array.isArray(visible.questions) ? visible.questions : [];
+  if (section === 'qa' || section === 'va') questions = Array.isArray(visible.questions) ? visible.questions : [];
   else (Array.isArray(visible.sets) ? visible.sets : []).forEach(function(setObj) {
     // Claimed deductions are part of the generator's private answer material,
     // not evidence available to a student solving the set.
@@ -26237,7 +26510,7 @@ function buildStudentVisiblePracticeForAudit(data, section) {
     if (setObj && Array.isArray(setObj.questions)) questions = questions.concat(setObj.questions);
   });
   questions.forEach(function(question) {
-    ['correct','solution','explanation','sufficiency_check','option_check','common_mistake','marg_insight','trap_type','concept_check'].forEach(function(field) {
+    ['correct','answer','solution','explanation','sufficiency_check','option_check','common_mistake','marg_insight','trap_type','concept_check','typeHint'].forEach(function(field) {
       if (question) delete question[field];
     });
   });
@@ -26288,7 +26561,7 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
     : section === 'dilr'
       ? ' DILR LEVEL: flag purely direct-lookup puzzles without interacting constraints as unsuitable. Do not guess solve time or reject a valid set for an unmeasured 12-minute threshold. Fatal failures are contradictions, missing data or ambiguous answers.'
       : section === 'va'
-        ? ' VA LEVEL: each item must be complete and have exactly one defensible option. A paragraph-order item needs four full sentences and exactly one coherent order. Reject a missing sentence, two equally good orders, or an option that is not a permutation of 1, 2, 3 and 4. A summary or placement item needs the full paragraph. Return one short answer explanation per question.'
+        ? ' VA LEVEL: each item must be complete and have exactly one defensible answer. A paragraph-order item needs four full sentences and exactly one coherent order, with no option list. An odd-sentence item needs five sentences and exactly one sentence that does not belong. Reject a missing sentence or two equally good answers. A summary or placement item needs the full paragraph and four options. Return one short answer explanation per question.'
         : ' QA LEVEL: flag single-step formula drills as unsuitable. Redundant context or an easier-than-ideal distractor is a quality note, not proof of an unsolvable question. Fatal failures are missing data, contradictions or multiple defensible answers.';
   var presentationAudit = ' SOLUTION PRESENTATION: every solution/explanation must be a clean final derivation. Any false start, abandoned arithmetic, self-correction, drafting note, repeated variable definition, or phrase such as "wait", "let\'s recheck", "let\'s fix", "actually", or "ignore that" is a failure.';
   if (knownPresentationIssues && knownPresentationIssues.length) {
@@ -26297,10 +26570,21 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
     // un-audited repair. Fail closed and move to a verified fallback/retry.
     return { valid:false, issues:knownPresentationIssues.slice(), correctedData:null, failureType:'local' };
   }
-  var answerCount = collectPracticeAnswerIndices(generatedData, section).length;
+  auditOptions = auditOptions || {};
+  var typedMode = auditOptions.answerMode === 'typed';
+  if (typedMode) levelAudit += ' TYPE-IN ITEMS: a question with no options is a valid CAT type-in item. Do not reject it for lacking options and do not invent options. Paragraph order is four digits using 1, 2, 3 and 4 once. Odd sentence is one number from 1 to 5. A numeric type-in is one number. Return verification.typed_answers in display order. A lettered question is A, B, C or D.';
+  var answerCount = typedMode ? expectedTypedAnswers(generatedData, section).length : collectPracticeAnswerIndices(generatedData, section).length;
   var setCount = generatedData && Array.isArray(generatedData.sets) ? generatedData.sets.length : 0;
   var exampleAnswerIndices = Array.from({ length:answerCount }, function(_unused, index) { return index % 4; });
-  var validShape = JSON.stringify({
+  var typedShape = {
+    valid:true,
+    issues:[],
+    verification:{
+      typed_answers:Array.from({ length:answerCount }, function() { return '2413'; }),
+      answer_explanations:Array.from({ length:answerCount }, function() { return 'One order, sentence number or value follows from the written material and every alternative fails.'; })
+    }
+  };
+  var validShape = typedMode ? JSON.stringify(typedShape) : JSON.stringify({
     valid:true,
     issues:[],
     verification:section === 'dilr'
@@ -26316,7 +26600,10 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
   });
   if (section === 'qa') levelAudit += ' QA PROOF: return one clean 2-4 step arithmetic derivation per question in verification.answer_explanations, using only the stated numbers and relationships and ending in the selected option’s value. Independently recompute percentages, totals, rounding and each possible branch. Never infer a missing quantity.';
   var studentVisibleMaterial = buildStudentVisiblePracticeForAudit(generatedData, section);
-  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible. Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option.' + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. For RC, return one short passage-grounded answer explanation for every independently solved answer; these explanations replace the generator\'s untrusted key and explanation. For RC, valid=false is reserved for a fatal student-facing defect: an incomplete passage or question, contradictory information, no passage-supported answer, or more than one defensible answer. A merely easier-than-ideal question or distractor is a quality note, not a reason to discard a complete solvable RC. Return the independently solved zero-based answer indices for every question in display order. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not alter the student-visible questions or options. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
+  var answerInstruction = typedMode
+    ? ' A question with no options is type-in: solve it and return that typed value. A question with options still has exactly one correct letter. Return verification.typed_answers, not option indexes.'
+    : ' Check mutual consistency, feasibility, sufficiency, four distinct options, and exactly one correct option. Return the independently solved zero-based answer indices for every question in display order.';
+  var auditPrompt = 'Independently solve and audit this generated CAT ' + String(section || '').toUpperCase() + ' material. The material deliberately excludes the generator\'s answer keys and solutions. Work only from the student-visible setup, passage, question and options. DATA COMPLETENESS IS MANDATORY: reject any item whose solution needs a number, relationship, convention, diagram fact or assumption that is not stated or necessarily derived. Check whether multiple answers survive even if only one happens to appear plausible.' + answerInstruction + topicAudit + levelAudit + presentationAudit + ' For DILR, enumerate all feasible base cases (or use a complete logical equivalent), return the positive number of feasible base cases for each set, provide one COMPLETE witness assignment per set, and report how many stated constraints you checked against that witness. A partial row, score list or unverified claim is not a witness. For RC, return one short passage-grounded answer explanation for every independently solved answer; these explanations replace the generator\'s untrusted key and explanation. For RC, valid=false is reserved for a fatal student-facing defect: an incomplete passage or question, contradictory information, no passage-supported answer, or more than one defensible answer. A merely easier-than-ideal question or distractor is a quality note, not a reason to discard a complete solvable RC. If everything passes, return ONLY ' + validShape + ' with the real values. If anything fails or cannot be proved, return ONLY {"valid":false,"issues":["specific failure"]}. Do not alter the student-visible questions or options. Never return prose or markdown.\n\nSTUDENT-VISIBLE MATERIAL:\n' + JSON.stringify(studentVisibleMaterial);
   var auditSetCount = setCount || 1;
   auditOptions = auditOptions || {};
   var auditMaxTokens = Number(auditOptions.maxTokens) || (section === 'dilr' ? Math.min(32768, 16384 + auditSetCount * 5000) : section === 'rc' ? 16384 : 20480);
@@ -26332,7 +26619,7 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
         [{ role:'user', content:auditPrompt }],
         auditMaxTokens,
         'application/json',
-        getPracticeAuditJsonSchema(section, answerCount, setCount)
+        getPracticeAuditJsonSchema(section, answerCount, setCount, typedMode ? 'typed' : '')
       );
       var auditResponse = await fetchWithTimeout(WORKER_URL, {
         method:'POST', headers:{ 'Content-Type':'application/json' }, signal:auditOptions.signal,
@@ -26344,6 +26631,12 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
       var audit = parseGeneratedJson(auditText || '');
       if (!audit || audit.valid !== true) {
         return { valid:false, issues:(audit && audit.issues) || ['Semantic audit failed'], correctedData:null, failureType:'semantic' };
+      }
+      if (typedMode) {
+        var typedAgreement = validateTypedPracticeVerification(audit, generatedData, section);
+        return typedAgreement.valid
+          ? { valid:true, issues:[], correctedData:null, verification:audit.verification }
+          : { valid:false, issues:typedAgreement.issues, correctedData:null, failureType:'verification' };
       }
       if (section === 'rc') {
         var auditedRC = applyAuditedRCVerification(generatedData, audit);
@@ -26514,7 +26807,10 @@ function escapeGuidedExerciseText(value) {
 }
 
 function formatQuestionBlock(question, number) {
-  return number + '. ' + question.q + '\n' + question.options.map(function(option, index) {
+  var options = Array.isArray(question && question.options) ? question.options : [];
+  var stem = number + '. ' + String(question && question.q || '').trim();
+  if (!options.length) return stem + '\n' + (question && question.typeHint || (typeof inChatTypeHint === 'function' ? inChatTypeHint(question) : 'Type in the answer. There are no options.'));
+  return stem + '\n' + options.map(function(option, index) {
     var clean = String(option).replace(/^[A-D]\.\s*/, '');
     return String.fromCharCode(65 + index) + '. ' + clean;
   }).join('\n');
@@ -27614,6 +27910,10 @@ async function loadDailyPractice() {
     setTimeout(function() {
       if (!practiceLoadInFlight || mySeq !== practiceLoadSeq) return;
       var label = content.querySelector && content.querySelector('.practice-loading-text');
+      if (currentPracticeType === 'rc') {
+        if (label) label.textContent = 'Writing a new passage from the way CAT builds RC questions. This can take a minute.';
+        return;
+      }
       if (label) label.textContent = 'This is taking a little longer. You can wait or start a ready set now.';
       var safeAlternativeCandidate = getReliablePracticeCandidate(currentPracticeType, currentPracticeType === 'dilr' ? 4 : 3, null, true);
       var safeAlternative = safeAlternativeCandidate && safeAlternativeCandidate.data;
@@ -27631,13 +27931,16 @@ async function loadDailyPractice() {
     setTimeout(function() {
       if (!practiceLoadInFlight || mySeq !== practiceLoadSeq) return;
       var label = content.querySelector && content.querySelector('.practice-loading-text');
-      if (label) label.textContent = 'Still preparing your set. You can use the ready option above without losing your topic.';
+      if (label) label.textContent = currentPracticeType === 'rc' ? 'Still writing the new passage. It stays on this topic.' : 'Still preparing your set. You can use the ready option above without losing your topic.';
     }, 14000)
   ];
   var clearGenerationStatus = function() { generationStatusTimers.forEach(function(timer) { clearTimeout(timer); }); };
   var totalPracticeBudgetMs = currentPracticeType === 'dilr' ? 100000 : currentPracticeType === 'rc' ? 85000 : 75000;
   var practiceDeadlineMs = practiceLoadStartedMs + totalPracticeBudgetMs;
 
+  if (currentPracticeType === 'rc' && typeof ensureStudyConfigured === 'function' && ensureStudyConfigured() && MargStudy.loadLibrary) {
+    try { await MargStudy.loadLibrary(); } catch (libraryError) {}
+  }
   var prompt = '';
   if (currentPracticeType === 'rc') prompt = buildRCPrompt();
   else if (currentPracticeType === 'dilr') prompt = buildDILRPrompt(selectedPracticeTopic);
@@ -27777,6 +28080,12 @@ async function loadDailyPractice() {
     if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
     console.error('Practice error:', e);
     recordProductIncident('practice_generation_failed', e, { surface:'practice', section:currentPracticeType, topic:selectedPracticeTopic || '', stage:practiceFailureStage });
+    if (currentPracticeType === 'rc') {
+      var rcErrorMessage = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem. Your section is saved; retrying immediately will not fix it.' : 'A new RC is not ready yet. I will not open a stored passage in its place.';
+      var rcRetryButton = isGeminiLocationError(e) ? '' : '<button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Try a new passage again</button>';
+      content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + rcErrorMessage + '</div>' + rcRetryButton + '</div>';
+      return;
+    }
     var requestedPracticeTopic = selectedPracticeTopic;
     var questionCount = currentPracticeType === 'dilr' ? 4 : 3;
     var fallbackCandidate = getReliablePracticeCandidate(currentPracticeType, questionCount, requestedPracticeTopic, false);
@@ -27837,6 +28146,7 @@ async function loadDailyPractice() {
 }
 
 function useVerifiedPracticeRecovery() {
+  if (currentPracticeType === 'rc') return false;
   // This action can also be offered while a personalised draft is still
   // loading. Invalidate that request first so it cannot overwrite the safe
   // exercise after the student has already started it.
