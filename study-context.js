@@ -825,11 +825,26 @@
   /* Continuation of cut-off replies                                     */
   /* ------------------------------------------------------------------ */
 
-  function looksCutOff(text) {
+  function withoutTrailingMentorControls(text) {
     var value = str(text).replace(/\s+$/, '');
+    var previous = '';
+    while (value && value !== previous) {
+      previous = value;
+      value = value.replace(/(?:\n[ \t]*)?\[(?:OPTIONS|CONTEXT):\s*[^\]]+\]\s*$/i, '').replace(/\s+$/, '');
+      value = value.replace(/\[\[MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\][\s\S]*?\[\[\/MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\]\s*$/i, '').replace(/\s+$/, '');
+    }
+    return value;
+  }
+
+  function looksCutOff(text) {
+    var value = withoutTrailingMentorControls(text);
     if (!value) return false;
     var lines = value.split('\n');
     var last = lines[lines.length - 1].trim();
+    // A finished markdown table is a complete comparison, not a sentence that stopped early.
+    var finishedTableRow = /^\|.*\|\s*$/.test(last) && (last.match(/\|/g) || []).length >= 2;
+    var hasTableRule = lines.some(function (line) { return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line.trim()); });
+    if (finishedTableRow && hasTableRule) return false;
     if ((value.match(/\*\*/g) || []).length % 2 === 1) return true;
     if (/^(?:\*\*)?\(?[A-E](?:[).:])(?:\*\*)?\s*$/.test(last)) return true;
     if (/(?:\b(?:and|or|but|the|a|an|of|to|in|that|which|with|for|as|is|are|because|than|by|from|on|at|its|their)|[,;:(\-–—])$/i.test(last)) return true;
