@@ -5360,7 +5360,7 @@ async function runInChatQuestionTests() {
     good[1] = Object.assign({}, para(1), { q:para(1).q.replace('Markets once', 'Studios once').replace('Budgets therefore', 'Accounts therefore') });
     check('a finished parajumble has no completeness issues', inChatQuestionIssues(va, { questions:good }).length === 0);
     var rendered = renderMentorStructuredText(formatInChatQuestions(va, { questions:good }));
-    check('parajumble orders render as tappable options', (rendered.match(/class="study-option"/g) || []).length === 8 && rendered.indexOf('data-marg-choice="A. 1-2-3-4"') !== -1 && rendered.indexOf('Reply in one line') === -1);
+    check('parajumble orders render as tappable options', (rendered.match(/class="study-option"/g) || []).length === 8 && rendered.indexOf('data-marg-choice="A. 1-2-3-4"') !== -1 && rendered.indexOf('Reply in one line') === -1 && rendered.indexOf('(1)') !== -1 && rendered.indexOf('<br>(2)') !== -1 && rendered.indexOf('<br>(4)') !== -1);
     check('a tapped order is an answer, not another typed prompt', studyChoiceSubmission('1', 'A. 2-1-4-3') === '1-A 2-1-4-3' && isAnswerReviewRequest('1-A 2-1-4-3') && studyChoiceSubmission('2', 'B. The file never sits on a shelf') === '2-B');
     if (typeof MargStudy !== 'undefined' && MargStudy._library) {
       MargStudy._library.frames.parajumble = ['Five jumbled sentences are given below. Arrange them into one coherent paragraph.'];

@@ -1149,6 +1149,13 @@
     function choiceAttr(value) {
       return str(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
+    function stemHtml(stem) {
+      var value = str(stem);
+      if (/\(1\)/.test(value) && /\(4\)/.test(value)) {
+        return value.split(/\s+(?=\([1-5]\))/).map(function(part) { return inline(part); }).join('<br>');
+      }
+      return inline(value);
+    }
     function flushActivity() {
       if (!activity.length) return;
       if (activity.length === 1) html.push(activity[0]);
@@ -1176,7 +1183,7 @@
             return '<button type="button" class="study-option" data-state="pending" data-marg-question="' + block.number + '" data-marg-choice="' + choiceAttr(label) + '"><span class="study-optkey">' + o.key + '.</span> <span class="study-opttext">' + inline(o.text) + '</span></button>';
           }).join('') + '</div>'
           : (block.options.length ? '<div class="study-options">' + block.options.map(function (o) { return '<div class="study-option"><span class="study-optkey">' + o.key + '.</span> <span class="study-opttext">' + inline(o.text) + '</span></div>'; }).join('') + '</div>' : '');
-        activity.push('<div class="study-question" data-marg-question="' + block.number + '" data-state="pending"><div class="study-qstem"><span class="study-qnum">' + block.number + '.</span> ' + inline(block.stem) + '</div><div class="study-qstatus">Pending</div>' + choices + '</div>');
+        activity.push('<div class="study-question" data-marg-question="' + block.number + '" data-state="pending"><div class="study-qstem"><span class="study-qnum">' + block.number + '.</span> ' + stemHtml(block.stem) + '</div><div class="study-qstatus">Pending</div>' + choices + '</div>');
       } else if (block.type === 'answer') {
         html.push('<div class="study-answer"><span class="study-sublabel">Answer</span> <strong>' + block.key + '</strong>' + (block.rest ? ' <span class="study-answer-note">' + inline(block.rest) + '</span>' : '') + '</div>');
       } else if (block.type === 'explanation') {
