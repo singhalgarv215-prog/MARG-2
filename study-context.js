@@ -1077,7 +1077,23 @@
     var raw = options.raw || [];
     var blocks = parseBlocks(normalizeLayout(text));
     var html = [];
+    var activity = [];
+    function choiceAttr(value) {
+      return str(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function flushActivity() {
+      if (!activity.length) return;
+      if (activity.length === 1) html.push(activity[0]);
+      else {
+        html.push('<div class="study-activity" data-state="pending">' + activity.map(function (item, index) {
+          return index ? item.replace('<div class="study-question"', '<div class="study-question" hidden') : item;
+        }).join('') +
+          '<div class="study-activity-nav"><button type="button" class="study-activity-navbtn" data-marg-nav="-1" disabled>Previous</button><span class="study-activity-pos">Question 1 of ' + activity.length + '</span><button type="button" class="study-activity-navbtn" data-marg-nav="1">Next</button><button type="button" class="study-activity-submit" data-state="pending" disabled>Submit these answers</button></div></div>');
+      }
+      activity = [];
+    }
     blocks.forEach(function (block) {
+      if (block.type !== 'question') flushActivity();
       if (block.type === 'raw') html.push(raw[block.index] || '');
       else if (block.type === 'label') html.push('<div class="study-label study-label-' + block.level + '">' + inline(block.text) + '</div>');
       else if (block.type === 'passage') html.push('<div class="study-passage">' + block.lines.map(function (l) { return inline(l); }).join('<br>') + '</div>');
@@ -1086,8 +1102,13 @@
         var head = block.rows[0] || [];
         html.push('<div class="study-table-wrap"><table class="study-table"><thead><tr>' + head.map(function (c) { return '<th>' + inline(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + block.rows.slice(1).map(function (row) { return '<tr>' + head.map(function (_, idx) { return '<td>' + inline(row[idx] || '') + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>');
       } else if (block.type === 'question') {
-        html.push('<div class="study-question"><div class="study-qstem"><span class="study-qnum">' + block.number + '.</span> ' + inline(block.stem) + '</div>' +
-          (block.options.length ? '<div class="study-options">' + block.options.map(function (o) { return '<div class="study-option"><span class="study-optkey">' + o.key + '.</span> <span class="study-opttext">' + inline(o.text) + '</span></div>'; }).join('') + '</div>' : '') + '</div>');
+        var choices = block.options.length >= 2
+          ? '<div class="study-options">' + block.options.map(function (o) {
+            var label = o.key + '. ' + o.text;
+            return '<button type="button" class="study-option" data-state="pending" data-marg-question="' + block.number + '" data-marg-choice="' + choiceAttr(label) + '"><span class="study-optkey">' + o.key + '.</span> <span class="study-opttext">' + inline(o.text) + '</span></button>';
+          }).join('') + '</div>'
+          : (block.options.length ? '<div class="study-options">' + block.options.map(function (o) { return '<div class="study-option"><span class="study-optkey">' + o.key + '.</span> <span class="study-opttext">' + inline(o.text) + '</span></div>'; }).join('') + '</div>' : '');
+        activity.push('<div class="study-question" data-marg-question="' + block.number + '" data-state="pending"><div class="study-qstem"><span class="study-qnum">' + block.number + '.</span> ' + inline(block.stem) + '</div><div class="study-qstatus">Pending</div>' + choices + '</div>');
       } else if (block.type === 'answer') {
         html.push('<div class="study-answer"><span class="study-sublabel">Answer</span> <strong>' + block.key + '</strong>' + (block.rest ? ' <span class="study-answer-note">' + inline(block.rest) + '</span>' : '') + '</div>');
       } else if (block.type === 'explanation') {
@@ -1097,6 +1118,7 @@
       else if (block.type === 'numbered') html.push('<div class="mentor-list-item"><span class="mentor-list-mark">' + block.number + '.</span><span>' + inline(block.text) + '</span></div>');
       else html.push('<div class="mentor-paragraph">' + block.lines.map(function (l) { return inline(l); }).join('<br>') + '</div>');
     });
+    flushActivity();
     return html.join('');
   }
 
@@ -1109,8 +1131,19 @@
     '.study-rich .study-question{margin:16px 0 6px;padding:12px 14px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(255,255,255,.025)}' +
     '.study-rich .study-qstem{font-weight:600;color:var(--text,#f0ede6);margin-bottom:8px}' +
     '.study-rich .study-qnum{color:var(--gold-light,#d9b95c);margin-right:2px}' +
+    '.study-rich .study-qstatus{margin:-2px 0 8px;color:#8e8a83;font:600 10px/1.2 "DM Sans",sans-serif;letter-spacing:.08em;text-transform:uppercase}' +
     '.study-rich .study-options{display:grid;gap:6px}' +
-    '.study-rich .study-option{padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.035);line-height:1.5}' +
+    '.study-rich .study-option{display:flex;align-items:flex-start;gap:8px;width:100%;padding:10px 12px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#121212;color:#d8d4cc;font:14px/1.45 "DM Sans",sans-serif;text-align:left;cursor:pointer}' +
+    '.study-rich .study-option:hover,.study-rich .study-option:focus-visible{border-color:rgba(201,168,76,.7);outline:none}' +
+    '.study-rich .study-option.selected,.study-rich .study-option[data-state="selected"]{border-color:#c9a84c;background:rgba(201,168,76,.12);color:#f0ede6}' +
+    '.study-rich .study-option:disabled{cursor:default;opacity:.5}' +
+    '.study-rich .study-option.selected:disabled{opacity:1}' +
+    '.study-rich .study-activity{margin:8px 0 12px}' +
+    '.study-rich .study-activity-nav{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}' +
+    '.study-rich .study-activity-navbtn,.study-rich .study-activity-submit{min-height:40px;padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:#171717;color:#f0ede6;font:600 13px "DM Sans",sans-serif;cursor:pointer}' +
+    '.study-rich .study-activity-submit{background:rgba(201,168,76,.16);border-color:rgba(201,168,76,.45);color:#f0ede6}' +
+    '.study-rich .study-activity-navbtn:disabled,.study-rich .study-activity-submit:disabled{opacity:.45;cursor:default}' +
+    '.study-rich .study-activity-pos{color:#8e8a83;font:600 11px "DM Sans",sans-serif;letter-spacing:.04em}' +
     '.study-rich .study-optkey{font-weight:650;color:var(--gold-light,#d9b95c);margin-right:4px}' +
     '.study-rich .study-answer{margin:8px 0 4px;padding:8px 12px;border-radius:8px;background:rgba(76,175,125,.12);border:1px solid rgba(76,175,125,.28)}' +
     '.study-rich .study-sublabel{font-size:.74em;letter-spacing:.08em;text-transform:uppercase;font-weight:650;color:var(--text-muted,#aaa69e);margin-right:6px}' +
