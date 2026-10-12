@@ -760,6 +760,7 @@
     var options = (record.options || []).map(function (o) { return str(o); });
     if (stem.length < 50 || stem.length > 330 || options.length !== 4) return null;
     if (options.some(function (o) { return /\n|\bA\)|\bB\)|DIRECTIONS/i.test(o) || o.length > 40; })) return null;
+    if (/answer key|quantitative ability|verbal ability|data interpretation/i.test(stem + ' ' + options.join(' '))) return null;
     if (/[�]|\bwh\s+ere\b/.test(stem)) return null;
     return { stem: stem, options: options, correct: record.correct_index };
   }
@@ -825,11 +826,26 @@
   /* Continuation of cut-off replies                                     */
   /* ------------------------------------------------------------------ */
 
-  function looksCutOff(text) {
+  function withoutTrailingMentorControls(text) {
     var value = str(text).replace(/\s+$/, '');
+    var previous = '';
+    while (value && value !== previous) {
+      previous = value;
+      value = value.replace(/(?:\n[ \t]*)?\[(?:OPTIONS|CONTEXT):\s*[^\]]+\]\s*$/i, '').replace(/\s+$/, '');
+      value = value.replace(/\[\[MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\][\s\S]*?\[\[\/MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\]\s*$/i, '').replace(/\s+$/, '');
+    }
+    return value;
+  }
+
+  function looksCutOff(text) {
+    var value = withoutTrailingMentorControls(text);
     if (!value) return false;
     var lines = value.split('\n');
     var last = lines[lines.length - 1].trim();
+    // A finished markdown table is a complete comparison, not a sentence that stopped early.
+    var finishedTableRow = /^\|.*\|\s*$/.test(last) && (last.match(/\|/g) || []).length >= 2;
+    var hasTableRule = lines.some(function (line) { return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line.trim()); });
+    if (finishedTableRow && hasTableRule) return false;
     if ((value.match(/\*\*/g) || []).length % 2 === 1) return true;
     if (/^(?:\*\*)?\(?[A-E](?:[).:])(?:\*\*)?\s*$/.test(last)) return true;
     if (/(?:\b(?:and|or|but|the|a|an|of|to|in|that|which|with|for|as|is|are|because|than|by|from|on|at|its|their)|[,;:(\-–—])$/i.test(last)) return true;
@@ -848,6 +864,13 @@
   function stitchContinuation(previous, next) {
     var a = str(previous), b = str(next).replace(/^\s*(?:\.\.\.|…)\s*/, '');
     if (!b.trim()) return a;
+    // A continuation that restarts from the opening would duplicate every
+    // question already written. Drop that repeated prefix before joining.
+    if (a.length >= 24) {
+      var restarted = b.trimStart();
+      if (restarted.indexOf(a) === 0) b = restarted.slice(a.length);
+    }
+    if (!b) return a;
     var window = a.slice(-240);
     var best = 0;
     var maxOverlap = Math.min(window.length, b.length, 240);
@@ -864,8 +887,9 @@
       var lastLine = a.split('\n').pop().trim();
       if (lastLine.length >= 12 && b.trimStart().indexOf(lastLine) === 0) b = b.trimStart().slice(lastLine.length);
     }
-    var endsMidWord = /[A-Za-z]$/.test(a) && /^[a-z]/.test(b) && !/\s$/.test(a);
-    var joiner = endsMidWord && b.charAt(0) !== ' ' ? (/^[a-z]{1,3}\b/.test(b) ? ' ' : '') : (/\s$/.test(a) || /^\s/.test(b) ? '' : ' ');
+    // A new word needs a space. Gluing it on ("and" + "does" => "anddoes")
+    // corrupts the sentence; a split word can be read, a fused word cannot.
+    var joiner = (/\s$/.test(a) || /^\s/.test(b)) ? '' : ' ';
     if (/\n$/.test(a) || /^\n/.test(b)) joiner = '';
     return (a + joiner + b).replace(/\n{3,}/g, '\n\n');
   }
@@ -1124,5 +1148,26 @@
     renderBlocks: renderBlocks,
     styles: STUDY_CSS,
     _library: library
+  };
+
+  root.runStudyLibraryTests = function () {
+    var leaked = cleanLibraryQuestion({
+      section: 'qa',
+      direct_use_status: 'answer_key_ready',
+      stem: 'A two-digit number is four times the sum of its digits, and reversing those digits increases the number by 18. What is the number?',
+      options: ['24', '36', '42', '48 Quantitative Ability'],
+      correct_index: 0
+    });
+    var clean = cleanLibraryQuestion({
+      section: 'qa',
+      direct_use_status: 'answer_key_ready',
+      stem: 'A two-digit number is four times the sum of its digits, and reversing those digits increases the number by 18. What is the number?',
+      options: ['24', '36', '42', '48'],
+      correct_index: 0
+    });
+    return [
+      { name: 'a leaked header is not used as a style reference', passed: leaked === null },
+      { name: 'a clean extracted question can still calibrate style', passed: !!(clean && clean.options.length === 4 && clean.correct === 0) }
+    ];
   };
 })(typeof window !== 'undefined' ? window : globalThis);

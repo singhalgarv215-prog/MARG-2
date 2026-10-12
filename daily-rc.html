@@ -382,7 +382,7 @@ function isValidRC(data) {
 
 function cloneVerifiedRC() {
   var copy = JSON.parse(JSON.stringify(VERIFIED_RC_FALLBACK));
-  copy.recoveryNote = 'Today’s generated draft did not pass Marg’s checks, so this independently verified RC opened instead.';
+  copy.recoveryNote = 'Today’s generated draft did not pass Marg’s checks, so this hand-checked RC opened instead.';
   return copy;
 }
 
