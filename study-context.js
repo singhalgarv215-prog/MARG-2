@@ -888,10 +888,21 @@
       if (lastLine.length >= 12 && b.trimStart().indexOf(lastLine) === 0) b = b.trimStart().slice(lastLine.length);
     }
     // A new word needs a space. Gluing it on ("and" + "does" => "anddoes")
-    // corrupts the sentence; a split word can be read, a fused word cannot.
+    // corrupts the sentence. A word cut in the middle ("precisi" + "on")
+    // must be joined, or the student reads a broken token.
     var joiner = (/\s$/.test(a) || /^\s/.test(b)) ? '' : ' ';
     if (/\n$/.test(a) || /^\n/.test(b)) joiner = '';
+    if (joiner === ' ' && continuationContinuesSplitWord(a, b)) joiner = '';
     return (a + joiner + b).replace(/\n{3,}/g, '\n\n');
+  }
+
+  function continuationContinuesSplitWord(previous, next) {
+    if (!/[A-Za-z]$/.test(previous) || !/^[a-z]/.test(next)) return false;
+    var last = (previous.match(/[A-Za-z]+$/) || [''])[0].toLowerCase();
+    var nextWord = (next.match(/^[a-z]+/) || [''])[0];
+    var closed = { a:1, an:1, and:1, are:1, as:1, at:1, be:1, but:1, by:1, for:1, from:1, if:1, in:1, is:1, it:1, its:1, of:1, on:1, or:1, so:1, than:1, that:1, the:1, their:1, this:1, to:1, was:1, were:1, with:1, not:1 };
+    if (!last || closed[last]) return false;
+    return /^(?:s|es|ed|er|ly|al|on|ion|ing|le|ment|tion)$/.test(nextWord);
   }
 
   /* ------------------------------------------------------------------ */

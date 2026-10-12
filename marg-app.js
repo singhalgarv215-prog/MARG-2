@@ -1240,8 +1240,26 @@ function renderMentorStructuredText(text) {
 
   var blocks = [];
   var paragraph = [];
+  function readableSentences(line) {
+    var split = splitCompleteMentorSentences(line);
+    var parts = split.sentences.slice();
+    if (split.remainder) parts.push(split.remainder);
+    return parts.filter(Boolean);
+  }
   function flushParagraph() {
     if (!paragraph.length) return;
+    // A single run-on line is hard to follow. Split it at sentence
+    // boundaries for display only; the saved reply is unchanged.
+    if (paragraph.length === 1 && paragraph[0].split(/\s+/).filter(Boolean).length >= 46) {
+      var parts = readableSentences(paragraph[0]);
+      if (parts.length >= 2) {
+        parts.forEach(function(part) {
+          blocks.push('<div class="mentor-paragraph">' + inline(part) + '</div>');
+        });
+        paragraph = [];
+        return;
+      }
+    }
     blocks.push('<div class="mentor-paragraph">' + paragraph.map(inline).join('<br>') + '</div>');
     paragraph = [];
   }
@@ -2866,7 +2884,7 @@ Action: [one specific test or corrective action]
 Rule: [the observable success criterion, independent of practice volume]
 Evidence: [what result will support or reject the diagnosis]
 
-The format rule is enforced at the code level too, so even if you slip, bold and ordinary bullets get stripped before the student sees them. Checkmarks in the Today's Mission block are preserved. But don't rely on that. Write clean the first time.`;
+Headings, bold and lists are shown to the student when they organise the answer. Do not leave raw markdown symbols, control tags or a sentence that stops halfway. Checkmarks in the Today's Mission block are preserved. Write clean the first time.`;
 
 // Runtime prompt: the same mentor contract as the reference above, compressed
 // so every turn does not repay for repeated examples and explanations.
@@ -2883,6 +2901,9 @@ Answer direct questions first. Use: evidence → uncertainty → smallest useful
 
 LENGTH CONTRACT
 Follow the TURN CONTRACT response shape. Never cut required reasoning to hit a word count.
+
+FORMAT CONTRACT
+A short factual answer is one or two plain paragraphs. A concept or solution uses a blank line between ideas. Number steps only when order matters. Use a bullet list only for independent items, and bold only the result or the action. A real comparison may use one markdown table. Do not put a heading on a one-paragraph answer, and do not leave a sentence, list, table or equation unfinished.
 
 CONTENT-HELP CONTRACT
 Keep solutions separate from diagnosis. When asked for an answer, solution or explanation, identify the question, state the answer and show one clean derivation. Unless answer-only was requested, add the useful CAT shortcut/trap; for an MCQ, explain why each wrong option fails. Never withhold a solution to force coaching. Behavioural claims remain evidence-bound.
@@ -5194,6 +5215,28 @@ function runCATBankServingTests() {
     results.push({ name:'checked bank serving tests ran', passed:false });
   }
   putBack();
+  return results;
+}
+
+function runChatExperienceTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  var plain = formatUnstructuredMentorReply('**Ratio** means the same comparison as a percentage.\n\n1. Write the two quantities.\n2. Divide and simplify.');
+  check('plain mentor text keeps emphasis and numbered steps', plain.indexOf('<strong>Ratio</strong>') !== -1 && plain.indexOf('mentor-list-mark">1.') !== -1 && plain.indexOf('mentor-list-mark">2.') !== -1 && plain.indexOf('[OPTIONS:') === -1);
+  var runOn = 'The score of 99.9 shows only the outcome of this mock and nothing about a permanent ceiling. ' +
+    'A later mock can move that number once the same decision is checked again under a fresh paper. ' +
+    'The useful next step is to record where the marks actually left, then test that one decision.';
+  var rendered = renderMentorStructuredText(runOn);
+  var paragraphs = rendered.match(/class="mentor-paragraph"/g) || [];
+  check('a long explanation is split into readable paragraphs without losing the number', paragraphs.length >= 2 && rendered.indexOf('99.9') !== -1 && rendered.indexOf('99.</') === -1 && rendered.indexOf('one decision') !== -1);
+  check('a short reply stays one paragraph', (renderMentorStructuredText('You are rereading too early. Try marking the claim first.').match(/class="mentor-paragraph"/g) || []).length === 1);
+  check('interactive practice keeps its own surface and ordinary prose does not', assistantReplyNeedsSurface('<div class="practice-card"><button class="pcard-option">A</button></div>') === true && assistantReplyNeedsSurface(plain) === false);
+  var groups = conversationalOptionGroups(['I rush the last two options', 'I lose the claim', 'I run out of time', 'I change a right answer', 'Something else']);
+  check('a long choice list separates the closest descriptions from something else', groups.length === 2 && groups[0].label === 'Choose the closest' && groups[0].options.length === 4 && groups[1].label === 'Or' && groups[1].options[0] === 'Something else');
+  check('a short choice list stays one unmarked group', conversationalOptionGroups(['Right now', 'Later today']).length === 1 && conversationalOptionGroups(['Right now', 'Later today'])[0].label === '');
+  check('a split word is rejoined and a finished word keeps its space', MargStudy.stitchContinuation('The elimination works only when the line says and', 'does not make a blanket statement.') === 'The elimination works only when the line says and does not make a blanket statement.' && MargStudy.stitchContinuation('The useful word was precisi', 'on, so the sentence can finish.') === 'The useful word was precision, so the sentence can finish.');
+  var unfinished = unfinishedMentorReply('The useful part is that the claim narrowed.');
+  check('an unfinished reply keeps the completed sentence and says it is unfinished', unfinished.indexOf('The useful part is that the claim narrowed.') === 0 && /could not finish the rest of this answer/.test(unfinished) && /Say continue and I will finish it from there/.test(unfinished));
   return results;
 }
 
@@ -14699,11 +14742,16 @@ function ensureMessageExperienceStyles() {
   if (document.getElementById('marg-message-experience-styles')) return;
   var style = document.createElement('style');
   style.id = 'marg-message-experience-styles';
-  style.textContent = `:root{--marg-reader-scale:1}.message-stack{display:flex;flex-direction:column;min-width:0;max-width:100%}.msg-wrap.user .message-stack{align-items:flex-end}.msg-wrap.marg .message-stack{align-items:flex-start}.msg-wrap.marg .bubble{background:#151515;color:#dedad2;border-color:rgba(255,255,255,.085)}.mentor-rich{max-width:72ch;font-size:15px;line-height:1.7!important;letter-spacing:.002em}.mentor-rich .mentor-paragraph{margin-bottom:12px!important}.message-actions{display:flex;align-items:center;gap:3px;min-height:30px;max-width:100%;margin-top:4px;opacity:.2;overflow-x:auto;scrollbar-width:none;transition:opacity .16s ease}.message-actions::-webkit-scrollbar{display:none}.msg-wrap:hover .message-actions,.msg-wrap:focus-within .message-actions,.message-actions.visible{opacity:1}.message-action{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:#77736c;cursor:pointer;padding:0;transform:none!important}.message-action:hover,.message-action:focus-visible{opacity:1!important;color:#dedad2;background:rgba(255,255,255,.065);outline:none}.message-action.active{color:var(--gold-light);background:rgba(201,168,76,.1)}.message-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.message-action-status{font-size:10px;color:#8d8981;margin-left:5px;white-space:nowrap}.passage-message{width:min(100%,800px);max-width:min(100%,800px)!important}.passage-message .message-stack{width:100%}.passage-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#141414;border-color:rgba(255,255,255,.095)}.passage-reader-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 17px;border-bottom:1px solid rgba(255,255,255,.075);font-family:'DM Sans',sans-serif}.passage-reader-label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#aba69d}.passage-reader-tools{display:flex;gap:6px}.passage-reader-tool{border:1px solid rgba(255,255,255,.1);background:#1b1b1b;color:#aaa69e;border-radius:8px;padding:6px 9px;font:600 11px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.passage-reader-tool:hover{color:#eeeae2;border-color:rgba(201,168,76,.45)}.passage-reading-content{padding:22px 21px 24px;max-width:70ch;color:#d8d4cc;font-family:Georgia,'Times New Roman',serif;font-size:calc(17px * var(--marg-reader-scale));line-height:1.86;letter-spacing:.006em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.passage-reading-content p{margin:0 0 1.22em}.passage-reading-content p:last-child{margin-bottom:0}.passage-questions{padding:19px 21px 22px;border-top:1px solid rgba(255,255,255,.08);background:#171717;color:#e2ded6;font:14.5px/1.7 'DM Sans',sans-serif}.passage-questions-label{margin-bottom:12px;color:var(--gold-light);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.reading-focus-overlay{position:fixed;inset:0;z-index:5000;background:#111;display:flex;flex-direction:column;color:#d8d4cc}.reading-focus-overlay.paper{background:#f2eee5;color:#272521}.reading-focus-bar{min-height:58px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:env(safe-area-inset-top,0px) 16px 0;border-bottom:1px solid rgba(128,128,128,.2);font:13px 'DM Sans',sans-serif}.reading-focus-actions{display:flex;gap:7px}.reading-focus-actions button,.reading-focus-close{border:1px solid rgba(128,128,128,.25);background:transparent;color:inherit;border-radius:9px;padding:7px 10px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.reading-focus-scroll{overflow-y:auto;flex:1;padding:34px 20px 70px}.reading-focus-scroll .passage-reading-content{margin:0 auto;padding:0;max-width:68ch;color:inherit;font-size:calc(19px * var(--marg-reader-scale));line-height:1.9}.marg-visual-card{margin:15px 0 13px;padding:15px;border:1px solid rgba(201,168,76,.22);border-radius:14px;background:linear-gradient(145deg,#181713,#111);font-family:'DM Sans',sans-serif;color:#dedad2;overflow:hidden}.marg-visual-kicker{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gold);margin-bottom:5px}.marg-visual-title{font-size:14px;font-weight:650;color:#f0ede6;line-height:1.35;margin-bottom:13px}.marg-visual-flow{display:flex;align-items:stretch;gap:7px;overflow-x:auto;padding-bottom:2px}.marg-visual-node{min-width:110px;flex:1;padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#0f0f0f;font-size:11px;line-height:1.45;color:#c8c4bc}.marg-visual-arrow{align-self:center;color:var(--gold);font-size:15px}.marg-visual-grid-wrap{overflow-x:auto}.marg-visual-grid{border-collapse:collapse;width:100%;font-size:11px}.marg-visual-grid th,.marg-visual-grid td{border:1px solid rgba(255,255,255,.1);padding:8px 9px;text-align:left;white-space:nowrap}.marg-visual-grid th{background:rgba(201,168,76,.08);color:var(--gold-light)}.marg-visual-bars{display:flex;flex-direction:column;gap:9px}.marg-visual-bar-row{display:grid;grid-template-columns:minmax(72px,120px) 1fr auto;gap:9px;align-items:center;font-size:10px;color:#aaa69e}.marg-visual-bar-track{height:9px;background:#0b0b0b;border-radius:999px;overflow:hidden}.marg-visual-bar-fill{display:block;height:100%;background:linear-gradient(90deg,#4caf7d,#c9a84c);border-radius:inherit}.marg-visual-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.marg-visual-column{border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#101010;padding:11px}.marg-visual-column-title{color:var(--gold-light);font-size:11px;font-weight:650;margin-bottom:8px}.marg-visual-column-item{font-size:10.5px;color:#b4b0a8;line-height:1.45;margin:5px 0}.marg-visual-svg{display:block;width:100%;height:auto;max-height:330px}.marg-visual-note{font-size:10px;line-height:1.45;color:#8e8a83;margin-top:10px}.pcard-passage{max-width:70ch;margin-left:auto!important;margin-right:auto!important;padding:19px 18px!important;border:1px solid rgba(255,255,255,.075);border-radius:12px;background:#141414;color:#d8d4cc!important;font-family:Georgia,'Times New Roman',serif!important;font-size:17px!important;line-height:1.86!important;letter-spacing:.005em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.pcard-passage p{margin-bottom:1.18em!important}@media(max-width:600px){.msg-wrap.marg .bubble{color:#dedad2}.mentor-rich{font-size:15.5px;line-height:1.72!important;max-width:none}.message-actions{opacity:.78;margin-top:3px}.message-action{width:32px;height:32px}.passage-message{max-width:100%!important;width:100%}.passage-message>.avatar{display:none}.passage-reading-content{padding:20px 18px 23px;font-size:calc(17px * var(--marg-reader-scale));line-height:1.9}.passage-questions{padding:17px 18px 20px;font-size:14.5px;line-height:1.72}.marg-visual-card{margin:14px 0;padding:13px}.marg-visual-flow{flex-direction:column;overflow:visible}.marg-visual-arrow{transform:rotate(90deg)}.marg-visual-compare{grid-template-columns:1fr}.pcard-passage{font-size:16.5px!important;line-height:1.9!important;padding:18px 16px!important;color:#d8d4cc!important}}`;
+  style.textContent = `:root{--marg-reader-scale:1}.message-stack{display:flex;flex-direction:column;min-width:0;max-width:100%}.msg-wrap.user .message-stack{align-items:flex-end}.msg-wrap.marg .message-stack{align-items:flex-start}.msg-wrap{align-items:flex-start}.msg-wrap.marg{max-width:min(100%,860px)}.msg-wrap.marg .bubble{background:transparent;border:0;border-radius:0;box-shadow:none;padding:1px 0 2px;color:#ece8e1}.msg-wrap.marg.passage-message .bubble{background:#141414;border:1px solid rgba(255,255,255,.095);border-radius:16px;padding:0;overflow:hidden}.mentor-rich{max-width:72ch;font-size:15px;line-height:1.7!important;letter-spacing:.002em}.mentor-rich .mentor-paragraph{margin-bottom:12px!important}.message-actions{display:flex;align-items:center;gap:3px;min-height:30px;max-width:100%;margin-top:4px;opacity:.2;overflow-x:auto;scrollbar-width:none;transition:opacity .16s ease}.message-actions::-webkit-scrollbar{display:none}.msg-wrap:hover .message-actions,.msg-wrap:focus-within .message-actions,.message-actions.visible{opacity:1}.message-action{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:#77736c;cursor:pointer;padding:0;transform:none!important}.message-action:hover,.message-action:focus-visible{opacity:1!important;color:#dedad2;background:rgba(255,255,255,.065);outline:none}.message-action.active{color:var(--gold-light);background:rgba(201,168,76,.1)}.message-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.message-action-status{font-size:10px;color:#8d8981;margin-left:5px;white-space:nowrap}.passage-message{width:min(100%,800px);max-width:min(100%,800px)!important}.passage-message .message-stack{width:100%}.passage-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#141414;border-color:rgba(255,255,255,.095)}.passage-reader-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 17px;border-bottom:1px solid rgba(255,255,255,.075);font-family:'DM Sans',sans-serif}.passage-reader-label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#aba69d}.passage-reader-tools{display:flex;gap:6px}.passage-reader-tool{border:1px solid rgba(255,255,255,.1);background:#1b1b1b;color:#aaa69e;border-radius:8px;padding:6px 9px;font:600 11px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.passage-reader-tool:hover{color:#eeeae2;border-color:rgba(201,168,76,.45)}.passage-reading-content{padding:22px 21px 24px;max-width:70ch;color:#d8d4cc;font-family:Georgia,'Times New Roman',serif;font-size:calc(17px * var(--marg-reader-scale));line-height:1.86;letter-spacing:.006em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.passage-reading-content p{margin:0 0 1.22em}.passage-reading-content p:last-child{margin-bottom:0}.passage-questions{padding:19px 21px 22px;border-top:1px solid rgba(255,255,255,.08);background:#171717;color:#e2ded6;font:14.5px/1.7 'DM Sans',sans-serif}.passage-questions-label{margin-bottom:12px;color:var(--gold-light);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.reading-focus-overlay{position:fixed;inset:0;z-index:5000;background:#111;display:flex;flex-direction:column;color:#d8d4cc}.reading-focus-overlay.paper{background:#f2eee5;color:#272521}.reading-focus-bar{min-height:58px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:env(safe-area-inset-top,0px) 16px 0;border-bottom:1px solid rgba(128,128,128,.2);font:13px 'DM Sans',sans-serif}.reading-focus-actions{display:flex;gap:7px}.reading-focus-actions button,.reading-focus-close{border:1px solid rgba(128,128,128,.25);background:transparent;color:inherit;border-radius:9px;padding:7px 10px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.reading-focus-scroll{overflow-y:auto;flex:1;padding:34px 20px 70px}.reading-focus-scroll .passage-reading-content{margin:0 auto;padding:0;max-width:68ch;color:inherit;font-size:calc(19px * var(--marg-reader-scale));line-height:1.9}.marg-visual-card{margin:15px 0 13px;padding:15px;border:1px solid rgba(201,168,76,.22);border-radius:14px;background:linear-gradient(145deg,#181713,#111);font-family:'DM Sans',sans-serif;color:#dedad2;overflow:hidden}.marg-visual-kicker{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gold);margin-bottom:5px}.marg-visual-title{font-size:14px;font-weight:650;color:#f0ede6;line-height:1.35;margin-bottom:13px}.marg-visual-flow{display:flex;align-items:stretch;gap:7px;overflow-x:auto;padding-bottom:2px}.marg-visual-node{min-width:110px;flex:1;padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#0f0f0f;font-size:11px;line-height:1.45;color:#c8c4bc}.marg-visual-arrow{align-self:center;color:var(--gold);font-size:15px}.marg-visual-grid-wrap{overflow-x:auto}.marg-visual-grid{border-collapse:collapse;width:100%;font-size:11px}.marg-visual-grid th,.marg-visual-grid td{border:1px solid rgba(255,255,255,.1);padding:8px 9px;text-align:left;white-space:nowrap}.marg-visual-grid th{background:rgba(201,168,76,.08);color:var(--gold-light)}.marg-visual-bars{display:flex;flex-direction:column;gap:9px}.marg-visual-bar-row{display:grid;grid-template-columns:minmax(72px,120px) 1fr auto;gap:9px;align-items:center;font-size:10px;color:#aaa69e}.marg-visual-bar-track{height:9px;background:#0b0b0b;border-radius:999px;overflow:hidden}.marg-visual-bar-fill{display:block;height:100%;background:linear-gradient(90deg,#4caf7d,#c9a84c);border-radius:inherit}.marg-visual-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.marg-visual-column{border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#101010;padding:11px}.marg-visual-column-title{color:var(--gold-light);font-size:11px;font-weight:650;margin-bottom:8px}.marg-visual-column-item{font-size:10.5px;color:#b4b0a8;line-height:1.45;margin:5px 0}.marg-visual-svg{display:block;width:100%;height:auto;max-height:330px}.marg-visual-note{font-size:10px;line-height:1.45;color:#8e8a83;margin-top:10px}.pcard-passage{max-width:70ch;margin-left:auto!important;margin-right:auto!important;padding:19px 18px!important;border:1px solid rgba(255,255,255,.075);border-radius:12px;background:#141414;color:#d8d4cc!important;font-family:Georgia,'Times New Roman',serif!important;font-size:17px!important;line-height:1.86!important;letter-spacing:.005em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.pcard-passage p{margin-bottom:1.18em!important}@media(max-width:600px){.msg-wrap.marg .bubble{color:#dedad2}.mentor-rich{font-size:15.5px;line-height:1.72!important;max-width:none}.message-actions{opacity:.78;margin-top:3px}.message-action{width:32px;height:32px}.passage-message{max-width:100%!important;width:100%}.passage-message>.avatar{display:none}.passage-reading-content{padding:20px 18px 23px;font-size:calc(17px * var(--marg-reader-scale));line-height:1.9}.passage-questions{padding:17px 18px 20px;font-size:14.5px;line-height:1.72}.marg-visual-card{margin:14px 0;padding:13px}.marg-visual-flow{flex-direction:column;overflow:visible}.marg-visual-arrow{transform:rotate(90deg)}.marg-visual-compare{grid-template-columns:1fr}.pcard-passage{font-size:16.5px!important;line-height:1.9!important;padding:18px 16px!important;color:#d8d4cc!important}}`;
   document.head.appendChild(style);
   var versionStyle = document.createElement('style');
   versionStyle.textContent = '.message-version-nav{display:inline-flex;align-items:center;gap:2px;margin:0 3px;color:#8d8981;font-size:10px;white-space:nowrap}.message-version-nav button{width:25px;height:25px;border:0;border-radius:7px;background:transparent;color:#8d8981;font-size:18px;line-height:1;cursor:pointer;transform:none!important}.message-version-nav button:hover:not(:disabled){background:rgba(255,255,255,.065);color:#eeeae2}.message-version-nav button:disabled{opacity:.25;cursor:default}.message-version-count{min-width:28px;text-align:center}.regenerating-response .bubble{opacity:.62;transition:opacity .18s}.message-action:disabled{opacity:.28;cursor:default}';
   document.head.appendChild(versionStyle);
+  if (document.getElementById('marg-chat-experience-styles')) return;
+  var chatStyle = document.createElement('style');
+  chatStyle.id = 'marg-chat-experience-styles';
+  chatStyle.textContent = '.mentor-rich .mentor-heading{font-size:16px;letter-spacing:-.01em;margin:18px 0 8px}.mentor-rich .mentor-list-item{margin:7px 0}.conv-options{display:flex;flex-direction:column;gap:10px;width:min(100%,640px);max-width:100%;padding:2px 0 10px 38px}.conv-options-group{display:flex;flex-direction:column;gap:8px}.conv-options-label{margin:4px 2px 0;color:#8e8a83;font:600 11px/1.3 "DM Sans",sans-serif;letter-spacing:.08em;text-transform:uppercase}.conv-options-intro{width:100%;margin:0 0 2px;padding:0 2px;background:transparent;border:0}.conv-option{display:flex;align-items:flex-start;gap:10px;width:100%;min-height:44px;padding:12px 14px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:#121212;color:#d8d4cc;font:14px/1.4 "DM Sans",sans-serif;text-align:left;cursor:pointer}.conv-option:hover,.conv-option:focus-visible{border-color:rgba(201,168,76,.7);color:#f0ede6;background:rgba(201,168,76,.06);outline:none}.conv-option-mark{width:16px;height:16px;margin-top:2px;flex:0 0 16px;border:1.5px solid rgba(255,255,255,.32);border-radius:50%}.conv-option.selected{border-color:#c9a84c;background:rgba(201,168,76,.12);color:#f0ede6}.conv-option.selected .conv-option-mark{border-color:#c9a84c;background:#c9a84c;box-shadow:inset 0 0 0 3px #16140f}.conv-option:disabled{cursor:default}.conv-option-copy{flex:1;min-width:0}.marg-image-preview{position:fixed;inset:0;z-index:6000;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:rgba(0,0,0,.86)}.marg-image-preview img{max-width:min(960px,100%);max-height:min(86vh,100%);object-fit:contain;border-radius:12px}.marg-image-preview-close{position:absolute;top:16px;right:16px;min-height:40px;padding:8px 12px;border:1px solid rgba(255,255,255,.16);border-radius:10px;background:#161616;color:#f0ede6;font:600 13px "DM Sans",sans-serif;cursor:pointer}.sent-image-preview{cursor:zoom-in}@media(max-width:600px){.conv-options{padding-left:0;width:100%}.msg-wrap.marg>.avatar{display:none}.mentor-rich{max-width:none}.marg-image-preview{padding:48px 10px 16px}}';
+  document.head.appendChild(chatStyle);
 }
 
 function messageActionIcon(name) {
@@ -15101,6 +15149,82 @@ function addMessageActions(wrap, role) {
   stack.appendChild(actions);
 }
 
+function assistantReplyNeedsSurface(html) {
+  return /<button\b|class="[^"]*(?:practice-card|onboard-card|pcard-|options-grid|opt-btn|passage-reading|guided-exercise|article-rc|timed-test)/i.test(String(html || ''));
+}
+
+function conversationalOptionGroups(options) {
+  var main = [];
+  var other = [];
+  (Array.isArray(options) ? options : []).forEach(function(option) {
+    if (/^something else$/i.test(String(option || '').trim())) other.push(option);
+    else main.push(option);
+  });
+  var groups = [];
+  if (main.length) groups.push({ label: main.length >= 4 ? 'Choose the closest' : '', options: main });
+  if (other.length) groups.push({ label: 'Or', options: other });
+  return groups;
+}
+
+function formatUnstructuredMentorReply(html) {
+  var value = String(html || '')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
+    .replace(/\[CONTEXT:[^\]]*\]/g, '')
+    .replace(/👇/g, '').replace(/👋/g, '')
+    .replace(/\bGo\.\s*$/gm, '')
+    .replace(/Here's what (to do|I can do|happens|what you need)[^.]*\./gi, '')
+    .replace(/Here's (your task|the plan|the fix|the thing)[^.]*\./gi, '')
+    .replace(/That's it\.?/gi, '')
+    .replace(/Moving forward[^.]*\./gi, '')
+    .replace(/Real question[^.]*:/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return renderMentorStructuredText(value);
+}
+
+function openChatImagePreview(src, alt) {
+  if (!src || typeof document === 'undefined' || !document.body) return;
+  var existing = document.getElementById('marg-image-preview');
+  if (existing && existing.remove) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'marg-image-preview';
+  overlay.className = 'marg-image-preview';
+  overlay.innerHTML = '<button type="button" class="marg-image-preview-close">Close</button><img alt="">';
+  var image = overlay.querySelector('img');
+  var close = overlay.querySelector('button');
+  if (image) { image.src = src; image.alt = alt || 'Uploaded image'; }
+  function dismiss(event) {
+    if (!event || event.target === overlay || event.target === close) {
+      if (overlay.remove) overlay.remove();
+    }
+  }
+  if (overlay.addEventListener) overlay.addEventListener('click', dismiss);
+  if (document.body.appendChild) document.body.appendChild(overlay);
+}
+
+function bindSentImagePreviews(wrap) {
+  if (!wrap || !wrap.querySelectorAll) return;
+  var previews = wrap.querySelectorAll('.sent-image-preview');
+  if (!previews || typeof previews.forEach !== 'function') return;
+  previews.forEach(function(image) {
+    if (!image || image.dataset && image.dataset.previewBound === '1') return;
+    if (image.dataset) image.dataset.previewBound = '1';
+    image.tabIndex = 0;
+    image.setAttribute('role', 'button');
+    function openPreview() { openChatImagePreview(image.getAttribute('src'), image.getAttribute('alt')); }
+    if (image.addEventListener) {
+      image.addEventListener('click', openPreview);
+      image.addEventListener('keydown', function(event) {
+        if (event && (event.key === 'Enter' || event.key === ' ')) {
+          if (event.preventDefault) event.preventDefault();
+          openPreview();
+        }
+      });
+    }
+  });
+}
+
 function isTrustedChatClick(value) {
   // `this` is the clicked control. It is allowed only as a bare argument of an
   // already named handler, so the RC card can find its own passage.
@@ -15134,44 +15258,26 @@ function addMessage(role, html, showAvatar) {
   ensureMessageExperienceStyles();
   if (showAvatar === undefined) showAvatar = true;
   if (role === 'marg' && typeof html === 'string') html = convertLatexToPlainText(stripInternalMentorTags(html));
-  // Strip markdown from ALL Marg responses at the source
-  if (role === 'marg' && html && typeof html === 'string' && !html.includes('<div') && !html.includes('<button')) {
-    html = html
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
-      .replace(/^#{1,3}\s+/gm, '')
-      .replace(/^[-•*]\s+/gm, '')
-      .replace(/^>\s+/gm, '')
-      .replace(/---+/g, '')
-      .replace(/===+/g, '')
-      .replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[START_TEST:[^\]]*\]/g, '').replace(/\[PRACTICE_LOG:[^\]]*\]/g, '')
-      .replace(/\[CONTEXT:[^\]]*\]/g, '')
-      .replace(/👇/g, '')
-      .replace(/👋/g, '')
-      .replace(/\bGo\.\s*(<br>|$)/gm, '')
-      .replace(/^\d+\.\s+/gm, '')
-      .replace(/Here's what (to do|I can do|happens|what you need)[^.]*\./gi, '')
-      .replace(/Here's (your task|the plan|the fix|the thing)[^.]*\./gi, '')
-      .replace(/That's it\.?/gi, '')
-      .replace(/Moving forward[^.]*\./gi, '')
-      .replace(/Real question[^.]*:/gi, '')
-      .replace(/\n\n/g, '<br><br>')
-      .replace(/\n/g, '<br>')
-      .trim();
+  // Plain mentor text keeps headings, steps and emphasis. Already rendered
+  // activities and structured HTML are left intact.
+  if (role === 'marg' && html && typeof html === 'string' && !assistantReplyNeedsSurface(html) && !/<(?:div|table|ul|ol|p|img|svg|h[1-6])\b/i.test(html)) {
+    html = formatUnstructuredMentorReply(html);
   }
   html = sanitizeRenderedChatHtml(html);
   const container = document.getElementById('messages');
   const wrap = document.createElement('div');
   wrap.className = 'msg-wrap ' + role + ' fade-in';
+  var bubbleClass = 'bubble' + (role === 'marg' && assistantReplyNeedsSurface(html) ? ' bubble-activity' : '');
   if (role === 'marg' && showAvatar) {
-    wrap.innerHTML = '<div class="avatar"><img src="' + LOGO_ICON + '" alt="M"></div><div class="bubble">' + html + '</div>';
+    wrap.innerHTML = '<div class="avatar"><img src="' + LOGO_ICON + '" alt="M"></div><div class="' + bubbleClass + '">' + html + '</div>';
   } else if (role === 'user') {
     wrap.innerHTML = '<div class="bubble">' + html + '</div>';
   } else {
-    wrap.innerHTML = '<div class="bubble">' + html + '</div>';
+    wrap.innerHTML = '<div class="' + bubbleClass + '">' + html + '</div>';
     wrap.style.marginLeft = '38px';
   }
   container.appendChild(wrap);
+  if (role === 'user') bindSentImagePreviews(wrap);
   if (role === 'marg') decoratePassageMessage(wrap);
   if (role === 'marg' || role === 'user') addMessageActions(wrap, role);
   if (!isRestoringConversation) scrollChatToLatest();
@@ -18975,63 +19081,59 @@ function showConversationalOptions(options, context, config) {
       title:config.title || '', description:config.description || '', backToHome:!!config.backToHome
     } : null
   };
+  ensureMessageExperienceStyles();
   var chipsDiv = document.createElement('div');
   chipsDiv.id = 'conv-options-' + context;
-  chipsDiv.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:4px 0 4px 38px;max-width:100%;width:100%;';
+  chipsDiv.className = 'conv-options';
 
   if (config && (config.title || config.description)) {
     var intro = document.createElement('div');
     intro.className = 'conv-options-intro';
-    intro.style.cssText = 'width:100%;max-width:460px;margin:0 0 4px;padding:14px 16px;border:1px solid rgba(201,168,76,0.22);border-radius:14px;background:rgba(201,168,76,0.055);';
     if (config.title) {
       var introTitle = document.createElement('div');
-      introTitle.style.cssText = 'font-family:DM Sans,sans-serif;font-size:14px;font-weight:600;line-height:1.4;color:#F0EDE6;';
+      introTitle.className = 'conv-options-label';
       introTitle.textContent = String(config.title);
       intro.appendChild(introTitle);
     }
     if (config.description) {
       var introDescription = document.createElement('div');
-      introDescription.style.cssText = 'margin-top:5px;font-family:DM Sans,sans-serif;font-size:12px;line-height:1.5;color:#918D85;';
+      introDescription.className = 'mentor-paragraph';
       introDescription.textContent = String(config.description);
       intro.appendChild(introDescription);
     }
     chipsDiv.appendChild(intro);
   }
 
-  requestedOptions.forEach(function(opt) {
-    var btn = document.createElement('button');
-    btn.textContent = opt;
-    btn.style.cssText = [
-      'background:#161616',
-      'border:1.5px solid rgba(255,255,255,0.1)',
-      'border-radius:12px',
-      'padding:13px 16px',
-      'font-family:DM Sans,sans-serif',
-      'font-size:14px',
-      'color:#C8C4BC',
-      'cursor:pointer',
-      'transition:all 0.18s ease',
-      'text-align:left',
-      'width:100%',
-      'max-width:460px',
-      'line-height:1.4'
-    ].join(';');
-    btn.onmouseover = function() {
-      this.style.borderColor = '#C9A84C';
-      this.style.color = '#F0EDE6';
-      this.style.background = 'rgba(201,168,76,0.06)';
-    };
-    btn.onmouseout = function() {
-      if (!this.classList.contains('selected')) {
-        this.style.borderColor = '#2A2A2A';
-        this.style.color = '#C8C4BC';
-        this.style.background = '#1A1A1A';
-      }
-    };
-    btn.onclick = function() {
-      dispatchConversationalQuickReply(opt, context, chipsDiv);
-    };
-    chipsDiv.appendChild(btn);
+  conversationalOptionGroups(requestedOptions).forEach(function(group) {
+    var groupNode = document.createElement('div');
+    groupNode.className = 'conv-options-group';
+    if (group.label) {
+      var label = document.createElement('div');
+      label.className = 'conv-options-label';
+      label.textContent = group.label;
+      groupNode.appendChild(label);
+    }
+    group.options.forEach(function(opt) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'conv-option';
+      btn.innerHTML = '<span class="conv-option-mark" aria-hidden="true"></span><span class="conv-option-copy"></span>';
+      var copy = btn.querySelector('.conv-option-copy');
+      if (copy) copy.textContent = opt;
+      else btn.textContent = opt;
+      btn.onclick = function() {
+        var choices = chipsDiv.querySelectorAll ? chipsDiv.querySelectorAll('.conv-option') : [];
+        if (choices && typeof choices.forEach === 'function') {
+          choices.forEach(function(item) {
+            item.disabled = true;
+            if (item.classList) item.classList.toggle('selected', item === btn);
+          });
+        } else if (btn.classList) btn.classList.add('selected');
+        dispatchConversationalQuickReply(opt, context, chipsDiv);
+      };
+      groupNode.appendChild(btn);
+    });
+    chipsDiv.appendChild(groupNode);
   });
 
   if (config && config.backToHome) {
