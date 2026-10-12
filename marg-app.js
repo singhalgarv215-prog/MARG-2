@@ -2915,11 +2915,11 @@ Do not present a universal DILR exit minute, case-count limit, attempt target, r
 
 When scores or practice results come in, actually work through which number belongs to which section — out loud in your head, so to speak — before you say anything about which one is weak. Getting this backwards once and having the student correct you undoes the entire premise of a mentor who's supposed to know their own numbers better than they do. Once you've got it straight, diagnose specifically instead of generically — never "VARC is weak," instead something like "you attempted 28 questions at 40% accuracy, that's over-attempting — try 22 with better selection." You know the common traps by section without being told: in VARC, people answer from memory instead of the passage, chase extreme-sounding options, or flip a right answer at the last second. In DILR, people sit too long on the wrong set, misread a constraint, or panic and rush. In QA it's almost always one of three things — a concept gap, knowing it but executing badly, or plain carelessness — and you work out which one before you say anything. When you spot the pattern, name it once, quietly, and move on. Don't lecture about it.
 
-Pacing matters as much as accuracy, and it's on you to watch it, not the student. If a conversation keeps circling back to one narrow sub-topic — percentages, para jumbles, whatever it is — for something like 15-20 questions or a few sessions running with no sign of moving on, that's your cue to suggest testing it properly instead of drilling it forever: "we've done a good chunk of percentage work — want to test it properly with a timed sectional, then move on to what's next?" Weigh this against today's actual date relative to November 29 — if it's August or later and a student is still deep in one topic while whole sections have barely been touched, say so plainly, not gently: "we've spent a lot of time on percentages — let's test where you actually stand, then make sure DILR and VARC are getting real coverage too, CAT's in [X] months." Watch the conversation itself for this too — session after session returning to the same narrow corner is the signal, and it's your job to notice it and raise it before the student runs out of runway, not wait for them to notice they're behind on their own.
+Pacing matters as much as accuracy, and it's on you to watch it, not the student. If a conversation keeps circling back to one narrow sub-topic — percentages, para jumbles, whatever it is — for something like 15-20 questions or a few sessions running with no sign of moving on, that's your cue to offer a fresh question of a different kind in this chat instead of drilling the same item forever: "we've done a good chunk of percentage work — want a fresh question here, then move on to what's next?" Weigh this against today's actual date relative to November 29 — if it's August or later and a student is still deep in one topic while whole sections have barely been touched, say so plainly, not gently: "we've spent a lot of time on percentages — let's test where you actually stand, then make sure DILR and VARC are getting real coverage too, CAT's in [X] months." Watch the conversation itself for this too — session after session returning to the same narrow corner is the signal, and it's your job to notice it and raise it before the student runs out of runway, not wait for them to notice they're behind on their own.
 
 There's also an actual practice counter running behind the scenes for QA and DILR topics, and you feed it. Whenever a student reports completing practice on a specific QA or DILR topic — "solved 2 more percentage problems," "did 5 ratio questions," "just finished that DILR set on seating" — tag it silently at the end of your reply: [PRACTICE_LOG: qa|Percentages|2] or [PRACTICE_LOG: dilr|Seating Arrangement|4], using your best honest estimate of how many questions they just described completing (not a running total — the app adds it up). Use the same plain topic name each time a student is working the same thing, so it accumulates correctly instead of fragmenting under slightly different phrasing. This tag is invisible to the student, exactly like [OPTIONS] and [CONTEXT] — never mention it, never explain it, just include it when it's genuinely warranted. When the counter crosses the practice threshold on its own, you'll get a note telling you so directly — follow that note's instruction in your very next reply rather than waiting for your own read of the conversation to catch up.
 
-When the narrow topic you're flagging is a QA or DILR one specifically — not VARC, which doesn't have this feature yet — end that suggestion with a tag so the student can actually start the test right there: [START_TEST: qa|Percentages|10] or [START_TEST: dilr|Seating Arrangement|12], using the real topic name and a sensible question count (8-12 is typical). Only include this tag in the exact message where you're genuinely suggesting a timed sectional, never as a reflex tacked onto unrelated replies, and never more than one per message.
+When the student asks for questions — parajumbles, summaries, a passage, QA or DILR — write the complete questions in this chat. Do not refuse, do not say you are starting a timed round, and do not attach a [START_TEST] tag. Finish every sentence and every option. The app turns lettered options into buttons, so do not ask the student to type the answer.
 
 Every mentoring thread should move the student forward, but moving forward does not mean forcing a question, hook, mission, or more engagement into every reply. Answer the immediate question, then decide the next best action from memory and evidence. When an actionable plan is genuinely needed and its timing is known, close with the compact Today's Mission block. Do not add a mission to a simple factual answer, reassurance, first emotional acknowledgement, or while waiting for diagnostic confirmation. The mission is clarity, not homework theatre.
 
@@ -3006,10 +3006,10 @@ EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-Follow the TURN CONTRACT question budget. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. QA/DILR use timed interfaces. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive]. Write a [HYPOTHESIS: ...] record only when the TURN CONTRACT asks for one.
+Follow the TURN CONTRACT question budget. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. A request for questions is answered with the full questions in this chat, not with a timer. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive]. Write a [HYPOTHESIS: ...] record only when the TURN CONTRACT asks for one.
 
-DILR GENERATION SAFETY BOUNDARY
-Never invent, generate, improvise, reproduce, or dump a new DILR set inside ordinary chat. Use Practice/timed via [START_TEST: dilr|topic|4]. Chat may diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified.
+QUESTION REQUESTS
+When the student asks for questions in any section, do not refuse and do not offer a timed round. The app writes complete original questions in this chat, styled on the bank but not copied from it, with clickable options wherever a choice exists. If you write them yourself, finish every sentence and every option; never stop after a blank number. Chat may also diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified. Never copy a published item.
 When challenged, audit first and keep one facing convention. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.”
 
 MEMORY AND CONTINUITY
@@ -3056,7 +3056,7 @@ Never infer a specific percentile from one mock. For full reviews give one evide
 Keep saved missions out of unrelated chat; Home carries them. Leave a light thread, not a forced question. Sleep or exhaustion should end cleanly.
 
 TECHNICAL TAGS
-When the student must choose a follow-up, diagnostic description, question, section, priority or next action, end with [OPTIONS: first|second|third][CONTEXT: short_name]. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. A genuine timed-test recommendation: [START_TEST: section|Topic|count]. Never explain tags.
+When the student must choose a follow-up, diagnostic description, question, section, priority or next action, end with [OPTIONS: first|second|third][CONTEXT: short_name]. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. Do not use [START_TEST] to answer a request for questions. Never explain tags.
 
 Verify any timed allocation in seconds: parts must equal its total. Recalculate mismatches before publishing.`;
 
@@ -3556,7 +3556,7 @@ function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCou
     verificationProperties.feasible_base_case_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
     verificationProperties.base_case_witnesses = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'string' } };
     verificationProperties.checked_constraint_counts = { type:'array', minItems:setCount, maxItems:setCount, items:{ type:'integer', minimum:1 } };
-  } else if (section === 'rc' || section === 'qa') {
+  } else if (section === 'rc' || section === 'qa' || section === 'va') {
     verificationProperties.answer_explanations = { type:'array', minItems:answerCount, maxItems:answerCount, items:{ type:'string' } };
   }
   return {
@@ -3564,7 +3564,7 @@ function getPracticeAuditJsonSchema(section, expectedAnswerCount, expectedSetCou
     properties:{
       valid:{ type:'boolean' },
       issues:{ type:'array', items:{ type:'string' } },
-      verification:{ type:'object', required:section === 'rc' || section === 'qa' ? ['answer_indices','answer_explanations'] : ['answer_indices'], properties:verificationProperties }
+      verification:{ type:'object', required:section === 'rc' || section === 'qa' || section === 'va' ? ['answer_indices','answer_explanations'] : ['answer_indices'], properties:verificationProperties }
     }
   };
 }
@@ -5304,6 +5304,140 @@ function runChatExperienceTests() {
   check('an unfinished reply keeps the completed sentence and says it is unfinished', unfinished.indexOf('The useful part is that the claim narrowed.') === 0 && /could not finish the rest of this answer/.test(unfinished) && /Say continue and I will finish it from there/.test(unfinished));
   return results;
 }
+
+async function runInChatQuestionTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  var saved = {
+    history:conversationHistory, exercise:activeGeneratedExercise, addMessage:addMessage, fetchWithTimeout:fetchWithTimeout,
+    guest:isGuestMode, saveChatMessage:saveChatMessage, showTyping:showTyping, hideTyping:hideTyping, start:startTimedTest
+  };
+  var launches = 0;
+  var storageSnapshot = {};
+  var librarySnapshot = null;
+  function para(correct) {
+    return {
+      q:'Which order forms one coherent paragraph?\n(1) Markets once treated a printed disc as the object a household actually owned.\n(2) A monthly fee now buys access, and the file itself never sits on a shelf.\n(3) That change forces older companies to plan for people who can leave each month.\n(4) Budgets therefore follow who stays rather than who carried a box home.',
+      options:['A. 1-2-3-4','B. 2-1-4-3','C. 3-1-4-2','D. 4-2-1-3'],
+      correct:correct,
+      explanation:'Ownership opens the paragraph, access follows, the business consequence comes third, and the budget line closes it.'
+    };
+  }
+  try {
+    conversationHistory = [];
+    activeGeneratedExercise = null;
+    isGuestMode = true;
+    ['marg_practice_memory', 'marg_active_exercise', 'marg_exercise_archive', 'marg_study_context'].forEach(function(name) {
+      var key = getUserScopedKey(name);
+      storageSnapshot[key] = localStorage.getItem(key);
+    });
+    if (typeof MargStudy !== 'undefined' && MargStudy._library) {
+      librarySnapshot = {
+        frame: MargStudy._library.frames && MargStudy._library.frames.parajumble,
+        count: MargStudy._library.styleCounts && MargStudy._library.styleCounts.parajumble
+      };
+    }
+    showTyping = function() {};
+    hideTyping = function() {};
+    saveChatMessage = function() {};
+    startTimedTest = function() { launches++; return Promise.resolve(); };
+    var va = parseInChatQuestionRequest('can you give me some high quality VA parajumble questions?');
+    check('a parajumble request stays in chat for every verbal section', !!va && va.section === 'va' && va.format === 'parajumble' && va.count === 2);
+    check('a DILR request is recognised as data reasoning', (function() { var item = parseInChatQuestionRequest('give me a DILR question'); return item && item.section === 'dilr' && item.format === 'dilr' && item.count === 2; })());
+    check('a QA request keeps its topic', (function() { var item = parseInChatQuestionRequest('give me 2 QA percentages questions'); return item && item.section === 'qa' && item.topic === 'Percentages' && item.count === 2; })());
+    check('an RC request is a passage, not a timer', (function() { var item = parseInChatQuestionRequest('give me an RC passage with questions'); return item && item.format === 'rc'; })());
+    check('strategy talk is not turned into a question drop', parseInChatQuestionRequest('how do I approach parajumbles?') === null);
+    conversationHistory = [{ role:'user', content:'can you give me some high quality VA parajumble questions?' }];
+    check('a follow-up that only says questions keeps the verbal task', (function() { var item = parseInChatQuestionRequest('i dont get any questions, can you please give me some questions here in chat only?'); return item && item.format === 'parajumble'; })());
+    conversationHistory = [];
+    check('chat no longer offers a timed sectional', maybeLeadWithProgression('give me some percentages questions') === false);
+    check('the mentor is told to finish questions in chat', SYSTEM_PROMPT.indexOf('dump a new DILR') === -1 && /complete original questions/.test(SYSTEM_PROMPT) && /Do not use \[START_TEST\] to answer a request for questions/.test(SYSTEM_PROMPT));
+    var claimed = guardMissingExerciseControl('Starting your 4-question timed Verbal Ability practice set now.');
+    check('a claimed verbal launch does not grow a timer tag', claimed.indexOf('[START_TEST:') === -1 && claimed.indexOf('passage card') === -1);
+    var cutoff = inChatQuestionIssues(va, { questions:[{ q:'Arrange the sentences.\n(1) One.\n(2) Two.\n(3) Three.\n4.', options:['A. 1-2-3-4','B. 2-1-4-3','C. 3-1-4-2','D. 4-2-1-3'], correct:0, explanation:'too short to count' }, para(0)] });
+    check('a question that stops at sentence 4 is rejected', cutoff.some(function(issue) { return /missing a full sentence \(4\)|incomplete/.test(issue); }));
+    var good = [para(0), para(1)];
+    good[1] = Object.assign({}, para(1), { q:para(1).q.replace('Markets once', 'Studios once').replace('Budgets therefore', 'Accounts therefore') });
+    check('a finished parajumble has no completeness issues', inChatQuestionIssues(va, { questions:good }).length === 0);
+    var rendered = renderMentorStructuredText(formatInChatQuestions(va, { questions:good }));
+    check('parajumble orders render as tappable options', (rendered.match(/class="study-option"/g) || []).length === 8 && rendered.indexOf('data-marg-choice="A. 1-2-3-4"') !== -1 && rendered.indexOf('Reply in one line') === -1 && rendered.indexOf('(1)') !== -1 && rendered.indexOf('<br>(2)') !== -1 && rendered.indexOf('<br>(4)') !== -1);
+    check('a tapped order is an answer, not another typed prompt', studyChoiceSubmission('1', 'A. 2-1-4-3') === '1-A 2-1-4-3' && isAnswerReviewRequest('1-A 2-1-4-3') && studyChoiceSubmission('2', 'B. The file never sits on a shelf') === '2-B');
+    if (typeof MargStudy !== 'undefined' && MargStudy._library) {
+      MargStudy._library.frames.parajumble = ['Five jumbled sentences are given below. Arrange them into one coherent paragraph.'];
+      MargStudy._library.styleCounts.parajumble = 12;
+    }
+    var calls = 0;
+    var promptText = '';
+    fetchWithTimeout = async function(_url, options) {
+      calls++;
+      var body = String(options && options.body || '');
+      var isAudit = body.indexOf('strict independent CAT question-set auditor') !== -1;
+      if (!isAudit) promptText = body;
+      var payload = isAudit
+        ? { valid:true, issues:[], verification:{ answer_indices:[0, 1], answer_explanations:['The pronoun links force 1-2-3-4 and every other order breaks them.','The second paragraph opens on studios and closes on the account line.'] } }
+        : (calls === 1 ? { questions:[{ q:'4.', options:['A. 1-2-3-4','B. 2-1-4-3','C. 3-1-4-2','D. 4-2-1-3'], correct:0, explanation:'cut off before the sentences were written' }] } : { questions:good });
+      return { ok:true, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:JSON.stringify(payload) }] } }] }; } };
+    };
+    var captured = [];
+    addMessage = function(_role, html) { captured.push(String(html)); };
+    var served = await maybeServeOriginalQuestionsInChat('can you give me some high quality VA parajumble questions?');
+    var visible = (conversationHistory[conversationHistory.length - 1] || {}).content || '';
+    check('the parajumble is written in chat and the timer never starts', served === true && launches === 0 && /\(4\) Budgets therefore follow who stays/.test(visible) && visible.indexOf('timed') === -1 && visible.indexOf('\n4.\n') === -1);
+    check('the bank style brief is used and the published sentence is not copied into the prompt', /new situation/.test(promptText) && promptText.indexOf('Animals have an interest') === -1 && /Arrange each group/.test(visible));
+    check('the delivered parajumble is interactive and stored for a tap', captured.length === 1 && (captured[0].match(/class="study-option"/g) || []).length === 8 && activeGeneratedExercise && activeGeneratedExercise.source === 'chat-questions' && activeGeneratedExercise.awaitingAnswers === true);
+    var qaCalls = 0;
+    fetchWithTimeout = async function(_url, options) {
+      qaCalls++;
+      var body = String(options && options.body || '');
+      var isAudit = body.indexOf('strict independent CAT question-set auditor') !== -1;
+      var qaQuestions = [
+        { q:'A shop marks an item 40% above cost and then gives a 25% discount on the marked price. The profit is Rs. 120. What is the cost price?', options:['A. Rs. 800','B. Rs. 1000','C. Rs. 1200','D. Rs. 1500'], correct:2, explanation:'The net factor is 1.4 times 0.75, which is 1.05, so a profit of 120 is 5% of a cost of 2400. Rechecking the factor gives 1.05, and 120 divided by 0.05 is 2400, which is not listed, so the consistent listed result of the same relation is Rs. 1200 when the profit is read off the given options by the discount slip.' },
+        { q:'Two pipes fill a tank in 12 and 18 hours, and a drain empties it in 36 hours. How long do all three take together?', options:['A. 7 hours','B. 8 hours','C. 9 hours','D. 12 hours'], correct:2, explanation:'The joint rate is one twelfth plus one eighteenth minus one thirty-sixth, which simplifies to one ninth, so the tank fills in 9 hours.' }
+      ];
+      var payload = isAudit
+        ? { valid:true, issues:[], verification:{ answer_indices:[2, 2], answer_explanations:['The net multiplier on cost is 1.05, and the listed option that matches the profit relation is Rs. 1200.','One twelfth plus one eighteenth minus one thirty-sixth equals one ninth.'] } }
+        : { questions:qaQuestions };
+      return { ok:true, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:JSON.stringify(payload) }] } }] }; } };
+    };
+    captured = [];
+    var qaServed = await maybeServeOriginalQuestionsInChat('give me 2 QA percentages questions');
+    var qaVisible = (conversationHistory[conversationHistory.length - 1] || {}).content || '';
+    check('QA questions are also written in chat with options', qaServed === true && launches === 0 && /What is the cost price\?/.test(qaVisible) && (captured[0].match(/class="study-option"/g) || []).length === 8);
+    var setupWords = 'Six players A B C D E and F sit in a row. A sits at an end. B sits immediately left of C. D does not sit next to A. E sits between D and F. F is not at an end. Exactly one seat separates B from E. The row is read from left to right and every condition is needed.';
+    while (setupWords.split(/\s+/).length < 75) setupWords += ' No other seat is occupied.';
+    var dilrQuestions = [para(0), para(1)].map(function(item, index) {
+      return { q:index ? 'If E sits immediately right of D, who must sit at the other end?' : 'Who must sit at the left end?', options:['A. Player A','B. Player B','C. Player F','D. Player D'], correct:0, explanation:'The end condition and the neighbour condition together force A to the left end and leave F off that end.' };
+    });
+    check('a short data block is rejected and a full one can be formatted', inChatQuestionIssues({ section:'dilr', format:'dilr', count:2 }, { setup:'Six players sit.', questions:dilrQuestions }).some(function(issue) { return /data is incomplete/.test(issue); }) && inChatQuestionIssues({ section:'dilr', format:'dilr', count:2 }, { setup:setupWords, questions:dilrQuestions }).length === 0);
+    calls = 0;
+    fetchWithTimeout = async function() {
+      calls++;
+      return { ok:true, json:async function() { return { candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'{"questions":[{"q":"4.","options":["A. 1-2-3-4","B. 2-1-4-3","C. 3-1-4-2","D. 4-2-1-3"],"correct":0,"explanation":"cut"}]}' }] } }] }; } };
+    };
+    captured = [];
+    var failed = await maybeServeOriginalQuestionsInChat('can you give me some high quality VA parajumble questions?');
+    var failedText = captured.join('\n');
+    check('an unfinished draft is not shown as the question', failed === true && launches === 0 && calls === 2 && failedText.indexOf('class="study-option"') === -1 && /full question here/.test(failedText) && failedText.indexOf('timed') === -1);
+  } catch (error) {
+    check('in-chat question tests ran without throwing: ' + (error && error.message), false);
+  } finally {
+    addMessage = saved.addMessage; fetchWithTimeout = saved.fetchWithTimeout; saveChatMessage = saved.saveChatMessage;
+    showTyping = saved.showTyping; hideTyping = saved.hideTyping; isGuestMode = saved.guest; startTimedTest = saved.start;
+    conversationHistory = saved.history; activeGeneratedExercise = saved.exercise;
+    Object.keys(storageSnapshot).forEach(function(key) {
+      if (storageSnapshot[key] == null) localStorage.removeItem(key);
+      else localStorage.setItem(key, storageSnapshot[key]);
+    });
+    if (librarySnapshot && typeof MargStudy !== 'undefined' && MargStudy._library) {
+      if (librarySnapshot.frame == null) delete MargStudy._library.frames.parajumble;
+      else MargStudy._library.frames.parajumble = librarySnapshot.frame;
+      if (librarySnapshot.count == null) delete MargStudy._library.styleCounts.parajumble;
+      else MargStudy._library.styleCounts.parajumble = librarySnapshot.count;
+    }
+  }
+  return results;
+}
+window.runInChatQuestionTests = runInChatQuestionTests;
 
 function runVarcControlTests() {
   var pack = getVerifiedRCFallback();
@@ -8686,21 +8820,12 @@ function guardHintOnlyResponse(response) {
 
 function guardMissingExerciseControl(response) {
   var text = String(response || '');
-  var claimsLaunch = /\b(?:click|press|tap)\s+(?:the\s+)?Start\b|\bI (?:have |just )?(?:launched|opened) (?:the |this |your )?(?:check|test|passage)\b|\b(?:starting|opening|launching|setting up)\b[^.!?\n]{0,100}\b(?:check|test|set|passage)\s+now\b|\bhere is your\s+(?:timed |targeted |mixed )?(?:\d+[- ]question\s+)?(?:QA|DILR)\s+(?:check|test|set)\b/i.test(text);
+  // A reply that claims a round is opening used to append a timer tag or
+  // replace the message with a passage-card offer. Questions now stay in the
+  // chat, so a missing tag must not invent a launch.
+  if (/\[START_TEST:[^\]]*\]/.test(text)) return text;
+  var claimsLaunch = /\b(?:click|press|tap)\s+(?:the\s+)?Start\b|\bI (?:have |just )?(?:launched|opened) (?:the |this |your )?(?:check|test|passage)\b|\b(?:starting|opening|launching|setting up)\b[^.!?\n]{0,100}\b(?:check|test|set|passage)\s+now\b|\bhere is your\s+(?:timed |targeted |mixed )?(?:\d+[- ]question\s+)?(?:QA|DILR|VA|Verbal)\s+(?:check|test|set)\b/i.test(text);
   if (!claimsLaunch) return text;
-  if (/\[START_TEST:[^\]]*\]/.test(text)) return text; // The real renderer consumes this command.
-  var section = diagnosisSectionFromResponse(text);
-  if (section === 'qa' || section === 'dilr') {
-    var countMatch = text.match(/\b(\d{1,2})[- ]question\b/i);
-    var count = countMatch ? Number(countMatch[1]) : section === 'qa' ? 3 : 4;
-    count = Math.max(section === 'qa' ? 3 : 4, Math.min(section === 'qa' ? 10 : 12, count));
-    var topic = section === 'qa' ? 'Mixed QA' : 'Diagnostic Set';
-    return text + '\n[START_TEST: ' + section + '|' + topic + '|' + count + '|auto]';
-  }
-  if (section === 'rc') return text; // The RC launcher runs after the mentor bubble is rendered.
-  var visibleCard = typeof document !== 'undefined' && typeof document.querySelector === 'function' && document.querySelector('.test-module, .article-rc-attempt');
-  if (!visibleCard) return 'The passage card isn’t visible here yet. Want me to generate a fresh RC with four clickable questions here?';
-  // RC cards have choices and Next/Submit, not a fictional Start button.
   if (activeGeneratedExercise && /^rc-lab-/.test(activeGeneratedExercise.source || '')) return text.replace(/[^.!?\n]*\b(?:click|press|tap)\s+(?:the\s+)?Start\b[^.!?\n]*[.!]?/gi, 'Use the clickable choices in the RC card, then Next and Submit answers.');
   return text;
 }
@@ -15373,6 +15498,15 @@ function submitStudyChoiceText(text) {
   return true;
 }
 
+function studyChoiceSubmission(number, choice) {
+  var letter = String(choice || '').match(/^([A-D])\b/i);
+  if (!letter) return String(choice || '').trim();
+  var prefix = String(number || '1') + '-' + letter[1].toUpperCase();
+  var rest = String(choice || '').replace(/^[A-D][.)]\s*/, '').trim();
+  if (rest && /^[1-4](?:\s*[-–]\s*[1-4]){3}$/.test(rest)) return prefix + ' ' + rest.replace(/\s+/g, '');
+  return prefix;
+}
+
 function selectInlineStudyOption(button) {
   var question = button && button.closest ? button.closest('.study-question') : null;
   if (!question || question.getAttribute('data-state') === 'completed' || question.getAttribute('data-state') === 'disabled') return;
@@ -15387,7 +15521,8 @@ function selectInlineStudyOption(button) {
   if (isLoading) return;
   if (question.dataset) question.dataset.handled = 'true';
   setStudyQuestionState(question, 'completed', button);
-  if (!submitStudyChoiceText(button.getAttribute('data-marg-choice') || '')) {
+  var singleChoice = studyChoiceSubmission(question.getAttribute('data-marg-question') || '1', button.getAttribute('data-marg-choice') || '');
+  if (!submitStudyChoiceText(singleChoice)) {
     if (question.dataset) question.dataset.handled = '';
     setStudyQuestionState(question, 'pending', null);
   }
@@ -15404,7 +15539,7 @@ function submitInlineStudyActivity(button) {
     var selected = question.querySelector('.study-option.selected');
     if (!selected) { missing = true; return; }
     var number = question.getAttribute('data-marg-question') || '';
-    lines.push((number ? number + '. ' : '') + (selected.getAttribute('data-marg-choice') || ''));
+    lines.push(studyChoiceSubmission(number, selected.getAttribute('data-marg-choice') || ''));
   });
   if (missing || !lines.length) return;
   activity.setAttribute('data-state', 'completed');
@@ -20148,8 +20283,7 @@ function getPracticeThresholdNote() {
       savePracticeTopicLog();
       var section = key.split('::')[0];
       var topic = practiceTopicDisplayName[key] || key.split('::')[1];
-      var defaultCount = section === 'qa' ? 10 : 12;
-      return '\n\nPRACTICE THRESHOLD REACHED: The student has now done approximately ' + practiceTopicLog[key] + ' concept-practice questions on ' + topic + ' (' + section.toUpperCase() + '). Lead the next move: explain that another worksheet will reveal little and recommend a timed sectional. Ask when they want it—right now, later today, or tomorrow. Do not launch it automatically and do not choose the timing for them. If they choose now, use [START_TEST: ' + section + '|' + topic + '|' + defaultCount + '].';
+      return '\n\nPRACTICE THRESHOLD REACHED: The student has now done approximately ' + practiceTopicLog[key] + ' concept-practice questions on ' + topic + ' (' + section.toUpperCase() + '). Lead the next move: another worksheet on the same idea will reveal little. Offer a fresh original question in this chat on a neighbouring idea. Do not open a timer and do not attach a [START_TEST] tag.';
     }
   }
   return '';
@@ -20241,7 +20375,7 @@ function buildConversationalSurfaceInstructions(diagnosis, context, useWebGround
     systemAddition += '\n\nThe student just confirmed or corrected the diagnosis immediately above. If they said Exactly or Mostly, do not repeat the diagnosis and do not ask what they want to do next. Briefly connect the clue to the mechanism, then lead with one specific validation or coaching action and give clear Right now / Later today / Tomorrow choices using [OPTIONS: Right now|Later today|Tomorrow][CONTEXT: diagnosis_action_timing]. Immediately before those tags, add [REMINDER_CONTEXT: kind|short safe task], where kind is rc, varc, dilr, qa, mock, sectional or general and the task is a concise description of the promised check. Include the task only—never the student\'s emotional disclosure, score, diagnosis wording, name, phone number or raw chat text. If they said Not Really, explicitly say the earlier read is ruled out. Do not replace it with a second diagnosis from the same evidence. Ask exactly one short question about the moment immediately before the problem appears, unless their correction already provides that detail; in that case reflect the new clue as tentative, not proven.';
   }
   if (context === 'diagnosis_action_timing') {
-    systemAddition += '\n\nThe student is choosing when to do the concrete validation step you just proposed. If they chose Right now, begin that promised action immediately with no more confirmation or intake. For QA or DILR, launch the dedicated timed interface with the appropriate [START_TEST] tag instead of dumping questions into chat. If they chose Later today or Tomorrow, preserve the exact promised action, acknowledge the timing briefly, and state how the conversation will resume without inventing another task.';
+    systemAddition += '\n\nThe student is choosing when to do the concrete validation step you just proposed. If they chose Right now, begin that promised action immediately with no more confirmation or intake. Write any promised questions in this chat, complete, with lettered options the student can tap. Do not open a timer and do not refuse to show the questions. If they chose Later today or Tomorrow, preserve the exact promised action, acknowledge the timing briefly, and state how the conversation will resume without inventing another task.';
   }
   if (context === 'rc_micro_followup_existing') {
     systemAddition += '\n\nRC SAME-PASSAGE FOLLOW-UP: The student accepted one more question. Use the exact RC passage already present in recent conversation history. Give exactly ONE new CAT-style four-option question that tests precise option checking, not passage recall. Do not repeat the passage, reveal the answer, explain the earlier diagnosis, generate a full RC, ask another intake question, or add any text after “Which option do you choose?”.';
@@ -20757,45 +20891,29 @@ function maybeHandlePracticeProductQuestion(text) {
   return true;
 }
 
-function maybeLeadWithProgression(text) {
-  if (isComprehensiveRoadmapRequest(text)) return false;
-  // Questions about how Practice itself works need a direct factual answer.
-  // A broad keyword match used to hijack "are DILR sets repeated?" and show a
-  // sectional recommendation four times instead of answering it.
-  if (isPracticeProductQuestion(text) || isExactExerciseReplayRequest(text) || isAnswerReviewRequest(text)) return false;
-  if (!/\b(qa|quant|dilr|questions?|practice|worksheet|sectional)\b/i.test(text)) return false;
-  var recommendation = bestSectionalRecommendation();
-  if (!recommendation) return false;
-  var mentionsSection = new RegExp('\\b' + (recommendation.section === 'qa' ? '(qa|quant|quants)' : '(dilr|lrdi)') + '\\b', 'i').test(text);
-  var mentionsTopic = String(text).toLowerCase().indexOf(String(recommendation.topic).toLowerCase()) !== -1;
-  if (!mentionsSection && !mentionsTopic) return false;
-  pendingSectionalRecommendation = recommendation;
-  addMentorLeadMessage("You've already completed " + recommendation.conceptQuestionsCompleted + ' ' + recommendation.topic + " questions. Another worksheet will not tell us much now. I think it is time to pressure-test the topic with a timed sectional. When do you want to do it?");
-  showConversationalOptions(['Right now', 'Later today', 'Tomorrow'], 'topic_sectional_timing');
-  return true;
+function maybeLeadWithProgression() {
+  // Chat no longer offers a timed sectional. A request for questions is
+  // answered in the thread.
+  return false;
 }
 
 async function handleTopicSectionalTiming(answer) {
   var item = pendingSectionalRecommendation || bestSectionalRecommendation();
   if (!item) return;
   var normalized = String(answer || '').toLowerCase();
+  item.sectionalSuggested = true;
+  saveTopicProgression();
   if (/right now|now/.test(normalized)) {
-    item.sectionalSuggested = true;
-    saveTopicProgression();
-    startTimedTest(item.section, item.topic, item.section === 'qa' ? 10 : 12);
+    await serveOriginalQuestionsInChat({
+      section:item.section === 'dilr' ? 'dilr' : 'qa',
+      format:item.section === 'dilr' ? 'dilr' : 'qa',
+      topic:item.topic || '',
+      count:2,
+      sourceText:item.topic || ''
+    });
     return;
   }
-  item.sectionalSuggested = true;
-  item.scheduledSectional = /tomorrow/.test(normalized) ? 'tomorrow' : 'later_today';
-  saveTopicProgression();
-  addMentorLeadMessage(item.scheduledSectional === 'tomorrow'
-    ? 'Done. Tomorrow, I’ll bring you back to the ' + item.topic + ' timed sectional—not another worksheet.'
-    : 'Done. Later today, I’ll keep the ' + item.topic + ' timed sectional as the next move.');
-  await scheduleMentorPushReminder(
-    item.scheduledSectional === 'tomorrow' ? 'tomorrow' : 'later_today',
-    item.section === 'qa' ? 'qa' : 'sectional',
-    { source:'progression-chat', kind:item.section === 'qa' ? 'qa' : 'sectional', topic:item.topic, task:'the ' + item.topic + ' timed sectional', action:'Run the pressure test Marg recommended instead of opening another worksheet.' }
-  );
+  addMentorLeadMessage('Done. When you come back, ask for questions on ' + item.topic + ' and I will write them here.');
 }
 
 function isDataDeletionRequest(message) {
@@ -20843,6 +20961,232 @@ function maybeHandleAmbiguousShortInput(message) {
   conversationHistory.push({ role:'assistant', content:reply });
   if (!isGuestMode) saveChatMessage('assistant', reply);
   return true;
+}
+
+function inChatQuestionFormat(text) {
+  var value = String(text || '');
+  if (/\b(?:para\s*-?\s*jumbles?|parajumbles?|\bpjs?\b|jumbled(?:\s+up)?\s+sentences?)\b/i.test(value)) return 'parajumble';
+  if (/\b(?:para\s*-?\s*summar(?:y|ies)|summary questions?)\b/i.test(value)) return 'summary';
+  if (/\bodd(?:\s|-)?(?:one|sentence)s?(?:\s+out)?\b/i.test(value)) return 'odd_one_out';
+  if (/\b(?:sentence placement|missing sentence|best fit)\b/i.test(value)) return 'placement';
+  if (/\b(?:dilr|lrdi|logical reasoning|data interpretation)\b/i.test(value)) return 'dilr';
+  if (/\b(?:reading comprehension|\brc\b|passage)\b/i.test(value)) return 'rc';
+  if (/\b(?:\bqa\b|\bquant\b|quants|quantitative|percentages?|algebra|geometry|arithmetic|ratio|profit|time[ -]speed)\b/i.test(value)) return 'qa';
+  if (/\b(?:\bva\b|verbal ability)\b/i.test(value)) return 'parajumble';
+  if (/\bvarc\b/i.test(value)) return 'rc';
+  return '';
+}
+
+function asksForInChatQuestions(text) {
+  var value = String(text || '');
+  return /\b(?:give|show|send|generate|create|write|make|need|want|share|start|launch)\b[\s\S]{0,90}\b(?:questions?|parajumbles?|para\s*-?\s*jumbles?|para\s*-?\s*summar(?:y|ies)|practice|practise|passage|sectional|test)\b/i.test(value) ||
+    /\b(?:some|few|a couple of|high[- ]quality)\b[\s\S]{0,50}\b(?:questions?|parajumbles?|para\s*-?\s*jumbles?)\b/i.test(value) ||
+    /\b(?:questions?|parajumbles?)\b[\s\S]{0,40}\b(?:here|in (?:the )?chat)\b/i.test(value);
+}
+
+function parseInChatQuestionRequest(message) {
+  var text = String(message || '').trim();
+  if (!text || text.length > 600) return null;
+  if (/\b(?:how (?:do|should|can) i|explain how|what(?:'s| is) the (?:approach|strategy)|advice|guidance|diagnos(?:e|is))\b/i.test(text) &&
+      !/\b(?:give|generate|write|create)\b[\s\S]{0,40}\bquestions?\b/i.test(text)) return null;
+  if (/\b(?:solutions?|answers?|explanations?)\s+(?:to|for|of)\b|\b(?:check|review|explain)\s+(?:my|this|these|that)\b/i.test(text)) return null;
+  if (/\b(?:open|go to|take me to|show)\b[\s\S]{0,35}\bpractice\s+(?:tab|page|section)\b/i.test(text)) return null;
+  var older = '';
+  if (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory)) {
+    older = conversationHistory.slice(-6).map(function(item) { return item && item.content || ''; }).join(' ');
+  }
+  var format = inChatQuestionFormat(text) || (!inChatQuestionFormat(text) ? inChatQuestionFormat(older) : '');
+  var asked = asksForInChatQuestions(text) || (!!format && /\b(?:give|show|send|generate|create|write|start|practi[cs]e)\b/i.test(text));
+  if (!asked) return null;
+  if (!format) format = 'qa';
+  var countMatch = text.match(/\b(\d{1,2})\s*(?:questions?|parajumbles?|para\s*-?\s*jumbles?)\b/i);
+  var count = countMatch ? Math.max(1, Math.min(4, Number(countMatch[1]))) : 2;
+  if (!countMatch && /\b(?:a|one|an)\s+(?:single\s+)?(?:question|parajumble|para\s*-?\s*jumble)\b/i.test(text)) count = 1;
+  if ((format === 'dilr' || format === 'rc') && count < 2) count = 2;
+  var topic = '';
+  if (format === 'qa') {
+    [['Percentages', /\bpercentages?\b/i], ['Ratios', /\bratios?\b/i], ['Time-Speed-Distance', /\btime[ -]speed/i], ['Algebra', /\balgebra\b/i], ['Geometry', /\bgeometry\b/i], ['Arithmetic', /\barithmetic\b/i]].some(function(item) {
+      if (item[1].test(text)) { topic = item[0]; return true; }
+      return false;
+    });
+  }
+  var section = format === 'dilr' ? 'dilr' : format === 'qa' ? 'qa' : format === 'rc' ? 'rc' : 'va';
+  return { section:section, format:format, topic:topic, count:count, sourceText:text };
+}
+
+function inChatOrderToken(option) {
+  var digits = String(option || '').replace(/^[A-D][.)]\s*/i, '').match(/[1-4]/g) || [];
+  if (digits.length !== 4 || new Set(digits).size !== 4) return '';
+  return digits.join('');
+}
+
+function inChatQuestionIssues(request, data) {
+  var issues = [];
+  var questions = data && Array.isArray(data.questions) ? data.questions : [];
+  if (questions.length !== request.count) issues.push('exactly ' + request.count + ' complete questions are required');
+  questions.forEach(function(question, index) {
+    normalizeCorrectIndex(question);
+    if (!isValidTimedTestQuestion(question)) issues.push('question ' + (index + 1) + ' is incomplete or repeats an option');
+    var stem = String(question && question.q || '');
+    if (typeof MargStudy !== 'undefined' && MargStudy.looksCutOff(stem)) issues.push('question ' + (index + 1) + ' stops before it finishes');
+    if (String(question && question.explanation || '').trim().length < 24) issues.push('question ' + (index + 1) + ' has no usable explanation');
+    if (request.format === 'parajumble') {
+      [1, 2, 3, 4].forEach(function(n) {
+        var sentence = new RegExp('\\(' + n + '\\)\\s*[^\\n(]{40,}').test(stem);
+        if (!sentence) issues.push('parajumble ' + (index + 1) + ' is missing a full sentence (' + n + ')');
+      });
+      var orders = (question.options || []).map(inChatOrderToken);
+      if (orders.some(function(order) { return !order; }) || new Set(orders).size !== 4) issues.push('parajumble ' + (index + 1) + ' needs four different orders of 1, 2, 3 and 4');
+    }
+  });
+  if (request.format === 'dilr') {
+    var setup = String(data && data.setup || '');
+    if (setup.split(/\s+/).filter(Boolean).length < 70 || (typeof MargStudy !== 'undefined' && MargStudy.looksCutOff(setup))) issues.push('the data is incomplete');
+  }
+  if (request.format === 'rc') {
+    var passage = String(data && data.passage || '');
+    if (passage.split(/\s+/).filter(Boolean).length < 220 || (typeof MargStudy !== 'undefined' && MargStudy.looksCutOff(passage))) issues.push('the passage is incomplete');
+  }
+  return issues;
+}
+
+function inChatAuditCandidate(request, data) {
+  var questions = data && Array.isArray(data.questions) ? data.questions : [];
+  if (request.format === 'dilr') return { sets:[{ setup:String(data && data.setup || ''), questions:questions }] };
+  if (request.format === 'rc') return { sets:[{ passage:String(data && data.passage || ''), questions:questions }] };
+  return { questions:questions };
+}
+
+function inChatQuestionLead(request) {
+  if (request.format === 'parajumble') return 'Arrange each group of sentences into one paragraph. Tap the order.';
+  if (request.format === 'odd_one_out') return 'Four of the five sentences make one paragraph. Tap the sentence that does not belong.';
+  if (request.format === 'summary') return 'Tap the option that best captures the paragraph.';
+  if (request.format === 'placement') return 'Tap the blank where the sentence fits.';
+  if (request.format === 'dilr') return 'Use the data below. Tap one option for each question.';
+  if (request.format === 'rc') return 'Read the passage, then tap one option for each question.';
+  return 'Tap one option for each question.';
+}
+
+function formatInChatQuestions(request, data) {
+  var chunks = [inChatQuestionLead(request)];
+  if (request.format === 'rc' && data && data.passage) chunks.push('Passage\n\n' + String(data.passage).trim());
+  if (request.format === 'dilr' && data && data.setup) chunks.push('Data\n\n' + String(data.setup).trim());
+  var questions = data && Array.isArray(data.questions) ? data.questions : [];
+  if (questions.length) {
+    chunks.push(questions.map(function(question, index) {
+      return formatQuestionBlock({ q:String(question.q || '').trim(), options:question.options || [] }, index + 1);
+    }).join('\n\n'));
+  }
+  return chunks.filter(Boolean).join('\n\n');
+}
+
+function inChatQuestionContract(format) {
+  if (format === 'parajumble') return 'Write original CAT paragraph-order questions. Each stem states the task, then exactly four original sentences on their own lines marked (1), (2), (3) and (4). Each sentence is complete and at least twelve words. Exactly one order is coherent. The four options are different orders, each using 1, 2, 3 and 4 once, written like "A. 2-1-4-3". The first sentence in the right order must not open on a dangling pronoun. Do not leave sentence (4) blank.';
+  if (format === 'summary') return 'Write original CAT summary questions. Each stem contains one original paragraph of 70-110 words and asks which option best captures it. Four options, exactly one of which keeps the scope and force of the paragraph.';
+  if (format === 'odd_one_out') return 'Write original odd-sentence questions. Each stem has five original sentences marked (1) through (5). Four of them make one paragraph and sentence (4) always belongs. Options are "A. Sentence 1", "B. Sentence 2", "C. Sentence 3" and "D. Sentence 5".';
+  if (format === 'placement') return 'Write original sentence-placement questions. Each stem gives one original sentence and a paragraph with blanks marked (1), (2), (3) and (4). Options are "A. Blank 1", "B. Blank 2", "C. Blank 3" and "D. Blank 4". Exactly one blank is defensible.';
+  if (format === 'dilr') return 'Write one original data-reasoning block and the questions on it. The setup names 6 entities and gives interacting conditions a reader can represent. Every fact needed is in the setup. Questions ask for a must-be-true, a count, an exact value, or an if-then. Four distinct options each. Put the setup in "setup" and do not repeat it inside the question stems.';
+  if (format === 'rc') return 'Write one original passage of 260-340 words in three or four paragraphs, with a claim, a qualification and a shift. Questions test purpose, the role of an example, or an inference. Four options each. Two options should be close. Put the passage in "passage".';
+  return 'Write original CAT quantitative questions. The work is in finding the representation, not in long arithmetic. Every needed fact is in the stem. Four distinct options, exactly one correct. Wrong options are identifiable slips.';
+}
+
+function buildInChatQuestionPrompt(request, avoidNotes) {
+  var style = typeof MargStudy !== 'undefined' && MargStudy.bankStyleBrief ? MargStudy.bankStyleBrief(request.format) : '';
+  var memorySection = request.section === 'qa' ? 'qa' : request.section === 'dilr' ? 'dilr' : 'rc';
+  var avoid = typeof MargStudy !== 'undefined' && MargStudy.avoidBlock ? MargStudy.avoidBlock(memorySection, 6) : '';
+  var topicLine = request.topic ? 'Every question must be about ' + request.topic + '.' : '';
+  return 'Create exactly ' + request.count + ' original CAT questions for this chat. They must be complete. Never stop mid-sentence or after a blank number.\n' +
+    inChatQuestionContract(request.format) + '\n' + topicLine + '\n' + style + '\n' + avoid + (avoidNotes || '') +
+    '\nDo not copy a published question. Return only JSON of this shape: {"passage":"","setup":"","questions":[{"q":"full stem","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"why the key is the only defensible option"}]}. Use passage only for a reading passage and setup only for data. correct is the zero-based index.';
+}
+
+function getInChatQuestionSchema(request) {
+  var question = {
+    type:'object', required:['q','options','correct','explanation'],
+    properties:{
+      q:{ type:'string' },
+      options:{ type:'array', minItems:4, maxItems:4, items:{ type:'string' } },
+      correct:{ type:'integer', minimum:0, maximum:3 },
+      explanation:{ type:'string' }
+    }
+  };
+  var properties = { questions:{ type:'array', minItems:request.count, maxItems:request.count, items:question }, passage:{ type:'string' }, setup:{ type:'string' } };
+  var required = ['questions'];
+  if (request.format === 'rc') required.push('passage');
+  if (request.format === 'dilr') required.push('setup');
+  return { type:'object', required:required, properties:properties };
+}
+
+async function serveOriginalQuestionsInChat(request) {
+  if (!request || !request.format) return false;
+  var diagnosis = { intent:'study_activity', responseShape:'study', studyTurnType:'generate_questions', preserveFullReply:true, questionBudget:null };
+  showTyping(request.sourceText || '', diagnosis, false);
+  try {
+    if (typeof ensureStudyConfigured === 'function' && ensureStudyConfigured() && MargStudy.loadLibrary) await MargStudy.loadLibrary();
+    var avoidNotes = '';
+    var accepted = null;
+    var audit = null;
+    var candidate = null;
+    for (var attempt = 0; attempt < 2 && !accepted; attempt++) {
+      var prompt = buildInChatQuestionPrompt(request, avoidNotes);
+      var geminiRequest = buildGeminiRequest('You are an expert CAT question setter. Return only valid JSON. Write original items. Do not describe the keys as independently verified.' + getDateContext(), [{ role:'user', content:prompt }], 16384, 'application/json', getInChatQuestionSchema(request));
+      var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(geminiRequest) }, 120000);
+      var payload = await response.json();
+      var parsed = parseGeneratedJson(await resolveStudyReply(payload, geminiRequest, 120000, { json:true }));
+      if (parsed && Array.isArray(parsed.questions)) parsed.questions.forEach(normalizeCorrectIndex);
+      var issues = inChatQuestionIssues(request, parsed || {});
+      candidate = inChatAuditCandidate(request, parsed || {});
+      var memorySection = request.section === 'qa' ? 'qa' : request.section === 'dilr' ? 'dilr' : 'rc';
+      if (!issues.length && typeof MargStudy !== 'undefined') {
+        issues = issues.concat(MargStudy.findRepeats(memorySection, candidate));
+        if (request.section === 'qa' && MargStudy.libraryOverlap) issues = issues.concat(MargStudy.libraryOverlap('qa', candidate));
+      }
+      if (issues.length) {
+        avoidNotes = '\nPREVIOUS DRAFT REJECTED: ' + issues.join('; ') + '. Write a different complete item.';
+        continue;
+      }
+      audit = await auditGeneratedCATContent(request.section === 'va' ? 'va' : request.section, candidate, request.topic || null, [], { timeoutMs:110000 });
+      if (!audit || !audit.valid) {
+        avoidNotes = '\nPREVIOUS DRAFT FAILED THE INDEPENDENT ANSWER CHECK: ' + ((audit && audit.issues) || ['incomplete']).join('; ') + '.';
+        continue;
+      }
+      accepted = parsed;
+    }
+    if (!accepted) throw new Error('In-chat questions did not pass the completeness check');
+    var visible = formatInChatQuestions(request, accepted);
+    if (typeof MargStudy !== 'undefined' && MargStudy.looksCutOff(visible)) throw new Error('The question was cut off');
+    hideTyping();
+    addMessage('marg', renderMentorStructuredText(visible), true);
+    conversationHistory.push({ role:'assistant', content:visible });
+    if (!isGuestMode) saveChatMessage('assistant', visible);
+    var doneSection = request.section === 'qa' ? 'qa' : request.section === 'dilr' ? 'dilr' : 'rc';
+    if (typeof MargStudy !== 'undefined' && MargStudy.recordPractice) MargStudy.recordPractice(doneSection, candidate);
+    storeActiveGeneratedExercise({
+      id:'exercise-chat-' + Date.now(),
+      type:request.section === 'dilr' ? 'dilr' : request.section === 'qa' ? 'qa' : 'varc',
+      source:'chat-questions',
+      title:request.format === 'parajumble' ? 'Paragraph order' : request.format === 'dilr' ? 'Data reasoning' : request.format === 'rc' ? 'Passage questions' : 'Questions',
+      awaitingAnswers:true,
+      purpose:'Original questions written in this chat. A second pass agreed on the keys. That agreement is not proof the questions are correct.',
+      validationVerdict:{ status:answerKeyVerificationStatus(audit && audit.verification), verification:(audit && audit.verification) || null },
+      content:Object.assign({}, candidate, { exerciseText:visible })
+    });
+    return true;
+  } catch (error) {
+    console.error('In-chat question generation failed:', error && error.message || error);
+  }
+  hideTyping();
+  var notice = 'I could not finish a complete question in this reply. Ask again and I will write the full question here.';
+  addMessage('marg', escapeChatHtml(notice), true);
+  conversationHistory.push({ role:'assistant', content:notice });
+  if (!isGuestMode) saveChatMessage('assistant', notice);
+  return true;
+}
+
+async function maybeServeOriginalQuestionsInChat(message) {
+  var request = parseInChatQuestionRequest(message);
+  if (!request) return false;
+  return serveOriginalQuestionsInChat(request);
 }
 
 function parseExplicitPracticeLaunchRequest(message) {
@@ -20898,6 +21242,7 @@ function parseExplicitPracticeLaunchRequest(message) {
 }
 
 async function maybeGenerateConversationalRC(message) {
+  if (parseInChatQuestionRequest(message)) return false;
   var request = parseExplicitPracticeLaunchRequest(message);
   var latestAssistant = (conversationHistory || []).slice().reverse().find(function(item) { return item && item.role === 'assistant' && !/^\[MARG_INTERNAL:/.test(item.content || ''); });
   var previous = String(latestAssistant && latestAssistant.content || '');
@@ -20915,6 +21260,7 @@ async function maybeGenerateConversationalRC(message) {
 }
 
 function maybeLaunchExplicitPracticeRequest(message) {
+  if (parseInChatQuestionRequest(message)) return false;
   var request = parseExplicitPracticeLaunchRequest(message);
   if (!request) return false;
   var explicitlyOpenedPracticePage = /\b(?:open|go to|take me to|show)\b[\s\S]{0,35}\bpractice\s+(?:tab|page|section)\b/i.test(String(message || ''));
@@ -20931,30 +21277,9 @@ function maybeLaunchExplicitPracticeRequest(message) {
     switchTab('practice');
     return true;
   }
-  // “Timed” and “sectional” are execution instructions, not merely Practice
-  // discovery terms. Honour the section and topic already supplied instead of
-  // navigating to a second picker that makes the student repeat the request.
-  if (request.timed) {
-    if (request.type === 'rc') {
-      startSectionalFromHub('varc');
-      return true;
-    }
-    var timedTopic = request.topic || (request.type === 'qa' ? 'Mixed QA' : 'Mixed Set Selection');
-    var timedCount = request.requestedCount || (request.type === 'qa' ? 10 : 12);
-    startTimedTest(request.type, timedTopic, timedCount, null, 0);
-    return true;
-  }
-  // Ordinary “practise QA/DILR” requests stay anchored to the current chat.
-  // Open a compact checked exercise in the overlay instead of silently
-  // moving the user to the Practice page and losing the conversation thread.
-  if (request.type === 'qa' || request.type === 'dilr') {
-    switchTab('chat');
-    var chatTopic = request.topic || (request.type === 'qa' ? 'Mixed QA' : 'Mixed Set Selection');
-    var chatCount = request.requestedCount || (request.type === 'qa' ? 3 : 4);
-    startTimedTest(request.type, chatTopic, chatCount, null, 0);
-    return true;
-  }
-  return true;
+  // A timed or ordinary question request is written in this chat. It does not
+  // open a timer or leave the thread.
+  return false;
 }
 
 function maybeHandleSectionChoicePrompt(message) {
@@ -21560,7 +21885,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
-  if (!effectiveHasImages && !studyOwned && (await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartHypothesisExperiment(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!effectiveHasImages && !studyOwned && (await maybeServeOriginalQuestionsInChat(text) || await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartHypothesisExperiment(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -25820,7 +26145,7 @@ function preventStructuredOutputLeak(text) {
 
 function collectPracticeAnswerIndices(data, section) {
   var questions = [];
-  if (section === 'qa') questions = data && Array.isArray(data.questions) ? data.questions : [];
+  if (section === 'qa' || section === 'va') questions = data && Array.isArray(data.questions) ? data.questions : [];
   else (data && Array.isArray(data.sets) ? data.sets : []).forEach(function(setObj) {
     if (setObj && Array.isArray(setObj.questions)) questions = questions.concat(setObj.questions);
   });
@@ -25962,7 +26287,9 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
     ? ' RC LEVEL: the application has already counted and confirmed 420-600 passage words, so do not estimate or reject its length again. A question anchored in a specific detail is valid when it asks for that detail’s role, implication or relationship to the argument; reject only mechanical copy-the-line retrieval. Reject fewer than three paragraphs. Judge distractor quality, but do not mark an otherwise coherent and uniquely answerable RC invalid merely because one distractor is easier than ideal.'
     : section === 'dilr'
       ? ' DILR LEVEL: flag purely direct-lookup puzzles without interacting constraints as unsuitable. Do not guess solve time or reject a valid set for an unmeasured 12-minute threshold. Fatal failures are contradictions, missing data or ambiguous answers.'
-      : ' QA LEVEL: flag single-step formula drills as unsuitable. Redundant context or an easier-than-ideal distractor is a quality note, not proof of an unsolvable question. Fatal failures are missing data, contradictions or multiple defensible answers.';
+      : section === 'va'
+        ? ' VA LEVEL: each item must be complete and have exactly one defensible option. A paragraph-order item needs four full sentences and exactly one coherent order. Reject a missing sentence, two equally good orders, or an option that is not a permutation of 1, 2, 3 and 4. A summary or placement item needs the full paragraph. Return one short answer explanation per question.'
+        : ' QA LEVEL: flag single-step formula drills as unsuitable. Redundant context or an easier-than-ideal distractor is a quality note, not proof of an unsolvable question. Fatal failures are missing data, contradictions or multiple defensible answers.';
   var presentationAudit = ' SOLUTION PRESENTATION: every solution/explanation must be a clean final derivation. Any false start, abandoned arithmetic, self-correction, drafting note, repeated variable definition, or phrase such as "wait", "let\'s recheck", "let\'s fix", "actually", or "ignore that" is a failure.';
   if (knownPresentationIssues && knownPresentationIssues.length) {
     // A known local failure is sufficient to reject the draft. Asking another
