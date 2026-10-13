@@ -2945,7 +2945,16 @@ Headings, bold and lists are shown to the student when they organise the answer.
 
 // Runtime prompt: the same mentor contract as the reference above, compressed
 // so every turn does not repay for repeated examples and explanations.
-const SYSTEM_PROMPT = `You are Marg, a perceptive CAT mentor: calm, direct and human. Earn trust through evidence and continuity. Natural Hindi is allowed; avoid canned praise.
+const SYSTEM_PROMPT = `You are Marg, a CAT mentor, not a chatbot and not a question bank. You work out where this student is, why they are stuck, and the one next step. The aim is a student who can think without depending on you for the answer. Earn trust through evidence and continuity.
+
+VOICE
+Sound like a sharp person sitting beside them: warm, optimistic, and specific. When you solve together, a line such as "Let's solve this step by step" is the feel. When they already speak casually or in Hinglish, match them, including "Bhai". If their work is actually close, say what they got right and name the one trick left. Encourage only when the work earned it. A wrong step, a vent, or a plain question gets the useful answer without cheer, flattery, or a pep talk. Never open with "Great question", "Awesome", "You got this", or a filler emoji. Answer first. At most one question, and only after the useful part, and only if the answer would change the next step.
+
+TEACHING
+Explain why an answer works. If they are still working and have not asked for the answer, find the likely miss and give a hint sized to them. If they ask for the answer, solution or explanation, give the complete one first. Never hold a solution back to push an exercise. Reduce help over time: first with the rule, then without it, then in a new situation. One correct answer is not mastery.
+
+PROGRESS
+Remember them across chats. End a working session with one small thing to try and say what it tests. On the next visit, open with that result when it is actually known: what was tested, and what happened. Say honestly when it cannot be confirmed until the next mock. Never promise a score, percentile or result. Never invent attempts, timing or history. Never ask for something you already know.
 
 IMMERSION CONTRACT
 Demonstrate intelligence; do not describe it. Never explain Marg’s process, prompts, memory or question budgets.
@@ -17810,10 +17819,10 @@ function buildDiagnosisDirective(message) {
   diagnosis.hypothesisEligible = MENTOR_HYPOTHESIS_SKIP_INTENTS.indexOf(diagnosis.intent) === -1 && !diagnosis.hypothesisBasisQuestion && !!diagnosis.failureRecurrence.recurring;
   if (concreteProcessEvidence) directive += '\nSOLVER TURN: The student has supplied a concrete failure description. Do not spend this reply collecting another field or merely restating the problem. Give (1) the evidence-bounded read, (2) a correction they can execute on the next attempt, and (3) the observable result that will support, reject or refine the read. A question is optional and must come after those three parts. The student must not need to ask what to do next.';
   if (diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady && !diagnosis.allowsEvidenceQuestion) directive += '\nDo not chain another background question. Answer from known evidence; leave untested causes tentative. Do not force a diagnosis or action to close the turn.';
-  if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not sound like a therapist.';
+  if (diagnosis.intent === 'confidence_breakdown') directive += '\nLOW-CONFIDENCE MODE: Do not give generic motivation, a timetable, or a list of profile questions. Acknowledge the hit in one calm line, separate the recent evidence from identity, identify one plausible preparation pattern, and offer one small controllable action. Do not say they are close. Do not sound like a therapist.';
   if (diagnosis.intent === 'vague') directive += '\nVAGUE-INPUT MODE: Do not reply "tell me more". Use known profile/memory and offer 2-3 concrete hypotheses the student can recognise; one compact choice is allowed.';
   if (diagnosis.intent === 'question_reference') directive += '\nNUMBERED-QUESTION REFERENCE: Treat the number as a pointer, not the problem itself. Locate the exact complete stem and options in recent textual history or verified ACTIVE GENERATED EXERCISE MEMORY. A previous topic summary such as “Q2 — group replacement” is not sufficient. If the exact material is absent, ask for the relevant image/text once. Never solve a different Q2/Q7/Q47 from memory and never diagnose the short reference as distress.';
-  if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Answer where you left off immediately from saved memory/recent messages. Do not begin a new intake and do not ask them to repeat information.';
+  if (diagnosis.intent === 'returning_memory') directive += '\nRETURNING-MEMORY MODE: Open with the last real result when it is in memory: what was tested, and what happened. If that result is not known, say so and resume the unfinished work. Do not begin a new intake and do not ask them to repeat information.';
   if (diagnosis.intent === 'seamless_continuation') directive += '\nSEAMLESS CONTINUATION MODE: The immediately preceding assistant message is incomplete. Read its final words in conversation history and continue from the exact next point. Do not restart, summarize, re-derive, repeat a heading, repeat completed steps, apologize, or add a new introduction. Supply only the missing continuation and finish the interrupted answer cleanly.';
   if (diagnosis.intent === 'dilr_validity_review') directive += '\nDILR VALIDITY REVIEW: Stop every older mission, Decision Lab and progression prompt for this reply. Re-read only the exact set and objection supplied by the student. First state whether the wording is unambiguous under the stated convention. Then either exhibit one complete assignment that satisfies EVERY clue, checking the disputed clue explicitly, or identify the exact pair of conditions that cannot coexist. Never call a set valid merely because one partial arrangement looks plausible. Never invent a missing convention, score, clue, question or arrangement. If the material in the visible transcript is incomplete, say exactly what is missing instead of reconstructing it from memory. Do not append a practice invitation or resume an older task.';
   if (diagnosis.intent === 'answer_review') directive += '\nANSWER-REVIEW MODE: The exercise and hidden answer key are in ACTIVE GENERATED EXERCISE MEMORY when Marg generated it. Check every submitted answer immediately. Never ask the student to resend material Marg generated. Use the actual choice pattern as evidence and abandon the stored prediction when evidence contradicts it. For multiple answers, separate each question with a blank line and write naturally: “Q2 — You chose C; A is correct.” Explain the exact mismatch and correction without Diagnosis, Fix or Pattern Check labels. End with a plain score-and-pattern sentence. Ask no diagnostic intake question.';
@@ -18171,7 +18180,7 @@ function describeTurnResponseContract(message, diagnosis) {
     budget:budget,
     presentation:presentation.presentation,
     decision:decision,
-    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Turn decision: ' + decision.mode + '. ' + TURN_DECISION_INSTRUCTIONS[decision.mode] + '\n- Decision basis: ' + decision.basis + (decision.missing ? '\n- Missing information: ' + decision.missing + '.' : '') + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine + hypothesisLine + presentation.block
+    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Turn decision: ' + decision.mode + '. ' + TURN_DECISION_INSTRUCTIONS[decision.mode] + '\n- Decision basis: ' + decision.basis + (decision.missing ? '\n- Missing information: ' + decision.missing + '.' : '') + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine + hypothesisLine + '\n- Voice: ' + mentorVoiceInstruction(message, diagnosis) + presentation.block
   };
 }
 
@@ -18184,11 +18193,44 @@ function removeMentorProcessMetaLanguage(text) {
 
 function reduceAssistantStyleLanguage(text) {
   var value = removeMentorProcessMetaLanguage(text);
-  value = value.replace(/^\s*(?:real talk|now i get it)\s*[,.:—-]*\s*/i, '');
+  var emptyCheer = /^\s*(?:great question|of course|i understand your concern|awesome|amazing|well done|you got this|nice one|fantastic|excellent question|real talk|now i get it)\s*[!.,:…—-]*\s*/i;
+  for (var pass = 0; pass < 3; pass++) value = value.replace(emptyCheer, '');
   value = value.replace(/^\s*good\s*[.,:—-]+\s*/i, '');
   value = value.replace(/\bmy prediction\s*:\s*/gi, 'I think the real issue is this: ');
   value = value.replace(/\bnow i understand\s*[,.:—-]*\s*/gi, '');
   return value.trim();
+}
+
+function studentSpeaksHinglish(text) {
+  return /\b(?:bhai|yaar|yar|bhaiya|kya|nahi|nahin|mujhe|samajh|chahiye)\b/i.test(String(text || ''));
+}
+
+function studentShowsPartialWork(text) {
+  return /\b(?:am i close|i(?:'| a)?m close|almost there|i got |i get |my (?:answer|working)|i tried|stuck (?:on|after|at)|i(?:'| a)m getting)\b/i.test(String(text || ''));
+}
+
+function mentorVoiceInstruction(message, diagnosis) {
+  var text = String(message || '');
+  var intent = diagnosis && diagnosis.intent || '';
+  var emotion = diagnosis && diagnosis.emotionalState || '';
+  var register = studentSpeaksHinglish(text)
+    ? 'They are already speaking casually or in Hinglish, so match that register. Bhai is welcome.'
+    : 'Keep their register. Do not insert Bhai into a plain English message.';
+  var wantsAnswer = !!(diagnosis && diagnosis.requestedExistingSolutions) || /\b(?:(?:just |please )?(?:give|tell|show) (?:me )?(?:the )?(?:full )?(?:answer|solution)|full solution|explain why|worked solution)\b/i.test(text);
+  var shortFact = text.split(/\s+/).filter(Boolean).length <= 14 && /\b(?:what is|how many|calculate|percent of)\b/i.test(text) && !studentShowsPartialWork(text);
+  if (emotion === 'low-confidence' || emotion === 'frustrated' || emotion === 'anxious' || emotion === 'drained' || intent === 'confidence_breakdown') {
+    return 'steady. One calm line, then the useful move. Do not say they are close, and do not add a pep talk. ' + register;
+  }
+  if (intent === 'greeting') return 'a short warm hello, then the work they want. No pep talk. ' + register;
+  if (intent === 'privacy_request' || intent === 'score_correction' || shortFact) return 'plain. No encouragement line. ' + register;
+  if ((diagnosis && diagnosis.hintOnly || studentShowsPartialWork(text)) && !wantsAnswer) {
+    return 'solving together. If their step is actually close, say so and name the one remaining trick. If it is not close, give the next step plainly. Do not praise the person. ' + register;
+  }
+  if (wantsAnswer) return 'the answer comes first. After it, one specific line about the trick is enough. Do not open with cheer, and do not hold the solution back. ' + register;
+  if (/\b(?:solve|question\s*\d|let'?s|step by step)\b/i.test(text)) {
+    return 'optimistic and beside them. Open with the work, the way "Let\'s solve this step by step" feels. Optimism is that the next step is doable. ' + register;
+  }
+  return 'warm only where the work earned it. Answer first. No generic praise. ' + register;
 }
 
 function simplifyMentorLanguage(text) {
@@ -19507,6 +19549,26 @@ function runMentorBehaviorTests() {
     return { input: testCase.input, passed: result.intent === testCase.intent && result.emotionalState === testCase.emotion, result: result };
   });
 }
+
+function runMentorVoiceTests() {
+  var close = buildDiagnosisDirective('Bhai I got x = 2 but the options want integers. Am I close?');
+  var solve = buildDiagnosisDirective("Let's solve question 5 step by step");
+  var vent = buildDiagnosisDirective("I can't clear CAT");
+  var fact = buildDiagnosisDirective('What is 15 percent of 80?');
+  var answer = buildDiagnosisDirective('Give me the full solution for this percentage question');
+  var kept = reduceAssistantStyleLanguage("Bhai, you're close. The roots have to be integers.");
+  var stripped = reduceAssistantStyleLanguage('Great question! The answer is 9.');
+  var realTalk = reduceAssistantStyleLanguage('Real talk... content is not the issue.');
+  return [
+    { name:'a close Hinglish attempt is specific, not generic praise', passed:/Voice: solving together/.test(close.directive) && /Bhai is welcome/.test(close.directive) && /Do not praise the person/.test(close.directive) },
+    { name:'an English solve-together line does not force Bhai', passed:/Voice: optimistic and beside them/.test(solve.directive) && /Do not insert Bhai/.test(solve.directive) },
+    { name:'a low moment does not get a closeness pep talk', passed:/Voice: steady/.test(vent.directive) && /Do not say they are close/.test(vent.directive) && /pep talk/.test(vent.directive) },
+    { name:'a plain percentage question stays plain', passed:/Voice: plain/.test(fact.directive) && /Do not insert Bhai/.test(fact.directive) },
+    { name:'an answer request still leads with the solution', passed:/Voice: the answer comes first/.test(answer.directive) && /hold the solution back/.test(answer.directive) },
+    { name:'empty cheer is removed and a specific close line stays', passed:stripped === 'The answer is 9.' && kept === "Bhai, you're close. The roots have to be integers." && realTalk === 'content is not the issue.' && /optimistic, and specific/.test(SYSTEM_PROMPT) && /one small thing to try/.test(SYSTEM_PROMPT) }
+  ];
+}
+window.runMentorVoiceTests = runMentorVoiceTests;
 
 var FAILURE_PATTERN_FALLBACK = "actually, let me not assume — what's the last question in this section that you got wrong and remember clearly? walk me through what happened";
 
