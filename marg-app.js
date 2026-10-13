@@ -969,6 +969,19 @@ function ensureMentorRichTextStyles() {
     '.marg-ask{margin:8px 0 4px}' +
     '.marg-ask-prompt{font-size:15px;font-weight:650;color:#F0EDE6;line-height:1.45}' +
     '.marg-ask-why{margin-top:4px;font-size:13px;line-height:1.5;color:#aaa69e}' +
+    '.marg-qlist{margin:8px 0 2px;padding:16px 16px 12px;border-radius:16px;background:#f6f3ec;color:#1c1c1c}' +
+    '.marg-qlist-title{font-size:18px;font-weight:700;line-height:1.3;margin:0 0 12px;color:#161616}' +
+    '.marg-qlist-banner{display:flex;gap:8px;align-items:flex-start;margin:0 0 12px}' +
+    '.marg-qlist-dot{width:10px;height:10px;border-radius:50%;background:#3d9a62;margin-top:5px;flex:none}' +
+    '.marg-qlist-priority{font-weight:700;font-size:14px;color:#1c1c1c}' +
+    '.marg-qlist-note{margin-top:2px;font-size:12px;line-height:1.4;color:#6f6a62}' +
+    '.marg-qlist-group{margin:14px 0 2px;font-size:13px;font-weight:650;color:#3f3f3f}' +
+    '.marg-qpick{display:flex;gap:10px;align-items:flex-start;width:100%;margin:0;padding:7px 2px;border:0;background:transparent;color:#242424;font:14px/1.45 "DM Sans",sans-serif;text-align:left;cursor:pointer}' +
+    '.marg-qpick-mark{width:16px;height:16px;border-radius:50%;border:1.5px solid #c5c0b6;box-sizing:border-box;margin-top:2px;flex:none}' +
+    '.marg-qpick.done .marg-qpick-mark{border-color:#3d9a62;background:#3d9a62;box-shadow:inset 0 0 0 3px #f6f3ec}' +
+    '.marg-qpick.done .marg-qpick-copy{color:#6f6a62}' +
+    '.marg-qlist-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px;padding-top:10px;border-top:1px solid #e4dfd4;font-size:12px;color:#6f6a62}' +
+    '.marg-qlist-reset{border:0;background:transparent;color:#6f6a62;font:600 12px "DM Sans",sans-serif;cursor:pointer}' +
     '@media(max-width:600px){.marg-result-value{font-size:28px}.marg-info-cards{grid-template-columns:1fr}.mentor-table{font-size:12.5px}}';
   if (typeof MargStudy !== 'undefined' && MargStudy.styles) style.textContent += MargStudy.styles;
   // Reading is the task in RC, so passage text gets more contrast and a larger
@@ -1275,10 +1288,10 @@ function renderMentorStructuredText(text) {
     try { rendered = renderMentorAskNote(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
     return hold(rendered);
   });
-  var value = convertLatexToPlainText(stripMentorDisplayControlTags(sourceText))
+  var value = tidyBookQuestionMarkup(convertLatexToPlainText(stripMentorDisplayControlTags(sourceText))
     .replace(/<br\s*\/?\s*>/gi, '\n')
     .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .trim());
   var interactive = mentorInteractiveSuffix(text);
   if (!value) return interactive ? '<div class="mentor-rich">' + interactive + '</div>' : '';
 
@@ -3018,7 +3031,7 @@ DIAGNOSIS AND EXERCISE CONSENT
 Follow the TURN CONTRACT question budget. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. A request for questions is answered with the full questions in this chat, not with a timer. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive]. Write a [HYPOTHESIS: ...] record only when the TURN CONTRACT asks for one.
 
 QUESTION REQUESTS
-When the student asks for questions in any section, do not refuse and do not offer a timed round. The app writes complete original questions in this chat, styled on the bank but not copied from it, with clickable options wherever a choice exists. If you write them yourself, finish every sentence and every option; never stop after a blank number. Chat may also diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified. Never copy a published item.
+When the student asks for questions in any section, do not refuse and do not offer a timed round. The app writes complete original questions in this chat, styled on the bank but not copied from it, with clickable options wherever a choice exists. If you write them yourself, finish every sentence and every option; never stop after a blank number. A request for the whole list, the full selection, or the questions already picked from uploaded pages is not a request for new questions. Repeat that selection in full. Chat may also diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified. Never copy a published item.
 When challenged, audit first and keep one facing convention. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.”
 
 MEMORY AND CONTINUITY
@@ -15688,6 +15701,7 @@ function launchInlineMentorTest(button) {
 
 function bindMentorInteractiveControls(root) {
   if (!root || !root.querySelectorAll) return;
+  bindSelectedQuestionList(root);
   root.querySelectorAll('.marg-choice').forEach(function(button) {
     if (button.dataset && button.dataset.bound === '1') return;
     if (button.dataset) button.dataset.bound = '1';
@@ -19570,6 +19584,46 @@ function runMentorVoiceTests() {
 }
 window.runMentorVoiceTests = runMentorVoiceTests;
 
+function runSelectedQuestionListTests() {
+  var sample = [
+    'Q2 (Quadratic Sign & Symmetries*): Perfect test.',
+    'Q8 (Multiplicative Functional Equation*): Tests prime factorization.',
+    'Q31 & Q32 (Min/Max Graph Optimization*): Core CAT pattern.',
+    'Q50 (Modulus Function Minima*): Key property test.',
+    'Q66 (Reciprocal Argument Functional Equation*): Standard CAT trick.',
+    'Q78 (Piecewise Recurrence Series Sum): High-yield pattern.',
+    'Q96–98 (Floor Function Fraction Equality): High-yield GIF problem.',
+    'Combined Master Selection. For the highest-return practice session, solve these 12 core benchmark questions first:',
+    '1. Q8 & Q66 (Functional equations & reciprocal substitutions)',
+    '2. Q31 & Q50 (Min/max graph intersections)',
+    '7. Q96 (Greatest Integer Function structural equations)',
+    '9. Q113 (Simultaneous system in f(x) and f(1/x))'
+  ].join('\n');
+  var previousHistory = conversationHistory;
+  var previousAdd = addMessage;
+  var previousSave = saveChatMessage;
+  var captured = '';
+  addMessage = function(_role, html) { captured = String(html || ''); return {}; };
+  saveChatMessage = function() {};
+  conversationHistory = [{ role:'assistant', content:'These skip tedious algebraic drills.\n' + sample }];
+  var notGenerated = parseInChatQuestionRequest('Give me the whole list now') === null && parseInChatQuestionRequest('Give me the whole list of questions') === null;
+  var stillQa = parseInChatQuestionRequest('give me 2 QA percentages questions');
+  var list = collectSelectedBookQuestions(sample);
+  var q8 = list.items.filter(function(item) { return item.id === '8'; })[0];
+  var served = maybeServeSelectedQuestionList('Give me the whole list of questions');
+  conversationHistory = previousHistory;
+  addMessage = previousAdd;
+  saveChatMessage = previousSave;
+  var tidy = renderMentorStructuredText('See these.\n### Core CAT-Pattern Questions\n* Q2 (Quadratic Sign & Symmetries*): Perfect test of symmetry.');
+  return [
+    { name:'a request for the existing list is not a new question drop', passed:notGenerated && !!stillQa && stillQa.topic === 'Percentages' && stillQa.count === 2 },
+    { name:'the selection keeps the specific title and the priority set', passed:!!q8 && q8.title === 'Multiplicative Functional Equation' && q8.priority === true && list.items.some(function(item) { return item.id === '96-98' && item.title === 'Floor Function Fraction Equality'; }) && list.items.some(function(item) { return item.id === '113' && item.priority === true && item.title.indexOf('f(1/x)') !== -1; }) && list.items.some(function(item) { return item.id === '2' && item.priority !== true; }) },
+    { name:'the list renders as a checklist instead of a cut-off notice', passed:served === true && captured.indexOf('marg-qlist') !== -1 && captured.indexOf('Priority 1') !== -1 && captured.indexOf('Do these first') !== -1 && captured.indexOf('Q8. Multiplicative Functional Equation') !== -1 && captured.indexOf('could not finish') === -1 && /0 of \d+ completed/.test(captured) },
+    { name:'book markup becomes a heading and a bullet', passed:tidy.indexOf('###') === -1 && tidy.indexOf('class="mentor-heading"') !== -1 && tidy.indexOf('class="mentor-list-item"') !== -1 && tidy.indexOf('Quadratic Sign') !== -1 }
+  ];
+}
+window.runSelectedQuestionListTests = runSelectedQuestionListTests;
+
 var FAILURE_PATTERN_FALLBACK = "actually, let me not assume — what's the last question in this section that you got wrong and remember clearly? walk me through what happened";
 
 var FAILURE_PATTERNS = {
@@ -21114,6 +21168,159 @@ function maybeHandleAmbiguousShortInput(message) {
   return true;
 }
 
+function tidyBookQuestionMarkup(text) {
+  var value = String(text || '');
+  if (!/Q\s*\d{1,3}/.test(value) || !/(?:#{2,}|\*\s+Q\s*\d)/.test(value)) return value;
+  return value
+    .replace(/[ \t]*---+[ \t]*/g, '\n')
+    .replace(/[ \t]*(#{1,3}\s+)/g, '\n$1')
+    .replace(/[ \t]+\*\s+(?=Q\s*\d)/g, '\n* ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function isSelectedQuestionListRequest(text) {
+  var value = String(text || '');
+  return /\b(?:whole|full|complete|entire|master)\s+(?:list|selection)\b/i.test(value) ||
+    /\b(?:list|selection)\s+of\s+(?:the\s+)?questions\b/i.test(value) ||
+    /\bgive me the (?:whole |full |complete )?list\b/i.test(value);
+}
+
+function cleanQuestionTitle(title) {
+  return String(title || '').replace(/\*+/g, '').replace(/^#+\s*/, '').replace(/\s+/g, ' ').replace(/[:–-]\s*$/, '').trim();
+}
+
+function questionListGroup(title) {
+  var value = String(title || '').toLowerCase();
+  if (/graph|modulus|shift|transform|vertex|area|minima|maximi|optimi|am-gm|quadratic sign|absolute value|curve/.test(value)) return 'Graphs, range and transformations';
+  if (/floor|greatest integer|exponent|sequence|series|piecewise|digital root|remainder|polynomial|telescop|recurrence|product|parity/.test(value)) return 'Mixed CAT-style applications';
+  return 'Function properties and equations';
+}
+
+function collectSelectedBookQuestions(text) {
+  var source = String(text || '');
+  var priorityAt = source.search(/\b(?:core benchmark|do these first|highest-return|master selection)\b/i);
+  var catalog = priorityAt >= 0 ? source.slice(0, priorityAt) : source;
+  var priority = priorityAt >= 0 ? source.slice(priorityAt) : '';
+  var byId = {};
+  var priorityCount = 0;
+  function addRegion(chunk, isPriority) {
+    var re = /(Q\s*\d{1,3}(?:\s*[–-]\s*(?:Q\s*)?\d{1,3})?(?:\s*&\s*Q\s*\d{1,3}(?:\s*[–-]\s*(?:Q\s*)?\d{1,3})?)*)\s*(?:\(((?:[^()\n]|\([^()\n]*\))+)\)|\.\s+([A-Z][^.\n]{2,90}))/g;
+    var match;
+    while ((match = re.exec(chunk))) {
+      var title = cleanQuestionTitle(match[2] || match[3] || '');
+      if (title.length < 3) continue;
+      match[1].split(/\s*&\s*/).forEach(function(part) {
+        var nums = part.match(/\d{1,3}/g) || [];
+        if (!nums.length) return;
+        var id = nums.length > 1 ? nums[0] + '-' + nums[nums.length - 1] : nums[0];
+        var label = nums.length > 1 ? 'Q' + nums[0] + '–' + nums[nums.length - 1] : 'Q' + nums[0];
+        var item = byId[id];
+        if (!item) {
+          item = { id:id, label:label, title:title, priority:false, specific:!isPriority, order:Number(nums[0]), priorityOrder:999 };
+          byId[id] = item;
+        } else if (!isPriority && title.length > item.title.length) {
+          item.title = title;
+          item.specific = true;
+        }
+        if (isPriority) {
+          item.priority = true;
+          if (item.priorityOrder === 999) item.priorityOrder = priorityCount++;
+        }
+      });
+    }
+  }
+  addRegion(catalog, false);
+  addRegion(priority, true);
+  var items = Object.keys(byId).map(function(id) { return byId[id]; });
+  return { items:items, total:items.length };
+}
+
+function selectedQuestionListPlain(list) {
+  var lines = ['Your selected question list'];
+  (list.items || []).slice().sort(function(a, b) { return a.order - b.order; }).forEach(function(item) {
+    lines.push(item.label + '. ' + item.title);
+  });
+  return lines.join('\n');
+}
+
+function renderSelectedQuestionList(list) {
+  if (typeof ensureMentorRichTextStyles === 'function') ensureMentorRichTextStyles();
+  var items = (list && list.items || []).slice();
+  var saved = [];
+  try { saved = JSON.parse(localStorage.getItem('marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.')) || '[]'); } catch (e) { saved = []; }
+  if (!Array.isArray(saved)) saved = [];
+  function escapeList(value) {
+    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function row(item) {
+    var done = saved.indexOf(item.id) !== -1;
+    return '<button type="button" class="marg-qpick' + (done ? ' done' : '') + '" data-qid="' + escapeList(item.id) + '"><span class="marg-qpick-mark" aria-hidden="true"></span><span class="marg-qpick-copy">' + escapeList(item.label + '. ' + item.title) + '</span></button>';
+  }
+  var priority = items.filter(function(item) { return item.priority; }).sort(function(a, b) { return a.priorityOrder - b.priorityOrder; });
+  var rest = items.filter(function(item) { return !item.priority; });
+  var groups = [
+    ['Do these first', priority],
+    ['Function properties and equations', rest.filter(function(item) { return questionListGroup(item.title) === 'Function properties and equations'; })],
+    ['Graphs, range and transformations', rest.filter(function(item) { return questionListGroup(item.title) === 'Graphs, range and transformations'; })],
+    ['Mixed CAT-style applications', rest.filter(function(item) { return questionListGroup(item.title) === 'Mixed CAT-style applications'; })]
+  ].filter(function(group) { return group[1].length; });
+  var doneCount = items.filter(function(item) { return saved.indexOf(item.id) !== -1; }).length;
+  var store = 'marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.');
+  return '<div class="mentor-paragraph">Here is the full selection from the pages already in this chat.</div><div class="marg-qlist" data-store="' + escapeList(store) + '"><div class="marg-qlist-title">Your selected question list</div><div class="marg-qlist-banner"><span class="marg-qlist-dot" aria-hidden="true"></span><div><div class="marg-qlist-priority">Priority 1 — Do these first</div><div class="marg-qlist-note">Core concepts and useful problem-solving practice</div></div></div>' +
+    groups.map(function(group) {
+      return '<div class="marg-qlist-group">' + escapeList(group[0]) + '</div>' + group[1].sort(function(a, b) { return a.priority ? a.priorityOrder - b.priorityOrder : a.order - b.order; }).map(row).join('');
+    }).join('') +
+    '<div class="marg-qlist-foot"><span class="marg-qlist-count">' + doneCount + ' of ' + items.length + ' completed</span><button type="button" class="marg-qlist-reset">Reset</button></div></div>';
+}
+
+function refreshSelectedQuestionList(list) {
+  if (!list || !list.querySelectorAll) return;
+  var picks = list.querySelectorAll('.marg-qpick');
+  var done = [];
+  Array.prototype.forEach.call(picks, function(button) {
+    if (button.classList.contains('done')) done.push(button.getAttribute('data-qid'));
+  });
+  var count = list.querySelector('.marg-qlist-count');
+  if (count) count.textContent = done.length + ' of ' + picks.length + ' completed';
+  try { localStorage.setItem(list.getAttribute('data-store') || 'marg_qlist_v1', JSON.stringify(done)); } catch (e) {}
+}
+
+function bindSelectedQuestionList(root) {
+  if (!root || !root.querySelectorAll) return;
+  root.querySelectorAll('.marg-qlist').forEach(function(list) {
+    if (list.dataset && list.dataset.bound === '1') return;
+    if (list.dataset) list.dataset.bound = '1';
+    list.querySelectorAll('.marg-qpick').forEach(function(button) {
+      button.addEventListener('click', function() {
+        button.classList.toggle('done');
+        refreshSelectedQuestionList(list);
+      });
+    });
+    var reset = list.querySelector('.marg-qlist-reset');
+    if (reset) reset.addEventListener('click', function() {
+      list.querySelectorAll('.marg-qpick').forEach(function(button) { button.classList.remove('done'); });
+      refreshSelectedQuestionList(list);
+    });
+  });
+}
+
+function selectedQuestionSourceText() {
+  if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return '';
+  return conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; }).join('\n');
+}
+
+function maybeServeSelectedQuestionList(message) {
+  if (!isSelectedQuestionListRequest(message)) return false;
+  var list = collectSelectedBookQuestions(selectedQuestionSourceText());
+  if (!list.total || list.total < 3) return false;
+  var plain = selectedQuestionListPlain(list);
+  addMessage('marg', renderSelectedQuestionList(list), true);
+  conversationHistory.push({ role:'assistant', content:plain });
+  if (typeof isGuestMode !== 'undefined' && !isGuestMode && typeof saveChatMessage === 'function') saveChatMessage('assistant', plain);
+  return true;
+}
+
 function inChatQuestionFormat(text) {
   var value = String(text || '');
   if (/\b(?:para\s*-?\s*jumbles?|parajumbles?|\bpjs?\b|jumbled(?:\s+up)?\s+sentences?)\b/i.test(value)) return 'parajumble';
@@ -21138,6 +21345,7 @@ function asksForInChatQuestions(text) {
 function parseInChatQuestionRequest(message) {
   var text = String(message || '').trim();
   if (!text || text.length > 600) return null;
+  if (isSelectedQuestionListRequest(text)) return null;
   if (/\b(?:how (?:do|should|can) i|explain how|what(?:'s| is) the (?:approach|strategy)|advice|guidance|diagnos(?:e|is))\b/i.test(text) &&
       !/\b(?:give|generate|write|create)\b[\s\S]{0,40}\bquestions?\b/i.test(text)) return null;
   if (/\b(?:solutions?|answers?|explanations?)\s+(?:to|for|of)\b|\b(?:check|review|explain)\s+(?:my|this|these|that)\b/i.test(text)) return null;
@@ -22102,7 +22310,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
-  if (!effectiveHasImages && !studyOwned && (await maybeServeOriginalQuestionsInChat(text) || await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartHypothesisExperiment(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!effectiveHasImages && !studyOwned && (maybeServeSelectedQuestionList(text) || await maybeServeOriginalQuestionsInChat(text) || await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartHypothesisExperiment(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
