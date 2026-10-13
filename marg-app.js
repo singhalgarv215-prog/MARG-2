@@ -1262,6 +1262,7 @@ function mentorTextIsCatExercise(value) {
 }
 
 function renderMentorStructuredText(text) {
+  if (looksLikeBookQuestionSelection(text)) return renderSelectedQuestionList(collectSelectedBookQuestions(stripMentorDisplayControlTags(text)));
   ensureMentorRichTextStyles();
   var visualBlocks = [];
   function hold(rendered) {
@@ -2944,7 +2945,7 @@ In a genuine end-of-conversation moment—when the student's best next move is t
 
 LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction in natural mentor language, briefly explain the clue behind it, and ask one confirmation. Never label it "My prediction:" in ordinary conversation; say "I think I know what's happening," "Here's my read," or "I think this might be the real issue." A diagnosis must never end on a naked "Does that feel accurate?" or another generic confirmation. In the same reply, preview exactly what Marg will do if the read fits, so the student already knows the next move. After Exactly or Mostly, do not repeat the diagnosis or wait for the student to invent a response: say "Then let's verify it instead of guessing," name the targeted check and what behaviour it will observe, then offer Right now / Later today / Tomorrow. Never launch an exercise without that timing consent and never choose tomorrow for them. QA and DILR exercises belong in the dedicated timed interface, not as a long question dump in chat. Before a DILR set, teach the representation, why it fits, and the first constraint to inspect. Every exercise must validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should never be confused about what happens next; sometimes the correct next step is simply to disengage and rest.
 
-When the reply needs a selection, end with one control line the app turns into buttons: [OPTIONS: first|second|third][CONTEXT: short_name]. Use it for a follow-up, a diagnostic description, which question or section to open, a priority order, or the next action. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Never explain the tags.
+When the reply needs a selection, end with one control line the app turns into buttons: [OPTIONS: first|second|third][CONTEXT: short_name]. Use it for a follow-up, a diagnostic description, which question or section to open, a priority order, or the next action. Do not use it for a list of selected book questions; that list is the whole reply. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Never explain the tags.
 
 When a mission is appropriate, use exactly this compact visible structure, with no markdown heading and one primary test:
 Today's Mission
@@ -3031,7 +3032,7 @@ DIAGNOSIS AND EXERCISE CONSENT
 Follow the TURN CONTRACT question budget. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. A request for questions is answered with the full questions in this chat, not with a timer. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive]. Write a [HYPOTHESIS: ...] record only when the TURN CONTRACT asks for one.
 
 QUESTION REQUESTS
-When the student asks for questions in any section, do not refuse and do not offer a timed round. The app writes complete original questions in this chat, styled on the bank but not copied from it, with clickable options wherever a choice exists. If you write them yourself, finish every sentence and every option; never stop after a blank number. A request for the whole list, the full selection, or the questions already picked from uploaded pages is not a request for new questions. Repeat that selection in full. Chat may also diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified. Never copy a published item.
+When the student asks for questions in any section, do not refuse and do not offer a timed round. The app writes complete original questions in this chat, styled on the bank but not copied from it, with clickable options wherever a choice exists. If you write them yourself, finish every sentence and every option; never stop after a blank number. A request for the whole list, the full selection, the final list, or the questions already picked from uploaded pages is not a request for new questions. Name every selected question number, grouped by topic. Do not replace that list with a study order, and do not add [OPTIONS]. Chat may also diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified. Never copy a published item.
 When challenged, audit first and keep one facing convention. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.”
 
 MEMORY AND CONTINUITY
@@ -3078,7 +3079,7 @@ Never infer a specific percentile from one mock. For full reviews give one evide
 Keep saved missions out of unrelated chat; Home carries them. Leave a light thread, not a forced question. Sleep or exhaustion should end cleanly.
 
 TECHNICAL TAGS
-When the student must choose a follow-up, diagnostic description, question, section, priority or next action, end with [OPTIONS: first|second|third][CONTEXT: short_name]. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. Do not use [START_TEST] to answer a request for questions. Never explain tags.
+When the student must choose a follow-up, diagnostic description, question, section, priority or next action, end with [OPTIONS: first|second|third][CONTEXT: short_name]. Do not use [OPTIONS] for a selected book-question list. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. Do not use [START_TEST] to answer a request for questions. Never explain tags.
 
 Verify any timed allocation in seconds: parts must equal its total. Recalculate mismatches before publishing.`;
 
@@ -18165,6 +18166,15 @@ function describeTurnResponseContract(message, diagnosis) {
     budget = 0;
     task = 'Give the evidence-bounded read, one executable correction, and the observation that will test it.';
   }
+  if (isSelectedQuestionListRequest(message)) {
+    shape = 'complete';
+    budget = 0;
+    task = 'The student asked for the selected questions from the uploaded pages. Name every chosen question number, grouped by topic, in this reply. A range such as Q3-4 stays one item. Do not replace the list with a study order or an introduction. Do not add [OPTIONS].';
+    if (diagnosis) {
+      diagnosis.preserveFullReply = true;
+      diagnosis.bookQuestionList = true;
+    }
+  }
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.allowsEvidenceQuestion && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) budget = 0;
   var questionLimitReached = budget === 0 && !!(diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.allowsEvidenceQuestion && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady);
   if (diagnosis && (diagnosis.rcWrongAnswerReview || diagnosis.requestedExistingSolutions || diagnosis.hintOnly)) {
@@ -19444,6 +19454,7 @@ function selectMentorModelText(payload) {
 }
 
 function getMentorResponseMaxTokens(diagnosis) {
+  if (diagnosis && diagnosis.bookQuestionList) return 8192;
   // Passages, multi-question sets and full explanations are long by nature.
   // Thinking tokens share this ceiling, so it must clear the longest legitimate
   // study reply; shorter replies simply stop earlier.
@@ -19615,11 +19626,46 @@ function runSelectedQuestionListTests() {
   addMessage = previousAdd;
   saveChatMessage = previousSave;
   var tidy = renderMentorStructuredText('See these.\n### Core CAT-Pattern Questions\n* Q2 (Quadratic Sign & Symmetries*): Perfect test of symmetry.');
+  var roster = [
+    'Here is the full consolidated list of 32 high-yield questions across all 7 pages (Questions 1 to 115).',
+    'Functional Equations & Symmetries',
+    'Q8, Q10, Q14, Q34, Q37, Q38, Q55, Q66, Q78, Q82, Q98, Q105',
+    'Modulus, Graphs & Area',
+    'Q1, Q5, Q30, Q31, Q32, Q76, Q81, Q85, Q86',
+    'Greatest Integer Function [x]',
+    'Q17, Q44, Q46, Q60, Q80, Q96, Q102',
+    'Polynomial Properties & Maxima/Minima',
+    'Q2, Q9, Q24, Q28, Q51, Q58 Start with the Functional Equations block first.',
+    '[OPTIONS: Start with Functional Equations|Start with Modulus & Graphs|Pick a 10-question set for today][CONTEXT: functions_priority]'
+  ].join('\n');
+  var firstPages = 'Recommended Questions from Pages 1-4: * Modulus & Graphs / Area: Q1, Q5, Q30, Q31, Q32 • Algebraic Polynomials & Quadratic Properties: Q2, Q3-4 set, Q24, Q28, Q29 • Functional Equations & Symmetries: Q8, Q10, Q14 • Greatest Integer Function [x]: Q17, Q44, Q46, Q60 • Combinatorics / Relation-based Functions: Q19-20 set • Maxima & Minima / Inequality Constraints: Q9, Q51, Q52, Q58, Q59, Q61 Upload the remaining pages whenever you are ready.';
+  var card = renderMentorStructuredText(roster);
+  var firstCard = renderMentorStructuredText(firstPages);
+  var whereHistory = conversationHistory;
+  var whereAdd = addMessage;
+  var whereSave = saveChatMessage;
+  var whereHtml = '';
+  addMessage = function(_role, html) { whereHtml = String(html || ''); return {}; };
+  saveChatMessage = function() {};
+  conversationHistory = [{ role:'assistant', content:roster }];
+  var whereServed = maybeServeSelectedQuestionList('Where is the list?');
+  var finalAsk = buildDiagnosisDirective('Now these are the rest. And now give me the full and final list of questions');
+  var plainAsk = buildDiagnosisDirective('give me 2 QA percentages questions');
+  var keptList = enforceMentorShapeLength(roster, { responseShape:'normal', preserveFullReply:true, bookQuestionList:true });
+  conversationHistory = whereHistory;
+  addMessage = whereAdd;
+  saveChatMessage = whereSave;
+  var rosterList = collectSelectedBookQuestions(roster);
+  var firstList = collectSelectedBookQuestions(firstPages);
   return [
     { name:'a request for the existing list is not a new question drop', passed:notGenerated && !!stillQa && stillQa.topic === 'Percentages' && stillQa.count === 2 },
     { name:'the selection keeps the specific title and the priority set', passed:!!q8 && q8.title === 'Multiplicative Functional Equation' && q8.priority === true && list.items.some(function(item) { return item.id === '96-98' && item.title === 'Floor Function Fraction Equality'; }) && list.items.some(function(item) { return item.id === '113' && item.priority === true && item.title.indexOf('f(1/x)') !== -1; }) && list.items.some(function(item) { return item.id === '2' && item.priority !== true; }) },
     { name:'the list renders as a checklist instead of a cut-off notice', passed:served === true && captured.indexOf('marg-qlist') !== -1 && captured.indexOf('Priority 1') !== -1 && captured.indexOf('Do these first') !== -1 && captured.indexOf('Q8. Multiplicative Functional Equation') !== -1 && captured.indexOf('could not finish') === -1 && /0 of \d+ completed/.test(captured) },
-    { name:'book markup becomes a heading and a bullet', passed:tidy.indexOf('###') === -1 && tidy.indexOf('class="mentor-heading"') !== -1 && tidy.indexOf('class="mentor-list-item"') !== -1 && tidy.indexOf('Quadratic Sign') !== -1 }
+    { name:'book markup becomes a heading and a bullet', passed:tidy.indexOf('###') === -1 && tidy.indexOf('class="mentor-heading"') !== -1 && tidy.indexOf('class="mentor-list-item"') !== -1 && tidy.indexOf('Quadratic Sign') !== -1 },
+    { name:'a numbered roster becomes the checklist without choice buttons', passed:card.indexOf('marg-qlist') !== -1 && card.indexOf('marg-choice') === -1 && card.indexOf('Choose one') === -1 && card.indexOf('Q8. Functional equations') !== -1 && card.indexOf('Q17. Greatest integer function') !== -1 && card.indexOf('Functional equations and symmetries') < card.indexOf('Modulus, graphs and area') && card.indexOf('Modulus, graphs and area') < card.indexOf('Greatest integer function') && card.indexOf('Greatest integer function') < card.indexOf('Polynomial properties') && card.indexOf('[OPTIONS:') === -1 && rosterList.priorityGroup === 'Functional equations and symmetries' && rosterList.items.some(function(item) { return item.id === '96'; }) && !rosterList.items.some(function(item) { return item.id === '1-115' || item.id === '115'; }) },
+    { name:'page bullets keep ranges as one row', passed:firstCard.indexOf('marg-qlist') !== -1 && firstList.items.some(function(item) { return item.id === '3-4'; }) && firstList.items.some(function(item) { return item.id === '19-20'; }) && firstList.items.some(function(item) { return item.id === '61'; }) },
+    { name:'where is the list rebuilds the checklist', passed:whereServed === true && whereHtml.indexOf('marg-qlist') !== -1 && whereHtml.indexOf('Q32. Modulus, graphs') !== -1 && parseInChatQuestionRequest('Where is the list?') === null },
+    { name:'a full list request is not cut down to an introduction', passed:!!finalAsk.diagnosis.bookQuestionList && finalAsk.diagnosis.preserveFullReply === true && finalAsk.diagnosis.responseShape === 'complete' && finalAsk.directive.indexOf('Do not add [OPTIONS]') !== -1 && getMentorResponseMaxTokens(finalAsk.diagnosis) === 8192 && !plainAsk.diagnosis.bookQuestionList && keptList.indexOf('Q105') !== -1 }
   ];
 }
 window.runSelectedQuestionListTests = runSelectedQuestionListTests;
@@ -20388,6 +20434,7 @@ async function sendPatternFallbackQuestion() {
 }
 
 function checkAndRenderMargOptions(response) {
+  if (looksLikeBookQuestionSelection(response)) return;
   if (assistantBubbleAlreadyHasInlineChoices()) return;
   response = expandMentorAskTags(response);
   // The alternatives themselves can legitimately contain brackets, e.g.
@@ -21181,9 +21228,41 @@ function tidyBookQuestionMarkup(text) {
 
 function isSelectedQuestionListRequest(text) {
   var value = String(text || '');
-  return /\b(?:whole|full|complete|entire|master)\s+(?:list|selection)\b/i.test(value) ||
+  if (/\b\d{1,2}\s+(?:qa|dilr|varc|va|rc|percentages?|algebra|questions?)\b/i.test(value) && !/\blist\b/i.test(value)) return false;
+  return /\b(?:whole|full|complete|entire|master|final|consolidated|curated)\s+(?:and\s+final\s+)?(?:list|selection)\b/i.test(value) ||
     /\b(?:list|selection)\s+of\s+(?:the\s+)?questions\b/i.test(value) ||
-    /\bgive me the (?:whole |full |complete )?list\b/i.test(value);
+    /\bgive me the (?:whole |full |complete |final )?list\b/i.test(value) ||
+    /\bwhere(?:'s| is) the (?:full |complete |final |question )?list\b/i.test(value) ||
+    /\b(?:best selected|selected questions|high[- ]yield questions|curated (?:list|questions))\b/i.test(value);
+}
+
+function cleanQuestionGroup(name) {
+  var value = cleanQuestionTitle(name).replace(/\[[^\]]*\]/g, '').replace(/\s*\/\s*/g, ' and ').replace(/\s*&\s*/g, ' and ').replace(/\s+/g, ' ').trim().toLowerCase();
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : '';
+}
+
+function shortQuestionTopic(group) {
+  var value = String(group || '');
+  var cut = value.split(/\s+and\s+/i)[0].replace(/,\s*$/, '').trim();
+  return cut || value;
+}
+
+function bookQuestionTokens(chunk) {
+  var cleaned = String(chunk || '').replace(/\bquestions?\s+\d{1,3}\s+to\s+\d{1,3}\b/gi, ' ');
+  var re = /Q\s*(\d{1,3})(?:\s*[–-]\s*(?:Q\s*)?(\d{1,3}))?/gi;
+  var found = [];
+  var match;
+  while ((match = re.exec(cleaned))) {
+    var start = Number(match[1]);
+    var end = match[2] ? Number(match[2]) : start;
+    if (!start || end < start || end - start > 12) end = start;
+    found.push({
+      id: end !== start ? start + '-' + end : String(start),
+      label: end !== start ? 'Q' + start + '–' + end : 'Q' + start,
+      order: start
+    });
+  }
+  return found;
 }
 
 function cleanQuestionTitle(title) {
@@ -21204,6 +21283,7 @@ function collectSelectedBookQuestions(text) {
   var priority = priorityAt >= 0 ? source.slice(priorityAt) : '';
   var byId = {};
   var priorityCount = 0;
+  var seenOrder = 0;
   function addRegion(chunk, isPriority) {
     var re = /(Q\s*\d{1,3}(?:\s*[–-]\s*(?:Q\s*)?\d{1,3})?(?:\s*&\s*Q\s*\d{1,3}(?:\s*[–-]\s*(?:Q\s*)?\d{1,3})?)*)\s*(?:\(((?:[^()\n]|\([^()\n]*\))+)\)|\.\s+([A-Z][^.\n]{2,90}))/g;
     var match;
@@ -21217,7 +21297,7 @@ function collectSelectedBookQuestions(text) {
         var label = nums.length > 1 ? 'Q' + nums[0] + '–' + nums[nums.length - 1] : 'Q' + nums[0];
         var item = byId[id];
         if (!item) {
-          item = { id:id, label:label, title:title, priority:false, specific:!isPriority, order:Number(nums[0]), priorityOrder:999 };
+          item = { id:id, label:label, title:title, priority:false, specific:!isPriority, order:Number(nums[0]), priorityOrder:999, seen:seenOrder++ };
           byId[id] = item;
         } else if (!isPriority && title.length > item.title.length) {
           item.title = title;
@@ -21230,18 +21310,87 @@ function collectSelectedBookQuestions(text) {
       });
     }
   }
+  function addToken(token, title, group) {
+    if (!token || byId[token.id]) return;
+    byId[token.id] = { id:token.id, label:token.label, title:title, group:group, priority:false, specific:false, order:token.order, priorityOrder:999, seen:seenOrder++ };
+  }
   addRegion(catalog, false);
   addRegion(priority, true);
+  var lines = source.replace(/\s+\*\s+/g, '\n').replace(/\s*•\s*/g, '\n').split(/\n+/);
+  var pending = '';
+  lines.forEach(function(raw) {
+    var trimmed = raw.replace(/^[-•*]\s*/, '').replace(/^\d+\.\s*/, '').trim();
+    if (!trimmed) return;
+    var colon = trimmed.match(/^([^:\n]{3,90}):\s*(.+)$/);
+    if (colon && !bookQuestionTokens(colon[1]).length && bookQuestionTokens(colon[2]).length) {
+      var named = cleanQuestionGroup(colon[1]);
+      bookQuestionTokens(colon[2]).forEach(function(token) { addToken(token, shortQuestionTopic(named), named); });
+      pending = '';
+      return;
+    }
+    var tokens = bookQuestionTokens(trimmed);
+    if (/^Q\s*\d/i.test(trimmed) && tokens.length >= 2) {
+      var groupName = pending || 'Selected questions';
+      tokens.forEach(function(token) { addToken(token, shortQuestionTopic(groupName), groupName); });
+      pending = '';
+      return;
+    }
+    if (!tokens.length && trimmed.length <= 80 && !/[.!?]$/.test(trimmed) && !/\b(?:here is|upload the|start with|next,|save pure|recommended questions)\b/i.test(trimmed)) {
+      pending = cleanQuestionGroup(trimmed);
+    }
+  });
   var items = Object.keys(byId).map(function(id) { return byId[id]; });
-  return { items:items, total:items.length };
+  var priorityGroup = '';
+  var startWith = source.match(/\bstart with (?:the )?([^\n.]{3,40}?)(?:\s+block|\s+first|\s+and\b)/i);
+  if (startWith) {
+    var needle = cleanQuestionGroup(startWith[1]).toLowerCase();
+    items.some(function(item) {
+      var group = String(item.group || '').toLowerCase();
+      if (group && (group.indexOf(needle.slice(0, 16)) !== -1 || needle.indexOf(group.slice(0, 16)) !== -1)) {
+        priorityGroup = item.group;
+        return true;
+      }
+      return false;
+    });
+  }
+  return { items:items, total:items.length, priorityGroup:priorityGroup };
+}
+
+function looksLikeBookQuestionSelection(text) {
+  var list = collectSelectedBookQuestions(text);
+  if (!list.total || list.total < 3) return false;
+  var value = String(text || '');
+  if (/(?:^|\n)\s*(?:PASSAGE|Answer:|Explanation:)\b/.test(value)) return false;
+  if (/(?:^|\n)\s*[A-D][.)]\s+\S/.test(value) && /\b(?:option|correct)\b/i.test(value)) return false;
+  return value.split('\n').some(function(line) { return (line.match(/Q\s*\d{1,3}/gi) || []).length >= 3; }) ||
+    (value.match(/Q\s*\d{1,3}[^\n]{0,16}\(/g) || []).length >= 3 ||
+    list.items.some(function(item) { return item.group; });
 }
 
 function selectedQuestionListPlain(list) {
   var lines = ['Your selected question list'];
-  (list.items || []).slice().sort(function(a, b) { return a.order - b.order; }).forEach(function(item) {
-    lines.push(item.label + '. ' + item.title);
+  var items = (list.items || []).slice();
+  if (!items.some(function(item) { return item.group; })) {
+    items.slice().sort(function(a, b) { return a.order - b.order; }).forEach(function(item) { lines.push(item.label + '. ' + item.title); });
+    return lines.join('\n');
+  }
+  var groups = [];
+  items.slice().sort(function(a, b) { return (a.seen || 0) - (b.seen || 0); }).forEach(function(item) {
+    var name = item.group || 'Selected questions';
+    var group = groups.filter(function(entry) { return entry.name === name; })[0];
+    if (!group) { group = { name:name, items:[] }; groups.push(group); }
+    group.items.push(item);
+  });
+  if (list.priorityGroup) groups.sort(function(a, b) { return (a.name === list.priorityGroup ? 0 : 1) - (b.name === list.priorityGroup ? 0 : 1); });
+  groups.forEach(function(group) {
+    lines.push(group.name);
+    lines.push(group.items.map(function(item) { return item.label; }).join(', '));
   });
   return lines.join('\n');
+}
+
+function selectedQuestionRowCopy(item) {
+  return item.title ? item.label + '. ' + item.title : item.label;
 }
 
 function renderSelectedQuestionList(list) {
@@ -21255,16 +21404,29 @@ function renderSelectedQuestionList(list) {
   }
   function row(item) {
     var done = saved.indexOf(item.id) !== -1;
-    return '<button type="button" class="marg-qpick' + (done ? ' done' : '') + '" data-qid="' + escapeList(item.id) + '"><span class="marg-qpick-mark" aria-hidden="true"></span><span class="marg-qpick-copy">' + escapeList(item.label + '. ' + item.title) + '</span></button>';
+    return '<button type="button" class="marg-qpick' + (done ? ' done' : '') + '" data-qid="' + escapeList(item.id) + '"><span class="marg-qpick-mark" aria-hidden="true"></span><span class="marg-qpick-copy">' + escapeList(selectedQuestionRowCopy(item)) + '</span></button>';
   }
-  var priority = items.filter(function(item) { return item.priority; }).sort(function(a, b) { return a.priorityOrder - b.priorityOrder; });
-  var rest = items.filter(function(item) { return !item.priority; });
-  var groups = [
-    ['Do these first', priority],
-    ['Function properties and equations', rest.filter(function(item) { return questionListGroup(item.title) === 'Function properties and equations'; })],
-    ['Graphs, range and transformations', rest.filter(function(item) { return questionListGroup(item.title) === 'Graphs, range and transformations'; })],
-    ['Mixed CAT-style applications', rest.filter(function(item) { return questionListGroup(item.title) === 'Mixed CAT-style applications'; })]
-  ].filter(function(group) { return group[1].length; });
+  var explicit = items.some(function(item) { return item.group; });
+  var groups;
+  if (explicit) {
+    groups = [];
+    items.slice().sort(function(a, b) { return (a.seen || 0) - (b.seen || 0); }).forEach(function(item) {
+      var name = item.group || 'Selected questions';
+      var group = groups.filter(function(entry) { return entry[0] === name; })[0];
+      if (!group) { group = [name, []]; groups.push(group); }
+      group[1].push(item);
+    });
+    if (list.priorityGroup) groups.sort(function(a, b) { return (a[0] === list.priorityGroup ? 0 : 1) - (b[0] === list.priorityGroup ? 0 : 1); });
+  } else {
+    var priority = items.filter(function(item) { return item.priority; }).sort(function(a, b) { return a.priorityOrder - b.priorityOrder; });
+    var rest = items.filter(function(item) { return !item.priority; });
+    groups = [
+      ['Do these first', priority],
+      ['Function properties and equations', rest.filter(function(item) { return questionListGroup(item.title) === 'Function properties and equations'; })],
+      ['Graphs, range and transformations', rest.filter(function(item) { return questionListGroup(item.title) === 'Graphs, range and transformations'; })],
+      ['Mixed CAT-style applications', rest.filter(function(item) { return questionListGroup(item.title) === 'Mixed CAT-style applications'; })]
+    ].filter(function(group) { return group[1].length; });
+  }
   var doneCount = items.filter(function(item) { return saved.indexOf(item.id) !== -1; }).length;
   var store = 'marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.');
   return '<div class="mentor-paragraph">Here is the full selection from the pages already in this chat.</div><div class="marg-qlist" data-store="' + escapeList(store) + '"><div class="marg-qlist-title">Your selected question list</div><div class="marg-qlist-banner"><span class="marg-qlist-dot" aria-hidden="true"></span><div><div class="marg-qlist-priority">Priority 1 — Do these first</div><div class="marg-qlist-note">Core concepts and useful problem-solving practice</div></div></div>' +
@@ -21307,7 +21469,11 @@ function bindSelectedQuestionList(root) {
 
 function selectedQuestionSourceText() {
   if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return '';
-  return conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; }).join('\n');
+  var messages = conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; });
+  for (var i = messages.length - 1; i >= 0; i--) {
+    if (looksLikeBookQuestionSelection(messages[i])) return messages[i];
+  }
+  return messages.join('\n');
 }
 
 function maybeServeSelectedQuestionList(message) {
@@ -21319,6 +21485,26 @@ function maybeServeSelectedQuestionList(message) {
   conversationHistory.push({ role:'assistant', content:plain });
   if (typeof isGuestMode !== 'undefined' && !isGuestMode && typeof saveChatMessage === 'function') saveChatMessage('assistant', plain);
   return true;
+}
+
+async function refillBookQuestionList(reply, request, timeoutMs) {
+  if (looksLikeBookQuestionSelection(reply) || typeof fetchWithTimeout !== 'function' || typeof WORKER_URL === 'undefined') return reply;
+  var next = copyRequestForContinuation(request, true);
+  var override = '\n\nBOOK LIST OVERRIDE: The word limit does not apply. Reply with only the selected question numbers from the uploaded pages, grouped by topic. Put each topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not add an introduction, a study plan, or [OPTIONS].';
+  var parts = next.systemInstruction && next.systemInstruction.parts;
+  if (parts && parts[0] && typeof parts[0].text === 'string') parts[0].text += override;
+  else next.systemInstruction = { parts:[{ text:override.trim() }] };
+  next.contents = (next.contents || []).concat([
+    { role:'model', parts:[{ text:String(reply || '').slice(0, 1200) || 'Here is the list.' }] },
+    { role:'user', parts:[{ text:'Where is the list? Write every selected question number, grouped by topic.' }] }
+  ]);
+  try {
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(next) }, timeoutMs || 75000);
+    var data = await response.json();
+    var text = getGeminiText(data);
+    if (looksLikeBookQuestionSelection(text)) return text;
+  } catch (error) {}
+  return reply;
 }
 
 function inChatQuestionFormat(text) {
@@ -22389,6 +22575,11 @@ async function sendMessage(fromQueue, submissionOptions) {
     reply = stripInternalMentorTags(reply);
     reply = appendGroundingSources(reply, data);
     reply = finalizeMentorSavedText(reply, mentorAnalysis.diagnosis);
+    if (mentorAnalysis.diagnosis.bookQuestionList && !looksLikeBookQuestionSelection(reply)) {
+      reply = await refillBookQuestionList(reply, mentorRequest, mentorTimeout);
+      reply = finalizeMentorSavedText(reply, mentorAnalysis.diagnosis);
+    }
+    if (looksLikeBookQuestionSelection(reply)) reply = stripMentorDisplayControlTags(reply);
     if (!mentorAnalysis.diagnosis.replyUnfinished && !studyReply) markExerciseReviewCompleted(reply);
     if (studyReply) recordStudyMentorStep(studyTurn, reply);
     if (!mentorAnalysis.diagnosis.replyUnfinished && !mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(text)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
