@@ -18402,7 +18402,7 @@ function describeTurnResponseContract(message, diagnosis) {
     budget = 0;
     task = 'Give the evidence-bounded read, one executable correction, and the observation that will test it.';
   }
-  if (isSelectedQuestionListRequest(message)) {
+  if (wantsBookQuestionSelection(message)) {
     shape = 'complete';
     budget = 0;
     task = 'The student asked for the selected questions from the uploaded pages. Name every chosen question number, grouped by topic, in this reply. A range such as Q3-4 stays one item. Do not write question stems, options, or new practice questions. Do not replace the list with a study order or an introduction. Do not add [OPTIONS].';
@@ -19374,11 +19374,13 @@ function studentSelfReportClose(message) {
 
 function closeTopicLabel(message, diagnosis) {
   var text = String(message || '');
-  var named = text.match(/\b(?:functional equations?|percentages?|parajumbles?|modulus|seating|ratios?|probability|algebra|geometry|time and work)\b/i);
+  if (wantsBookQuestionSelection(text)) return 'the question list';
+  var named = text.match(/\b(?:functional equations?|percentages?|parajumbles?|modulus|inequalit\w*|seating|ratios?|probability|algebra|geometry|time and work)\b/i);
   if (named) return named[0].toLowerCase();
   if (diagnosis && diagnosis.requestedSection) return String(diagnosis.requestedSection).toUpperCase();
   if (typeof studentProfile !== 'undefined' && studentProfile && studentProfile.lastTask) return String(studentProfile.lastTask).replace(/\s+/g, ' ').trim().slice(0, 80);
-  var words = text.replace(/[^a-z0-9\s]/gi, ' ').split(/\s+/).filter(function(word) { return word.length > 3; }).slice(0, 4);
+  var cleaned = text.replace(/\b(?:don'?t|do not|not|asking|ask|want|wanted|give|questions?|selected|list|from|these|those|images?|pictures?|pages?|uploaded|upload|rest|only|bro|bhai)\b/gi, ' ');
+  var words = cleaned.replace(/[^a-z0-9\s]/gi, ' ').split(/\s+/).filter(function(word) { return word.length > 3; }).slice(0, 4);
   return words.join(' ') || 'this';
 }
 
@@ -19470,7 +19472,7 @@ function decideConversationClose(message, diagnosis, budget) {
   if (!diagnosis) return { kind:'none', pattern:'', line:'', options:[] };
   var intent = diagnosis.intent || '';
   var text = String(message || diagnosis.submittedAnswerText || '');
-  if (diagnosis.bookQuestionList || diagnosis.responseShape === 'study' || intent === 'greeting' || intent === 'privacy_request' || intent === 'score_correction') return { kind:'none', pattern:'', line:'', options:[] };
+  if (diagnosis.bookQuestionList || wantsBookQuestionSelection(text) || diagnosis.responseShape === 'study' || intent === 'greeting' || intent === 'privacy_request' || intent === 'score_correction') return { kind:'none', pattern:'', line:'', options:[] };
   if (explicitResponseConstraint(text)) return { kind:'none', pattern:'', line:'', options:[] };
   var topic = closeTopicLabel(text, diagnosis);
   var questionBudget = budget === 0 || budget === 1 ? budget : diagnosis.questionBudget;
@@ -19553,7 +19555,10 @@ function formatConversationCloseTag(close) {
 function applyConversationClose(text, diagnosis) {
   if (!diagnosis || !diagnosis.attachConversationClose) return String(text || '');
   var request = diagnosis.submittedAnswerText || '';
-  if (explicitResponseConstraint(request)) return String(text || '').replace(/\s*\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '').trim();
+  if (explicitResponseConstraint(request) || wantsBookQuestionSelection(request) || looksLikeBookQuestionSelection(text)) {
+    noteConversationAssistantTurn(text, false);
+    return String(text || '').replace(/\s*\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '').trim();
+  }
   var close = diagnosis.conversationClose || decideConversationClose(request, diagnosis, diagnosis.questionBudget);
   if (!close || close.kind === 'none') {
     noteConversationAssistantTurn(text, false);
@@ -20175,6 +20180,28 @@ async function runSelectedQuestionListTests() {
   addMessage = mergeAdd;
   saveChatMessage = mergeSave;
   var pagesAreHere = studentWillSendMorePages('Now these are the rest of the pictures. Give me the full list.') === false;
+  var uploadedList = 'I dont ask for you to generate the questions, I want the full list of questions from the image I uploaded.';
+  var chapterAsk = 'I want the questions from the inequality chapter of arun sharma lod 2';
+  var selectedOnly = 'Are bro i dont ask for all the questions, i want the selected one only. And also uploading the rest of the questions.';
+  var notGenerate = 'Areesyyy bro I am not asking you to give me questions, i want the list of questions from these images i should do';
+  var thirty = 'I want a total of 30 questions or so';
+  var selectedHold = studentWillSendMorePages(selectedOnly);
+  var intentHistory = conversationHistory;
+  var intentAdd = addMessage;
+  var chapterHtml = '';
+  addMessage = function(_role, html) { chapterHtml = String(html || ''); return {}; };
+  conversationHistory = [];
+  var chapterHandled = await maybeHandleBookQuestionPages(chapterAsk);
+  conversationHistory = [
+    { role:'user', content:'These are pages from the inequality chapter. Give me the selected questions.' },
+    { role:'assistant', content:earlyPages + '\n' + laterPages }
+  ];
+  var libraryTurn = await prepareQuestionContextForTurn(uploadedList, []);
+  var listClose = buildDiagnosisDirective(notGenerate);
+  var trimmed = limitBookQuestionList(collectedBookQuestionList(), 5);
+  var thirtyParse = parseInChatQuestionRequest(thirty);
+  conversationHistory = intentHistory;
+  addMessage = intentAdd;
   return [
     { name:'a request for the existing list is not a new question drop', passed:notGenerated && !!stillQa && stillQa.topic === 'Percentages' && stillQa.count === 2 },
     { name:'the selection keeps the specific title and the priority set', passed:!!q8 && q8.title === 'Multiplicative Functional Equation' && q8.priority === true && list.items.some(function(item) { return item.id === '96-98' && item.title === 'Floor Function Fraction Equality'; }) && list.items.some(function(item) { return item.id === '113' && item.priority === true && item.title.indexOf('f(1/x)') !== -1; }) && list.items.some(function(item) { return item.id === '2' && item.priority !== true; }) },
@@ -20185,7 +20212,9 @@ async function runSelectedQuestionListTests() {
     { name:'where is the list rebuilds the checklist', passed:whereServed === true && whereHtml.indexOf('marg-qlist') !== -1 && whereHtml.indexOf('Q32. Modulus, graphs') !== -1 && parseInChatQuestionRequest('Where is the list?') === null },
     { name:'a full list request is not cut down to an introduction', passed:!!finalAsk.diagnosis.bookQuestionList && finalAsk.diagnosis.preserveFullReply === true && finalAsk.diagnosis.responseShape === 'complete' && finalAsk.directive.indexOf('Do not add [OPTIONS]') !== -1 && finalAsk.directive.indexOf('Do not write question stems') !== -1 && getMentorResponseMaxTokens(finalAsk.diagnosis) === 8192 && !plainAsk.diagnosis.bookQuestionList && keptList.indexOf('Q105') !== -1 },
     { name:'pages still coming wait, and a later full list merges every page', passed:studentWillSendMorePages("I'll upload the rest of the pictures, then give me the complete list of questions.") === true && studentWillSendMorePages("I'll maybe send more pages later") === true && pagesAreHere && held === true && heldHtml.indexOf('marg-qlist') === -1 && heldHtml.indexOf('rest of the pages') !== -1 && merged.items.some(function(item) { return item.id === '8'; }) && merged.items.some(function(item) { return item.id === '17'; }) && full === true && fullHtml.indexOf('marg-qlist') !== -1 && fullHtml.indexOf('Q8') !== -1 && fullHtml.indexOf('Q17') !== -1 && fullHtml.indexOf('study-option') === -1 && askedQuestions === null && !!stillGenerated && stillGenerated.count === 2 && looksLikeGeneratedPracticeQuestion(invented) === true && looksLikeBookQuestionSelection(invented) === false },
-    { name:'the rest of the pages join the earlier numbers instead of new questions', passed:withImages === true && imageHtml.indexOf('marg-qlist') !== -1 && imageHtml.indexOf('Q1') !== -1 && imageHtml.indexOf('Q17') !== -1 && imageHtml.indexOf('study-option') === -1 && imageHtml.indexOf('A. f is linear') === -1 }
+    { name:'the rest of the pages join the earlier numbers instead of new questions', passed:withImages === true && imageHtml.indexOf('marg-qlist') !== -1 && imageHtml.indexOf('Q1') !== -1 && imageHtml.indexOf('Q17') !== -1 && imageHtml.indexOf('study-option') === -1 && imageHtml.indexOf('A. f is linear') === -1 },
+    { name:'a list from uploaded pages is not a saved-source picker or a generated question', passed:!isSavedQuestionResolutionRequest(uploadedList) && wantsBookQuestionSelection(uploadedList) && parseInChatQuestionRequest(uploadedList) === null && libraryTurn.blocked === false && !/multiple saved sources/i.test(String(libraryTurn.reply || '')) && !isSavedQuestionResolutionRequest(chapterAsk) && parseInChatQuestionRequest(chapterAsk) === null && chapterHandled === true && chapterHtml.indexOf('write new questions') !== -1 && chapterHtml.indexOf('could not finish') === -1 && chapterHtml.indexOf('marg-qlist') === -1 && isSavedQuestionResolutionRequest('Solve Q4') === true && isSavedQuestionResolutionRequest("reopen yesterday's saved page") === true },
+    { name:'a selected list stays a short checklist and does not grow a follow-up', passed:selectedHold && bookSelectionLimit(selectedOnly) === 30 && !isSavedQuestionResolutionRequest(notGenerate) && wantsBookQuestionSelection(notGenerate) && bookSelectionLimit(notGenerate) === 30 && thirtyParse === null && bookSelectionLimit(thirty) === 30 && trimmed.total === 5 && trimmed.items.some(function(item) { return item.id === '1'; }) && trimmed.items.some(function(item) { return item.id === '17'; }) && listClose.diagnosis.bookQuestionList === true && listClose.diagnosis.conversationClose.kind === 'none' && closeTopicLabel(selectedOnly) === 'the question list' && bookRosterInstruction(selectedOnly, '').indexOf('about 30') !== -1 && bookRosterInstruction('Give me the full list', '').indexOf('only the question numbers') !== -1 }
   ];
 }
 window.runSelectedQuestionListTests = runSelectedQuestionListTests;
@@ -21993,18 +22022,28 @@ function looksLikeBookQuestionSelection(text) {
 
 function asksToInventQuestions(text) {
   var value = String(text || '');
+  if (/\b(?:a total of|about|around|roughly)\s+\d{1,3}\s+questions?\b/i.test(value)) return false;
   if (/\b(?:generate|create|write|invent|original|new questions?)\b/i.test(value)) return true;
   return /\b\d{1,2}\s+(?:qa|dilr|varc|va|rc|percentages?|algebra|geometry|questions?|parajumbles?)\b/i.test(value) && !/\blist\b/i.test(value);
 }
 
+function refusesGeneratedQuestions(text) {
+  var value = String(text || '');
+  return /\b(?:do not|don['’]?t|not)\s+(?:ask(?:ing)?\s+(?:you\s+)?(?:to\s+)?)?(?:generate|give|write|make)\b/i.test(value) ||
+    /\b(?:not asking|didn['’]?t ask|dont ask|don['’]?t ask)\b[\s\S]{0,48}\b(?:generate|questions?)\b/i.test(value) ||
+    /\bi am not asking you to give me questions\b/i.test(value);
+}
+
 function studentWillSendMorePages(text) {
   var value = String(text || '');
-  if (/\b(?:here(?:'s| is| are)|these are|this is|now these|now this|i(?:'ve| have) (?:uploaded|sent|shared|attached))\b/i.test(value)) return false;
+  if (/\b(?:here(?:'s| is| are)|these are|this is|now these|now this|i(?:'ve| have) (?:uploaded|sent|shared|attached)|finished upload|done upload)\b/i.test(value)) return false;
   if (/\b(?:now|here)\b[\s\S]{0,24}\b(?:rest|remaining)\b/i.test(value)) return false;
+  if (/\b(?:that(?:'s| is) all|this is all|no more pages|the last page)\b/i.test(value)) return false;
   var willSend = /\b(?:i(?:'ll| will)|i am going to|i'm going to|let me|gonna|going to)\s+(?:upload|send|share|add)\b/i.test(value) ||
     /\b(?:maybe|also|then)\s+(?:i(?:'ll| will)\s+)?(?:upload|send|share)\b/i.test(value) ||
-    /\b(?:wait|hold on|hold)\b[\s\S]{0,30}\b(?:until|till|for the rest|for more)\b/i.test(value);
-  var laterPages = /\b(?:rest|remaining|more|other|next)\b[\s\S]{0,40}\b(?:pictur|photo|image|page)/i.test(value) ||
+    /\b(?:wait|hold on|hold)\b[\s\S]{0,30}\b(?:until|till|for the rest|for more)\b/i.test(value) ||
+    /\b(?:uploading|sending)\s+(?:the\s+)?(?:rest|remaining|more)\b/i.test(value);
+  var laterPages = /\b(?:rest|remaining|more|other|next)\b[\s\S]{0,40}\b(?:pictur|photo|image|page|questions?)/i.test(value) ||
     /\b(?:more|rest|remaining|other)\s+(?:pictur|photo|image|page)/i.test(value) ||
     /\bpages?\s+later\b/i.test(value);
   return willSend && laterPages;
@@ -22034,6 +22073,56 @@ function asksForExistingQuestionList(text) {
   return isSelectedQuestionListRequest(value) ||
     /\b(?:give|show|send)\s+me\b[\s\S]{0,48}\b(?:the |all |every )?(?:questions|list)\b/i.test(value) ||
     /\b(?:all|every)\s+(?:of\s+)?(?:the\s+)?questions\b/i.test(value);
+}
+
+function wantsBookQuestionSelection(text) {
+  var value = String(text || '');
+  if (asksToInventQuestions(value) && !refusesGeneratedQuestions(value) && !isSelectedQuestionListRequest(value)) return false;
+  if (isSelectedQuestionListRequest(value) || studentWillSendMorePages(value)) return true;
+  if (refusesGeneratedQuestions(value) && /\b(?:list|selected|images?|pages?|pictures?|photos?|chapter|uploaded)\b/i.test(value)) return true;
+  if (/\b(?:selected|curated|high[- ]yield)\b[\s\S]{0,40}\bquestions?\b/i.test(value)) return true;
+  if (/\bquestions?\b[\s\S]{0,40}\bi should (?:do|solve|attempt)\b/i.test(value)) return true;
+  if (/\b(?:list|selection)\s+of\s+(?:the\s+)?questions\b/i.test(value)) return true;
+  if (/\bfrom\s+(?:the|these|those|all|my)\b[\s\S]{0,48}\b(?:images?|pictures?|photos?|pages?|chapter)\b/i.test(value) && /\b(?:list|questions?|selected)\b/i.test(value)) return true;
+  if (/\b(?:arun sharma|lod\s*\d|chapter)\b/i.test(value) && /\bquestions?\b/i.test(value) && !/\b(?:solve|explain|why|answer)\b/i.test(value)) return true;
+  if (bookPageThreadActive() && (/\b\d{1,3}\s+questions?\b/i.test(value) || asksForExistingQuestionList(value))) return true;
+  return mentionsPhotographedBookPages(value);
+}
+
+function bookSelectionLimit(text) {
+  var value = String(text || '');
+  var count = value.match(/\b(\d{1,3})\s+questions?\b/i);
+  var named = count ? Number(count[1]) : 0;
+  if (named >= 5 && named <= 80 && /\b(?:total|about|around|roughly|selected)\b/i.test(value)) return named;
+  if (/\b(?:not all|don['’]?t ask for all|do not ask for all|selected one|selected questions|questions i should|should do|should solve)\b/i.test(value)) return named >= 5 && named <= 80 ? named : 30;
+  return 0;
+}
+
+function limitBookQuestionList(list, max) {
+  if (!list || !max || max < 1 || list.total <= max) return list;
+  var groups = [];
+  list.items.slice().sort(function(a, b) { return (a.seen || 0) - (b.seen || 0); }).forEach(function(item) {
+    var name = item.group || '';
+    var group = groups.filter(function(entry) { return entry.name === name; })[0];
+    if (!group) { group = { name:name, items:[] }; groups.push(group); }
+    group.items.push(item);
+  });
+  groups.forEach(function(group) {
+    group.items.sort(function(a, b) { return (a.priority === b.priority ? a.order - b.order : (a.priority ? -1 : 1)); });
+  });
+  var picked = [];
+  var cursor = 0;
+  while (picked.length < max) {
+    var added = false;
+    groups.forEach(function(group) {
+      if (picked.length >= max || !group.items[cursor]) return;
+      picked.push(group.items[cursor]);
+      added = true;
+    });
+    if (!added) break;
+    cursor++;
+  }
+  return { items:picked, total:picked.length, priorityGroup:list.priorityGroup || '' };
 }
 
 function looksLikeGeneratedPracticeQuestion(text) {
@@ -22108,7 +22197,7 @@ function selectedQuestionRowCopy(item) {
   return item.title ? item.label + '. ' + item.title : item.label;
 }
 
-function renderSelectedQuestionList(list) {
+function renderSelectedQuestionList(list, lead) {
   if (typeof ensureMentorRichTextStyles === 'function') ensureMentorRichTextStyles();
   var items = (list && list.items || []).slice();
   var saved = [];
@@ -22144,7 +22233,8 @@ function renderSelectedQuestionList(list) {
   }
   var doneCount = items.filter(function(item) { return saved.indexOf(item.id) !== -1; }).length;
   var store = 'marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.');
-  return '<div class="mentor-paragraph">Here is the full selection from the pages already in this chat.</div><div class="marg-qlist" data-store="' + escapeList(store) + '"><div class="marg-qlist-title">Your selected question list</div><div class="marg-qlist-banner"><span class="marg-qlist-dot" aria-hidden="true"></span><div><div class="marg-qlist-priority">Priority 1 — Do these first</div><div class="marg-qlist-note">Core concepts and useful problem-solving practice</div></div></div>' +
+  var intro = lead || 'Here is the full selection from the pages already in this chat.';
+  return '<div class="mentor-paragraph">' + escapeList(intro) + '</div><div class="marg-qlist" data-store="' + escapeList(store) + '"><div class="marg-qlist-title">Your selected question list</div><div class="marg-qlist-banner"><span class="marg-qlist-dot" aria-hidden="true"></span><div><div class="marg-qlist-priority">Priority 1 — Do these first</div><div class="marg-qlist-note">Core concepts and useful problem-solving practice</div></div></div>' +
     groups.map(function(group) {
       return '<div class="marg-qlist-group">' + escapeList(group[0]) + '</div>' + group[1].sort(function(a, b) { return a.priority ? a.priorityOrder - b.priorityOrder : a.order - b.order; }).map(row).join('');
     }).join('') +
@@ -22196,9 +22286,9 @@ function rememberBookAssistantText(text) {
   if (typeof isGuestMode !== 'undefined' && !isGuestMode && typeof saveChatMessage === 'function') saveChatMessage('assistant', value);
 }
 
-function publishBookChecklist(list, extraNote) {
+function publishBookChecklist(list, extraNote, lead) {
   var note = bookRosterWasCutOff() ? 'The last read stopped before the page finished. This is every number already in the chat. Send the page that was cut off if one is missing.' : String(extraNote || '');
-  var html = (note ? '<div class="mentor-paragraph">' + escapeChatHtml(note) + '</div>' : '') + renderSelectedQuestionList(list);
+  var html = (note ? '<div class="mentor-paragraph">' + escapeChatHtml(note) + '</div>' : '') + renderSelectedQuestionList(list, lead);
   addMessage('marg', html, true);
   rememberBookAssistantText(selectedQuestionListPlain(list));
 }
@@ -22226,11 +22316,21 @@ function maybeServeSelectedQuestionList(message) {
   return true;
 }
 
+function bookRosterInstruction(message, known) {
+  var limit = bookSelectionLimit(message);
+  var instruction = limit
+    ? 'Read every attached page. Choose about ' + limit + ' of the highest-yield questions that are actually visible. Do not list every question on the page. Do not write a question stem, the options, a solution, or a new practice question.'
+    : 'Read every attached page. Reply with only the question numbers that are visible. Do not write the question stem, the options, a solution, or a new practice question.';
+  instruction += ' One topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not stop in the middle of a page. End the reply with a period.';
+  if (/\bQ\s*\d/i.test(known || '')) instruction += '\n\nNumbers already recorded from earlier pages are below. Repeat the ones that belong in this reply, then add the numbers on these pages.\n' + known;
+  return instruction;
+}
+
 async function requestCompactBookRoster(message, images) {
   var ready = (images || []).filter(function(item) { return item && item.data; });
   if (!ready.length || typeof fetchWithTimeout !== 'function' || typeof WORKER_URL === 'undefined' || typeof buildGeminiRequest !== 'function') return '';
   var known = selectedQuestionListPlain(collectedBookQuestionList());
-  var instruction = 'Read every attached page. Reply with only the question numbers that are visible. One topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not write the question stem, the options, a solution, or an introduction. Do not stop in the middle of a page. End the reply with a period.';
+  var instruction = bookRosterInstruction(message, known);
   if (/\bQ\s*\d/i.test(known)) instruction += '\n\nNumbers already recorded from earlier pages are below. Repeat those numbers, then add the numbers on these pages, so this reply is the full list.\n' + known;
   var parts = ready.map(function(item) {
     return { inlineData:{ mimeType:item.mimeType || 'image/jpeg', data:item.data } };
@@ -22257,27 +22357,23 @@ async function maybeHandleBookQuestionPages(message, images) {
   var text = String(message || '');
   var ready = (images || []).filter(function(item) { return item && item.data; });
   var hasImages = ready.length > 0;
-  var listAsk = isSelectedQuestionListRequest(text) || (bookPageThreadActive() && asksForExistingQuestionList(text));
-  var holding = studentWillSendMorePages(text);
-  var paging = hasImages && mentionsPhotographedBookPages(text);
-  if (asksToInventQuestions(text) && !isSelectedQuestionListRequest(text)) return false;
-  if (!listAsk && !holding && !paging) return false;
+  if (!wantsBookQuestionSelection(text)) return false;
+  if (asksToInventQuestions(text) && !isSelectedQuestionListRequest(text) && !refusesGeneratedQuestions(text)) return false;
   var roster = hasImages ? await requestCompactBookRoster(text, ready) : '';
   if (roster) rememberBookAssistantText(roster);
-  if (holding) {
+  if (studentWillSendMorePages(text)) {
     publishBookHold(hasImages);
     return true;
   }
-  var list = collectedBookQuestionList();
+  var limit = bookSelectionLimit(text);
+  var list = limitBookQuestionList(collectedBookQuestionList(), limit);
+  var lead = limit ? 'Here are the questions to do from the pages already in this chat.' : '';
   if (list.total >= 3) {
-    publishBookChecklist(list, hasImages && !roster ? 'I could not read question numbers on the newest pages. This is every number already in the chat. Send those pages once more if one is missing.' : '');
+    publishBookChecklist(list, hasImages && !roster ? 'I could not read question numbers on the newest pages. This is every number already in the chat. Send those pages once more if one is missing.' : '', lead);
     return true;
   }
-  if (listAsk || hasImages) {
-    publishBookMissing();
-    return true;
-  }
-  return false;
+  publishBookMissing();
+  return true;
 }
 
 async function refillBookQuestionList(reply, request, timeoutMs) {
@@ -22324,7 +22420,7 @@ function asksForInChatQuestions(text) {
 function parseInChatQuestionRequest(message) {
   var text = String(message || '').trim();
   if (!text || text.length > 600) return null;
-  if (isSelectedQuestionListRequest(text) || studentWillSendMorePages(text) || (bookPageThreadActive() && asksForExistingQuestionList(text))) return null;
+  if (isSelectedQuestionListRequest(text) || studentWillSendMorePages(text) || refusesGeneratedQuestions(text) || wantsBookQuestionSelection(text)) return null;
   if (/\b(?:how (?:do|should|can) i|explain how|what(?:'s| is) the (?:approach|strategy)|advice|guidance|diagnos(?:e|is))\b/i.test(text) &&
       !/\b(?:give|generate|write|create)\b[\s\S]{0,40}\bquestions?\b/i.test(text)) return null;
   if (/\b(?:solutions?|answers?|explanations?)\s+(?:to|for|of)\b|\b(?:check|review|explain)\s+(?:my|this|these|that)\b/i.test(text)) return null;

@@ -87,6 +87,7 @@ function studyContextOwnsTurn(message) {
 function isSavedQuestionResolutionRequest(message) {
   var text = String(message || '').trim();
   if (!text || isStrategyHabitRequest(text)) return false;
+  if (typeof wantsBookQuestionSelection === 'function' && wantsBookQuestionSelection(text)) return false;
   if (studyContextOwnsTurn(text)) return false;
   if (typeof isBareQuestionReference === 'function' && isBareQuestionReference(text)) return true;
   if (/^(?:please\s+)?(?:solve|explain|answer|check)\s+(?:this|that)(?:\s+question)?[?.!\s]*$/i.test(text)) return true;
@@ -580,7 +581,7 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
     } else if (imageCandidates.length > 1) {
       var candidateLabels = imageCandidates.slice(0, 4).map(function(image) {
         var firstQuestion = allData.questions.find(function(question) { return question.image_id === image.id; });
-        return firstQuestion ? questionCandidateLabel(firstQuestion) : String(image.detected_topic || 'saved ' + String(image.detected_section || 'question').toUpperCase() + ' page');
+        return firstQuestion ? questionCandidateLabel(firstQuestion) : (String(image.detected_topic || '').trim() || 'a saved page');
       });
       return { blocked:true, reply:'I found multiple saved sources that fit: ' + candidateLabels.join('; ') + '. Which one should I reopen?' };
     }
