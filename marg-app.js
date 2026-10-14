@@ -4476,7 +4476,7 @@ function trimHistoryForGroundedRequest(requestHistory) {
 function getImageAnalysisDirective(attachments) {
   var count = Array.isArray(attachments) ? attachments.length : attachments ? 1 : 0;
   if (!count) return '';
-  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually” or changed answer. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers, do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
+  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually” or changed answer. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers, do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
 }
 
 function isBareQuestionReference(message) {
@@ -18405,7 +18405,7 @@ function describeTurnResponseContract(message, diagnosis) {
   if (isSelectedQuestionListRequest(message)) {
     shape = 'complete';
     budget = 0;
-    task = 'The student asked for the selected questions from the uploaded pages. Name every chosen question number, grouped by topic, in this reply. A range such as Q3-4 stays one item. Do not replace the list with a study order or an introduction. Do not add [OPTIONS].';
+    task = 'The student asked for the selected questions from the uploaded pages. Name every chosen question number, grouped by topic, in this reply. A range such as Q3-4 stays one item. Do not write question stems, options, or new practice questions. Do not replace the list with a study order or an introduction. Do not add [OPTIONS].';
     if (diagnosis) {
       diagnosis.preserveFullReply = true;
       diagnosis.bookQuestionList = true;
@@ -20075,7 +20075,7 @@ function runMentorVoiceTests() {
 }
 window.runMentorVoiceTests = runMentorVoiceTests;
 
-function runSelectedQuestionListTests() {
+async function runSelectedQuestionListTests() {
   var sample = [
     'Q2 (Quadratic Sign & Symmetries*): Perfect test.',
     'Q8 (Multiplicative Functional Equation*): Tests prime factorization.',
@@ -20137,6 +20137,44 @@ function runSelectedQuestionListTests() {
   saveChatMessage = whereSave;
   var rosterList = collectSelectedBookQuestions(roster);
   var firstList = collectSelectedBookQuestions(firstPages);
+  var earlyPages = 'Modulus and graphs\nQ1, Q5, Q30, Q31, Q32\nFunctional equations\nQ8, Q10, Q14';
+  var laterPages = 'Greatest integer function\nQ17, Q44, Q46, Q60';
+  var invented = '1. If f(x) + f(y) = f(x + y), which of the following must be true?\nA. f is linear\nB. f is constant\nC. f is even\nD. f is odd\n\n2. For f(0) = 0, which value fits f(x) = kx?\nA. 0\nB. 1\nC. 2\nD. 4';
+  var mergeHistory = conversationHistory;
+  var mergeAdd = addMessage;
+  var mergeSave = saveChatMessage;
+  var mergeHtml = '';
+  addMessage = function(_role, html) { mergeHtml = String(html || ''); return {}; };
+  saveChatMessage = function() {};
+  conversationHistory = [
+    { role:'user', content:'Here are the first pages. I will upload the rest of the pictures, then give me the complete list.' },
+    { role:'assistant', content:earlyPages },
+    { role:'assistant', content:laterPages }
+  ];
+  var merged = collectedBookQuestionList();
+  var held = await maybeHandleBookQuestionPages("I'll upload the rest of the pictures, then give me the complete list of questions.");
+  var heldHtml = mergeHtml;
+  mergeHtml = '';
+  var full = await maybeHandleBookQuestionPages('Give me the full list');
+  var fullHtml = mergeHtml;
+  var askedQuestions = parseInChatQuestionRequest('give me the questions');
+  var stillGenerated = parseInChatQuestionRequest('give me 2 QA percentages questions');
+  conversationHistory = [
+    { role:'user', content:'Now these are the rest of the pictures. Give me the full list.' },
+    { role:'assistant', content:earlyPages }
+  ];
+  var previousFetch = fetchWithTimeout;
+  fetchWithTimeout = function() {
+    return Promise.resolve({ json:function() { return Promise.resolve({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:laterPages + '.' }] } }] }); } });
+  };
+  mergeHtml = '';
+  var withImages = await maybeHandleBookQuestionPages('Now these are the rest of the pictures. Give me the full list.', [{ data:'abc', mimeType:'image/jpeg', name:'page.jpg' }]);
+  var imageHtml = mergeHtml;
+  fetchWithTimeout = previousFetch;
+  conversationHistory = mergeHistory;
+  addMessage = mergeAdd;
+  saveChatMessage = mergeSave;
+  var pagesAreHere = studentWillSendMorePages('Now these are the rest of the pictures. Give me the full list.') === false;
   return [
     { name:'a request for the existing list is not a new question drop', passed:notGenerated && !!stillQa && stillQa.topic === 'Percentages' && stillQa.count === 2 },
     { name:'the selection keeps the specific title and the priority set', passed:!!q8 && q8.title === 'Multiplicative Functional Equation' && q8.priority === true && list.items.some(function(item) { return item.id === '96-98' && item.title === 'Floor Function Fraction Equality'; }) && list.items.some(function(item) { return item.id === '113' && item.priority === true && item.title.indexOf('f(1/x)') !== -1; }) && list.items.some(function(item) { return item.id === '2' && item.priority !== true; }) },
@@ -20145,7 +20183,9 @@ function runSelectedQuestionListTests() {
     { name:'a numbered roster becomes the checklist without choice buttons', passed:card.indexOf('marg-qlist') !== -1 && card.indexOf('marg-choice') === -1 && card.indexOf('Choose one') === -1 && card.indexOf('Q8. Functional equations') !== -1 && card.indexOf('Q17. Greatest integer function') !== -1 && card.indexOf('Functional equations and symmetries') < card.indexOf('Modulus, graphs and area') && card.indexOf('Modulus, graphs and area') < card.indexOf('Greatest integer function') && card.indexOf('Greatest integer function') < card.indexOf('Polynomial properties') && card.indexOf('[OPTIONS:') === -1 && rosterList.priorityGroup === 'Functional equations and symmetries' && rosterList.items.some(function(item) { return item.id === '96'; }) && !rosterList.items.some(function(item) { return item.id === '1-115' || item.id === '115'; }) },
     { name:'page bullets keep ranges as one row', passed:firstCard.indexOf('marg-qlist') !== -1 && firstList.items.some(function(item) { return item.id === '3-4'; }) && firstList.items.some(function(item) { return item.id === '19-20'; }) && firstList.items.some(function(item) { return item.id === '61'; }) },
     { name:'where is the list rebuilds the checklist', passed:whereServed === true && whereHtml.indexOf('marg-qlist') !== -1 && whereHtml.indexOf('Q32. Modulus, graphs') !== -1 && parseInChatQuestionRequest('Where is the list?') === null },
-    { name:'a full list request is not cut down to an introduction', passed:!!finalAsk.diagnosis.bookQuestionList && finalAsk.diagnosis.preserveFullReply === true && finalAsk.diagnosis.responseShape === 'complete' && finalAsk.directive.indexOf('Do not add [OPTIONS]') !== -1 && getMentorResponseMaxTokens(finalAsk.diagnosis) === 8192 && !plainAsk.diagnosis.bookQuestionList && keptList.indexOf('Q105') !== -1 }
+    { name:'a full list request is not cut down to an introduction', passed:!!finalAsk.diagnosis.bookQuestionList && finalAsk.diagnosis.preserveFullReply === true && finalAsk.diagnosis.responseShape === 'complete' && finalAsk.directive.indexOf('Do not add [OPTIONS]') !== -1 && finalAsk.directive.indexOf('Do not write question stems') !== -1 && getMentorResponseMaxTokens(finalAsk.diagnosis) === 8192 && !plainAsk.diagnosis.bookQuestionList && keptList.indexOf('Q105') !== -1 },
+    { name:'pages still coming wait, and a later full list merges every page', passed:studentWillSendMorePages("I'll upload the rest of the pictures, then give me the complete list of questions.") === true && studentWillSendMorePages("I'll maybe send more pages later") === true && pagesAreHere && held === true && heldHtml.indexOf('marg-qlist') === -1 && heldHtml.indexOf('rest of the pages') !== -1 && merged.items.some(function(item) { return item.id === '8'; }) && merged.items.some(function(item) { return item.id === '17'; }) && full === true && fullHtml.indexOf('marg-qlist') !== -1 && fullHtml.indexOf('Q8') !== -1 && fullHtml.indexOf('Q17') !== -1 && fullHtml.indexOf('study-option') === -1 && askedQuestions === null && !!stillGenerated && stillGenerated.count === 2 && looksLikeGeneratedPracticeQuestion(invented) === true && looksLikeBookQuestionSelection(invented) === false },
+    { name:'the rest of the pages join the earlier numbers instead of new questions', passed:withImages === true && imageHtml.indexOf('marg-qlist') !== -1 && imageHtml.indexOf('Q1') !== -1 && imageHtml.indexOf('Q17') !== -1 && imageHtml.indexOf('study-option') === -1 && imageHtml.indexOf('A. f is linear') === -1 }
   ];
 }
 window.runSelectedQuestionListTests = runSelectedQuestionListTests;
@@ -21945,9 +21985,101 @@ function looksLikeBookQuestionSelection(text) {
   var value = String(text || '');
   if (/(?:^|\n)\s*(?:PASSAGE|Answer:|Explanation:)\b/.test(value)) return false;
   if (/(?:^|\n)\s*[A-D][.)]\s+\S/.test(value) && /\b(?:option|correct)\b/i.test(value)) return false;
+  if ((value.match(/(?:^|\n)\s*[A-D][.)]\s+\S/g) || []).length >= 3) return false;
   return value.split('\n').some(function(line) { return (line.match(/Q\s*\d{1,3}/gi) || []).length >= 3; }) ||
     (value.match(/Q\s*\d{1,3}[^\n]{0,16}\(/g) || []).length >= 3 ||
     list.items.some(function(item) { return item.group; });
+}
+
+function asksToInventQuestions(text) {
+  var value = String(text || '');
+  if (/\b(?:generate|create|write|invent|original|new questions?)\b/i.test(value)) return true;
+  return /\b\d{1,2}\s+(?:qa|dilr|varc|va|rc|percentages?|algebra|geometry|questions?|parajumbles?)\b/i.test(value) && !/\blist\b/i.test(value);
+}
+
+function studentWillSendMorePages(text) {
+  var value = String(text || '');
+  if (/\b(?:here(?:'s| is| are)|these are|this is|now these|now this|i(?:'ve| have) (?:uploaded|sent|shared|attached))\b/i.test(value)) return false;
+  if (/\b(?:now|here)\b[\s\S]{0,24}\b(?:rest|remaining)\b/i.test(value)) return false;
+  var willSend = /\b(?:i(?:'ll| will)|i am going to|i'm going to|let me|gonna|going to)\s+(?:upload|send|share|add)\b/i.test(value) ||
+    /\b(?:maybe|also|then)\s+(?:i(?:'ll| will)\s+)?(?:upload|send|share)\b/i.test(value) ||
+    /\b(?:wait|hold on|hold)\b[\s\S]{0,30}\b(?:until|till|for the rest|for more)\b/i.test(value);
+  var laterPages = /\b(?:rest|remaining|more|other|next)\b[\s\S]{0,40}\b(?:pictur|photo|image|page)/i.test(value) ||
+    /\b(?:more|rest|remaining|other)\s+(?:pictur|photo|image|page)/i.test(value) ||
+    /\bpages?\s+later\b/i.test(value);
+  return willSend && laterPages;
+}
+
+function mentionsPhotographedBookPages(text) {
+  var value = String(text || '');
+  var pages = /\b(?:pages|pictures|photos|images|screenshots|arun sharma|lod\s*\d)\b/i.test(value) ||
+    /\b(?:these|those|first|next|rest|more|remaining)\s+pages?\b/i.test(value);
+  var selection = /\b(?:list|selection|select|pick|choose|question numbers|which questions|high[- ]yield)\b/i.test(value) ||
+    /\bquestions\b/i.test(value);
+  return pages && selection;
+}
+
+function bookPageThreadActive() {
+  if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return false;
+  var recent = conversationHistory.slice(-8);
+  var blob = recent.map(function(item) { return item && item.content || ''; }).join('\n');
+  var userBlob = recent.filter(function(item) { return item && item.role === 'user'; }).map(function(item) { return item.content || ''; }).join('\n');
+  var askedPages = /\b(?:pictur|photo|image|page|arun sharma|lod\s*\d)\b/i.test(userBlob) && /\b(?:list|questions|select|selection)\b/i.test(userBlob);
+  return askedPages || looksLikeBookQuestionSelection(blob) || (blob.match(/Q\s*\d{1,3}/gi) || []).length >= 3;
+}
+
+function asksForExistingQuestionList(text) {
+  var value = String(text || '');
+  if (asksToInventQuestions(value)) return false;
+  return isSelectedQuestionListRequest(value) ||
+    /\b(?:give|show|send)\s+me\b[\s\S]{0,48}\b(?:the |all |every )?(?:questions|list)\b/i.test(value) ||
+    /\b(?:all|every)\s+(?:of\s+)?(?:the\s+)?questions\b/i.test(value);
+}
+
+function looksLikeGeneratedPracticeQuestion(text) {
+  return ((String(text || '').match(/(?:^|\n)\s*[A-D][.)]\s+\S/g) || []).length >= 3);
+}
+
+function mergeBookQuestionLists(lists) {
+  var byId = {};
+  var seen = 0;
+  var priorityGroup = '';
+  (lists || []).forEach(function(list) {
+    if (list && list.priorityGroup) priorityGroup = list.priorityGroup;
+    (list && list.items || []).forEach(function(item) {
+      if (!item || !item.id) return;
+      var existing = byId[item.id];
+      if (!existing) {
+        byId[item.id] = { id:item.id, label:item.label, title:item.title || '', group:item.group || '', priority:!!item.priority, specific:!!item.specific, order:item.order, priorityOrder:item.priorityOrder == null ? 999 : item.priorityOrder, seen:seen++ };
+        return;
+      }
+      if ((item.title || '').length > (existing.title || '').length) existing.title = item.title;
+      if (item.group && !existing.group) existing.group = item.group;
+      if (item.priority) existing.priority = true;
+    });
+  });
+  var items = Object.keys(byId).map(function(id) { return byId[id]; });
+  return { items:items, total:items.length, priorityGroup:priorityGroup };
+}
+
+function assistantBookRosterTexts() {
+  if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return [];
+  return conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; }).filter(function(text) {
+    if (!text || looksLikeGeneratedPracticeQuestion(text)) return false;
+    return collectSelectedBookQuestions(text).total > 0;
+  });
+}
+
+function bookRosterWasCutOff() {
+  return assistantBookRosterTexts().some(function(text) {
+    return /could not finish the rest of this answer/i.test(text);
+  });
+}
+
+function collectedBookQuestionList(extraText) {
+  var lists = assistantBookRosterTexts().map(collectSelectedBookQuestions);
+  if (extraText && !looksLikeGeneratedPracticeQuestion(extraText)) lists.push(collectSelectedBookQuestions(extraText));
+  return mergeBookQuestionLists(lists);
 }
 
 function selectedQuestionListPlain(list) {
@@ -22051,23 +22183,101 @@ function bindSelectedQuestionList(root) {
 }
 
 function selectedQuestionSourceText() {
+  var rosters = assistantBookRosterTexts();
+  if (rosters.length) return rosters.join('\n\n');
   if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return '';
-  var messages = conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; });
-  for (var i = messages.length - 1; i >= 0; i--) {
-    if (looksLikeBookQuestionSelection(messages[i])) return messages[i];
-  }
-  return messages.join('\n');
+  return conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; }).join('\n');
+}
+
+function rememberBookAssistantText(text) {
+  var value = String(text || '').trim();
+  if (!value) return;
+  conversationHistory.push({ role:'assistant', content:value });
+  if (typeof isGuestMode !== 'undefined' && !isGuestMode && typeof saveChatMessage === 'function') saveChatMessage('assistant', value);
+}
+
+function publishBookChecklist(list, extraNote) {
+  var note = bookRosterWasCutOff() ? 'The last read stopped before the page finished. This is every number already in the chat. Send the page that was cut off if one is missing.' : String(extraNote || '');
+  var html = (note ? '<div class="mentor-paragraph">' + escapeChatHtml(note) + '</div>' : '') + renderSelectedQuestionList(list);
+  addMessage('marg', html, true);
+  rememberBookAssistantText(selectedQuestionListPlain(list));
+}
+
+function publishBookHold(hasImages) {
+  var line = hasImages
+    ? 'These pages are in. Send the rest and I’ll put every question number into one list.'
+    : 'I’ll wait for the rest of the pages. Send them when they’re ready and I’ll put every question number into one list.';
+  addMessage('marg', escapeChatHtml(line), true);
+  rememberBookAssistantText(line);
+}
+
+function publishBookMissing() {
+  var line = 'I won’t write new questions in place of that list. Send the pages that are still missing and I’ll put every number in one list.';
+  addMessage('marg', escapeChatHtml(line), true);
+  rememberBookAssistantText(line);
 }
 
 function maybeServeSelectedQuestionList(message) {
-  if (!isSelectedQuestionListRequest(message)) return false;
-  var list = collectSelectedBookQuestions(selectedQuestionSourceText());
+  if (!isSelectedQuestionListRequest(message) && !(bookPageThreadActive() && asksForExistingQuestionList(message))) return false;
+  if (studentWillSendMorePages(message)) return false;
+  var list = collectedBookQuestionList();
   if (!list.total || list.total < 3) return false;
-  var plain = selectedQuestionListPlain(list);
-  addMessage('marg', renderSelectedQuestionList(list), true);
-  conversationHistory.push({ role:'assistant', content:plain });
-  if (typeof isGuestMode !== 'undefined' && !isGuestMode && typeof saveChatMessage === 'function') saveChatMessage('assistant', plain);
+  publishBookChecklist(list);
   return true;
+}
+
+async function requestCompactBookRoster(message, images) {
+  var ready = (images || []).filter(function(item) { return item && item.data; });
+  if (!ready.length || typeof fetchWithTimeout !== 'function' || typeof WORKER_URL === 'undefined' || typeof buildGeminiRequest !== 'function') return '';
+  var known = selectedQuestionListPlain(collectedBookQuestionList());
+  var instruction = 'Read every attached page. Reply with only the question numbers that are visible. One topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not write the question stem, the options, a solution, or an introduction. Do not stop in the middle of a page. End the reply with a period.';
+  if (/\bQ\s*\d/i.test(known)) instruction += '\n\nNumbers already recorded from earlier pages are below. Repeat those numbers, then add the numbers on these pages, so this reply is the full list.\n' + known;
+  var parts = ready.map(function(item) {
+    return { inlineData:{ mimeType:item.mimeType || 'image/jpeg', data:item.data } };
+  });
+  parts.push({ text:instruction + '\n\nStudent message: ' + String(message || '') });
+  var request = buildGeminiRequest('You extract CAT book question numbers from photographed pages. Return only the numbered list.', [{ role:'user', parts:parts }], 8192);
+  if (request.generationConfig) request.generationConfig.thinkingConfig = { thinkingLevel:'minimal' };
+  try {
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(request) }, 90000);
+    var data = await response.json();
+    var text = await resolveStudyReply(data, request, 90000, {});
+    var raw = String(text || '');
+    var cutOff = /could not finish the rest of this answer/i.test(raw);
+    text = raw.replace(/\n*I could not finish the rest of this answer[\s\S]*$/i, '').trim();
+    if (!text || looksLikeGeneratedPracticeQuestion(text)) return '';
+    if (cutOff) text += '\nI could not finish the rest of this answer.';
+    return text;
+  } catch (error) {
+    return '';
+  }
+}
+
+async function maybeHandleBookQuestionPages(message, images) {
+  var text = String(message || '');
+  var ready = (images || []).filter(function(item) { return item && item.data; });
+  var hasImages = ready.length > 0;
+  var listAsk = isSelectedQuestionListRequest(text) || (bookPageThreadActive() && asksForExistingQuestionList(text));
+  var holding = studentWillSendMorePages(text);
+  var paging = hasImages && mentionsPhotographedBookPages(text);
+  if (asksToInventQuestions(text) && !isSelectedQuestionListRequest(text)) return false;
+  if (!listAsk && !holding && !paging) return false;
+  var roster = hasImages ? await requestCompactBookRoster(text, ready) : '';
+  if (roster) rememberBookAssistantText(roster);
+  if (holding) {
+    publishBookHold(hasImages);
+    return true;
+  }
+  var list = collectedBookQuestionList();
+  if (list.total >= 3) {
+    publishBookChecklist(list, hasImages && !roster ? 'I could not read question numbers on the newest pages. This is every number already in the chat. Send those pages once more if one is missing.' : '');
+    return true;
+  }
+  if (listAsk || hasImages) {
+    publishBookMissing();
+    return true;
+  }
+  return false;
 }
 
 async function refillBookQuestionList(reply, request, timeoutMs) {
@@ -22114,7 +22324,7 @@ function asksForInChatQuestions(text) {
 function parseInChatQuestionRequest(message) {
   var text = String(message || '').trim();
   if (!text || text.length > 600) return null;
-  if (isSelectedQuestionListRequest(text)) return null;
+  if (isSelectedQuestionListRequest(text) || studentWillSendMorePages(text) || (bookPageThreadActive() && asksForExistingQuestionList(text))) return null;
   if (/\b(?:how (?:do|should|can) i|explain how|what(?:'s| is) the (?:approach|strategy)|advice|guidance|diagnos(?:e|is))\b/i.test(text) &&
       !/\b(?:give|generate|write|create)\b[\s\S]{0,40}\bquestions?\b/i.test(text)) return null;
   if (/\b(?:solutions?|answers?|explanations?)\s+(?:to|for|of)\b|\b(?:check|review|explain)\s+(?:my|this|these|that)\b/i.test(text)) return null;
@@ -23075,6 +23285,11 @@ async function sendMessage(fromQueue, submissionOptions) {
   }
 
   if (!effectiveHasImages && !studyOwned && maybeCompleteVerifiedAnswerReview(text)) {
+    if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
+    return;
+  }
+
+  if (!studyOwned && await maybeHandleBookQuestionPages(text, effectiveImageAttachments)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
