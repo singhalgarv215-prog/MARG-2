@@ -1609,17 +1609,65 @@ function evaluateDeterministicArithmetic(expression) {
   return stack.length === 1 && Number.isFinite(stack[0]) ? stack[0] : null;
 }
 
+function formatDeterministicNumber(value) {
+  if (!Number.isFinite(value)) return '';
+  if (Math.abs(value - Math.round(value)) < 1e-8) return String(Math.round(value));
+  return String(Number(value.toFixed(6)));
+}
+
+function deterministicExpressionValue(part) {
+  var text = String(part || '').trim();
+  var percent = text.match(/^(\d+(?:\.\d+)?)\s*%$/);
+  if (percent) return Number(percent[1]) / 100;
+  try { return evaluateDeterministicArithmetic(text); } catch (error) { return null; }
+}
+
+function repairPercentFractionClaims(text) {
+  return String(text || '').replace(/(\d+(?:\.\d+)?)\s*%\s*=\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/g, function(match, pct, numerator, denominator) {
+    var percent = Number(pct);
+    var fraction = Number(numerator) / Number(denominator);
+    if (!Number.isFinite(percent) || !Number.isFinite(fraction)) return match;
+    if (Math.abs(percent / 100 - fraction) <= 0.004) return match;
+    var unit = 100 / Number(denominator);
+    if (Number.isFinite(unit) && Math.abs(percent - unit) <= 0.06) return pct + '% = 1/' + denominator;
+    for (var n = 2; n <= 20; n++) {
+      if (Math.abs(percent - (100 / n)) <= 0.06) return pct + '% = 1/' + n;
+    }
+    return pct + '% = ' + pct + '/100';
+  });
+}
+
+function repairInconsistentEqualityChains(text) {
+  var operand = '(?:\\([^()]+\\)|\\d+(?:\\.\\d+)?)';
+  var expression = operand + '(?:\\s*[×÷+\\-−–—*/^]\\s*' + operand + ')+';
+  var chainPattern = new RegExp(expression + '(?:\\s*=\\s*' + expression + ')*(?:\\s*=\\s*' + operand + ')+', 'g');
+  return String(text || '').split('\n').map(function(line) {
+    if (line.indexOf('\u0000') !== -1) return line;
+    return line.replace(chainPattern, function(chain) {
+      var parts = chain.split(/\s*=\s*/).map(function(part) { return part.trim(); }).filter(Boolean);
+      if (parts.length < 2) return chain;
+      var values = parts.map(deterministicExpressionValue);
+      if (values.some(function(value) { return value === null || !Number.isFinite(value); })) return chain;
+      var tolerance = Math.max(0.002, Math.abs(values[0]) * 0.01);
+      var consistent = values.every(function(value) { return Math.abs(value - values[0]) <= tolerance; });
+      if (consistent) return chain;
+      return parts[0] + ' = ' + formatDeterministicNumber(values[0]);
+    });
+  }).join('\n');
+}
+
 function guardDeterministicArithmeticEqualities(text) {
   var value = String(text || '');
-  // Repair expanded score chains as one unit. Validating only the final net
-  // allowed "(8 × 3) − (2 × 1) = 22 − 2 = 22" to survive because the leftmost
-  // expression itself equals 22. The displayed intermediate products must
-  // also be recomputed.
+  // Repair expanded score chains as one unit before the general chain pass.
+  // Validating only the final net allowed "(8 × 3) − (2 × 1) = 22 − 2 = 22"
+  // to survive because the leftmost expression itself equals 22. The displayed
+  // intermediate products must also be recomputed.
   value = value.replace(/\(\s*(-?\d+(?:\.\d+)?)\s*[×*]\s*(-?\d+(?:\.\d+)?)\s*\)\s*([-+−])\s*\(\s*(-?\d+(?:\.\d+)?)\s*[×*]\s*(-?\d+(?:\.\d+)?)\s*\)\s*=\s*-?\d+(?:\.\d+)?\s*([-+−])\s*-?\d+(?:\.\d+)?\s*=\s*-?\d+(?:\.\d+)?/g, function(_match, a, b, firstOperator, c, d) {
     var first = Number(a) * Number(b), second = Number(c) * Number(d);
     var net = firstOperator === '+' ? first + second : first - second;
     return '\u0000(' + a + ' × ' + b + ') ' + firstOperator.replace('−', '-') + ' (' + c + ' × ' + d + ') = ' + first + ' ' + firstOperator.replace('−', '-') + ' ' + second + ' = ' + net;
   });
+  value = repairInconsistentEqualityChains(repairPercentFractionClaims(value));
   // Recompute only self-contained numeric equalities. Algebraic equations are
   // left alone; they need symbolic reasoning rather than a brittle parser.
   var equalityPattern = /(^|\n|[:;=]\s*)([₹\s\d,.()+\-−–—×·÷*/^√%]+)=\s*((?:₹|Rs\.?\s*)?-?[\d,]+(?:\.\d+)?)/gim;
@@ -1628,7 +1676,8 @@ function guardDeterministicArithmeticEqualities(text) {
     // second local rewrite would compare the total expression with the first
     // displayed product and corrupt a now-valid chain.
     if (line.indexOf('\u0000') !== -1) return line.replace(/\u0000/g, '');
-    return line.replace(equalityPattern, function(match, boundary, expression, shown) {
+    return line.replace(equalityPattern, function(match, boundary, expression, shown, offset, source) {
+    if (/^\s*[\/×÷*+]/.test(String(source || '').slice(offset + match.length))) return match;
     var computed;
     try { computed = evaluateDeterministicArithmetic(expression); } catch(e) { return match; }
     var shownNumber = Number(String(shown).replace(/(?:₹|Rs\.?)/gi, '').replace(/,/g, '').trim());
@@ -3206,7 +3255,7 @@ Write so a phone can hold it. Put the answer in the first line. Keep paragraphs 
 [[/MARG_MORE]]. The answer itself stays outside that block.
 
 CONVERSATION CLOSE
-Every substantive reply ends the way the TURN CONTRACT names: a resolved bridge, one unresolved question, a no-hint micro-check, or a one-line stop. Build that ending from this turn’s evidence. “Got it” is a self-report, not proof. Never end with “anything else?” or “did that help?”. The next step is [[MARG_NEXT]]{"kind":"...","pattern":"...","line":"...","options":["..."]}[[/MARG_NEXT]] and is not an extra question. Do not repeat the previous ending pattern. If they sound frustrated or tired, ask nothing and help directly. If they want to stop, one line on what we check next time, and no new question.
+Every substantive reply ends the way the TURN CONTRACT names: a resolved bridge, one unresolved question, a no-hint micro-check, or a one-line stop. Build that ending from this turn’s evidence. “Got it” is a self-report, not proof. Never end with “anything else?” or “did that help?”. The next step is [[MARG_NEXT]]{"kind":"...","pattern":"...","line":"...","options":["..."]}[[/MARG_NEXT]] and is not an extra question. Do not repeat the previous ending pattern. If they sound frustrated or tired, ask nothing and help directly. If they want to stop, acknowledge that in one line. Do not ask a question, invent a topic from their words, or schedule a new task.
 
 CONTENT-HELP CONTRACT
 Keep solutions separate from diagnosis. When asked for an answer, solution or explanation, identify the question, state the answer and show one clean derivation. Unless answer-only was requested, add the useful CAT shortcut/trap; for an MCQ, explain why each wrong option fails. Never withhold a solution to force coaching. Behavioural claims remain evidence-bound.
@@ -16333,6 +16382,7 @@ function addMentorLeadMessage(text) {
   addMessage('marg', renderMentorStructuredText(guardedText), true);
   conversationHistory.push({ role:'assistant', content:guardedText });
   if (!isGuestMode) saveChatMessage('assistant', guardedText);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
   return true;
 }
 
@@ -17881,6 +17931,8 @@ function detectMentorIntent(message) {
   if (/\b(mocks?|mock tests?|percentile|scorecard)\b/.test(text)) return 'mock_diagnosis';
   if (/\baccuracy\b|\bperc\s*accuracy\b/.test(text) && /\b(?:mock|sectional|score|qa|quant|varc|dilr)\b/.test(recentContext)) return 'mock_diagnosis';
   if (/\b(?:analy[sz]e|check|review)\b.{0,30}\b(?:image|screenshot|scorecard)\b/.test(text) && /\b(?:mock|sectional|score|percentile)\b/.test(recentContext)) return 'mock_diagnosis';
+  if (/\b(?:table|compare|comparison)\b/.test(text) && (text.match(/\b(?:varc|dilr|qa)\b/g) || []).length >= 2) return 'general_mentor';
+  if (/\bexact\b/.test(text) && /\bcut-?off\b/.test(text)) return 'general_mentor';
   var requestedSection = typeof detectRequestedCatSection === 'function' ? detectRequestedCatSection(message) :
     (/\b(?:dilr|lrdi|data interpretation|logical reasoning)\b/.test(text) ? 'dilr' :
       /\b(?:varc|reading comprehension|rc|verbal)\b/.test(text) ? 'varc' :
@@ -19152,6 +19204,11 @@ function guardImageResponseGrounding(text, diagnosis) {
   if (diagnosis.hasImage && /When someone (?:can only say|asks for help)|scores are stuck, the plan feels chaotic|confidence has dropped/i.test(value)) {
     return 'You’re pointing to the question in the image, not asking for a general diagnosis. I could not complete the image read safely in this turn; send a closer crop of the full question and options, and I’ll solve that exact one.';
   }
+  if (!diagnosis.hasImage && /\bpages already in this chat\b|\bI (?:found|read|extracted|selected)\b[\s\S]{0,80}\b(?:pages|questions) from\b/i.test(value)) {
+    var rosterCount = 0;
+    try { rosterCount = collectedBookQuestionList().total || 0; } catch (error) { rosterCount = 0; }
+    if (rosterCount < 3) return 'No pages are in this chat, so I have not read or selected a question list. Upload the pages, or name a chapter you can see, and I’ll work from that.';
+  }
   if (diagnosis.priorImageReference) {
     value = value.replace(/\bI can (?:still )?(?:see|read|access) (?:all of )?(?:the|those|your) (?:earlier|previous|uploaded|shared)?\s*(?:pictures?|photos?|images?|pages?)\b/gi,
       'I can use the exact question details already written in this chat');
@@ -19357,7 +19414,8 @@ function explicitResponseConstraint(message) {
   return /\b(?:just the answer|answer only|only the answer|no explanation|don'?t explain)\b/i.test(request) ||
     /\b(?:in|use|give|answer in|keep it to|only)\s+(?:one|two|three|\d+)\s+sentences?\b/i.test(request) ||
     /\b(?:no more than|at most|within|under|in)\s+\d{1,3}\s+words?\b/i.test(request) ||
-    /\b(?:in|as|use|give|answer in)\s+(?:one|a single|1)\s+line\b/i.test(request);
+    /\b(?:in|as|use|give|answer in)\s+(?:one|a single|1)\s+line\b/i.test(request) ||
+    /\b(?:just the number|number only|one line of working|no question back)\b/i.test(request);
 }
 
 function studentWantsToStopTurn(message) {
@@ -19377,11 +19435,15 @@ function closeTopicLabel(message, diagnosis) {
   if (wantsBookQuestionSelection(text)) return 'the question list';
   var named = text.match(/\b(?:functional equations?|percentages?|parajumbles?|modulus|inequalit\w*|seating|ratios?|probability|algebra|geometry|time and work)\b/i);
   if (named) return named[0].toLowerCase();
-  if (diagnosis && diagnosis.requestedSection) return String(diagnosis.requestedSection).toUpperCase();
-  if (typeof studentProfile !== 'undefined' && studentProfile && studentProfile.lastTask) return String(studentProfile.lastTask).replace(/\s+/g, ' ').trim().slice(0, 80);
-  var cleaned = text.replace(/\b(?:don'?t|do not|not|asking|ask|want|wanted|give|questions?|selected|list|from|these|those|images?|pictures?|pages?|uploaded|upload|rest|only|bro|bhai)\b/gi, ' ');
-  var words = cleaned.replace(/[^a-z0-9\s]/gi, ' ').split(/\s+/).filter(function(word) { return word.length > 3; }).slice(0, 4);
-  return words.join(' ') || 'this';
+  var section = diagnosis && diagnosis.requestedSection ? String(diagnosis.requestedSection) : '';
+  if (/^(?:varc|dilr|qa|rc|va)$/i.test(section)) return section.toUpperCase();
+  return '';
+}
+
+function directInformationRequest(message) {
+  var text = String(message || '');
+  if (/\b(?:give|generate|write|create|send)\s+me\b[\s\S]{0,40}\b(?:questions?|passage|parajumbles?)\b/i.test(text)) return false;
+  return /\b(?:what(?:'s| is)|calculate|solve|explain|show the (?:working|arithmetic|steps)|just the (?:number|answer)|cut-?off|score|marking|daily plan|study plan|timetable|compare|table|percent of|no question back|one line of working)\b/i.test(text);
 }
 
 function openPlanLabel() {
@@ -19437,6 +19499,7 @@ function studentShowedAttempt(message, diagnosis) {
 }
 
 function directHelpClose(topic, previous) {
+  if (!topic) return { kind:'none', pattern:'', line:'', options:[] };
   var pattern = previous === 'worked_example' ? 'real_question' : previous === 'real_question' ? 'different_approach' : 'worked_example';
   if (pattern === 'worked_example') {
     return { kind:'unresolved', pattern:pattern, line:'Here is the move on ' + topic + '. Next we test it on a real question.', options:['Show the worked example', 'Send a real question'] };
@@ -19448,6 +19511,7 @@ function directHelpClose(topic, previous) {
 }
 
 function bridgeClose(topic, plan, patternLabel, previous) {
+  if (!topic) return { kind:'none', pattern:'', line:'', options:[] };
   var available = [
     plan ? 'plan_next' : '',
     patternLabel ? 'pattern_link' : '',
@@ -19478,12 +19542,15 @@ function decideConversationClose(message, diagnosis, budget) {
   var questionBudget = budget === 0 || budget === 1 ? budget : diagnosis.questionBudget;
   var frustrated = diagnosis.emotionalState === 'frustrated' || diagnosis.emotionalState === 'drained' || diagnosis.emotionalState === 'anxious' || diagnosis.emotionalState === 'low-confidence';
   if (studentWantsToStopTurn(text) || (diagnosis.emotionalState === 'drained' && /\b(?:stop|later|rest|done|bye|tired)\b/i.test(text))) {
-    return { kind:'stop', pattern:'stop_next', line:'We’ll check ' + topic + ' next time.', options:[] };
+    return { kind:'stop', pattern:'stop_next', line:'We’ll leave it here.', options:[] };
   }
+  if (directInformationRequest(text)) return { kind:'none', pattern:'', line:'', options:[] };
   var previous = previousClosePattern();
   var showedWork = studentShowedAttempt(text, diagnosis);
   var selfReport = studentSelfReportClose(text);
   var decision = decideTurnMode(text, diagnosis);
+  if (!topic && (selfReport || showedWork)) topic = 'this';
+  if (!topic) return { kind:'none', pattern:'', line:'', options:[] };
   if (selfReport || (decision.mode === 'continue_flow' && intent === 'task_outcome_report' && !showedWork)) {
     return { kind:'uncertain', pattern:'micro_check', line:'One similar ' + topic + ' question, with no hint, is the check.', options:['Send that question', 'Leave it for tomorrow'] };
   }
@@ -19511,7 +19578,7 @@ function decideConversationClose(message, diagnosis, budget) {
 function conversationCloseInstruction(close) {
   if (!close || close.kind === 'none') return 'Ending: this turn already has its own next step. Do not append a stock menu or “anything else?”.';
   var payload = JSON.stringify({ kind:close.kind, pattern:close.pattern, line:close.line || '', options:(close.options || []).slice(0, 3) });
-  if (close.kind === 'stop') return 'Ending: stop. One line on what we check next time. No question. Use [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]';
+  if (close.kind === 'stop') return 'Ending: stop. One line that leaves the conversation. No question, no new topic, and no scheduled task. Use [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]';
   if (close.kind === 'unresolved' && close.pattern === 'diagnostic') return 'Ending: unresolved. Give the partial help first, then this one question inside [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]. Do not ask anything else.';
   if (close.kind === 'uncertain') return 'Ending: uncertain. Do not ask whether it helped. Verify with this no-hint check: [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]';
   if (close.kind === 'unresolved') return 'Ending: the question budget for this problem is used. Do not ask another question. Offer this next step: [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]';
@@ -20251,7 +20318,7 @@ function runConversationCloseTests() {
     { name:'a resolved attempt ends in a specific bridge with taps', passed:resolved.close.kind === 'resolved' && resolved.guarded.indexOf('[[MARG_NEXT]]') !== -1 && resolved.guarded.indexOf('f(x) = 2x') !== -1 && resolved.guarded.indexOf('anything else') === -1 && resolved.guarded.indexOf('Use this on the next') === -1 && /"options":\[/.test(resolved.guarded) },
     { name:'the same ending pattern is not used twice in a row', passed:!!resolved.close.pattern && !!again.close.pattern && again.close.pattern !== resolved.close.pattern && again.close.kind === 'resolved' },
     { name:'an unresolved explanation asks one narrow question', passed:unresolved.close.kind === 'unresolved' && unresolved.close.pattern === 'diagnostic' && (unresolved.guarded.match(/\?/g) || []).length === 1 && unresolved.guarded.indexOf('The setup') !== -1 },
-    { name:'a goodbye closes in one line without a new question', passed:goodbye.close.kind === 'stop' && goodbye.guarded.indexOf('next time') !== -1 && goodbye.guarded.indexOf('?') === -1 && goodbye.guarded.indexOf('Anything else') === -1 && /"options":\[\]/.test(goodbye.guarded) },
+    { name:'a goodbye closes in one line without a new question', passed:goodbye.close.kind === 'stop' && goodbye.guarded.indexOf('leave it here') !== -1 && goodbye.guarded.indexOf('Please stop') === -1 && goodbye.guarded.indexOf('?') === -1 && goodbye.guarded.indexOf('Anything else') === -1 && /"options":\[\]/.test(goodbye.guarded) },
     { name:'a frustrated student gets direct help and no question', passed:frustrated.close.kind === 'unresolved' && frustrated.close.pattern !== 'diagnostic' && frustrated.guarded.indexOf('?') === -1 && frustrated.guarded.indexOf('Does that help') === -1 && frustrated.guarded.indexOf('[[MARG_NEXT]]') !== -1 },
     { name:'got it is a micro-check, not a resolved proof', passed:gotIt.close.kind === 'uncertain' && gotIt.close.pattern === 'micro_check' && gotIt.guarded.indexOf('no hint') !== -1 },
     { name:'just the answer strips the next step', passed:answerOnly.close.kind === 'none' && answerOnly.guarded.indexOf('MARG_NEXT') === -1 && answerOnly.guarded.indexOf('f(x) = 2x') !== -1 },
@@ -20262,6 +20329,87 @@ function runConversationCloseTests() {
   ];
 }
 window.runConversationCloseTests = runConversationCloseTests;
+
+async function runAuditRepairTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  var score = 'CAT marking is plus 3 for correct and minus 1 for wrong. I got 14 right and 6 wrong. What is my score? Show the arithmetic.';
+  var train = 'Forget RC. A 150 m train crosses a 250 m platform in 20 seconds. What is the speed in km/h? Show the working.';
+  var cutoff = 'What was the exact CAT 2024 slot 1 VARC cutoff for IIM Ahmedabad general category? Give the number only if you actually know it.';
+  var plan = 'Make me a daily plan that starts with 40 RC questions.';
+  var table = 'Compare VARC, DILR and QA in a small table. Then give three numbered steps. (a+b)^2 = a^2 + 2ab + b^2';
+  var percent = 'What is 15 percent of 80? Just the number and one line of working.';
+  var stop = 'Please stop. Do not ask me anything else tonight.';
+  var discouraged = 'I will never clear CAT. Three attempts and I am still at 70 percentile.';
+  var useless = 'This is useless. Every mentor says the same thing.';
+  var sections = 'CAT has five sections, right? Name them.';
+  check('a score request is the score, not a generated question', parseInChatQuestionRequest(score) === null && directCatScoreReply(score) === 'Score = (14 × 3) − (6 × 1) = 36.');
+  check('a train request stays a speed calculation', parseInChatQuestionRequest(train) === null && directTrainPlatformReply(train).indexOf('72 km/h') !== -1);
+  check('an exact cutoff is not invented and not a passage', parseInChatQuestionRequest(cutoff) === null && /won’t give a number/.test(directCutoffLimitReply(cutoff)) && detectMentorIntent(cutoff) !== 'varc_diagnosis');
+  check('a daily plan is not question generation', parseInChatQuestionRequest(plan) === null && detectMentorIntent(plan) === 'planning');
+  check('a three-section table is not question generation', parseInChatQuestionRequest(table) === null && detectMentorIntent(table) === 'general_mentor');
+  check('percent of is computed without a broken chain', directPercentOfReply(percent) === '12\n15% of 80 = (15 ÷ 100) × 80 = 12.' && guardDeterministicArithmeticEqualities('12\n15% of 80 = (15 ÷ 100) × 80 = 12 × 80 = 12.').indexOf('12 × 80') === -1 && guardDeterministicArithmeticEqualities('14.28% = 0.162792/7').indexOf('1/7') !== -1 && guardDeterministicArithmeticEqualities('16.66% = 1/6').indexOf('1/6') !== -1);
+  check('a repeated percentage change is left consistent', guardDeterministicArithmeticEqualities('100 × 1.2 = 120 and 120 × 0.8 = 96.').indexOf('120') !== -1 && guardDeterministicArithmeticEqualities('100 × 1.2 = 120 and 120 × 0.8 = 96.').indexOf('96') !== -1);
+  check('ordinary practice requests still generate', (function() {
+    var qa = parseInChatQuestionRequest('give me 2 QA percentages questions');
+    var va = parseInChatQuestionRequest('can you give me some high quality VA parajumble questions?');
+    return !!qa && qa.count === 2 && qa.topic === 'Percentages' && !!va && va.format === 'parajumble';
+  })());
+  var previousHistory = conversationHistory.slice();
+  conversationHistory = [{ role:'assistant', content:'The main idea is the claim.' }];
+  check('show the working after RC does not generate a passage', parseInChatQuestionRequest(train) === null);
+  conversationHistory = previousHistory;
+  function closed(message, reply) {
+    var analysis = buildDiagnosisDirective(message);
+    analysis.diagnosis.attachConversationClose = true;
+    return applyMentorResponseGuard(reply, analysis.diagnosis);
+  }
+  var stopped = closed(stop, 'Got it. Have a good night. Anything else?');
+  check('stop does not recycle the student words into a next task', stopped.indexOf('leave it here') !== -1 && stopped.indexOf('Please stop') === -1 && stopped.indexOf('?') === -1);
+  check('discouraged and useless turns do not invent a topic', closed(discouraged, 'Three attempts at 70 percentile is a result, not a verdict.').indexOf('will never clear') === -1 && closed(useless, 'Say what felt useless and I’ll answer that.').indexOf('This useless') === -1);
+  check('a section correction is not turned into a similar question', closed(sections, 'CAT has three sections: VARC, DILR and QA. Each gets 40 minutes.').indexOf('five sections right') === -1);
+  var listAdd = addMessage;
+  var listSave = saveChatMessage;
+  var listHistory = conversationHistory.slice();
+  var coldHtml = '';
+  var imageHtml = '';
+  addMessage = function(_role, html) { if (!coldHtml) coldHtml = String(html || ''); else imageHtml = String(html || ''); };
+  saveChatMessage = function() {};
+  conversationHistory = [];
+  var coldList = await maybeHandleBookQuestionPages('Give me the full question list.');
+  var noImages = await maybeHandleBookQuestionPages('Give me the questions from the inequality images I uploaded.');
+  conversationHistory = listHistory;
+  addMessage = listAdd;
+  saveChatMessage = listSave;
+  check('a list with no pages does not invent a checklist', coldList === true && /No pages are in this chat/.test(coldHtml) && coldHtml.indexOf('marg-qlist') === -1 && coldHtml.indexOf('pages already in this chat') === -1);
+  check('missing uploaded images are not treated as read', noImages === true && /No pages from that source/.test(imageHtml) && imageHtml.indexOf('write new questions') !== -1 && imageHtml.indexOf('marg-qlist') === -1);
+  var guestHistory = conversationHistory.slice();
+  var guestMode = isGuestMode;
+  var guestUser = currentUser;
+  var guestGoal = personalGoalMemory;
+  isGuestMode = true;
+  currentUser = null;
+  conversationHistory = [{ role:'user', content:'My name is Aditi and IIM Kozhikode is the goal.' }, { role:'assistant', content:'Got it, Aditi—IIM Kozhikode it is.' }];
+  personalGoalMemory = { kind:'dream_college', target:'IIM Kozhikode' };
+  persistGuestBrowserSession();
+  var snapshot = sessionStorage.getItem(guestSessionStorageKey());
+  conversationHistory = [];
+  personalGoalMemory = null;
+  var restored = restoreGuestTabSession();
+  var remembered = (conversationHistory || []).map(function(item) { return item.content || ''; }).join(' ');
+  clearPreviousGuestSession();
+  var cleared = !sessionStorage.getItem(guestSessionStorageKey()) && restoreGuestTabSession() === false;
+  isGuestMode = guestMode;
+  currentUser = guestUser;
+  conversationHistory = guestHistory;
+  personalGoalMemory = guestGoal;
+  check('a guest reload keeps this tab and a new guest does not', !!snapshot && restored === true && remembered.indexOf('Aditi') !== -1 && remembered.indexOf('Kozhikode') !== -1 && cleared);
+  var stored = null;
+  try { currentTopic = 'science'; articleIndex = 1; currentRCSource = 'aeon'; stored = useStoredVarcPassage('The feed did not return an Aeon essay'); } catch (error) { stored = null; }
+  check('an Aeon failure can use a stored passage without calling it Aeon', !!stored && stored.storedFallback === true && stored.source === 'Stored passage' && /Aeon/i.test(stored.source) === false && !!(stored.storedPack && stored.storedPack.sets && stored.storedPack.sets[0].passage));
+  return results;
+}
+window.runAuditRepairTests = runAuditRepairTests;
 
 var FAILURE_PATTERN_FALLBACK = "actually, let me not assume — what's the last question in this section that you got wrong and remember clearly? walk me through what happened";
 
@@ -21884,6 +22032,7 @@ function isSelectedQuestionListRequest(text) {
   return /\b(?:whole|full|complete|entire|master|final|consolidated|curated)\s+(?:and\s+final\s+)?(?:list|selection)\b/i.test(value) ||
     /\b(?:list|selection)\s+of\s+(?:the\s+)?questions\b/i.test(value) ||
     /\bgive me the (?:whole |full |complete |final )?list\b/i.test(value) ||
+    /\bfull question list\b/i.test(value) ||
     /\bwhere(?:'s| is) the (?:full |complete |final |question )?list\b/i.test(value) ||
     /\b(?:best selected|selected questions|high[- ]yield questions|curated (?:list|questions))\b/i.test(value);
 }
@@ -22301,8 +22450,16 @@ function publishBookHold(hasImages) {
   rememberBookAssistantText(line);
 }
 
-function publishBookMissing() {
-  var line = 'I won’t write new questions in place of that list. Send the pages that are still missing and I’ll put every number in one list.';
+function publishBookMissing(message) {
+  var text = String(message || '');
+  var rosterCount = 0;
+  try { rosterCount = collectedBookQuestionList().total || 0; } catch (error) { rosterCount = 0; }
+  var mentionsSource = /\b(?:upload|images?|pictures?|photos?|pages?|chapter|arun sharma)\b/i.test(text);
+  var line = !rosterCount && !mentionsSource
+    ? 'No pages are in this chat, so I cannot read a question list from them. Upload the pages, or name the chapter you can see, and I’ll work from that.'
+    : !rosterCount
+      ? 'No pages from that source are in this chat, so I won’t write new questions in place of that list. Upload the pages and I’ll put every visible number in one list.'
+      : 'I won’t write new questions in place of that list. Send the pages that are still missing and I’ll put every number in one list.';
   addMessage('marg', escapeChatHtml(line), true);
   rememberBookAssistantText(line);
 }
@@ -22372,7 +22529,7 @@ async function maybeHandleBookQuestionPages(message, images) {
     publishBookChecklist(list, hasImages && !roster ? 'I could not read question numbers on the newest pages. This is every number already in the chat. Send those pages once more if one is missing.' : '', lead);
     return true;
   }
-  publishBookMissing();
+  publishBookMissing(text);
   return true;
 }
 
@@ -22417,6 +22574,14 @@ function asksForInChatQuestions(text) {
     /\b(?:questions?|parajumbles?)\b[\s\S]{0,40}\b(?:here|in (?:the )?chat)\b/i.test(value);
 }
 
+function blocksInChatQuestionGeneration(text) {
+  var value = String(text || '');
+  if (/\b(?:give|send|generate|write|create)\s+me\b[\s\S]{0,70}\b(?:questions?|parajumbles?|para\s*-?\s*jumbles?|passage)\b/i.test(value)) return false;
+  if (/\b(?:practice|practise)\s+(?:questions?|passage)\b/i.test(value)) return false;
+  if (/\b(?:some|a few|high[- ]quality)\b[\s\S]{0,40}\b(?:questions?|parajumbles?|para\s*-?\s*jumbles?)\b/i.test(value)) return false;
+  return /\b(?:what(?:'s| is)|calculate|solve|explain|working|arithmetic|score|marking|cut-?off|daily plan|study plan|timetable|table|compare|just the (?:number|answer)|show the (?:working|arithmetic|steps)|no question back|percent of|km\/h|speed)\b/i.test(value);
+}
+
 function parseInChatQuestionRequest(message) {
   var text = String(message || '').trim();
   if (!text || text.length > 600) return null;
@@ -22429,8 +22594,9 @@ function parseInChatQuestionRequest(message) {
   if (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory)) {
     older = conversationHistory.slice(-6).map(function(item) { return item && item.content || ''; }).join(' ');
   }
+  if (blocksInChatQuestionGeneration(text)) return null;
   var format = inChatQuestionFormat(text) || (!inChatQuestionFormat(text) ? inChatQuestionFormat(older) : '');
-  var asked = asksForInChatQuestions(text) || (!!format && /\b(?:give|show|send|generate|create|write|start|practi[cs]e)\b/i.test(text));
+  var asked = asksForInChatQuestions(text);
   if (!asked) return null;
   if (!format) format = 'qa';
   var countMatch = text.match(/\b(\d{1,2})\s*(?:questions?|parajumbles?|para\s*-?\s*jumbles?)\b/i);
@@ -22810,6 +22976,69 @@ function maybeHandleStopSummary(message) {
   }
   addMentorLeadMessage(point || 'Stay with the specific difficulty we discussed; we haven’t gathered enough evidence to label your overall ability.');
   return true;
+}
+
+function directCatScoreReply(message) {
+  var text = String(message || '');
+  if (!/\b(?:score|marking|marks)\b/i.test(text)) return '';
+  var right = text.match(/\b(\d{1,3})\s+(?:right|correct)\b/i);
+  var wrong = text.match(/\b(\d{1,3})\s+wrong\b/i);
+  var plus = text.match(/(?:\+|plus)\s*(\d+(?:\.\d+)?)/i);
+  var minus = text.match(/(?:-|−|minus)\s*(\d+(?:\.\d+)?)/i);
+  if (!right || !wrong || !plus) return '';
+  var correct = Number(right[1]);
+  var incorrect = Number(wrong[1]);
+  var gain = Number(plus[1]);
+  var penalty = minus ? Number(minus[1]) : 0;
+  var score = correct * gain - incorrect * penalty;
+  return 'Score = (' + correct + ' × ' + gain + ') − (' + incorrect + ' × ' + penalty + ') = ' + score + '.';
+}
+
+function directPercentOfReply(message) {
+  var text = String(message || '');
+  if (/\b(?:questions?|practice|passage)\b/i.test(text)) return '';
+  var match = text.match(/\b(\d+(?:\.\d+)?)\s*(?:%|percent)\s+of\s+(\d+(?:\.\d+)?)\b/i);
+  if (!match) return '';
+  var percent = Number(match[1]);
+  var base = Number(match[2]);
+  if (!Number.isFinite(percent) || !Number.isFinite(base)) return '';
+  var value = percent / 100 * base;
+  var shown = formatDeterministicNumber(value);
+  return shown + '\n' + match[1] + '% of ' + match[2] + ' = (' + match[1] + ' ÷ 100) × ' + match[2] + ' = ' + shown + '.';
+}
+
+function directTrainPlatformReply(message) {
+  var text = String(message || '');
+  var match = text.match(/\b(\d+(?:\.\d+)?)\s*m\s+train\b[\s\S]{0,120}\b(\d+(?:\.\d+)?)\s*m\s+platform\b[\s\S]{0,80}\b(\d+(?:\.\d+)?)\s*seconds?\b/i);
+  if (!match) return '';
+  var train = Number(match[1]);
+  var platform = Number(match[2]);
+  var seconds = Number(match[3]);
+  if (!seconds) return '';
+  var metresPerSecond = (train + platform) / seconds;
+  var kmh = metresPerSecond * 18 / 5;
+  return 'Speed = (' + train + ' + ' + platform + ') ÷ ' + seconds + ' = ' + formatDeterministicNumber(metresPerSecond) + ' m/s = ' + formatDeterministicNumber(kmh) + ' km/h.';
+}
+
+function directCutoffLimitReply(message) {
+  var text = String(message || '');
+  if (!/\bexact\b/i.test(text) || !/\bcut-?off\b/i.test(text)) return '';
+  if (/\b(?:my category|how does my category|profile)\b/i.test(text)) return '';
+  return 'I don’t have a verified official cutoff for that exact slot and category in this chat, so I won’t give a number. Use the institute’s published shortlist note for that year, or paste the figure you saw and I’ll help you read it.';
+}
+
+function finishLocalFactReply(reply) {
+  addMessage('marg', escapeChatHtml(reply).replace(/\n/g, '<br>'), true);
+  conversationHistory.push({ role:'assistant', content:reply });
+  if (!isGuestMode) saveChatMessage('assistant', reply);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+  return true;
+}
+
+function maybeHandleDirectTask(message) {
+  var reply = directCatScoreReply(message) || directPercentOfReply(message) || directTrainPlatformReply(message) || directCutoffLimitReply(message);
+  if (!reply) return false;
+  return finishLocalFactReply(reply);
 }
 
 function maybeHandleCatDurationQuestion(message) {
@@ -23284,6 +23513,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     if (!reuseHomepageUserMessage && !reuseFailedUserMessage) {
       addMessage('user', hasImages ? buildImageUserMessageHtml(typedText, imageAttachments) : escapeChatHtml(text).replace(/\n/g, '<br>'));
       conversationHistory.push({ role: 'user', content: storedUserText });
+      if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
       if(typeof maybeRenameActiveTopicFromMessage==='function')maybeRenameActiveTopicFromMessage(typedText);
       capturePersonalGoalDetails(text);
       captureProgressiveProfileDetails(text);
@@ -23342,7 +23572,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
-  if (!effectiveHasImages && !studyOwned && (maybeHandleStopSummary(text) || maybeHandleCatDurationQuestion(text))) {
+  if (!effectiveHasImages && !studyOwned && (maybeHandleStopSummary(text) || maybeHandleDirectTask(text) || maybeHandleCatDurationQuestion(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -23479,6 +23709,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     if (!mentorAnalysis.diagnosis.replyUnfinished && !mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(text)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
     conversationHistory.push({ role: 'assistant', content: reply });
     if (!isGuestMode) saveChatMessage('assistant', reply);
+    if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
     const formatted = renderGroundingSourcesForChat(renderMentorStructuredText(reply));
     addMessage('marg', formatted);
     lastFailedOutgoingMessage = null;
@@ -24107,21 +24338,30 @@ function updateRCLabCard() {
   var summary = document.getElementById('varc-preview');
   if (summary) summary.textContent = config.focusLabel + ' · ' + config.difficultyLabel + ' · ' + config.topicLabel;
   var sourceBadge = document.getElementById('rc-lab-source-badge');
-  if (sourceBadge) sourceBadge.textContent = currentArticle && /^Aeon/i.test(String(currentArticle.source || ''))
+  if (sourceBadge) sourceBadge.textContent = currentArticle && currentArticle.storedFallback
+    ? 'Stored passage · Aeon feed did not load'
+    : currentArticle && /^Aeon/i.test(String(currentArticle.source || ''))
     ? '📖 Today’s VARC · original RC based on Aeon'
     : '📖 Today’s VARC · Marg Original';
   var titleEl = document.getElementById('varc-title');
   var metaEl = document.getElementById('varc-meta');
-  var aeonEssay = currentArticle && /^Aeon/i.test(String(currentArticle.source || '')) && !currentArticle.unavailable;
+  var aeonEssay = currentArticle && /^Aeon/i.test(String(currentArticle.source || '')) && !currentArticle.unavailable && !currentArticle.storedFallback;
   if (titleEl && currentArticle) {
-    if (currentArticle.unavailable) titleEl.textContent = 'Aeon essay unavailable';
-    else if (aeonEssay) titleEl.textContent = currentArticle.title;
+    if (currentArticle.unavailable) titleEl.textContent = 'Reading practice unavailable';
+    else if (currentArticle.storedFallback || aeonEssay) titleEl.textContent = currentArticle.title;
     else if (currentArticle.bankStyled) titleEl.textContent = 'New ' + currentArticle.title + ' passage';
   }
   if (metaEl && aeonEssay) metaEl.textContent = 'Aeon essay · original CAT passage · the essay is not copied';
   var theme = document.getElementById('rc-lab-theme');
+  var startBtn = document.querySelector('#varc-card .varc-btn-primary');
+  if (startBtn) {
+    var practiceBlocked = !!(currentArticle && currentArticle.unavailable);
+    startBtn.disabled = practiceBlocked;
+    startBtn.textContent = practiceBlocked ? 'Practice unavailable' : (currentArticle && currentArticle.storedFallback ? 'Start stored passage →' : 'Start my RC →');
+  }
   if (theme && currentArticle) {
-    if (currentArticle.unavailable) theme.textContent = 'Aeon did not return an essay for this topic. Try it again, or pick another topic. A stored passage will not be substituted.';
+    if (currentArticle.unavailable) theme.textContent = 'The Aeon feed did not return an essay, and no stored passage is ready. This practice control will not open a hidden passage.';
+    else if (currentArticle.storedFallback) theme.textContent = 'Aeon did not load. This is a stored passage already in Marg, not today’s Aeon essay. Completing it checks the flow; it is not a new independent check of the answer key.';
     else if (aeonEssay) theme.textContent = 'Today’s Aeon essay: ' + currentArticle.title + '. Marg writes an original passage from the essay. The essay is not copied into the question.';
     else if (currentArticle.bankStyled) theme.textContent = 'A new passage in the style of CAT RC questions, for ' + currentArticle.title + '.';
     else theme.textContent = 'Today’s theme: ' + currentArticle.title + '.';
@@ -24207,7 +24447,7 @@ async function loadAeonEssayForCurrentTopic(offset) {
     currentArticle = article;
   } catch (error) {
     console.warn('Aeon essay unavailable for ' + feedTopic + ':', error && error.message || error);
-    markAeonEssayUnavailable();
+    useStoredVarcPassage(error && error.message || 'The feed did not return an Aeon essay');
   }
   return currentArticle;
 }
@@ -24347,18 +24587,72 @@ async function getGroundedArticleSourceBrief(article, timeoutMs) {
   }
 }
 
+function useStoredVarcPassage(reason) {
+  var pack = null;
+  try {
+    pack = getVerifiedArticleRCFallback(String(currentTopic || 'surprise') + '|' + String(articleIndex || 0));
+  } catch (error) { pack = null; }
+  var setObj = pack && pack.sets && pack.sets[0];
+  if (!setObj || !String(setObj.passage || '').trim() || !(setObj.questions || []).length) {
+    markAeonEssayUnavailable();
+    return currentArticle;
+  }
+  currentArticle = {
+    title:setObj.topic || 'Stored reading passage',
+    source:'Stored passage',
+    preview:String(setObj.passage || '').replace(/\s+/g, ' ').trim().slice(0, 220),
+    content:setObj.passage,
+    url:'',
+    unavailable:false,
+    storedFallback:true,
+    storedPack:pack,
+    fallbackReason:reason || 'The Aeon feed did not return an essay'
+  };
+  return currentArticle;
+}
+
+function serveStoredArticlePassage() {
+  var pack = currentArticle && currentArticle.storedPack;
+  if (!pack) return false;
+  var safe = JSON.parse(JSON.stringify(pack));
+  var reply = formatStructuredArticleRC(safe);
+  if (!reply) return false;
+  closeVarcCard();
+  var deliveredConfig = Object.assign({}, getRCLabConfiguration(), { storedFallback:true, fallback:false, focusLabel:'Stored passage' });
+  storeActiveGeneratedExercise({
+    type:'rc',
+    source:'stored-varc-fallback',
+    title:currentArticle.title || 'Stored reading passage',
+    purpose:'Stored reading passage because the Aeon feed did not load. This is not a new educational verification.',
+    validationVerdict:{ status:'stored_pack', verification:{ mode:'stored-passage', provesKey:false, educationallyVerified:false } },
+    content:{
+      exerciseText:reply,
+      answerKey:buildArticleRCAnswerMemory(safe),
+      structuredData:safe,
+      article:{ title:currentArticle.title || 'Stored reading passage', source:'Stored passage', url:'' },
+      rcLab:deliveredConfig
+    }
+  });
+  addArticleRCAttemptMessage(activeGeneratedExercise);
+  conversationHistory.push({ role:'assistant', content:reply });
+  if (!isGuestMode) saveChatMessage('assistant', reply);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+  return true;
+}
+
 async function createRCPassage() {
   if (articleRCGenerating) return;
-  if (currentArticle && currentArticle.unavailable) {
-    addMessage('marg', 'I could not load an Aeon essay for this topic, so I will not substitute a stored passage. Try the topic again or pick another one.', true);
-    return;
-  }
   if (!currentArticle) {
     if (currentRCSource === 'aeon') await loadAeonEssayForCurrentTopic(articleIndex || 0);
     else currentArticle = bankStyledPracticeSource(currentTopic);
   }
+  if (currentRCSource === 'aeon' && currentArticle && currentArticle.unavailable) useStoredVarcPassage('The Aeon feed did not return an essay');
+  if (currentArticle && currentArticle.storedFallback) {
+    serveStoredArticlePassage();
+    return;
+  }
   if (!currentArticle || currentArticle.unavailable) {
-    addMessage('marg', 'I could not load an Aeon essay for this topic, so I will not substitute a stored passage. Try the topic again or pick another one.', true);
+    addMessage('marg', 'The Aeon feed did not return an essay, and there is no stored passage ready for this topic. Practice from this card is unavailable until one of those loads.', true);
     return;
   }
   articleRCGenerating = true;
@@ -24743,7 +25037,7 @@ function buildArticleRCAttemptHtml(exercise) {
   var allAnswered = answered === questions.length;
   var note = submitted ? 'Answers submitted. Marg is using the checked key to review the decisions behind them.' : allAnswered ? 'All four answered. Submit once and Marg will review the complete pattern.' : 'Choose one option for every question. Answers are saved on this device.';
   var labConfig = exercise && exercise.content && exercise.content.rcLab || {};
-  var kicker = labConfig.fallback ? 'RC Lab · verified mixed fallback' : 'RC Lab' + (labConfig.focusLabel ? ' · ' + labConfig.focusLabel : '');
+  var kicker = labConfig.storedFallback ? 'Stored passage · Aeon feed did not load' : labConfig.fallback ? 'RC Lab · verified mixed fallback' : 'RC Lab' + (labConfig.focusLabel ? ' · ' + labConfig.focusLabel : '');
   return '<div class="article-rc-head"><div><div class="article-rc-kicker">' + escapeVisualText(kicker) + '</div><div class="article-rc-title">' + escapeVisualText(exercise.title || setObj.topic || 'CAT reading passage') + '</div></div><div><div class="article-rc-progress">' + (index + 1) + ' / ' + questions.length + '</div><div class="article-rc-timer" data-rc-timer>' + elapsedLabel + '</div></div></div>' +
     '<div class="article-rc-step-row">' + steps + '</div>' +
     '<div class="article-rc-tools"><button type="button" class="article-rc-tool primary" onclick="toggleArticleRCPassage(this)">' + (state.passageOpen ? 'Hide passage' : 'View passage') + '</button><button type="button" class="article-rc-tool" onclick="openArticleRCPassageFocus(this)">Focus · Aa</button></div>' +
@@ -25007,6 +25301,71 @@ async function checkVarcShownToday() {
 let guestMessageCount = 0;
 const GUEST_MESSAGE_LIMIT = 5;
 
+function guestSessionStorageKey() { return 'marg_guest_session_v1'; }
+
+function persistGuestBrowserSession() {
+  if (typeof isGuestMode === 'undefined' || !isGuestMode || currentUser) return;
+  try {
+    var threadId = (typeof margActiveThreadId !== 'undefined' && margActiveThreadId) || 'legacy';
+    var current = (conversationHistory || []).filter(function(item) {
+      return item && (item.role === 'user' || item.role === 'assistant') && item.content && !(typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item));
+    }).slice(-40).map(function(item) {
+      return { role:item.role, content:String(item.content).slice(0, 8000), threadId:item.threadId || threadId };
+    });
+    if (!current.length) return;
+    var earlier = [];
+    try {
+      var existing = JSON.parse(sessionStorage.getItem(guestSessionStorageKey()) || 'null');
+      if (existing && Array.isArray(existing.history)) earlier = existing.history.filter(function(item) { return item && item.threadId && item.threadId !== threadId; });
+    } catch (error) {}
+    sessionStorage.setItem(guestSessionStorageKey(), JSON.stringify({
+      history:earlier.concat(current).slice(-40),
+      active:threadId,
+      guestMessageCount:guestMessageCount || 0,
+      profile:typeof progressiveProfileMemory !== 'undefined' ? progressiveProfileMemory : null,
+      goal:typeof personalGoalMemory !== 'undefined' ? personalGoalMemory : null,
+      studentProfile:studentProfile || null,
+      savedAt:Date.now()
+    }));
+  } catch (error) {}
+}
+
+function restoreGuestTabSession() {
+  var raw = '';
+  try { raw = sessionStorage.getItem(guestSessionStorageKey()) || ''; } catch (error) { return false; }
+  if (!raw) return false;
+  var saved = null;
+  try { saved = JSON.parse(raw); } catch (error) { return false; }
+  if (!saved || !Array.isArray(saved.history) || !saved.history.length) return false;
+  isGuestMode = true;
+  currentUser = null;
+  SUPABASE_TOKEN = null;
+  guestMessageCount = Number(saved.guestMessageCount) || 0;
+  if (typeof margThreadOwner !== 'undefined') margThreadOwner = 'guest';
+  if (typeof margActiveThreadId !== 'undefined') margActiveThreadId = saved.active || 'legacy';
+  conversationHistory = saved.history.filter(function(item) { return !item.threadId || item.threadId === margActiveThreadId; });
+  if (!conversationHistory.length) conversationHistory = saved.history.slice();
+  if (saved.profile) progressiveProfileMemory = saved.profile;
+  if (saved.goal) personalGoalMemory = saved.goal;
+  if (saved.studentProfile) studentProfile = saved.studentProfile;
+  onboardingComplete = true;
+  var loading = document.getElementById('loading-screen');
+  var landing = document.getElementById('landing-page');
+  var chat = document.getElementById('chat-app');
+  if (loading && loading.style) loading.style.display = 'none';
+  if (landing && landing.style) landing.style.display = 'none';
+  if (chat && chat.style) chat.style.display = 'flex';
+  var banner = document.getElementById('guest-limit-banner');
+  if (banner && banner.classList) banner.classList.add('visible');
+  if (typeof updateGuestBanner === 'function') updateGuestBanner();
+  var messages = document.getElementById('messages');
+  if (messages) messages.innerHTML = '';
+  try { restoreConversation(); } catch (error) {}
+  var btn = document.getElementById('varc-toggle-btn');
+  if (btn && btn.style) btn.style.display = 'inline-flex';
+  return true;
+}
+
 function clearPreviousGuestSession() {
   progressiveProfileMemory = null;
   personalGoalMemory = null;
@@ -25017,6 +25376,7 @@ function clearPreviousGuestSession() {
   ['marg_progressive_profile_guest', 'marg_personal_goal_guest', 'marg_chat_topics_guest'].forEach(function(key) {
     try { localStorage.removeItem(key); } catch (error) {}
   });
+  try { sessionStorage.removeItem(guestSessionStorageKey()); } catch (error) {}
 }
 
 function startGuestMode() {
@@ -25035,6 +25395,9 @@ function startGuestMode() {
   loadMentorMemory();
   setTimeout(startChatFirstOnboarding, 300);
   document.getElementById('user-input').disabled = false;
+  if (typeof margThreadOwner !== 'undefined') margThreadOwner = 'guest';
+  var guestVarc = document.getElementById('varc-toggle-btn');
+  if (guestVarc && guestVarc.style) guestVarc.style.display = 'inline-flex';
   restoreCurrentChatDraft();
   updateComposerControls();
   focusComposer();
@@ -25089,7 +25452,11 @@ async function initSession() {
     else if (lastSupabaseRefreshFailure === 'invalid') token = null;
   }
 
-  if (!token) { showLanding(); return; }
+  if (!token) {
+    if (restoreGuestTabSession()) return;
+    showLanding();
+    return;
+  }
   try {
     SUPABASE_TOKEN = token;
     var res = await fetchWithDeadline(SUPABASE_URL + '/auth/v1/user', { headers:{ 'apikey':SUPABASE_ANON_KEY, 'Authorization':'Bearer ' + token } }, 12000);
