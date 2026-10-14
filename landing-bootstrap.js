@@ -3,7 +3,7 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20261013-mobile1';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20261014-audit1';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var HOMEPAGE_DESTINATION_STORAGE_KEY = 'marg_pending_homepage_destination_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
@@ -1042,8 +1042,12 @@
     return appLoadPromise;
   }
 
+  function hasGuestTabSession() {
+    try { return !!window.sessionStorage.getItem('marg_guest_session_v1'); } catch (error) { return false; }
+  }
+
   function needsAuthenticatedApp() {
-    return /(?:^|[#&])access_token=/.test(window.location.hash || '') || !!safeGet('marg_token');
+    return /(?:^|[#&])access_token=/.test(window.location.hash || '') || !!safeGet('marg_token') || hasGuestTabSession();
   }
 
   function initializeLandingShell() {
