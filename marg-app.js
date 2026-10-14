@@ -945,19 +945,37 @@ function ensureMentorRichTextStyles() {
   var style = document.createElement('style');
   style.id = 'marg-mentor-rich-text-styles';
   style.textContent =
-    '.mentor-rich{display:block;line-height:1.62;overflow-wrap:anywhere}' +
-    '.mentor-rich .mentor-heading{font-weight:650;color:var(--text);font-size:1.02em;margin:14px 0 6px}' +
+    '.mentor-rich{display:block;max-width:100%;min-width:0;line-height:1.55;overflow-wrap:break-word}' +
+    '.mentor-rich .mentor-heading{font-weight:650;color:var(--text);font-size:1.08em;margin:14px 0 6px}' +
     '.mentor-rich .mentor-heading:first-child{margin-top:0}' +
-    '.mentor-rich .mentor-paragraph{margin:0 0 10px}' +
+    '.mentor-rich .mentor-paragraph{margin:0 0 12px}' +
     '.mentor-rich .mentor-paragraph:last-child{margin-bottom:0}' +
-    '.mentor-rich .mentor-list-item{display:flex;align-items:flex-start;gap:8px;margin:5px 0}' +
-    '.mentor-rich .mentor-list-mark{color:var(--gold-light);flex:0 0 auto;min-width:14px}' +
+    '.mentor-rich .mentor-list-item{display:flex;align-items:flex-start;gap:10px;margin:8px 0;padding-left:2px}' +
+    '.mentor-rich .mentor-list-mark{color:var(--gold-light);flex:0 0 auto;min-width:18px}' +
     '.mentor-rich strong{font-weight:650;color:var(--text)}' +
     '.mentor-rich em{color:var(--text-muted)}' +
-    '.mentor-table-wrap{overflow-x:auto;margin:10px 0 12px;-webkit-overflow-scrolling:touch}' +
-    '.mentor-table{border-collapse:collapse;width:100%;min-width:280px;font-size:13px}' +
-    '.mentor-table th,.mentor-table td{border:1px solid rgba(255,255,255,.1);padding:8px 10px;text-align:left;vertical-align:top;line-height:1.45}' +
+    '.mentor-equation{display:block;max-width:100%;min-width:0;overflow-x:auto;margin:8px 0 12px;padding:10px 12px;border-radius:10px;background:#141414;border:1px solid rgba(255,255,255,.08);-webkit-overflow-scrolling:touch}' +
+    '.mentor-equation code{display:inline-block;white-space:nowrap;overflow-wrap:normal;word-break:normal;font:16px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#f0ede6}' +
+    '.mentor-inline-eq{white-space:nowrap;overflow-wrap:normal;word-break:normal;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.95em}' +
+    '.mentor-table-block{max-width:100%;min-width:0}' +
+    '.mentor-table-cards{display:none;flex-direction:column;gap:8px;margin:10px 0 12px}' +
+    '.mentor-table-card{border:1px solid rgba(255,255,255,.1);border-radius:12px;background:#141414;padding:10px 12px}' +
+    '.mentor-table-pair{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid rgba(255,255,255,.06)}' +
+    '.mentor-table-pair:first-child{border-top:0;padding-top:0}' +
+    '.mentor-table-label{font-size:12px;font-weight:650;color:#d9b95b;line-height:1.35}' +
+    '.mentor-table-value{font-size:16px;line-height:1.45;color:#f0ede6;overflow-wrap:break-word}' +
+    '.mentor-table-wrap{max-width:100%;min-width:0;overflow-x:auto;margin:10px 0 12px;-webkit-overflow-scrolling:touch}' +
+    '.mentor-table{border-collapse:collapse;width:max-content;min-width:100%;font-size:15px}' +
+    '.mentor-table th,.mentor-table td{border:1px solid rgba(255,255,255,.1);padding:8px 10px;text-align:left;vertical-align:top;line-height:1.45;white-space:nowrap;overflow-wrap:normal;word-break:normal}' +
     '.mentor-table th{background:rgba(201,168,76,.1);color:var(--gold-light);font-weight:650}' +
+    '.mentor-more{margin:10px 0 12px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:#141414}' +
+    '.mentor-more summary{min-height:44px;display:flex;align-items:center;padding:12px 14px;cursor:pointer;font-weight:650;color:#f0ede6}' +
+    '.mentor-more-body{padding:0 14px 12px}' +
+    '.mentor-next{margin:12px 0 4px}' +
+    '.mentor-next-line{margin:0 0 8px;font-size:16px;line-height:1.5}' +
+    '.mentor-next-options{display:flex;flex-direction:column;gap:8px}' +
+    '.mentor-next-option{display:flex;align-items:flex-start;gap:10px;width:100%;min-height:44px;padding:12px 14px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:#121212;color:#d8d4cc;font:16px/1.4 "DM Sans",sans-serif;text-align:left;cursor:pointer}' +
+    '@media(max-width:720px){.mentor-table-cards{display:flex}.mentor-table-wrap{display:none}}' +
     '.marg-result{margin:4px 0 12px;padding:14px 16px 12px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:#141414}' +
     '.marg-result-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8e8a83;margin-bottom:4px}' +
     '.marg-result-value{font-size:32px;font-weight:650;line-height:1.1;color:#F0EDE6}' +
@@ -969,6 +987,19 @@ function ensureMentorRichTextStyles() {
     '.marg-ask{margin:8px 0 4px}' +
     '.marg-ask-prompt{font-size:15px;font-weight:650;color:#F0EDE6;line-height:1.45}' +
     '.marg-ask-why{margin-top:4px;font-size:13px;line-height:1.5;color:#aaa69e}' +
+    '.marg-qlist{margin:8px 0 2px;padding:16px 16px 12px;border-radius:16px;background:#f6f3ec;color:#1c1c1c}' +
+    '.marg-qlist-title{font-size:18px;font-weight:700;line-height:1.3;margin:0 0 12px;color:#161616}' +
+    '.marg-qlist-banner{display:flex;gap:8px;align-items:flex-start;margin:0 0 12px}' +
+    '.marg-qlist-dot{width:10px;height:10px;border-radius:50%;background:#3d9a62;margin-top:5px;flex:none}' +
+    '.marg-qlist-priority{font-weight:700;font-size:14px;color:#1c1c1c}' +
+    '.marg-qlist-note{margin-top:2px;font-size:12px;line-height:1.4;color:#6f6a62}' +
+    '.marg-qlist-group{margin:14px 0 2px;font-size:13px;font-weight:650;color:#3f3f3f}' +
+    '.marg-qpick{display:flex;gap:10px;align-items:center;width:100%;margin:0;padding:12px 2px;min-height:44px;border:0;background:transparent;color:#242424;font:16px/1.45 "DM Sans",sans-serif;text-align:left;cursor:pointer}' +
+    '.marg-qpick-mark{width:16px;height:16px;border-radius:50%;border:1.5px solid #c5c0b6;box-sizing:border-box;margin-top:2px;flex:none}' +
+    '.marg-qpick.done .marg-qpick-mark{border-color:#3d9a62;background:#3d9a62;box-shadow:inset 0 0 0 3px #f6f3ec}' +
+    '.marg-qpick.done .marg-qpick-copy{color:#6f6a62}' +
+    '.marg-qlist-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px;padding-top:10px;border-top:1px solid #e4dfd4;font-size:12px;color:#6f6a62}' +
+    '.marg-qlist-reset{border:0;background:transparent;color:#6f6a62;font:600 12px "DM Sans",sans-serif;cursor:pointer}' +
     '@media(max-width:600px){.marg-result-value{font-size:28px}.marg-info-cards{grid-template-columns:1fr}.mentor-table{font-size:12.5px}}';
   if (typeof MargStudy !== 'undefined' && MargStudy.styles) style.textContent += MargStudy.styles;
   // Reading is the task in RC, so passage text gets more contrast and a larger
@@ -1142,13 +1173,72 @@ function renderMentorMarkdownTable(rows) {
   if (width < 2) return '';
   var head = rows[0];
   var body = rows.slice(1);
-  return '<div class="mentor-table-wrap"><table class="mentor-table"><thead><tr>' + head.map(function(cell) {
+  var cards = body.map(function(row) {
+    var pairs = [];
+    for (var i = 0; i < width; i++) {
+      var label = head[i] || ('Column ' + (i + 1));
+      pairs.push('<div class="mentor-table-pair"><div class="mentor-table-label">' + label + '</div><div class="mentor-table-value">' + (row[i] || '') + '</div></div>');
+    }
+    return '<div class="mentor-table-card">' + pairs.join('') + '</div>';
+  }).join('');
+  var table = '<div class="mentor-table-wrap"><table class="mentor-table"><thead><tr>' + head.map(function(cell) {
     return '<th>' + cell + '</th>';
   }).join('') + '</tr></thead><tbody>' + body.map(function(row) {
     var cells = [];
     for (var i = 0; i < width; i++) cells.push('<td>' + (row[i] || '') + '</td>');
     return '<tr>' + cells.join('') + '</tr>';
   }).join('') + '</tbody></table></div>';
+  return '<div class="mentor-table-block"><div class="mentor-table-cards">' + cards + '</div>' + table + '</div>';
+}
+
+function looksLikeMentorEquation(value) {
+  var text = String(value || '').replace(/`/g, '').trim();
+  if (!text || text.length > 220 || /[.!?]\s*$/.test(text) && text.split(/\s+/).length > 8) return false;
+  if (/^#{1,3}\s/.test(text)) return false;
+  var words = text.split(/\s+/).filter(Boolean);
+  var hasRelation = /[=<>≤≥]/.test(text) || /f\s*\(/.test(text);
+  if (!hasRelation) return false;
+  if (words.length > 16) return false;
+  return /[=]/.test(text) || /f\s*\(/.test(text);
+}
+
+function renderMentorEquationBlock(expr) {
+  var text = String(expr || '').replace(/`/g, '').trim();
+  if (!text) return '';
+  return '<div class="mentor-equation" tabindex="0"><code>' + escapeChatHtml(text) + '</code></div>';
+}
+
+function renderMentorMoreBlock(body) {
+  var raw = String(body || '').trim();
+  if (!raw) return '';
+  var label = 'More on this';
+  var labeled = raw.match(/^(?:label|title):\s*(.+)\n([\s\S]*)$/i);
+  if (labeled) {
+    label = labeled[1].trim().slice(0, 90);
+    raw = labeled[2].trim();
+  }
+  var paragraphs = raw.split(/\n+/).filter(Boolean).map(function(line) {
+    return '<div class="mentor-paragraph">' + escapeChatHtml(line).replace(/\*\*([^*\n]{1,160})\*\*/g, '<strong>$1</strong>') + '</div>';
+  }).join('');
+  return '<details class="mentor-more"><summary>' + escapeChatHtml(label) + '</summary><div class="mentor-more-body">' + paragraphs + '</div></details>';
+}
+
+function renderMentorNextBlock(spec) {
+  if (!spec || typeof spec !== 'object') return '';
+  var line = cleanVisualLabel(spec.line || spec.question || '', 240);
+  var options = Array.isArray(spec.options) ? spec.options.map(function(option) {
+    return cleanVisualLabel(option, 80);
+  }).filter(Boolean).slice(0, 3) : [];
+  if (!line && !options.length) return '';
+  var kind = cleanVisualLabel(spec.kind || '', 24);
+  var pattern = cleanVisualLabel(spec.pattern || '', 32);
+  var buttons = options.map(function(option) {
+    return '<button type="button" class="mentor-next-option" onclick="chooseMentorNextStep(this)"><span class="conv-option-mark" aria-hidden="true"></span><span class="conv-option-copy">' + escapeChatHtml(option) + '</span></button>';
+  }).join('');
+  return '<div class="mentor-next" data-kind="' + escapeChatHtml(kind) + '" data-pattern="' + escapeChatHtml(pattern) + '">' +
+    (line ? '<div class="mentor-next-line">' + escapeChatHtml(line) + '</div>' : '') +
+    (buttons ? '<div class="mentor-next-options">' + buttons + '</div>' : '') +
+    '</div>';
 }
 
 function isMentorTableLine(line) {
@@ -1249,6 +1339,7 @@ function mentorTextIsCatExercise(value) {
 }
 
 function renderMentorStructuredText(text) {
+  if (looksLikeBookQuestionSelection(text)) return renderSelectedQuestionList(collectSelectedBookQuestions(stripMentorDisplayControlTags(text)));
   ensureMentorRichTextStyles();
   var visualBlocks = [];
   function hold(rendered) {
@@ -1274,11 +1365,17 @@ function renderMentorStructuredText(text) {
     var rendered = '';
     try { rendered = renderMentorAskNote(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
     return hold(rendered);
+  }).replace(/\[\[MARG_MORE\]\]([\s\S]*?)\[\[\/MARG_MORE\]\]/gi, function(_, body) {
+    return hold(renderMentorMoreBlock(body));
+  }).replace(/\[\[MARG_NEXT\]\]([\s\S]*?)\[\[\/MARG_NEXT\]\]/gi, function(_, json) {
+    var rendered = '';
+    try { rendered = renderMentorNextBlock(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
+    return hold(rendered);
   });
-  var value = convertLatexToPlainText(stripMentorDisplayControlTags(sourceText))
+  var value = tidyBookQuestionMarkup(convertLatexToPlainText(stripMentorDisplayControlTags(sourceText))
     .replace(/<br\s*\/?\s*>/gi, '\n')
     .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .trim());
   var interactive = mentorInteractiveSuffix(text);
   if (!value) return interactive ? '<div class="mentor-rich">' + interactive + '</div>' : '';
 
@@ -1303,21 +1400,74 @@ function renderMentorStructuredText(text) {
     if (split.remainder) parts.push(split.remainder);
     return parts.filter(Boolean);
   }
+  function equationNeedsOwnLine(expr) {
+    var text = String(expr || '').replace(/`/g, '').trim();
+    return text.length >= 28;
+  }
+  function emitTextLine(line) {
+    var source = String(line || '');
+    var pattern = /`([^`\n]{1,200})`/g;
+    var last = 0;
+    var match;
+    var pieces = [];
+    var found = false;
+    function pushText(value) {
+      var text = String(value || '').replace(/\s+/g, ' ');
+      if (!text.trim()) return;
+      pieces.push({ type:'text', value:text });
+    }
+    while ((match = pattern.exec(source))) {
+      if (!looksLikeMentorEquation(match[1])) continue;
+      found = true;
+      pushText(source.slice(last, match.index));
+      pieces.push({ type: equationNeedsOwnLine(match[1]) ? 'equation' : 'inline', value:match[1] });
+      last = match.index + match[0].length;
+    }
+    if (!found && looksLikeMentorEquation(source) && equationNeedsOwnLine(source) && source.split(/\s+/).length <= 14) {
+      blocks.push(renderMentorEquationBlock(source));
+      return;
+    }
+    if (!found) {
+      blocks.push('<div class="mentor-paragraph">' + inline(source) + '</div>');
+      return;
+    }
+    pushText(source.slice(last));
+    var group = [];
+    function flushGroup() {
+      if (!group.length) return;
+      if (group[0].type === 'text') group[0].value = group[0].value.replace(/^\s+/, '');
+      var lastPart = group[group.length - 1];
+      if (lastPart.type === 'text') lastPart.value = lastPart.value.replace(/\s+$/, '');
+      group = group.filter(function(part) { return part.type !== 'text' || part.value; });
+      if (!group.length) return;
+      var html = group.map(function(part) {
+        if (part.type === 'inline') return '<code class="mentor-inline-eq">' + escapeChatHtml(String(part.value || '').replace(/`/g, '').trim()) + '</code>';
+        return inline(part.value);
+      }).join('');
+      blocks.push('<div class="mentor-paragraph">' + html + '</div>');
+      group = [];
+    }
+    pieces.forEach(function(piece) {
+      if (piece.type === 'equation') {
+        flushGroup();
+        blocks.push(renderMentorEquationBlock(piece.value));
+      } else group.push(piece);
+    });
+    flushGroup();
+  }
   function flushParagraph() {
     if (!paragraph.length) return;
     // A single run-on line is hard to follow. Split it at sentence
     // boundaries for display only; the saved reply is unchanged.
-    if (paragraph.length === 1 && paragraph[0].split(/\s+/).filter(Boolean).length >= 28) {
+    if (paragraph.length === 1 && paragraph[0].split(/\s+/).filter(Boolean).length >= 28 && paragraph[0].indexOf('`') === -1) {
       var parts = readableSentences(paragraph[0]);
       if (parts.length >= 2) {
-        parts.forEach(function(part) {
-          blocks.push('<div class="mentor-paragraph">' + inline(part) + '</div>');
-        });
+        parts.forEach(function(part) { emitTextLine(part); });
         paragraph = [];
         return;
       }
     }
-    blocks.push('<div class="mentor-paragraph">' + paragraph.map(inline).join('<br>') + '</div>');
+    paragraph.forEach(function(part) { emitTextLine(part); });
     paragraph = [];
   }
   var lines = value.split('\n');
@@ -1822,6 +1972,85 @@ async function recordEngagementEvent(eventType, metadata, idempotencySuffix) {
     console.error('Engagement event save failed:', eventType, error);
     return false;
   }
+}
+
+var conversationSessionStats = { turns:0, optionShows:0, optionTaps:0, lastRole:'', lastWasQuestion:false, endedWithNextStep:false };
+
+function conversationViewportClass() {
+  try {
+    if (window.matchMedia && window.matchMedia('(max-width: 900px)').matches) return 'mobile';
+  } catch (error) {}
+  return 'desktop';
+}
+
+function stashConversationMetric(eventType, metadata) {
+  try {
+    var key = 'marg_conversation_metrics_v1';
+    var list = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!Array.isArray(list)) list = [];
+    list.push({ eventType:eventType, metadata:metadata || {}, at:new Date().toISOString(), viewport:conversationViewportClass() });
+    localStorage.setItem(key, JSON.stringify(list.slice(-80)));
+  } catch (error) {}
+}
+
+function recordConversationMetric(eventType, metadata) {
+  var payload = Object.assign({ viewport:conversationViewportClass() }, metadata || {});
+  stashConversationMetric(eventType, payload);
+  var suffix = eventType + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  if (typeof recordEngagementEvent === 'function') recordEngagementEvent(eventType, payload, suffix);
+}
+
+function noteConversationUserTurn() {
+  conversationSessionStats.turns += 1;
+  if (conversationSessionStats.lastWasQuestion && conversationSessionStats.lastRole === 'assistant') {
+    recordConversationMetric('continued_after_question', { turns:conversationSessionStats.turns });
+  }
+  conversationSessionStats.lastRole = 'user';
+  conversationSessionStats.lastWasQuestion = false;
+}
+
+function noteConversationAssistantTurn(text, hadNextStep) {
+  var visible = String(text || '').replace(/\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '');
+  var asked = /\?/.test(visible) || /"pattern"\s*:\s*"diagnostic"/i.test(String(text || ''));
+  conversationSessionStats.turns += 1;
+  conversationSessionStats.lastRole = 'assistant';
+  conversationSessionStats.lastWasQuestion = asked;
+  conversationSessionStats.endedWithNextStep = !!hadNextStep;
+  if (hadNextStep) conversationSessionStats.optionShows += 1;
+  recordConversationMetric('conversation_turn', {
+    role:'assistant',
+    turns:conversationSessionStats.turns,
+    hadNextStep:!!hadNextStep,
+    lastWasQuestion:asked,
+    noNextStep:!hadNextStep
+  });
+}
+
+function noteOfferedOptionTap(label, pattern) {
+  conversationSessionStats.optionTaps += 1;
+  var shown = Math.max(1, conversationSessionStats.optionShows);
+  recordConversationMetric('offered_option_tap', {
+    label:String(label || '').slice(0, 80),
+    pattern:pattern || '',
+    taps:conversationSessionStats.optionTaps,
+    shown:conversationSessionStats.optionShows,
+    tapRate:Math.round(100 * conversationSessionStats.optionTaps / shown) / 100
+  });
+}
+
+function flushConversationSession(reason) {
+  if (!conversationSessionStats.turns) return;
+  var shown = conversationSessionStats.optionShows;
+  recordConversationMetric('conversation_session', {
+    reason:reason || 'hide',
+    turns:conversationSessionStats.turns,
+    endedWithNextStep:conversationSessionStats.endedWithNextStep,
+    noNextStep:!conversationSessionStats.endedWithNextStep,
+    abandonedAfterQuestion:!!(conversationSessionStats.lastWasQuestion && conversationSessionStats.lastRole === 'assistant'),
+    optionShows:shown,
+    optionTaps:conversationSessionStats.optionTaps,
+    tapRate:shown ? Math.round(100 * conversationSessionStats.optionTaps / shown) / 100 : 0
+  });
 }
 
 async function initializeEngagementTracking() {
@@ -2931,7 +3160,7 @@ In a genuine end-of-conversation moment—when the student's best next move is t
 
 LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction in natural mentor language, briefly explain the clue behind it, and ask one confirmation. Never label it "My prediction:" in ordinary conversation; say "I think I know what's happening," "Here's my read," or "I think this might be the real issue." A diagnosis must never end on a naked "Does that feel accurate?" or another generic confirmation. In the same reply, preview exactly what Marg will do if the read fits, so the student already knows the next move. After Exactly or Mostly, do not repeat the diagnosis or wait for the student to invent a response: say "Then let's verify it instead of guessing," name the targeted check and what behaviour it will observe, then offer Right now / Later today / Tomorrow. Never launch an exercise without that timing consent and never choose tomorrow for them. QA and DILR exercises belong in the dedicated timed interface, not as a long question dump in chat. Before a DILR set, teach the representation, why it fits, and the first constraint to inspect. Every exercise must validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should never be confused about what happens next; sometimes the correct next step is simply to disengage and rest.
 
-When the reply needs a selection, end with one control line the app turns into buttons: [OPTIONS: first|second|third][CONTEXT: short_name]. Use it for a follow-up, a diagnostic description, which question or section to open, a priority order, or the next action. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Never explain the tags.
+When the reply needs a selection, end with one control line the app turns into buttons: [OPTIONS: first|second|third][CONTEXT: short_name]. Use it for a follow-up, a diagnostic description, which question or section to open, a priority order, or the next action. Do not use it for a list of selected book questions; that list is the whole reply. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Never explain the tags.
 
 When a mission is appropriate, use exactly this compact visible structure, with no markdown heading and one primary test:
 Today's Mission
@@ -2970,6 +3199,14 @@ Follow the TURN CONTRACT response shape. Never cut required reasoning to hit a w
 
 FORMAT CONTRACT
 A short factual answer is one or two plain paragraphs. A concept or solution uses a blank line between ideas. Number steps only when order matters. Use a bullet list only for independent items, and bold only the result or the action. A real comparison may use one markdown table. Do not put a heading on a one-paragraph answer, and do not leave a sentence, list, table or equation unfinished.
+
+READING
+Write so a phone can hold it. Put the answer in the first line. Keep paragraphs to 2-3 sentences. Bold at most two key phrases. A numbered list needs a short lead-in, each step at most two lines, and no nesting past one level. Use a heading only in a long explanation, at most three. A short explanation uses one bold label line. Do not use a table unless the comparison cannot be said in sentences. Do not shorten the reasoning to fit the format. Put why each wrong option fails inside [[MARG_MORE]]label: Why the other options fail
+...
+[[/MARG_MORE]]. The answer itself stays outside that block.
+
+CONVERSATION CLOSE
+Every substantive reply ends the way the TURN CONTRACT names: a resolved bridge, one unresolved question, a no-hint micro-check, or a one-line stop. Build that ending from this turn’s evidence. “Got it” is a self-report, not proof. Never end with “anything else?” or “did that help?”. The next step is [[MARG_NEXT]]{"kind":"...","pattern":"...","line":"...","options":["..."]}[[/MARG_NEXT]] and is not an extra question. Do not repeat the previous ending pattern. If they sound frustrated or tired, ask nothing and help directly. If they want to stop, one line on what we check next time, and no new question.
 
 CONTENT-HELP CONTRACT
 Keep solutions separate from diagnosis. When asked for an answer, solution or explanation, identify the question, state the answer and show one clean derivation. Unless answer-only was requested, add the useful CAT shortcut/trap; for an MCQ, explain why each wrong option fails. Never withhold a solution to force coaching. Behavioural claims remain evidence-bound.
@@ -3018,7 +3255,7 @@ DIAGNOSIS AND EXERCISE CONSENT
 Follow the TURN CONTRACT question budget. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. A request for questions is answered with the full questions in this chat, not with a timer. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive]. Write a [HYPOTHESIS: ...] record only when the TURN CONTRACT asks for one.
 
 QUESTION REQUESTS
-When the student asks for questions in any section, do not refuse and do not offer a timed round. The app writes complete original questions in this chat, styled on the bank but not copied from it, with clickable options wherever a choice exists. If you write them yourself, finish every sentence and every option; never stop after a blank number. Chat may also diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified. Never copy a published item.
+When the student asks for questions in any section, do not refuse and do not offer a timed round. The app writes complete original questions in this chat, styled on the bank but not copied from it, with clickable options wherever a choice exists. If you write them yourself, finish every sentence and every option; never stop after a blank number. A request for the whole list, the full selection, the final list, or the questions already picked from uploaded pages is not a request for new questions. Name every selected question number, grouped by topic. Do not replace that list with a study order, and do not add [OPTIONS]. Chat may also diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified. Never copy a published item.
 When challenged, audit first and keep one facing convention. Distinguish “this proposed arrangement is invalid” from “the entire set has no possible solution.”
 
 MEMORY AND CONTINUITY
@@ -3065,7 +3302,7 @@ Never infer a specific percentile from one mock. For full reviews give one evide
 Keep saved missions out of unrelated chat; Home carries them. Leave a light thread, not a forced question. Sleep or exhaustion should end cleanly.
 
 TECHNICAL TAGS
-When the student must choose a follow-up, diagnostic description, question, section, priority or next action, end with [OPTIONS: first|second|third][CONTEXT: short_name]. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. Do not use [START_TEST] to answer a request for questions. Never explain tags.
+When the student must choose a follow-up, diagnostic description, question, section, priority or next action, end with [OPTIONS: first|second|third][CONTEXT: short_name]. Do not use [OPTIONS] for a selected book-question list. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. Do not use [START_TEST] to answer a request for questions. Never explain tags.
 
 Verify any timed allocation in seconds: parts must equal its total. Recalculate mismatches before publishing.`;
 
@@ -3845,10 +4082,19 @@ function ensureMobileComposerStyles() {
     '@media(max-width:900px){' +
       '#chat-app{position:fixed;top:var(--marg-chat-viewport-top,0px);left:var(--marg-chat-viewport-left,0px);right:auto;width:var(--marg-chat-viewport-width,100vw);height:var(--marg-chat-viewport-height);max-height:var(--marg-chat-viewport-height);overflow:hidden}' +
       '#user-input,#feedback-text,.ps-input,.ps-select,.mac-input-group input,.sectional-select{font-size:16px!important}' +
-      '#input-area{position:relative;bottom:auto;padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px))}' +
+      '#messages,.msg-wrap,.bubble,.mentor-rich{max-width:100%;min-width:0}' +
+      '#messages{overflow-x:hidden}' +
+      '#header{padding:8px 12px}' +
+      '#streak-bar{padding:4px 12px}' +
+      '.s-day{width:20px;height:20px}' +
+      '#bottom-nav{padding-bottom:env(safe-area-inset-bottom, 0px)}' +
+      '#input-area{position:relative;bottom:auto;padding-bottom:calc(64px + env(safe-area-inset-bottom, 0px))}' +
+      '#quick-actions{flex-wrap:wrap;overflow-x:visible}' +
+      '.quick-action-btn,.opt-btn{min-height:44px}' +
       '#hint{display:none}' +
-      '.tab-section{bottom:0}' +
-      'html.marg-keyboard-open #input-area{padding-bottom:12px}' +
+      '.tab-section{bottom:calc(64px + env(safe-area-inset-bottom, 0px))}' +
+      'html.marg-keyboard-open #bottom-nav{display:none}' +
+      'html.marg-keyboard-open #input-area{padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px))}' +
       'html.marg-keyboard-open #messages{scroll-behavior:auto}' +
     '}';
   document.head.appendChild(style);
@@ -3890,6 +4136,9 @@ function initializeMobileViewportStability() {
     mobileViewportBaselineHeight = 0;
     setTimeout(syncMobileChatViewport, 180);
   }, { passive:true });
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'hidden') flushConversationSession('hide');
+  });
 }
 
 initializeMobileViewportStability();
@@ -14967,10 +15216,10 @@ function ensureMessageExperienceStyles() {
   if (document.getElementById('marg-message-experience-styles')) return;
   var style = document.createElement('style');
   style.id = 'marg-message-experience-styles';
-  style.textContent = `:root{--marg-reader-scale:1}.message-stack{display:flex;flex-direction:column;min-width:0;max-width:100%}.msg-wrap.user .message-stack{align-items:flex-end}.msg-wrap.marg .message-stack{align-items:flex-start}.msg-wrap{align-items:flex-start}.msg-wrap.marg{max-width:min(100%,860px)}.msg-wrap.marg .bubble{background:transparent;border:0;border-radius:0;box-shadow:none;padding:1px 0 2px;color:#ece8e1}.msg-wrap.marg.passage-message .bubble{background:#141414;border:1px solid rgba(255,255,255,.095);border-radius:16px;padding:0;overflow:hidden}.mentor-rich{max-width:72ch;font-size:15px;line-height:1.7!important;letter-spacing:.002em}.mentor-rich .mentor-paragraph{margin-bottom:12px!important}.message-actions{display:flex;align-items:center;gap:3px;min-height:30px;max-width:100%;margin-top:4px;opacity:.2;overflow-x:auto;scrollbar-width:none;transition:opacity .16s ease}.message-actions::-webkit-scrollbar{display:none}.msg-wrap:hover .message-actions,.msg-wrap:focus-within .message-actions,.message-actions.visible{opacity:1}.message-action{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:#77736c;cursor:pointer;padding:0;transform:none!important}.message-action:hover,.message-action:focus-visible{opacity:1!important;color:#dedad2;background:rgba(255,255,255,.065);outline:none}.message-action.active{color:var(--gold-light);background:rgba(201,168,76,.1)}.message-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.message-action-status{font-size:10px;color:#8d8981;margin-left:5px;white-space:nowrap}.passage-message{width:min(100%,800px);max-width:min(100%,800px)!important}.passage-message .message-stack{width:100%}.passage-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#141414;border-color:rgba(255,255,255,.095)}.passage-reader-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 17px;border-bottom:1px solid rgba(255,255,255,.075);font-family:'DM Sans',sans-serif}.passage-reader-label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#aba69d}.passage-reader-tools{display:flex;gap:6px}.passage-reader-tool{border:1px solid rgba(255,255,255,.1);background:#1b1b1b;color:#aaa69e;border-radius:8px;padding:6px 9px;font:600 11px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.passage-reader-tool:hover{color:#eeeae2;border-color:rgba(201,168,76,.45)}.passage-reading-content{padding:22px 21px 24px;max-width:70ch;color:#d8d4cc;font-family:Georgia,'Times New Roman',serif;font-size:calc(17px * var(--marg-reader-scale));line-height:1.86;letter-spacing:.006em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.passage-reading-content p{margin:0 0 1.22em}.passage-reading-content p:last-child{margin-bottom:0}.passage-questions{padding:19px 21px 22px;border-top:1px solid rgba(255,255,255,.08);background:#171717;color:#e2ded6;font:14.5px/1.7 'DM Sans',sans-serif}.passage-questions-label{margin-bottom:12px;color:var(--gold-light);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.reading-focus-overlay{position:fixed;inset:0;z-index:5000;background:#111;display:flex;flex-direction:column;color:#d8d4cc}.reading-focus-overlay.paper{background:#f2eee5;color:#272521}.reading-focus-bar{min-height:58px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:env(safe-area-inset-top,0px) 16px 0;border-bottom:1px solid rgba(128,128,128,.2);font:13px 'DM Sans',sans-serif}.reading-focus-actions{display:flex;gap:7px}.reading-focus-actions button,.reading-focus-close{border:1px solid rgba(128,128,128,.25);background:transparent;color:inherit;border-radius:9px;padding:7px 10px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.reading-focus-scroll{overflow-y:auto;flex:1;padding:34px 20px 70px}.reading-focus-scroll .passage-reading-content{margin:0 auto;padding:0;max-width:68ch;color:inherit;font-size:calc(19px * var(--marg-reader-scale));line-height:1.9}.marg-visual-card{margin:15px 0 13px;padding:15px;border:1px solid rgba(201,168,76,.22);border-radius:14px;background:linear-gradient(145deg,#181713,#111);font-family:'DM Sans',sans-serif;color:#dedad2;overflow:hidden}.marg-visual-kicker{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gold);margin-bottom:5px}.marg-visual-title{font-size:14px;font-weight:650;color:#f0ede6;line-height:1.35;margin-bottom:13px}.marg-visual-flow{display:flex;align-items:stretch;gap:7px;overflow-x:auto;padding-bottom:2px}.marg-visual-node{min-width:110px;flex:1;padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#0f0f0f;font-size:11px;line-height:1.45;color:#c8c4bc}.marg-visual-arrow{align-self:center;color:var(--gold);font-size:15px}.marg-visual-grid-wrap{overflow-x:auto}.marg-visual-grid{border-collapse:collapse;width:100%;font-size:11px}.marg-visual-grid th,.marg-visual-grid td{border:1px solid rgba(255,255,255,.1);padding:8px 9px;text-align:left;white-space:nowrap}.marg-visual-grid th{background:rgba(201,168,76,.08);color:var(--gold-light)}.marg-visual-bars{display:flex;flex-direction:column;gap:9px}.marg-visual-bar-row{display:grid;grid-template-columns:minmax(72px,120px) 1fr auto;gap:9px;align-items:center;font-size:10px;color:#aaa69e}.marg-visual-bar-track{height:9px;background:#0b0b0b;border-radius:999px;overflow:hidden}.marg-visual-bar-fill{display:block;height:100%;background:linear-gradient(90deg,#4caf7d,#c9a84c);border-radius:inherit}.marg-visual-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.marg-visual-column{border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#101010;padding:11px}.marg-visual-column-title{color:var(--gold-light);font-size:11px;font-weight:650;margin-bottom:8px}.marg-visual-column-item{font-size:10.5px;color:#b4b0a8;line-height:1.45;margin:5px 0}.marg-visual-svg{display:block;width:100%;height:auto;max-height:330px}.marg-visual-note{font-size:10px;line-height:1.45;color:#8e8a83;margin-top:10px}.pcard-passage{max-width:70ch;margin-left:auto!important;margin-right:auto!important;padding:19px 18px!important;border:1px solid rgba(255,255,255,.075);border-radius:12px;background:#141414;color:#d8d4cc!important;font-family:Georgia,'Times New Roman',serif!important;font-size:17px!important;line-height:1.86!important;letter-spacing:.005em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.pcard-passage p{margin-bottom:1.18em!important}@media(max-width:600px){.msg-wrap.marg .bubble{color:#dedad2}.mentor-rich{font-size:15.5px;line-height:1.72!important;max-width:none}.message-actions{opacity:.78;margin-top:3px}.message-action{width:32px;height:32px}.passage-message{max-width:100%!important;width:100%}.passage-message>.avatar{display:none}.passage-reading-content{padding:20px 18px 23px;font-size:calc(17px * var(--marg-reader-scale));line-height:1.9}.passage-questions{padding:17px 18px 20px;font-size:14.5px;line-height:1.72}.marg-visual-card{margin:14px 0;padding:13px}.marg-visual-flow{flex-direction:column;overflow:visible}.marg-visual-arrow{transform:rotate(90deg)}.marg-visual-compare{grid-template-columns:1fr}.pcard-passage{font-size:16.5px!important;line-height:1.9!important;padding:18px 16px!important;color:#d8d4cc!important}}`;
+  style.textContent = `:root{--marg-reader-scale:1}.message-stack{display:flex;flex-direction:column;min-width:0;max-width:100%}.msg-wrap.user .message-stack{align-items:flex-end}.msg-wrap.marg .message-stack{align-items:flex-start}.msg-wrap{align-items:flex-start}.msg-wrap.marg{max-width:min(100%,860px)}.msg-wrap.marg .bubble{background:transparent;border:0;border-radius:0;box-shadow:none;padding:1px 0 2px;color:#ece8e1}.msg-wrap.marg.passage-message .bubble{background:#141414;border:1px solid rgba(255,255,255,.095);border-radius:16px;padding:0;overflow:hidden}.mentor-rich{max-width:72ch;font-size:15px;line-height:1.7!important;letter-spacing:.002em}.mentor-rich .mentor-paragraph{margin-bottom:12px!important}.message-actions{display:flex;align-items:center;gap:3px;min-height:30px;max-width:100%;margin-top:4px;opacity:.2;overflow-x:auto;scrollbar-width:none;transition:opacity .16s ease}.message-actions::-webkit-scrollbar{display:none}.msg-wrap:hover .message-actions,.msg-wrap:focus-within .message-actions,.message-actions.visible{opacity:1}.message-action{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:8px;background:transparent;color:#77736c;cursor:pointer;padding:0;transform:none!important}.message-action:hover,.message-action:focus-visible{opacity:1!important;color:#dedad2;background:rgba(255,255,255,.065);outline:none}.message-action.active{color:var(--gold-light);background:rgba(201,168,76,.1)}.message-action svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.message-action-status{font-size:10px;color:#8d8981;margin-left:5px;white-space:nowrap}.passage-message{width:min(100%,800px);max-width:min(100%,800px)!important}.passage-message .message-stack{width:100%}.passage-message .bubble{width:100%;padding:0!important;overflow:hidden;background:#141414;border-color:rgba(255,255,255,.095)}.passage-reader-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 17px;border-bottom:1px solid rgba(255,255,255,.075);font-family:'DM Sans',sans-serif}.passage-reader-label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#aba69d}.passage-reader-tools{display:flex;gap:6px}.passage-reader-tool{border:1px solid rgba(255,255,255,.1);background:#1b1b1b;color:#aaa69e;border-radius:8px;padding:6px 9px;font:600 11px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.passage-reader-tool:hover{color:#eeeae2;border-color:rgba(201,168,76,.45)}.passage-reading-content{padding:22px 21px 24px;max-width:70ch;color:#d8d4cc;font-family:Georgia,'Times New Roman',serif;font-size:calc(17px * var(--marg-reader-scale));line-height:1.86;letter-spacing:.006em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.passage-reading-content p{margin:0 0 1.22em}.passage-reading-content p:last-child{margin-bottom:0}.passage-questions{padding:19px 21px 22px;border-top:1px solid rgba(255,255,255,.08);background:#171717;color:#e2ded6;font:14.5px/1.7 'DM Sans',sans-serif}.passage-questions-label{margin-bottom:12px;color:var(--gold-light);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.reading-focus-overlay{position:fixed;inset:0;z-index:5000;background:#111;display:flex;flex-direction:column;color:#d8d4cc}.reading-focus-overlay.paper{background:#f2eee5;color:#272521}.reading-focus-bar{min-height:58px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:env(safe-area-inset-top,0px) 16px 0;border-bottom:1px solid rgba(128,128,128,.2);font:13px 'DM Sans',sans-serif}.reading-focus-actions{display:flex;gap:7px}.reading-focus-actions button,.reading-focus-close{border:1px solid rgba(128,128,128,.25);background:transparent;color:inherit;border-radius:9px;padding:7px 10px;font:600 12px 'DM Sans',sans-serif;cursor:pointer;transform:none!important}.reading-focus-scroll{overflow-y:auto;flex:1;padding:34px 20px 70px}.reading-focus-scroll .passage-reading-content{margin:0 auto;padding:0;max-width:68ch;color:inherit;font-size:calc(19px * var(--marg-reader-scale));line-height:1.9}.marg-visual-card{margin:15px 0 13px;padding:15px;border:1px solid rgba(201,168,76,.22);border-radius:14px;background:linear-gradient(145deg,#181713,#111);font-family:'DM Sans',sans-serif;color:#dedad2;overflow:hidden}.marg-visual-kicker{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gold);margin-bottom:5px}.marg-visual-title{font-size:14px;font-weight:650;color:#f0ede6;line-height:1.35;margin-bottom:13px}.marg-visual-flow{display:flex;align-items:stretch;gap:7px;overflow-x:auto;padding-bottom:2px}.marg-visual-node{min-width:110px;flex:1;padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#0f0f0f;font-size:11px;line-height:1.45;color:#c8c4bc}.marg-visual-arrow{align-self:center;color:var(--gold);font-size:15px}.marg-visual-grid-wrap{overflow-x:auto}.marg-visual-grid{border-collapse:collapse;width:100%;font-size:11px}.marg-visual-grid th,.marg-visual-grid td{border:1px solid rgba(255,255,255,.1);padding:8px 9px;text-align:left;white-space:nowrap}.marg-visual-grid th{background:rgba(201,168,76,.08);color:var(--gold-light)}.marg-visual-bars{display:flex;flex-direction:column;gap:9px}.marg-visual-bar-row{display:grid;grid-template-columns:minmax(72px,120px) 1fr auto;gap:9px;align-items:center;font-size:10px;color:#aaa69e}.marg-visual-bar-track{height:9px;background:#0b0b0b;border-radius:999px;overflow:hidden}.marg-visual-bar-fill{display:block;height:100%;background:linear-gradient(90deg,#4caf7d,#c9a84c);border-radius:inherit}.marg-visual-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.marg-visual-column{border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#101010;padding:11px}.marg-visual-column-title{color:var(--gold-light);font-size:11px;font-weight:650;margin-bottom:8px}.marg-visual-column-item{font-size:10.5px;color:#b4b0a8;line-height:1.45;margin:5px 0}.marg-visual-svg{display:block;width:100%;height:auto;max-height:330px}.marg-visual-note{font-size:10px;line-height:1.45;color:#8e8a83;margin-top:10px}.pcard-passage{max-width:70ch;margin-left:auto!important;margin-right:auto!important;padding:19px 18px!important;border:1px solid rgba(255,255,255,.075);border-radius:12px;background:#141414;color:#d8d4cc!important;font-family:Georgia,'Times New Roman',serif!important;font-size:17px!important;line-height:1.86!important;letter-spacing:.005em;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.pcard-passage p{margin-bottom:1.18em!important}@media(max-width:600px){.msg-wrap.marg .bubble{color:#dedad2}.mentor-rich{font-size:16px;line-height:1.55!important;max-width:none}.mentor-rich .mentor-heading{font-size:17px}.message-actions{opacity:1;margin-top:3px;min-height:44px}.message-action{width:44px;height:44px}.passage-message{max-width:100%!important;width:100%}.passage-message>.avatar{display:none}.passage-reading-content{padding:20px 18px 23px;font-size:calc(17px * var(--marg-reader-scale));line-height:1.9}.passage-questions{padding:17px 18px 20px;font-size:14.5px;line-height:1.72}.marg-visual-card{margin:14px 0;padding:13px}.marg-visual-flow{flex-direction:column;overflow:visible}.marg-visual-arrow{transform:rotate(90deg)}.marg-visual-compare{grid-template-columns:1fr}.pcard-passage{font-size:16.5px!important;line-height:1.9!important;padding:18px 16px!important;color:#d8d4cc!important}}`;
   document.head.appendChild(style);
   var versionStyle = document.createElement('style');
-  versionStyle.textContent = '.message-version-nav{display:inline-flex;align-items:center;gap:2px;margin:0 3px;color:#8d8981;font-size:10px;white-space:nowrap}.message-version-nav button{width:25px;height:25px;border:0;border-radius:7px;background:transparent;color:#8d8981;font-size:18px;line-height:1;cursor:pointer;transform:none!important}.message-version-nav button:hover:not(:disabled){background:rgba(255,255,255,.065);color:#eeeae2}.message-version-nav button:disabled{opacity:.25;cursor:default}.message-version-count{min-width:28px;text-align:center}.regenerating-response .bubble{opacity:.62;transition:opacity .18s}.message-action:disabled{opacity:.28;cursor:default}';
+  versionStyle.textContent = '.message-version-nav{display:inline-flex;align-items:center;gap:2px;margin:0 3px;color:#8d8981;font-size:10px;white-space:nowrap}.message-version-nav button{width:25px;height:25px;border:0;border-radius:7px;background:transparent;color:#8d8981;font-size:18px;line-height:1;cursor:pointer;transform:none!important}.message-version-nav button:hover:not(:disabled){background:rgba(255,255,255,.065);color:#eeeae2}.message-version-nav button:disabled{opacity:.25;cursor:default}.message-version-count{min-width:28px;text-align:center}.regenerating-response .bubble{opacity:.62;transition:opacity .18s}.message-action:disabled{opacity:.28;cursor:default}@media(max-width:600px){.message-version-nav button{width:44px;height:44px}}';
   document.head.appendChild(versionStyle);
   if (document.getElementById('marg-chat-experience-styles')) return;
   var chatStyle = document.createElement('style');
@@ -15452,7 +15701,7 @@ function bindSentImagePreviews(wrap) {
 function isTrustedChatClick(value) {
   // `this` is the clicked control. It is allowed only as a bare argument of an
   // already named handler, so the RC card can find its own passage.
-  return /^(?:chooseArticleRCOption|choosePathDiscuss|choosePathPractice|closePushReminderCard|closeTimedTest|confirmSubmitTimedTest|goToArticleRCQuestion|goToChatFromTimedTest|goToTimedTestQuestion|loadDailyPractice|moveArticleRCQuestion|nextQuestion|openArticleRCPassageFocus|openCheckedTimedRecovery|openPreviousMockAnalysis|prevQuestion|removePendingImageAttachment|retryArticleRCGeneration|retryTimedTest|reviewLatestPracticeWithMarg|selectAnswer|selectOption|selectPracticeTopic|selectQACategory|selectTimedTestAnswer|sendQuick|showQACategoryPicker|startLogin|submitArticleRCAttempt|submitFeedback|switchPracticeTab|toggleArticleRCPassage|tryAnotherArticleRC|useVerifiedPracticeRecovery)\s*\(\s*(?:(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*(?:,\s*(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*)*)?\)\s*;?$/.test(String(value || '').trim());
+  return /^(?:chooseArticleRCOption|chooseMentorNextStep|choosePathDiscuss|choosePathPractice|closePushReminderCard|closeTimedTest|confirmSubmitTimedTest|goToArticleRCQuestion|goToChatFromTimedTest|goToTimedTestQuestion|loadDailyPractice|moveArticleRCQuestion|nextQuestion|openArticleRCPassageFocus|openCheckedTimedRecovery|openPreviousMockAnalysis|prevQuestion|removePendingImageAttachment|retryArticleRCGeneration|retryTimedTest|reviewLatestPracticeWithMarg|selectAnswer|selectOption|selectPracticeTopic|selectQACategory|selectTimedTestAnswer|sendQuick|showQACategoryPicker|startLogin|submitArticleRCAttempt|submitFeedback|switchPracticeTab|switchTab|toggleArticleRCPassage|tryAnotherArticleRC|useVerifiedPracticeRecovery)\s*\(\s*(?:(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*(?:,\s*(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*)*)?\)\s*;?$/.test(String(value || '').trim());
 }
 
 function sanitizeRenderedChatHtml(html) {
@@ -15688,6 +15937,7 @@ function launchInlineMentorTest(button) {
 
 function bindMentorInteractiveControls(root) {
   if (!root || !root.querySelectorAll) return;
+  bindSelectedQuestionList(root);
   root.querySelectorAll('.marg-choice').forEach(function(button) {
     if (button.dataset && button.dataset.bound === '1') return;
     if (button.dataset) button.dataset.bound = '1';
@@ -15838,6 +16088,7 @@ function addMessage(role, html, showAvatar) {
   if (role === 'user') bindSentImagePreviews(wrap);
   if (role === 'marg') decoratePassageMessage(wrap);
   if (role === 'marg') bindMentorInteractiveControls(wrap);
+  if (role === 'marg') attachRecoveryButtons(wrap);
   if (role === 'marg' || role === 'user') addMessageActions(wrap, role);
   if (!isRestoringConversation) scrollChatToLatest();
   return wrap;
@@ -18151,6 +18402,15 @@ function describeTurnResponseContract(message, diagnosis) {
     budget = 0;
     task = 'Give the evidence-bounded read, one executable correction, and the observation that will test it.';
   }
+  if (isSelectedQuestionListRequest(message)) {
+    shape = 'complete';
+    budget = 0;
+    task = 'The student asked for the selected questions from the uploaded pages. Name every chosen question number, grouped by topic, in this reply. A range such as Q3-4 stays one item. Do not replace the list with a study order or an introduction. Do not add [OPTIONS].';
+    if (diagnosis) {
+      diagnosis.preserveFullReply = true;
+      diagnosis.bookQuestionList = true;
+    }
+  }
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.allowsEvidenceQuestion && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady) budget = 0;
   var questionLimitReached = budget === 0 && !!(diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.allowsEvidenceQuestion && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady);
   if (diagnosis && (diagnosis.rcWrongAnswerReview || diagnosis.requestedExistingSolutions || diagnosis.hintOnly)) {
@@ -18170,17 +18430,20 @@ function describeTurnResponseContract(message, diagnosis) {
     : shape === 'complete' ? 'Finish the requested explanation, check or solution.'
       : shape === 'plan' ? 'Give the full plan that was requested.'
         : 'Use a normal mentoring reply, about 40-90 words, unless the requested explanation needs the next sentence to finish.';
-  var questionLine = budget === 0 ? 'Question budget: 0. Do not ask a question.' : 'Question budget: 1. Ask at most one question, and only if its answer changes the next action.';
+  var questionLine = budget === 0 ? 'Question budget: 0. Do not ask a question. A [[MARG_NEXT]] next step is allowed and is not a question.' : 'Question budget: 1. Ask at most one question, and only if its answer changes the next action. A [[MARG_NEXT]] next step does not count as that question.';
   var suppliedLine = supplied
     ? 'Supplied material outranks section coaching. Solve or review the supplied image, stem or pasted set, including DILR. Do not invent a new DILR set.'
     : 'Do not invent a new DILR set in chat. A new set belongs in the verified Practice flow.';
   var hypothesisLine = diagnosis && diagnosis.hypothesisEligible && (decision.mode === 'diagnose' || decision.mode === 'challenge') ? '\n- ' + MENTOR_HYPOTHESIS_INSTRUCTION : '';
+  var close = decideConversationClose(message, diagnosis, budget);
+  if (diagnosis) diagnosis.conversationClose = close;
+  var readingLine = 'Reading: answer in the first line. Paragraphs of 2-3 sentences. Bold at most two phrases. Numbered steps need a short lead-in, stay within two lines, and do not nest past one level. Use at most three headings, and only in a long explanation. Do not use a table unless the comparison cannot be said in sentences. Keep the full reasoning. Put why each wrong option fails in [[MARG_MORE]]label: Why the other options fail\\n...\\n[[/MARG_MORE]]. The answer itself stays outside that block.';
   return {
     shape:shape,
     budget:budget,
     presentation:presentation.presentation,
     decision:decision,
-    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Turn decision: ' + decision.mode + '. ' + TURN_DECISION_INSTRUCTIONS[decision.mode] + '\n- Decision basis: ' + decision.basis + (decision.missing ? '\n- Missing information: ' + decision.missing + '.' : '') + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine + hypothesisLine + '\n- Voice: ' + mentorVoiceInstruction(message, diagnosis) + presentation.block
+    block:'\n\nTURN CONTRACT:\n- Task: ' + task + '\n- Turn decision: ' + decision.mode + '. ' + TURN_DECISION_INSTRUCTIONS[decision.mode] + '\n- Decision basis: ' + decision.basis + (decision.missing ? '\n- Missing information: ' + decision.missing + '.' : '') + '\n- Evidence: ' + describeTurnEvidence(message, diagnosis) + '\n- Response shape: ' + shape + '. ' + shapeLine + '\n- ' + questionLine + '\n- ' + suppliedLine + hypothesisLine + '\n- Voice: ' + mentorVoiceInstruction(message, diagnosis) + '\n- ' + readingLine + '\n- ' + conversationCloseInstruction(close) + presentation.block
   };
 }
 
@@ -19089,12 +19352,232 @@ function buildSolverActionFallback(diagnosis) {
   return '';
 }
 
+function explicitResponseConstraint(message) {
+  var request = String(message || '');
+  return /\b(?:just the answer|answer only|only the answer|no explanation|don'?t explain)\b/i.test(request) ||
+    /\b(?:in|use|give|answer in|keep it to|only)\s+(?:one|two|three|\d+)\s+sentences?\b/i.test(request) ||
+    /\b(?:no more than|at most|within|under|in)\s+\d{1,3}\s+words?\b/i.test(request) ||
+    /\b(?:in|as|use|give|answer in)\s+(?:one|a single|1)\s+line\b/i.test(request);
+}
+
+function studentWantsToStopTurn(message) {
+  var text = String(message || '').trim();
+  if (!text || text.length > 180) return false;
+  if (/\b(?:solve|explain|why|how|question|what is|another)\b/i.test(text) && text.split(/\s+/).filter(Boolean).length > 6) return false;
+  return /(?:^|\b)(?:thanks|thank you|thx|bye|goodbye|good night|i(?:'| a)?m done|that(?:'| i)s enough|stop(?: for today)?|i(?:'| a)?m (?:too )?tired|exhausted|gotta go|see you|talk later)(?:\b|[!.]|$)/i.test(text);
+}
+
+function studentSelfReportClose(message) {
+  var text = String(message || '').trim();
+  return /^(?:got it|okay|ok|cool|makes sense|i get it|understood|nice|yep|yes|that helps|that helped|i understand|clear now|all clear)[.!\s]*$/i.test(text);
+}
+
+function closeTopicLabel(message, diagnosis) {
+  var text = String(message || '');
+  var named = text.match(/\b(?:functional equations?|percentages?|parajumbles?|modulus|seating|ratios?|probability|algebra|geometry|time and work)\b/i);
+  if (named) return named[0].toLowerCase();
+  if (diagnosis && diagnosis.requestedSection) return String(diagnosis.requestedSection).toUpperCase();
+  if (typeof studentProfile !== 'undefined' && studentProfile && studentProfile.lastTask) return String(studentProfile.lastTask).replace(/\s+/g, ' ').trim().slice(0, 80);
+  var words = text.replace(/[^a-z0-9\s]/gi, ' ').split(/\s+/).filter(function(word) { return word.length > 3; }).slice(0, 4);
+  return words.join(' ') || 'this';
+}
+
+function openPlanLabel() {
+  if (typeof studentProfile !== 'undefined' && studentProfile && studentProfile.lastTask) return String(studentProfile.lastTask).replace(/\s+/g, ' ').trim().slice(0, 90);
+  return '';
+}
+
+function recurringPatternLabel(message, diagnosis) {
+  try {
+    if (typeof knownObservedSupportForTurn !== 'function') return '';
+    var known = knownObservedSupportForTurn(message || '', diagnosis || {});
+    if (known && known.length && known[0].confirmedDiagnosis) return String(known[0].confirmedDiagnosis).replace(/\s+/g, ' ').trim().slice(0, 90);
+  } catch (error) {}
+  return '';
+}
+
+function problemThreadQuestionCount() {
+  var count = 0;
+  var history = typeof conversationHistory !== 'undefined' && conversationHistory ? conversationHistory : [];
+  for (var i = history.length - 1; i >= 0; i--) {
+    var item = history[i];
+    if (!item || (typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item))) continue;
+    if (item.role === 'user') {
+      if (studentWantsToStopTurn(item.content)) break;
+      continue;
+    }
+    if (item.role !== 'assistant') continue;
+    var content = String(item.content || '');
+    if (/\[\[MARG_NEXT\]\][\s\S]{0,500}"kind"\s*:\s*"(?:resolved|stop)"/i.test(content)) break;
+    var visible = content.replace(/\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '');
+    if (/\?/.test(visible) || /"pattern"\s*:\s*"diagnostic"/i.test(content)) count++;
+  }
+  return count;
+}
+
+function previousClosePattern() {
+  var history = typeof conversationHistory !== 'undefined' && conversationHistory ? conversationHistory : [];
+  for (var i = history.length - 1; i >= 0; i--) {
+    var item = history[i];
+    if (!item || item.role !== 'assistant') continue;
+    var match = String(item.content || '').match(/"pattern"\s*:\s*"([a-z0-9_]+)"/i);
+    if (match) return match[1];
+  }
+  return '';
+}
+
+function studentShowedAttempt(message, diagnosis) {
+  if (studentSelfReportClose(message)) return false;
+  var evidence = diagnosis && diagnosis.evidence ? diagnosis.evidence : collectExplicitMentorEvidence(message);
+  if (evidence && (evidence.hasWorking || evidence.hasProcess)) return true;
+  if (diagnosis && diagnosis.intent === 'answer_review') return true;
+  return /\b(?:i (?:got|worked|chose|picked|wrote|solved|calculated)|my (?:answer|working)|therefore)\b/i.test(String(message || ''));
+}
+
+function directHelpClose(topic, previous) {
+  var pattern = previous === 'worked_example' ? 'real_question' : previous === 'real_question' ? 'different_approach' : 'worked_example';
+  if (pattern === 'worked_example') {
+    return { kind:'unresolved', pattern:pattern, line:'Here is the move on ' + topic + '. Next we test it on a real question.', options:['Show the worked example', 'Send a real question'] };
+  }
+  if (pattern === 'different_approach') {
+    return { kind:'unresolved', pattern:pattern, line:'We’ll switch the approach on ' + topic + ' and test that on a real question.', options:['Use the other approach', 'Send a real question'] };
+  }
+  return { kind:'unresolved', pattern:pattern, line:'Let’s test ' + topic + ' on a real question.', options:['Send a real question'] };
+}
+
+function bridgeClose(topic, plan, patternLabel, previous) {
+  var available = [
+    plan ? 'plan_next' : '',
+    patternLabel ? 'pattern_link' : '',
+    'similar_check',
+    'transfer',
+    'tomorrow'
+  ].filter(Boolean);
+  var chosen = '';
+  available.some(function(pattern) {
+    if (pattern !== previous) { chosen = pattern; return true; }
+    return false;
+  });
+  if (!chosen) chosen = available[0] || 'tomorrow';
+  if (chosen === 'plan_next') return { kind:'resolved', pattern:chosen, line:'Next up is the open item: ' + plan + '.', options:['Start that item', 'One similar question first'] };
+  if (chosen === 'pattern_link') return { kind:'resolved', pattern:chosen, line:'This sits next to a pattern already on record: ' + patternLabel + '.', options:['Look at that pattern', 'One similar question'] };
+  if (chosen === 'similar_check') return { kind:'resolved', pattern:chosen, line:'A clean check is one similar ' + topic + ' question, with no hint.', options:['Send that question', 'Try a new situation'] };
+  if (chosen === 'transfer') return { kind:'resolved', pattern:chosen, line:'The same idea in a new situation is the useful next check.', options:['New situation', 'One similar question'] };
+  return { kind:'resolved', pattern:'tomorrow', line:'Tomorrow we’ll check whether ' + topic + ' still holds.', options:['Set tomorrow’s check-in', 'One similar question now'] };
+}
+
+function decideConversationClose(message, diagnosis, budget) {
+  if (!diagnosis) return { kind:'none', pattern:'', line:'', options:[] };
+  var intent = diagnosis.intent || '';
+  var text = String(message || diagnosis.submittedAnswerText || '');
+  if (diagnosis.bookQuestionList || diagnosis.responseShape === 'study' || intent === 'greeting' || intent === 'privacy_request' || intent === 'score_correction') return { kind:'none', pattern:'', line:'', options:[] };
+  if (explicitResponseConstraint(text)) return { kind:'none', pattern:'', line:'', options:[] };
+  var topic = closeTopicLabel(text, diagnosis);
+  var questionBudget = budget === 0 || budget === 1 ? budget : diagnosis.questionBudget;
+  var frustrated = diagnosis.emotionalState === 'frustrated' || diagnosis.emotionalState === 'drained' || diagnosis.emotionalState === 'anxious' || diagnosis.emotionalState === 'low-confidence';
+  if (studentWantsToStopTurn(text) || (diagnosis.emotionalState === 'drained' && /\b(?:stop|later|rest|done|bye|tired)\b/i.test(text))) {
+    return { kind:'stop', pattern:'stop_next', line:'We’ll check ' + topic + ' next time.', options:[] };
+  }
+  var previous = previousClosePattern();
+  var showedWork = studentShowedAttempt(text, diagnosis);
+  var selfReport = studentSelfReportClose(text);
+  var decision = decideTurnMode(text, diagnosis);
+  if (selfReport || (decision.mode === 'continue_flow' && intent === 'task_outcome_report' && !showedWork)) {
+    return { kind:'uncertain', pattern:'micro_check', line:'One similar ' + topic + ' question, with no hint, is the check.', options:['Send that question', 'Leave it for tomorrow'] };
+  }
+  if (showedWork && decision.mode !== 'clarify' && decision.mode !== 'challenge') {
+    return bridgeClose(topic, openPlanLabel(), recurringPatternLabel(text, diagnosis), previous);
+  }
+  if (decision.mode === 'guide' && decision.observed && !frustrated) {
+    return bridgeClose(topic, openPlanLabel(), recurringPatternLabel(text, diagnosis), previous);
+  }
+  var asked = problemThreadQuestionCount();
+  if (frustrated || questionBudget === 0 || asked >= 3) return directHelpClose(topic, previous);
+  var stuck = /\b(?:don'?t get|do not get|stuck|confused|why does|how come|not sure|can'?t see|still open)\b/i.test(text) || decision.mode === 'clarify' || decision.mode === 'diagnose' || decision.mode === 'challenge';
+  if (!stuck && decision.mode === 'answer') {
+    return { kind:'uncertain', pattern:'micro_check', line:'One similar ' + topic + ' question, with no hint, is the check.', options:['Send that question', 'Leave it for tomorrow'] };
+  }
+  var missing = decision.missing || 'the step that is still unclear';
+  return {
+    kind:'unresolved',
+    pattern:'diagnostic',
+    line:'Which part of ' + topic + ' is still open: ' + missing + '?',
+    options:['The setup', 'The last step', 'Show the worked example']
+  };
+}
+
+function conversationCloseInstruction(close) {
+  if (!close || close.kind === 'none') return 'Ending: this turn already has its own next step. Do not append a stock menu or “anything else?”.';
+  var payload = JSON.stringify({ kind:close.kind, pattern:close.pattern, line:close.line || '', options:(close.options || []).slice(0, 3) });
+  if (close.kind === 'stop') return 'Ending: stop. One line on what we check next time. No question. Use [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]';
+  if (close.kind === 'unresolved' && close.pattern === 'diagnostic') return 'Ending: unresolved. Give the partial help first, then this one question inside [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]. Do not ask anything else.';
+  if (close.kind === 'uncertain') return 'Ending: uncertain. Do not ask whether it helped. Verify with this no-hint check: [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]';
+  if (close.kind === 'unresolved') return 'Ending: the question budget for this problem is used. Do not ask another question. Offer this next step: [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]';
+  return 'Ending: resolved from this turn’s evidence. One specific bridge, not “anything else?”. Use [[MARG_NEXT]]' + payload + '[[/MARG_NEXT]]';
+}
+
+function genericMentorCloseSentence(sentence) {
+  return /\b(?:anything else|did that help|does that help|let me know if|want me to|shall i|should i|do you want|would you like)\b/i.test(String(sentence || ''));
+}
+
+function replyContradictsAttempt(text) {
+  return /\b(?:not quite|not yet|that(?:'s| is) not|doesn(?:'|’)t hold|incorrect|the miss is|still missing)\b/i.test(String(text || ''));
+}
+
+function stripGenericMentorClose(text) {
+  var value = String(text || '').replace(/\s*\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '').trim();
+  var parts = value.split(/\n{2,}/);
+  if (!parts.length) return value;
+  var last = parts[parts.length - 1];
+  var split = splitCompleteMentorSentences(last);
+  var sentences = split.sentences.slice();
+  if (split.remainder) sentences.push(split.remainder);
+  var removed = false;
+  while (sentences.length && genericMentorCloseSentence(sentences[sentences.length - 1])) {
+    sentences.pop();
+    removed = true;
+  }
+  if (!removed) return value;
+  parts[parts.length - 1] = sentences.join(' ').trim();
+  return parts.filter(Boolean).join('\n\n').trim();
+}
+
+function formatConversationCloseTag(close) {
+  if (!close || close.kind === 'none') return '';
+  var line = String(close.line || '').trim();
+  var options = (close.options || []).slice(0, 3);
+  if (!line && !options.length) return '';
+  return '\n\n[[MARG_NEXT]]' + JSON.stringify({ kind:close.kind, pattern:close.pattern, line:line, options:options }) + '[[/MARG_NEXT]]';
+}
+
+function applyConversationClose(text, diagnosis) {
+  if (!diagnosis || !diagnosis.attachConversationClose) return String(text || '');
+  var request = diagnosis.submittedAnswerText || '';
+  if (explicitResponseConstraint(request)) return String(text || '').replace(/\s*\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '').trim();
+  var close = diagnosis.conversationClose || decideConversationClose(request, diagnosis, diagnosis.questionBudget);
+  if (!close || close.kind === 'none') {
+    noteConversationAssistantTurn(text, false);
+    return String(text || '');
+  }
+  if (close.kind === 'resolved' && replyContradictsAttempt(text)) close = directHelpClose(closeTopicLabel(request, diagnosis), close.pattern);
+  var body = stripGenericMentorClose(text);
+  var visible = body.replace(/\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '');
+  var alreadySpecific = /\?/.test(visible) || /\b(?:next|tomorrow|similar|check|try)\b/i.test((visible.split(/\n/).pop() || ''));
+  if (close.pattern === 'diagnostic' && /\?/.test(visible)) close = { kind:'unresolved', pattern:'diagnostic', line:'', options:close.options || [] };
+  if (alreadySpecific && (close.kind === 'resolved' || close.kind === 'uncertain')) close = { kind:close.kind, pattern:close.pattern, line:'', options:close.options || [] };
+  if (close.kind === 'stop') body = visible.replace(/[^.!?\n]*\?\s*/g, '').trim();
+  else body = visible;
+  var tagged = (body + formatConversationCloseTag(close)).trim();
+  noteConversationAssistantTurn(tagged, true);
+  return tagged;
+}
+
 function ensureSolverFirstResponse(text, diagnosis) {
   // Do not bolt an intent-wide coaching block onto an otherwise complete
   // answer. It used to turn verification, short-answer and narrow requests
   // into generic VARC/DILR/QA homework after the model had already answered
-  // correctly. Turn-specific solver guidance belongs in the generation
-  // directive; this final guard must preserve the answer the user requested.
+  // correctly. Turn-specific endings live in decideConversationClose and are
+  // added only for a live turn. This guard must stay empty.
   return String(text || '').trim();
 }
 
@@ -19107,6 +19590,7 @@ function guardDuplicateMessageAwareness(text, diagnosis) {
 function applyExplicitResponseLimit(text, diagnosis) {
   var value = String(text || '').trim();
   var request = String(diagnosis && diagnosis.submittedAnswerText || '');
+  if (explicitResponseConstraint(request)) value = value.replace(/\s*\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '').replace(/\s*\[\[MARG_MORE\]\][\s\S]*?\[\[\/MARG_MORE\]\]/gi, '').trim();
   if (!value || !request) return value;
   var tags = value.match(/\s*\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG|REMINDER_CONTEXT|HYPOTHESIS_VERDICT):[^\]]*\]/gi) || [];
   var visible = value.replace(/\s*\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG|REMINDER_CONTEXT|HYPOTHESIS_VERDICT):[^\]]*\]/gi, '').trim();
@@ -19169,11 +19653,20 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardPastedAnswerChoiceIntegrity(text, diagnosis);
   text = guardExerciseAbilityOverclaim(text);
   text = guardAnswerVerdictConsistency(text, diagnosis);
-  if (diagnosis && diagnosis.gradingIntegrityRepaired) return finalizeMentorSavedText(applyExplicitResponseLimit(text, diagnosis), diagnosis);
+  if (diagnosis && diagnosis.gradingIntegrityRepaired) {
+    text = applyConversationClose(text, diagnosis);
+    return finalizeMentorSavedText(applyExplicitResponseLimit(text, diagnosis), diagnosis);
+  }
   text = guardEvidenceRefinementLanguage(text, diagnosis);
   if (diagnosis && diagnosis.consecutiveQuestionResponses >= 2 && !diagnosis.rcProgressionReady && !diagnosis.rcFunctionMapProgressionReady && !diagnosis.allowsEvidenceQuestion) {
+    var parkedNext = '';
+    text = String(text || '').replace(/\s*\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, function(match) {
+      parkedNext = match.trim();
+      return '';
+    });
     text = text.replace(/\[OPTIONS:[^\]]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '');
     text = text.replace(/[^.!?\n]*\?\s*/g, '').trim();
+    if (parkedNext && !/"pattern"\s*:\s*"diagnostic"/i.test(parkedNext)) text = (text + '\n\n' + parkedNext).trim();
   }
   var visibleValue = text.replace(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g, '').trim();
   var valueWithoutQuestions = visibleValue.replace(/[^.!?\n]*\?/g, '').trim();
@@ -19212,6 +19705,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   // Never discard an otherwise complete answer merely because natural prose
   // contains an unmatched quotation mark. The old quote-count heuristic
   // falsely removed valid RC exercises and appended an internal-sounding note.
+  if (text) text = applyConversationClose(text, diagnosis);
   if (!text) text = buildMentorFallbackReply(diagnosis);
   return finalizeMentorSavedText(applyExplicitResponseLimit(text, diagnosis), diagnosis);
 }
@@ -19219,6 +19713,9 @@ function applyMentorResponseGuard(response, diagnosis) {
 function separateMentorControlTags(text) {
   var tags = [];
   var visible = String(text || '').replace(/\s*\[(OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG|REMINDER_CONTEXT|HYPOTHESIS_VERDICT):[^\]]*\]/gi, function(match) {
+    tags.push(match.trim());
+    return '';
+  }).replace(/\s*\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, function(match) {
     tags.push(match.trim());
     return '';
   });
@@ -19232,7 +19729,7 @@ function splitCompleteMentorSentences(text) {
     held.push(match);
     return '\u0002' + (held.length - 1) + '\u0002';
   }
-  var value = source.replace(/\[\[MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\][\s\S]*?\[\[\/MARG_(?:RESULT|CARDS|ASK|VISUAL)\]\]/gi, hold);
+  var value = source.replace(/\[\[MARG_(?:RESULT|CARDS|ASK|VISUAL|NEXT|MORE)\]\][\s\S]*?\[\[\/MARG_(?:RESULT|CARDS|ASK|VISUAL|NEXT|MORE)\]\]/gi, hold);
   // A decimal point is part of the number. 99.9 must not become two sentences.
   value = value.replace(/(\d)\.(\d)/g, '$1\u0001$2');
   var sentences = [];
@@ -19306,7 +19803,9 @@ function enforceTurnQuestionBudget(text, diagnosis) {
   var separated = separateMentorControlTags(text);
   var split = splitCompleteMentorSentences(separated.visible);
   var kept = [];
-  var questionsKept = 0;
+  var questionsKept = separated.tags.some(function(tag) {
+    return /\[\[MARG_NEXT\]\]/i.test(tag) && /"pattern"\s*:\s*"diagnostic"/i.test(tag) && /\?/.test(tag);
+  }) ? 1 : 0;
   function keepQuestion(sentence) {
     if (diagnosis.questionBudget === 1 && questionsKept < 1) {
       kept.push(sentence);
@@ -19324,9 +19823,14 @@ function enforceTurnQuestionBudget(text, diagnosis) {
   }
   var keptBody = kept.join(' ');
   var choiceStillNeeded = /\?|\b(?:choose|pick|which|select)\b/i.test(keptBody);
-  var tags = diagnosis.questionBudget === 0 && !choiceStillNeeded
-    ? separated.tags.filter(function(tag) { return !/^\[(?:OPTIONS|CONTEXT):/i.test(tag); })
-    : separated.tags;
+  var tags = separated.tags.filter(function(tag) {
+    if (/\[\[MARG_NEXT\]\]/i.test(tag)) {
+      if (diagnosis.questionBudget === 0 && /"pattern"\s*:\s*"diagnostic"/i.test(tag) && /\?/.test(tag)) return false;
+      return true;
+    }
+    if (diagnosis.questionBudget === 0 && !choiceStillNeeded && /^\[(?:OPTIONS|CONTEXT):/i.test(tag)) return false;
+    return true;
+  });
   return (kept.join(' ').replace(/\s{2,}/g, ' ').trim() + (tags.length ? '\n' + tags.join('\n') : '')).replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -19430,6 +19934,7 @@ function selectMentorModelText(payload) {
 }
 
 function getMentorResponseMaxTokens(diagnosis) {
+  if (diagnosis && diagnosis.bookQuestionList) return 8192;
   // Passages, multi-question sets and full explanations are long by nature.
   // Thinking tokens share this ceiling, so it must clear the longest legitimate
   // study reply; shorter replies simply stop earlier.
@@ -19569,6 +20074,125 @@ function runMentorVoiceTests() {
   ];
 }
 window.runMentorVoiceTests = runMentorVoiceTests;
+
+function runSelectedQuestionListTests() {
+  var sample = [
+    'Q2 (Quadratic Sign & Symmetries*): Perfect test.',
+    'Q8 (Multiplicative Functional Equation*): Tests prime factorization.',
+    'Q31 & Q32 (Min/Max Graph Optimization*): Core CAT pattern.',
+    'Q50 (Modulus Function Minima*): Key property test.',
+    'Q66 (Reciprocal Argument Functional Equation*): Standard CAT trick.',
+    'Q78 (Piecewise Recurrence Series Sum): High-yield pattern.',
+    'Q96–98 (Floor Function Fraction Equality): High-yield GIF problem.',
+    'Combined Master Selection. For the highest-return practice session, solve these 12 core benchmark questions first:',
+    '1. Q8 & Q66 (Functional equations & reciprocal substitutions)',
+    '2. Q31 & Q50 (Min/max graph intersections)',
+    '7. Q96 (Greatest Integer Function structural equations)',
+    '9. Q113 (Simultaneous system in f(x) and f(1/x))'
+  ].join('\n');
+  var previousHistory = conversationHistory;
+  var previousAdd = addMessage;
+  var previousSave = saveChatMessage;
+  var captured = '';
+  addMessage = function(_role, html) { captured = String(html || ''); return {}; };
+  saveChatMessage = function() {};
+  conversationHistory = [{ role:'assistant', content:'These skip tedious algebraic drills.\n' + sample }];
+  var notGenerated = parseInChatQuestionRequest('Give me the whole list now') === null && parseInChatQuestionRequest('Give me the whole list of questions') === null;
+  var stillQa = parseInChatQuestionRequest('give me 2 QA percentages questions');
+  var list = collectSelectedBookQuestions(sample);
+  var q8 = list.items.filter(function(item) { return item.id === '8'; })[0];
+  var served = maybeServeSelectedQuestionList('Give me the whole list of questions');
+  conversationHistory = previousHistory;
+  addMessage = previousAdd;
+  saveChatMessage = previousSave;
+  var tidy = renderMentorStructuredText('See these.\n### Core CAT-Pattern Questions\n* Q2 (Quadratic Sign & Symmetries*): Perfect test of symmetry.');
+  var roster = [
+    'Here is the full consolidated list of 32 high-yield questions across all 7 pages (Questions 1 to 115).',
+    'Functional Equations & Symmetries',
+    'Q8, Q10, Q14, Q34, Q37, Q38, Q55, Q66, Q78, Q82, Q98, Q105',
+    'Modulus, Graphs & Area',
+    'Q1, Q5, Q30, Q31, Q32, Q76, Q81, Q85, Q86',
+    'Greatest Integer Function [x]',
+    'Q17, Q44, Q46, Q60, Q80, Q96, Q102',
+    'Polynomial Properties & Maxima/Minima',
+    'Q2, Q9, Q24, Q28, Q51, Q58 Start with the Functional Equations block first.',
+    '[OPTIONS: Start with Functional Equations|Start with Modulus & Graphs|Pick a 10-question set for today][CONTEXT: functions_priority]'
+  ].join('\n');
+  var firstPages = 'Recommended Questions from Pages 1-4: * Modulus & Graphs / Area: Q1, Q5, Q30, Q31, Q32 • Algebraic Polynomials & Quadratic Properties: Q2, Q3-4 set, Q24, Q28, Q29 • Functional Equations & Symmetries: Q8, Q10, Q14 • Greatest Integer Function [x]: Q17, Q44, Q46, Q60 • Combinatorics / Relation-based Functions: Q19-20 set • Maxima & Minima / Inequality Constraints: Q9, Q51, Q52, Q58, Q59, Q61 Upload the remaining pages whenever you are ready.';
+  var card = renderMentorStructuredText(roster);
+  var firstCard = renderMentorStructuredText(firstPages);
+  var whereHistory = conversationHistory;
+  var whereAdd = addMessage;
+  var whereSave = saveChatMessage;
+  var whereHtml = '';
+  addMessage = function(_role, html) { whereHtml = String(html || ''); return {}; };
+  saveChatMessage = function() {};
+  conversationHistory = [{ role:'assistant', content:roster }];
+  var whereServed = maybeServeSelectedQuestionList('Where is the list?');
+  var finalAsk = buildDiagnosisDirective('Now these are the rest. And now give me the full and final list of questions');
+  var plainAsk = buildDiagnosisDirective('give me 2 QA percentages questions');
+  var keptList = enforceMentorShapeLength(roster, { responseShape:'normal', preserveFullReply:true, bookQuestionList:true });
+  conversationHistory = whereHistory;
+  addMessage = whereAdd;
+  saveChatMessage = whereSave;
+  var rosterList = collectSelectedBookQuestions(roster);
+  var firstList = collectSelectedBookQuestions(firstPages);
+  return [
+    { name:'a request for the existing list is not a new question drop', passed:notGenerated && !!stillQa && stillQa.topic === 'Percentages' && stillQa.count === 2 },
+    { name:'the selection keeps the specific title and the priority set', passed:!!q8 && q8.title === 'Multiplicative Functional Equation' && q8.priority === true && list.items.some(function(item) { return item.id === '96-98' && item.title === 'Floor Function Fraction Equality'; }) && list.items.some(function(item) { return item.id === '113' && item.priority === true && item.title.indexOf('f(1/x)') !== -1; }) && list.items.some(function(item) { return item.id === '2' && item.priority !== true; }) },
+    { name:'the list renders as a checklist instead of a cut-off notice', passed:served === true && captured.indexOf('marg-qlist') !== -1 && captured.indexOf('Priority 1') !== -1 && captured.indexOf('Do these first') !== -1 && captured.indexOf('Q8. Multiplicative Functional Equation') !== -1 && captured.indexOf('could not finish') === -1 && /0 of \d+ completed/.test(captured) },
+    { name:'book markup becomes a heading and a bullet', passed:tidy.indexOf('###') === -1 && tidy.indexOf('class="mentor-heading"') !== -1 && tidy.indexOf('class="mentor-list-item"') !== -1 && tidy.indexOf('Quadratic Sign') !== -1 },
+    { name:'a numbered roster becomes the checklist without choice buttons', passed:card.indexOf('marg-qlist') !== -1 && card.indexOf('marg-choice') === -1 && card.indexOf('Choose one') === -1 && card.indexOf('Q8. Functional equations') !== -1 && card.indexOf('Q17. Greatest integer function') !== -1 && card.indexOf('Functional equations and symmetries') < card.indexOf('Modulus, graphs and area') && card.indexOf('Modulus, graphs and area') < card.indexOf('Greatest integer function') && card.indexOf('Greatest integer function') < card.indexOf('Polynomial properties') && card.indexOf('[OPTIONS:') === -1 && rosterList.priorityGroup === 'Functional equations and symmetries' && rosterList.items.some(function(item) { return item.id === '96'; }) && !rosterList.items.some(function(item) { return item.id === '1-115' || item.id === '115'; }) },
+    { name:'page bullets keep ranges as one row', passed:firstCard.indexOf('marg-qlist') !== -1 && firstList.items.some(function(item) { return item.id === '3-4'; }) && firstList.items.some(function(item) { return item.id === '19-20'; }) && firstList.items.some(function(item) { return item.id === '61'; }) },
+    { name:'where is the list rebuilds the checklist', passed:whereServed === true && whereHtml.indexOf('marg-qlist') !== -1 && whereHtml.indexOf('Q32. Modulus, graphs') !== -1 && parseInChatQuestionRequest('Where is the list?') === null },
+    { name:'a full list request is not cut down to an introduction', passed:!!finalAsk.diagnosis.bookQuestionList && finalAsk.diagnosis.preserveFullReply === true && finalAsk.diagnosis.responseShape === 'complete' && finalAsk.directive.indexOf('Do not add [OPTIONS]') !== -1 && getMentorResponseMaxTokens(finalAsk.diagnosis) === 8192 && !plainAsk.diagnosis.bookQuestionList && keptList.indexOf('Q105') !== -1 }
+  ];
+}
+window.runSelectedQuestionListTests = runSelectedQuestionListTests;
+
+function runConversationCloseTests() {
+  var previousHistory = (conversationHistory || []).slice();
+  conversationHistory = [];
+  function turn(message, reply) {
+    var analysis = buildDiagnosisDirective(message);
+    analysis.diagnosis.attachConversationClose = true;
+    return {
+      analysis:analysis,
+      guarded:applyMentorResponseGuard(reply, analysis.diagnosis),
+      close:analysis.diagnosis.conversationClose
+    };
+  }
+  var resolved = turn('I worked it out: f(0)=0 so f(x)=kx, and f(1)=2 so f(x)=2x', 'Yes. f(x) = 2x.');
+  conversationHistory = [{ role:'assistant', content:resolved.guarded }];
+  var again = turn('I worked the next one the same way and got f(x)=x.', 'Yes, that holds too.');
+  conversationHistory = [];
+  var unresolved = turn("I don't get why f(0)=0 makes this functional equation linear", 'f(0)=0 removes the constant solution.');
+  var goodbye = turn('Thanks, I am done for today', 'Glad that one is finished. Anything else?');
+  var frustrated = turn("I'm so frustrated with this functional equation", 'The linear case is f(x)=kx when f(0)=0. Does that help?');
+  var gotIt = turn('got it', 'The result is f(x)=2x.');
+  var answerOnly = turn('just the answer', 'f(x) = 2x.\n[[MARG_NEXT]]{"kind":"resolved","pattern":"similar_check","line":"Try one.","options":["Send that question"]}[[/MARG_NEXT]]');
+  var budgetKept = enforceTurnQuestionBudget('The answer is 2x. Does that help?\n[[MARG_NEXT]]{"kind":"resolved","pattern":"similar_check","line":"A clean check is one similar question.","options":["Send that question"]}[[/MARG_NEXT]]', { questionBudget:0, responseShape:'normal' });
+  var equation = renderMentorStructuredText('Yes, you can.\n\nThe identity is `f(x)+f(y)=2f((x+y)/2)f((x-y)/2)` when f(0)=1.');
+  var table = renderMentorStructuredText('| Approach | What it checks |\n| --- | --- |\n| Substitute x = 0 | Whether f(0) forces a constant |');
+  var solver = ensureSolverFirstResponse('The answer is 2x.', { intent:'qa_diagnosis' });
+  var failure = mentorRecoveryActionForNotice('I could not finish a complete question in this reply. Ask again and I will write the full question here.');
+  var connection = mentorRecoveryActionForNotice('Marg’s question service has a connection problem. Your topic is saved; retrying immediately will not fix it.');
+  conversationHistory = previousHistory;
+  return [
+    { name:'a resolved attempt ends in a specific bridge with taps', passed:resolved.close.kind === 'resolved' && resolved.guarded.indexOf('[[MARG_NEXT]]') !== -1 && resolved.guarded.indexOf('f(x) = 2x') !== -1 && resolved.guarded.indexOf('anything else') === -1 && resolved.guarded.indexOf('Use this on the next') === -1 && /"options":\[/.test(resolved.guarded) },
+    { name:'the same ending pattern is not used twice in a row', passed:!!resolved.close.pattern && !!again.close.pattern && again.close.pattern !== resolved.close.pattern && again.close.kind === 'resolved' },
+    { name:'an unresolved explanation asks one narrow question', passed:unresolved.close.kind === 'unresolved' && unresolved.close.pattern === 'diagnostic' && (unresolved.guarded.match(/\?/g) || []).length === 1 && unresolved.guarded.indexOf('The setup') !== -1 },
+    { name:'a goodbye closes in one line without a new question', passed:goodbye.close.kind === 'stop' && goodbye.guarded.indexOf('next time') !== -1 && goodbye.guarded.indexOf('?') === -1 && goodbye.guarded.indexOf('Anything else') === -1 && /"options":\[\]/.test(goodbye.guarded) },
+    { name:'a frustrated student gets direct help and no question', passed:frustrated.close.kind === 'unresolved' && frustrated.close.pattern !== 'diagnostic' && frustrated.guarded.indexOf('?') === -1 && frustrated.guarded.indexOf('Does that help') === -1 && frustrated.guarded.indexOf('[[MARG_NEXT]]') !== -1 },
+    { name:'got it is a micro-check, not a resolved proof', passed:gotIt.close.kind === 'uncertain' && gotIt.close.pattern === 'micro_check' && gotIt.guarded.indexOf('no hint') !== -1 },
+    { name:'just the answer strips the next step', passed:answerOnly.close.kind === 'none' && answerOnly.guarded.indexOf('MARG_NEXT') === -1 && answerOnly.guarded.indexOf('f(x) = 2x') !== -1 },
+    { name:'an offered next step survives a zero question budget', passed:budgetKept.indexOf('MARG_NEXT') !== -1 && budgetKept.indexOf('similar question') !== -1 && budgetKept.indexOf('Does that help') === -1 },
+    { name:'an equation is a scrollable block and a table has stacked rows', passed:equation.indexOf('mentor-equation') !== -1 && equation.indexOf('f(x)+f(y)=2f((x+y)/2)f((x-y)/2)') !== -1 && equation.indexOf('`') === -1 && table.indexOf('mentor-table-cards') !== -1 && table.indexOf('mentor-table-label') !== -1 && table.indexOf('<table') !== -1 },
+    { name:'a failed question generation offers a retry', passed:!!failure && failure.label === 'Try this question again' && failure.action === 'retry_question' && !!connection && connection.action === 'open_practice' },
+    { name:'the solver guard still does not append a generic block', passed:solver === 'The answer is 2x.' }
+  ];
+}
+window.runConversationCloseTests = runConversationCloseTests;
 
 var FAILURE_PATTERN_FALLBACK = "actually, let me not assume — what's the last question in this section that you got wrong and remember clearly? walk me through what happened";
 
@@ -20092,6 +20716,7 @@ async function routeAdHocDILRRequestToVerifiedInterface(userMessage) {
 }
 
 async function sendConversationalMessage(userMessage, context, imageAttachments, questionResolution) {
+  noteConversationUserTurn();
   if (context !== 'typed' && context !== 'rc_micro_followup_existing') {
     conversationHistory.push({ role: 'user', content: userMessage });
     capturePersonalGoalDetails(userMessage);
@@ -20145,7 +20770,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     var response = geminiText
       ? (mentorAnalysis.diagnosis.replyUnfinished
         ? finalizeMentorSavedText(preventStructuredOutputLeak(geminiText), mentorAnalysis.diagnosis)
-        : applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(geminiText, userMessage, mentorAnalysis.diagnosis).text), mentorAnalysis.diagnosis))
+        : applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(geminiText, userMessage, mentorAnalysis.diagnosis).text), (mentorAnalysis.diagnosis.attachConversationClose = true, mentorAnalysis.diagnosis)))
       : null;
     if (response && !mentorAnalysis.diagnosis.replyUnfinished) response = enforceVerifiedDILRChatBoundary(response, mentorAnalysis.diagnosis, userMessage, imageAttachments);
     if (response && !mentorAnalysis.diagnosis.replyUnfinished) response = ensureMockEvidenceContinuation(response, context, mentorAnalysis.diagnosis);
@@ -20334,6 +20959,7 @@ async function sendPatternFallbackQuestion() {
 }
 
 function checkAndRenderMargOptions(response) {
+  if (looksLikeBookQuestionSelection(response)) return;
   if (assistantBubbleAlreadyHasInlineChoices()) return;
   response = expandMentorAskTags(response);
   // The alternatives themselves can legitimately contain brackets, e.g.
@@ -20938,6 +21564,64 @@ function buildActivitySummary() {
   return summary;
 }
 
+function mentorRecoveryActionForNotice(text) {
+  var value = String(text || '');
+  if (/could not finish a complete question/i.test(value)) return { label:'Try this question again', action:'retry_question' };
+  if (/connection problem/i.test(value) && /will not fix/i.test(value)) return { label:'Open practice instead', action:'open_practice' };
+  if (/could not open that exercise|Use Retry response|use Retry answer|could not finish this answer|could not complete this answer|did not get a complete answer/i.test(value)) return { label:'Retry this answer', action:'retry_answer' };
+  return null;
+}
+
+function runMentorRecoveryAction(action) {
+  if (action === 'open_practice') {
+    if (typeof switchTab === 'function') switchTab('practice');
+    return;
+  }
+  if (action === 'retry_question') {
+    var lastUser = '';
+    var history = conversationHistory || [];
+    for (var i = history.length - 1; i >= 0; i--) {
+      if (history[i] && history[i].role === 'user' && !(typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(history[i]))) {
+        lastUser = String(history[i].content || '');
+        break;
+      }
+    }
+    if (lastUser) sendQuick(lastUser.replace(/\n\[[^\]]*images attached[\s\S]*$/, '').trim());
+    return;
+  }
+  var wraps = document.querySelectorAll ? document.querySelectorAll('#messages .msg-wrap.marg') : [];
+  var wrap = wraps && wraps.length ? wraps[wraps.length - 1] : null;
+  if (wrap && typeof regenerateAssistantMessage === 'function') regenerateAssistantMessage(wrap);
+}
+
+function attachRecoveryButtons(wrap) {
+  if (!wrap || !wrap.querySelector) return;
+  var bubble = wrap.querySelector('.bubble');
+  if (!bubble || bubble.querySelector('.mentor-recovery-btn')) return;
+  var action = mentorRecoveryActionForNotice(bubble.textContent || '');
+  if (!action) return;
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'mentor-recovery-btn';
+  button.textContent = action.label;
+  button.style.cssText = 'display:flex;align-items:center;margin-top:12px;min-height:44px;padding:12px 14px;border-radius:12px;border:1px solid rgba(201,168,76,.45);background:#17140e;color:#f0ede6;font:600 15px/1.3 DM Sans,sans-serif;cursor:pointer;text-align:left';
+  button.addEventListener('click', function() { runMentorRecoveryAction(action.action); });
+  bubble.appendChild(button);
+}
+
+function chooseMentorNextStep(button) {
+  if (!button) return;
+  var copy = button.querySelector ? button.querySelector('.conv-option-copy') : null;
+  var label = copy ? copy.textContent : button.textContent;
+  var wrap = button.closest ? button.closest('.mentor-next') : null;
+  var pattern = wrap && wrap.getAttribute ? wrap.getAttribute('data-pattern') : '';
+  noteOfferedOptionTap(label, pattern);
+  var group = button.parentNode;
+  if (group && group.querySelectorAll) group.querySelectorAll('button').forEach(function(item) { item.disabled = true; });
+  if (button.classList) button.classList.add('selected');
+  sendQuick(String(label || '').trim());
+}
+
 function sendQuick(text) {
   var input = document.getElementById('user-input');
   if (!input) return;
@@ -21114,6 +21798,298 @@ function maybeHandleAmbiguousShortInput(message) {
   return true;
 }
 
+function tidyBookQuestionMarkup(text) {
+  var value = String(text || '');
+  if (!/Q\s*\d{1,3}/.test(value) || !/(?:#{2,}|\*\s+Q\s*\d)/.test(value)) return value;
+  return value
+    .replace(/[ \t]*---+[ \t]*/g, '\n')
+    .replace(/[ \t]*(#{1,3}\s+)/g, '\n$1')
+    .replace(/[ \t]+\*\s+(?=Q\s*\d)/g, '\n* ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function isSelectedQuestionListRequest(text) {
+  var value = String(text || '');
+  if (/\b\d{1,2}\s+(?:qa|dilr|varc|va|rc|percentages?|algebra|questions?)\b/i.test(value) && !/\blist\b/i.test(value)) return false;
+  return /\b(?:whole|full|complete|entire|master|final|consolidated|curated)\s+(?:and\s+final\s+)?(?:list|selection)\b/i.test(value) ||
+    /\b(?:list|selection)\s+of\s+(?:the\s+)?questions\b/i.test(value) ||
+    /\bgive me the (?:whole |full |complete |final )?list\b/i.test(value) ||
+    /\bwhere(?:'s| is) the (?:full |complete |final |question )?list\b/i.test(value) ||
+    /\b(?:best selected|selected questions|high[- ]yield questions|curated (?:list|questions))\b/i.test(value);
+}
+
+function cleanQuestionGroup(name) {
+  var value = cleanQuestionTitle(name).replace(/\[[^\]]*\]/g, '').replace(/\s*\/\s*/g, ' and ').replace(/\s*&\s*/g, ' and ').replace(/\s+/g, ' ').trim().toLowerCase();
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : '';
+}
+
+function shortQuestionTopic(group) {
+  var value = String(group || '');
+  var cut = value.split(/\s+and\s+/i)[0].replace(/,\s*$/, '').trim();
+  return cut || value;
+}
+
+function bookQuestionTokens(chunk) {
+  var cleaned = String(chunk || '').replace(/\bquestions?\s+\d{1,3}\s+to\s+\d{1,3}\b/gi, ' ');
+  var re = /Q\s*(\d{1,3})(?:\s*[–-]\s*(?:Q\s*)?(\d{1,3}))?/gi;
+  var found = [];
+  var match;
+  while ((match = re.exec(cleaned))) {
+    var start = Number(match[1]);
+    var end = match[2] ? Number(match[2]) : start;
+    if (!start || end < start || end - start > 12) end = start;
+    found.push({
+      id: end !== start ? start + '-' + end : String(start),
+      label: end !== start ? 'Q' + start + '–' + end : 'Q' + start,
+      order: start
+    });
+  }
+  return found;
+}
+
+function cleanQuestionTitle(title) {
+  return String(title || '').replace(/\*+/g, '').replace(/^#+\s*/, '').replace(/\s+/g, ' ').replace(/[:–-]\s*$/, '').trim();
+}
+
+function questionListGroup(title) {
+  var value = String(title || '').toLowerCase();
+  if (/graph|modulus|shift|transform|vertex|area|minima|maximi|optimi|am-gm|quadratic sign|absolute value|curve/.test(value)) return 'Graphs, range and transformations';
+  if (/floor|greatest integer|exponent|sequence|series|piecewise|digital root|remainder|polynomial|telescop|recurrence|product|parity/.test(value)) return 'Mixed CAT-style applications';
+  return 'Function properties and equations';
+}
+
+function collectSelectedBookQuestions(text) {
+  var source = String(text || '');
+  var priorityAt = source.search(/\b(?:core benchmark|do these first|highest-return|master selection)\b/i);
+  var catalog = priorityAt >= 0 ? source.slice(0, priorityAt) : source;
+  var priority = priorityAt >= 0 ? source.slice(priorityAt) : '';
+  var byId = {};
+  var priorityCount = 0;
+  var seenOrder = 0;
+  function addRegion(chunk, isPriority) {
+    var re = /(Q\s*\d{1,3}(?:\s*[–-]\s*(?:Q\s*)?\d{1,3})?(?:\s*&\s*Q\s*\d{1,3}(?:\s*[–-]\s*(?:Q\s*)?\d{1,3})?)*)\s*(?:\(((?:[^()\n]|\([^()\n]*\))+)\)|\.\s+([A-Z][^.\n]{2,90}))/g;
+    var match;
+    while ((match = re.exec(chunk))) {
+      var title = cleanQuestionTitle(match[2] || match[3] || '');
+      if (title.length < 3) continue;
+      match[1].split(/\s*&\s*/).forEach(function(part) {
+        var nums = part.match(/\d{1,3}/g) || [];
+        if (!nums.length) return;
+        var id = nums.length > 1 ? nums[0] + '-' + nums[nums.length - 1] : nums[0];
+        var label = nums.length > 1 ? 'Q' + nums[0] + '–' + nums[nums.length - 1] : 'Q' + nums[0];
+        var item = byId[id];
+        if (!item) {
+          item = { id:id, label:label, title:title, priority:false, specific:!isPriority, order:Number(nums[0]), priorityOrder:999, seen:seenOrder++ };
+          byId[id] = item;
+        } else if (!isPriority && title.length > item.title.length) {
+          item.title = title;
+          item.specific = true;
+        }
+        if (isPriority) {
+          item.priority = true;
+          if (item.priorityOrder === 999) item.priorityOrder = priorityCount++;
+        }
+      });
+    }
+  }
+  function addToken(token, title, group) {
+    if (!token || byId[token.id]) return;
+    byId[token.id] = { id:token.id, label:token.label, title:title, group:group, priority:false, specific:false, order:token.order, priorityOrder:999, seen:seenOrder++ };
+  }
+  addRegion(catalog, false);
+  addRegion(priority, true);
+  var lines = source.replace(/\s+\*\s+/g, '\n').replace(/\s*•\s*/g, '\n').split(/\n+/);
+  var pending = '';
+  lines.forEach(function(raw) {
+    var trimmed = raw.replace(/^[-•*]\s*/, '').replace(/^\d+\.\s*/, '').trim();
+    if (!trimmed) return;
+    var colon = trimmed.match(/^([^:\n]{3,90}):\s*(.+)$/);
+    if (colon && !bookQuestionTokens(colon[1]).length && bookQuestionTokens(colon[2]).length) {
+      var named = cleanQuestionGroup(colon[1]);
+      bookQuestionTokens(colon[2]).forEach(function(token) { addToken(token, shortQuestionTopic(named), named); });
+      pending = '';
+      return;
+    }
+    var tokens = bookQuestionTokens(trimmed);
+    if (/^Q\s*\d/i.test(trimmed) && tokens.length >= 2) {
+      var groupName = pending || 'Selected questions';
+      tokens.forEach(function(token) { addToken(token, shortQuestionTopic(groupName), groupName); });
+      pending = '';
+      return;
+    }
+    if (!tokens.length && trimmed.length <= 80 && !/[.!?]$/.test(trimmed) && !/\b(?:here is|upload the|start with|next,|save pure|recommended questions)\b/i.test(trimmed)) {
+      pending = cleanQuestionGroup(trimmed);
+    }
+  });
+  var items = Object.keys(byId).map(function(id) { return byId[id]; });
+  var priorityGroup = '';
+  var startWith = source.match(/\bstart with (?:the )?([^\n.]{3,40}?)(?:\s+block|\s+first|\s+and\b)/i);
+  if (startWith) {
+    var needle = cleanQuestionGroup(startWith[1]).toLowerCase();
+    items.some(function(item) {
+      var group = String(item.group || '').toLowerCase();
+      if (group && (group.indexOf(needle.slice(0, 16)) !== -1 || needle.indexOf(group.slice(0, 16)) !== -1)) {
+        priorityGroup = item.group;
+        return true;
+      }
+      return false;
+    });
+  }
+  return { items:items, total:items.length, priorityGroup:priorityGroup };
+}
+
+function looksLikeBookQuestionSelection(text) {
+  var list = collectSelectedBookQuestions(text);
+  if (!list.total || list.total < 3) return false;
+  var value = String(text || '');
+  if (/(?:^|\n)\s*(?:PASSAGE|Answer:|Explanation:)\b/.test(value)) return false;
+  if (/(?:^|\n)\s*[A-D][.)]\s+\S/.test(value) && /\b(?:option|correct)\b/i.test(value)) return false;
+  return value.split('\n').some(function(line) { return (line.match(/Q\s*\d{1,3}/gi) || []).length >= 3; }) ||
+    (value.match(/Q\s*\d{1,3}[^\n]{0,16}\(/g) || []).length >= 3 ||
+    list.items.some(function(item) { return item.group; });
+}
+
+function selectedQuestionListPlain(list) {
+  var lines = ['Your selected question list'];
+  var items = (list.items || []).slice();
+  if (!items.some(function(item) { return item.group; })) {
+    items.slice().sort(function(a, b) { return a.order - b.order; }).forEach(function(item) { lines.push(item.label + '. ' + item.title); });
+    return lines.join('\n');
+  }
+  var groups = [];
+  items.slice().sort(function(a, b) { return (a.seen || 0) - (b.seen || 0); }).forEach(function(item) {
+    var name = item.group || 'Selected questions';
+    var group = groups.filter(function(entry) { return entry.name === name; })[0];
+    if (!group) { group = { name:name, items:[] }; groups.push(group); }
+    group.items.push(item);
+  });
+  if (list.priorityGroup) groups.sort(function(a, b) { return (a.name === list.priorityGroup ? 0 : 1) - (b.name === list.priorityGroup ? 0 : 1); });
+  groups.forEach(function(group) {
+    lines.push(group.name);
+    lines.push(group.items.map(function(item) { return item.label; }).join(', '));
+  });
+  return lines.join('\n');
+}
+
+function selectedQuestionRowCopy(item) {
+  return item.title ? item.label + '. ' + item.title : item.label;
+}
+
+function renderSelectedQuestionList(list) {
+  if (typeof ensureMentorRichTextStyles === 'function') ensureMentorRichTextStyles();
+  var items = (list && list.items || []).slice();
+  var saved = [];
+  try { saved = JSON.parse(localStorage.getItem('marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.')) || '[]'); } catch (e) { saved = []; }
+  if (!Array.isArray(saved)) saved = [];
+  function escapeList(value) {
+    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function row(item) {
+    var done = saved.indexOf(item.id) !== -1;
+    return '<button type="button" class="marg-qpick' + (done ? ' done' : '') + '" data-qid="' + escapeList(item.id) + '"><span class="marg-qpick-mark" aria-hidden="true"></span><span class="marg-qpick-copy">' + escapeList(selectedQuestionRowCopy(item)) + '</span></button>';
+  }
+  var explicit = items.some(function(item) { return item.group; });
+  var groups;
+  if (explicit) {
+    groups = [];
+    items.slice().sort(function(a, b) { return (a.seen || 0) - (b.seen || 0); }).forEach(function(item) {
+      var name = item.group || 'Selected questions';
+      var group = groups.filter(function(entry) { return entry[0] === name; })[0];
+      if (!group) { group = [name, []]; groups.push(group); }
+      group[1].push(item);
+    });
+    if (list.priorityGroup) groups.sort(function(a, b) { return (a[0] === list.priorityGroup ? 0 : 1) - (b[0] === list.priorityGroup ? 0 : 1); });
+  } else {
+    var priority = items.filter(function(item) { return item.priority; }).sort(function(a, b) { return a.priorityOrder - b.priorityOrder; });
+    var rest = items.filter(function(item) { return !item.priority; });
+    groups = [
+      ['Do these first', priority],
+      ['Function properties and equations', rest.filter(function(item) { return questionListGroup(item.title) === 'Function properties and equations'; })],
+      ['Graphs, range and transformations', rest.filter(function(item) { return questionListGroup(item.title) === 'Graphs, range and transformations'; })],
+      ['Mixed CAT-style applications', rest.filter(function(item) { return questionListGroup(item.title) === 'Mixed CAT-style applications'; })]
+    ].filter(function(group) { return group[1].length; });
+  }
+  var doneCount = items.filter(function(item) { return saved.indexOf(item.id) !== -1; }).length;
+  var store = 'marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.');
+  return '<div class="mentor-paragraph">Here is the full selection from the pages already in this chat.</div><div class="marg-qlist" data-store="' + escapeList(store) + '"><div class="marg-qlist-title">Your selected question list</div><div class="marg-qlist-banner"><span class="marg-qlist-dot" aria-hidden="true"></span><div><div class="marg-qlist-priority">Priority 1 — Do these first</div><div class="marg-qlist-note">Core concepts and useful problem-solving practice</div></div></div>' +
+    groups.map(function(group) {
+      return '<div class="marg-qlist-group">' + escapeList(group[0]) + '</div>' + group[1].sort(function(a, b) { return a.priority ? a.priorityOrder - b.priorityOrder : a.order - b.order; }).map(row).join('');
+    }).join('') +
+    '<div class="marg-qlist-foot"><span class="marg-qlist-count">' + doneCount + ' of ' + items.length + ' completed</span><button type="button" class="marg-qlist-reset">Reset</button></div></div>';
+}
+
+function refreshSelectedQuestionList(list) {
+  if (!list || !list.querySelectorAll) return;
+  var picks = list.querySelectorAll('.marg-qpick');
+  var done = [];
+  Array.prototype.forEach.call(picks, function(button) {
+    if (button.classList.contains('done')) done.push(button.getAttribute('data-qid'));
+  });
+  var count = list.querySelector('.marg-qlist-count');
+  if (count) count.textContent = done.length + ' of ' + picks.length + ' completed';
+  try { localStorage.setItem(list.getAttribute('data-store') || 'marg_qlist_v1', JSON.stringify(done)); } catch (e) {}
+}
+
+function bindSelectedQuestionList(root) {
+  if (!root || !root.querySelectorAll) return;
+  root.querySelectorAll('.marg-qlist').forEach(function(list) {
+    if (list.dataset && list.dataset.bound === '1') return;
+    if (list.dataset) list.dataset.bound = '1';
+    list.querySelectorAll('.marg-qpick').forEach(function(button) {
+      button.addEventListener('click', function() {
+        button.classList.toggle('done');
+        refreshSelectedQuestionList(list);
+      });
+    });
+    var reset = list.querySelector('.marg-qlist-reset');
+    if (reset) reset.addEventListener('click', function() {
+      list.querySelectorAll('.marg-qpick').forEach(function(button) { button.classList.remove('done'); });
+      refreshSelectedQuestionList(list);
+    });
+  });
+}
+
+function selectedQuestionSourceText() {
+  if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return '';
+  var messages = conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; });
+  for (var i = messages.length - 1; i >= 0; i--) {
+    if (looksLikeBookQuestionSelection(messages[i])) return messages[i];
+  }
+  return messages.join('\n');
+}
+
+function maybeServeSelectedQuestionList(message) {
+  if (!isSelectedQuestionListRequest(message)) return false;
+  var list = collectSelectedBookQuestions(selectedQuestionSourceText());
+  if (!list.total || list.total < 3) return false;
+  var plain = selectedQuestionListPlain(list);
+  addMessage('marg', renderSelectedQuestionList(list), true);
+  conversationHistory.push({ role:'assistant', content:plain });
+  if (typeof isGuestMode !== 'undefined' && !isGuestMode && typeof saveChatMessage === 'function') saveChatMessage('assistant', plain);
+  return true;
+}
+
+async function refillBookQuestionList(reply, request, timeoutMs) {
+  if (looksLikeBookQuestionSelection(reply) || typeof fetchWithTimeout !== 'function' || typeof WORKER_URL === 'undefined') return reply;
+  var next = copyRequestForContinuation(request, true);
+  var override = '\n\nBOOK LIST OVERRIDE: The word limit does not apply. Reply with only the selected question numbers from the uploaded pages, grouped by topic. Put each topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not add an introduction, a study plan, or [OPTIONS].';
+  var parts = next.systemInstruction && next.systemInstruction.parts;
+  if (parts && parts[0] && typeof parts[0].text === 'string') parts[0].text += override;
+  else next.systemInstruction = { parts:[{ text:override.trim() }] };
+  next.contents = (next.contents || []).concat([
+    { role:'model', parts:[{ text:String(reply || '').slice(0, 1200) || 'Here is the list.' }] },
+    { role:'user', parts:[{ text:'Where is the list? Write every selected question number, grouped by topic.' }] }
+  ]);
+  try {
+    var response = await fetchWithTimeout(WORKER_URL, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(next) }, timeoutMs || 75000);
+    var data = await response.json();
+    var text = getGeminiText(data);
+    if (looksLikeBookQuestionSelection(text)) return text;
+  } catch (error) {}
+  return reply;
+}
+
 function inChatQuestionFormat(text) {
   var value = String(text || '');
   if (/\b(?:para\s*-?\s*jumbles?|parajumbles?|\bpjs?\b|jumbled(?:\s+up)?\s+sentences?)\b/i.test(value)) return 'parajumble';
@@ -21138,6 +22114,7 @@ function asksForInChatQuestions(text) {
 function parseInChatQuestionRequest(message) {
   var text = String(message || '').trim();
   if (!text || text.length > 600) return null;
+  if (isSelectedQuestionListRequest(text)) return null;
   if (/\b(?:how (?:do|should|can) i|explain how|what(?:'s| is) the (?:approach|strategy)|advice|guidance|diagnos(?:e|is))\b/i.test(text) &&
       !/\b(?:give|generate|write|create)\b[\s\S]{0,40}\bquestions?\b/i.test(text)) return null;
   if (/\b(?:solutions?|answers?|explanations?)\s+(?:to|for|of)\b|\b(?:check|review|explain)\s+(?:my|this|these|that)\b/i.test(text)) return null;
@@ -22102,7 +23079,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
-  if (!effectiveHasImages && !studyOwned && (await maybeServeOriginalQuestionsInChat(text) || await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartHypothesisExperiment(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
+  if (!effectiveHasImages && !studyOwned && (maybeServeSelectedQuestionList(text) || await maybeServeOriginalQuestionsInChat(text) || await maybeGenerateConversationalRC(text) || maybeLaunchExplicitPracticeRequest(text) || maybeHandlePracticeProductQuestion(text) || await maybeStartHypothesisExperiment(text) || await maybeStartSavedDiagnosticCheck(text) || maybeHandleTimetableIntake(text) || maybeLeadWithProgression(text))) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
   }
@@ -22162,7 +23139,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     }
     let reply = mentorAnalysis.diagnosis.replyUnfinished
       ? finalizeMentorSavedText(preventStructuredOutputLeak(studyReply && ensureStudyConfigured() ? MargStudy.normalizeLayout(mentorModelText) : mentorModelText), mentorAnalysis.diagnosis)
-      : applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(mentorModelText, text, mentorAnalysis.diagnosis).text), mentorAnalysis.diagnosis);
+      : applyMentorResponseGuard(preventStructuredOutputLeak(captureMentorHypotheses(mentorModelText, text, mentorAnalysis.diagnosis).text), (mentorAnalysis.diagnosis.attachConversationClose = true, mentorAnalysis.diagnosis));
     if (!mentorAnalysis.diagnosis.replyUnfinished && !studyReply) {
       reply = stabilizeAndRememberMission(reply, text);
       reply = suppressUnrelatedActivePlanReminder(reply, text);
@@ -22181,6 +23158,11 @@ async function sendMessage(fromQueue, submissionOptions) {
     reply = stripInternalMentorTags(reply);
     reply = appendGroundingSources(reply, data);
     reply = finalizeMentorSavedText(reply, mentorAnalysis.diagnosis);
+    if (mentorAnalysis.diagnosis.bookQuestionList && !looksLikeBookQuestionSelection(reply)) {
+      reply = await refillBookQuestionList(reply, mentorRequest, mentorTimeout);
+      reply = finalizeMentorSavedText(reply, mentorAnalysis.diagnosis);
+    }
+    if (looksLikeBookQuestionSelection(reply)) reply = stripMentorDisplayControlTags(reply);
     if (!mentorAnalysis.diagnosis.replyUnfinished && !studyReply) markExerciseReviewCompleted(reply);
     if (studyReply) recordStudyMentorStep(studyTurn, reply);
     if (!mentorAnalysis.diagnosis.replyUnfinished && !mentorAnalysis.diagnosis.gradingIntegrityRepaired && mentorAnalysis.diagnosis.intent === 'answer_review' && !(activeGeneratedExercise && activeGeneratedExercise.hypothesis) && hasVerifiedRepeatedAnswerError(text)) recordBehaviorPattern(activeGeneratedExercise ? activeGeneratedExercise.type : 'general', reply, text, 'answer-review');
@@ -24303,7 +25285,7 @@ async function finishMockOnboarding() {
     const response = geminiText
       ? (mentorAnalysis.diagnosis.replyUnfinished
         ? finalizeMentorSavedText(preventStructuredOutputLeak(geminiText), mentorAnalysis.diagnosis)
-        : applyMentorResponseGuard(captureMentorHypotheses(geminiText, '', null).text, mentorAnalysis.diagnosis))
+        : applyMentorResponseGuard(captureMentorHypotheses(geminiText, '', null).text, (mentorAnalysis.diagnosis.attachConversationClose = true, mentorAnalysis.diagnosis)))
       : null;
     hideTyping();
     if (response) {
@@ -27647,8 +28629,9 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       ? '<button class="pcard-nav-btn secondary" onclick="openCheckedTimedRecovery()" style="margin-top:12px;">Open the checked ' + (section === 'qa' ? 'QA' : 'DILR') + ' round for this topic</button>'
       : (differentRoundReady ? '<button class="pcard-nav-btn secondary" onclick="openDifferentCheckedRound()" style="margin-top:12px;">Open a different checked ' + (section === 'qa' ? 'QA' : 'DILR') + ' round</button>' : '');
     var timedErrorMessage = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem. Your topic is saved; retrying immediately will not fix it.' : 'I could not open that timed round just now. Your section and topic are saved.';
-    var timedRetryButton = isGeminiLocationError(e) ? '' : '<button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:200px;">Try again</button>';
-    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div>' + timedRetryButton + shortRecoveryButton + '</div>';
+    var timedRetryButton = isGeminiLocationError(e) ? '' : '<button class="pcard-nav-btn primary" onclick="retryTimedTest()" style="margin-top:12px;max-width:240px;min-height:44px;">Try again</button>';
+    var timedChatButton = '<button class="pcard-nav-btn" onclick="switchTab(\'chat\')" style="margin-top:12px;max-width:240px;min-height:44px;">Continue this topic in chat</button>';
+    contentEl.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">' + escapeChatHtml(timedErrorMessage) + '</div>' + timedRetryButton + shortRecoveryButton + timedChatButton + '</div>';
   }
 }
 
@@ -28222,7 +29205,7 @@ function useVerifiedPracticeRecovery() {
       : validateRCPracticeSet(recovery));
   if (!valid) {
     var content = document.getElementById('practice-content');
-    if (content) content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">I could not open another set in this section just now. Your topic is still selected.</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:220px;">Try again</button></div>';
+    if (content) content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">I could not open another round in this section just now. Your topic is still selected.</div><button class="pcard-nav-btn primary" onclick="loadDailyPractice()" style="margin-top:12px;max-width:240px;min-height:44px;">Try again</button><button class="pcard-nav-btn" onclick="switchTab(\'chat\')" style="margin-top:12px;max-width:240px;min-height:44px;">Ask Marg in chat</button></div>';
     return false;
   }
   // The user explicitly chose a mixed recovery pack. This is never presented
@@ -28982,7 +29965,9 @@ function showDailyLimitCard(type) {
     '<div class="daily-limit-title">Today\'s ' + typeName + ' practice — done</div>' +
     '<div class="daily-limit-body">You\'ve completed 3 ' + typeName + ' sessions today. Fresh targeted practice will unlock in the next daily cycle.</div>' +
     '<div class="daily-limit-stat">🔥 ' + sessionsCount + ' sessions completed with Marg</div>' +
-    '<div style="font-size:12px;color:var(--text-dim);">Try a different section, or chat with Marg about today\'s mistakes</div>' +
+    '<div style="font-size:15px;color:var(--text-dim);line-height:1.5;margin-bottom:12px;">Fresh practice in this section unlocks tomorrow. You can practice another section now, or ask Marg about today\'s mistakes.</div>' +
+    '<button class="pcard-nav-btn primary" onclick="switchPracticeTab(\'' + (type === 'rc' ? 'dilr' : type === 'dilr' ? 'qa' : 'rc') + '\')" style="max-width:240px;min-height:44px;margin:0 auto;">Try ' + (type === 'rc' ? 'DILR' : type === 'dilr' ? 'QA' : 'RC') + '</button>' +
+    '<button class="pcard-nav-btn" onclick="switchTab(\'chat\')" style="max-width:240px;min-height:44px;margin:8px auto 0;">Ask Marg about today</button>' +
     '</div>';
 }
 function startOnboardingChat() {
