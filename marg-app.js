@@ -9099,6 +9099,13 @@ function hasVerifiedActiveAnswerKey() {
   return /^(?:verified_local|model_checked|independently_verified|preverified)$/.test(String(status || '')) && isActiveExerciseCurrentInConversation();
 }
 
+function hasGradableStoredAnswerKey() {
+  var status = activeGeneratedExercise && activeGeneratedExercise.validationVerdict && activeGeneratedExercise.validationVerdict.status;
+  // A stored passage can be graded against the key shipped with it. That grade
+  // is not a new independent check, so this must stay separate from hasVerifiedActiveAnswerKey.
+  return status === 'stored_pack' && isActiveExerciseCurrentInConversation();
+}
+
 function getExerciseHypothesisVerdict(exercise) {
   var value = exercise && (exercise.hypothesisVerdict || (typeof exercise.validationVerdict === 'string' ? exercise.validationVerdict : ''));
   return /^(?:supported|rejected|inconclusive)$/i.test(String(value || '')) ? String(value).toLowerCase() : null;
@@ -9277,7 +9284,8 @@ function findRecentSubmittedAnswerText(message) {
 }
 
 function buildLocalAnswerCheck(message) {
-  if (!hasVerifiedActiveAnswerKey()) return '';
+  var gradingStoredPack = hasGradableStoredAnswerKey();
+  if (!hasVerifiedActiveAnswerKey() && !gradingStoredPack) return '';
   if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(message)) return '';
   var questions = getActiveExerciseQuestions();
   if (!questions.length) return '';
@@ -9305,6 +9313,7 @@ function buildLocalAnswerCheck(message) {
   });
   if (!blocks.length) return '';
   var result = 'Let\'s look at your choices for this exercise:\n\n' + blocks.join('\n\n') + '\n\nYou got ' + correctCount + '/' + reviewedCount + ' right.';
+  if (gradingStoredPack) result = 'This review uses the answer key stored with this passage. That key has not been independently checked again for this attempt.\n\n' + result;
   var repeatedPattern = wrongPatterns.find(function(pattern) { return wrongPatterns.filter(function(other) { return other === pattern; }).length >= 2; });
   if (repeatedPattern) result += ' Two or more misses in this exercise involved ' + repeatedPattern + '. That is a working clue, not proof across mocks.';
   if (typeof isExerciseResultReviewRequest === 'function' && isExerciseResultReviewRequest(message)) {
@@ -9378,13 +9387,16 @@ function maybeCompleteVerifiedAnswerReview(message) {
   if (!review) return false;
   // The exact questions already have checked explanations. Deliver their
   // score immediately; an unavailable model must not block or rescore them.
-  review += isExerciseResultReviewRequest(message) ? '\n\nWant to do that next check together?' : '\n\nWant to go through the reasoning for one answer together?';
+  // A stored-passage review already explains each choice, so it does not add
+  // another question just to keep the conversation open.
+  if (!hasGradableStoredAnswerKey()) review += isExerciseResultReviewRequest(message) ? '\n\nWant to do that next check together?' : '\n\nWant to go through the reasoning for one answer together?';
   applyPredictionValidationVerdict(review);
   markExerciseReviewCompleted(review);
   var visible = stripInternalMentorTags(review);
   addMessage('marg', renderMentorStructuredText(visible));
   conversationHistory.push({role:'assistant',content:visible});
   if (!isGuestMode) saveChatMessage('assistant',visible);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
   lastFailedOutgoingMessage = null;
   showComposerStatus('', 'info');
   return true;
@@ -20366,6 +20378,7 @@ async function runAuditRepairTests() {
   }
   var stopped = closed(stop, 'Got it. Have a good night. Anything else?');
   check('stop does not recycle the student words into a next task', stopped.indexOf('leave it here') !== -1 && stopped.indexOf('Please stop') === -1 && stopped.indexOf('?') === -1);
+  check('a hopeless CAT sentence is not turned into a guessed section', directDiscouragementReply(discouraged).indexOf('?') === -1 && directDiscouragementReply(discouraged).indexOf('VARC') === -1 && directDiscouragementReply('I will never clear CAT.').indexOf('bad set') === -1 && parseInChatQuestionRequest(discouraged) === null);
   check('discouraged and useless turns do not invent a topic', closed(discouraged, 'Three attempts at 70 percentile is a result, not a verdict.').indexOf('will never clear') === -1 && closed(useless, 'Say what felt useless and I’ll answer that.').indexOf('This useless') === -1);
   check('a section correction is not turned into a similar question', closed(sections, 'CAT has three sections: VARC, DILR and QA. Each gets 40 minutes.').indexOf('five sections right') === -1);
   var listAdd = addMessage;
@@ -20407,6 +20420,50 @@ async function runAuditRepairTests() {
   var stored = null;
   try { currentTopic = 'science'; articleIndex = 1; currentRCSource = 'aeon'; stored = useStoredVarcPassage('The feed did not return an Aeon essay'); } catch (error) { stored = null; }
   check('an Aeon failure can use a stored passage without calling it Aeon', !!stored && stored.storedFallback === true && stored.source === 'Stored passage' && /Aeon/i.test(stored.source) === false && !!(stored.storedPack && stored.storedPack.sets && stored.storedPack.sets[0].passage));
+  var rcSubmit = 'My RC Lab answers are 1-A, 2-B, 3-B, 4-C. The elapsed timer was 12 seconds (it may include pauses). I chose this focus: Stored passage. Check every answer against this passage, then tell me what my choices actually show and what the next RC should test.';
+  check('a submitted RC review is not a request for new questions', parseInChatQuestionRequest(rcSubmit) === null && parseInChatQuestionRequest('give me 2 QA percentages questions') !== null);
+  var previousExercise = activeGeneratedExercise;
+  var reviewHistory = conversationHistory.slice();
+  var passage = 'A scientific model is frequently judged by how faithfully it resembles the world and every simplifying assumption is a device for asking what follows when one influence is held still.';
+  conversationHistory = [{ role:'assistant', content:'PASSAGE\n\n' + passage + '\n\n1. Which option best states the central argument?\nA. Include every influence\nB. Test assumptions and shared blind spots\nC. Competing models show immaturity\nD. The most detailed model wins' }];
+  activeGeneratedExercise = {
+    id:'stored-review-test',
+    type:'rc',
+    source:'stored-varc-fallback',
+    validationVerdict:{ status:'stored_pack', verification:{ mode:'stored-passage', provesKey:false, educationallyVerified:false } },
+    content:{
+      exerciseText:passage,
+      answerKey:[
+        { question:1, correct:'B', explanation:'Only B includes both the defence and the limiting condition.', trap:'One-sided summary' },
+        { question:2, correct:'B', explanation:'The contrast illustrates models that answer different questions.', trap:'Illustration overreach' },
+        { question:3, correct:'B', explanation:'Shared assumptions weaken the claim of independent confirmation.', trap:'Shared-assumption blindness' },
+        { question:4, correct:'C', explanation:'The conclusion asks for the question, the distortion, and the failure condition.', trap:'Absolute detail preference' }
+      ],
+      structuredData:{ sets:[{ passage:passage, questions:[{ q:'Which option best states the central argument of the passage?' }] }] },
+      rcLab:{ storedFallback:true }
+    }
+  };
+  var graded = buildLocalAnswerCheck(rcSubmit);
+  check('a stored passage review grades the submitted answers without calling the key verified', graded.indexOf('not been independently checked') !== -1 && graded.indexOf('Q1 — ❌ Incorrect') !== -1 && graded.indexOf('the correct answer is B') !== -1 && graded.indexOf('Q2 — ✅ Correct') !== -1 && graded.indexOf('Q4 — ✅ Correct') !== -1 && graded.indexOf('You got 3/4 right') !== -1 && graded.indexOf('independently verified') === -1 && graded.indexOf('?') === -1);
+  activeGeneratedExercise = previousExercise;
+  conversationHistory = reviewHistory;
+  var listMode = isGuestMode;
+  var listUser = currentUser;
+  var listHistory = conversationHistory.slice();
+  isGuestMode = true;
+  currentUser = null;
+  conversationHistory = [{ role:'user', content:'Give me the full question list.' }];
+  await maybeHandleBookQuestionPages('Give me the full question list.');
+  var listSnapshot = sessionStorage.getItem(guestSessionStorageKey()) || '';
+  conversationHistory = [];
+  var listRestored = restoreGuestTabSession();
+  var listTranscript = (conversationHistory || []).map(function(item) { return item.content || ''; }).join('\n');
+  clearPreviousGuestSession();
+  var listCleared = restoreGuestTabSession() === false;
+  isGuestMode = listMode;
+  currentUser = listUser;
+  conversationHistory = listHistory;
+  check('an empty list reply survives reload and a new guest does not inherit it', listSnapshot.indexOf('No pages are in this chat') !== -1 && listRestored === true && listTranscript.indexOf('Give me the full question list.') !== -1 && listTranscript.indexOf('No pages are in this chat') !== -1 && listCleared);
   return results;
 }
 window.runAuditRepairTests = runAuditRepairTests;
@@ -22440,6 +22497,7 @@ function publishBookChecklist(list, extraNote, lead) {
   var html = (note ? '<div class="mentor-paragraph">' + escapeChatHtml(note) + '</div>' : '') + renderSelectedQuestionList(list, lead);
   addMessage('marg', html, true);
   rememberBookAssistantText(selectedQuestionListPlain(list));
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
 }
 
 function publishBookHold(hasImages) {
@@ -22448,6 +22506,7 @@ function publishBookHold(hasImages) {
     : 'I’ll wait for the rest of the pages. Send them when they’re ready and I’ll put every question number into one list.';
   addMessage('marg', escapeChatHtml(line), true);
   rememberBookAssistantText(line);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
 }
 
 function publishBookMissing(message) {
@@ -22462,6 +22521,7 @@ function publishBookMissing(message) {
       : 'I won’t write new questions in place of that list. Send the pages that are still missing and I’ll put every number in one list.';
   addMessage('marg', escapeChatHtml(line), true);
   rememberBookAssistantText(line);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
 }
 
 function maybeServeSelectedQuestionList(message) {
@@ -22590,6 +22650,11 @@ function parseInChatQuestionRequest(message) {
       !/\b(?:give|generate|write|create)\b[\s\S]{0,40}\bquestions?\b/i.test(text)) return null;
   if (/\b(?:solutions?|answers?|explanations?)\s+(?:to|for|of)\b|\b(?:check|review|explain)\s+(?:my|this|these|that)\b/i.test(text)) return null;
   if (/\b(?:open|go to|take me to|show)\b[\s\S]{0,35}\bpractice\s+(?:tab|page|section)\b/i.test(text)) return null;
+  // A completed answer sheet is a review of that attempt. Words such as
+  // "show" and "test" inside the review request must not start a new set.
+  var submittedAnswers = typeof parseSubmittedAnswerChoices === 'function' ? Object.keys(parseSubmittedAnswerChoices(text)).length : 0;
+  var asksForNewQuestions = /\b(?:give|send|generate|write|create)\s+me\b[\s\S]{0,50}\b(?:questions?|parajumbles?|para\s*-?\s*jumbles?|passage)\b/i.test(text);
+  if (submittedAnswers >= 2 && !asksForNewQuestions) return null;
   var older = '';
   if (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory)) {
     older = conversationHistory.slice(-6).map(function(item) { return item && item.content || ''; }).join(' ');
@@ -23020,6 +23085,14 @@ function directTrainPlatformReply(message) {
   return 'Speed = (' + train + ' + ' + platform + ') ÷ ' + seconds + ' = ' + formatDeterministicNumber(metresPerSecond) + ' m/s = ' + formatDeterministicNumber(kmh) + ' km/h.';
 }
 
+function directDiscouragementReply(message) {
+  var text = String(message || '').trim();
+  if (!text || text.length > 280) return '';
+  if (/\b(?:question|passage|solve|explain|percent of|cut-?off|score|marking)\b/i.test(text)) return '';
+  if (!/\b(?:never clear|can(?:not|'t) clear|won'?t clear|will never make it)\b[\s\S]{0,40}\bCAT\b|\bCAT\b[\s\S]{0,40}\b(?:never clear|impossible for me)\b/i.test(text)) return '';
+  return 'That is a fear, not a result that decides CAT. I will not guess a section or a skill from this sentence. Paste one mock or one question when you want to look at what actually happened.';
+}
+
 function directCutoffLimitReply(message) {
   var text = String(message || '');
   if (!/\bexact\b/i.test(text) || !/\bcut-?off\b/i.test(text)) return '';
@@ -23036,7 +23109,7 @@ function finishLocalFactReply(reply) {
 }
 
 function maybeHandleDirectTask(message) {
-  var reply = directCatScoreReply(message) || directPercentOfReply(message) || directTrainPlatformReply(message) || directCutoffLimitReply(message);
+  var reply = directCatScoreReply(message) || directPercentOfReply(message) || directTrainPlatformReply(message) || directCutoffLimitReply(message) || directDiscouragementReply(message);
   if (!reply) return false;
   return finishLocalFactReply(reply);
 }
@@ -24615,7 +24688,7 @@ function serveStoredArticlePassage() {
   var pack = currentArticle && currentArticle.storedPack;
   if (!pack) return false;
   var safe = JSON.parse(JSON.stringify(pack));
-  var reply = formatStructuredArticleRC(safe);
+  var reply = formatStructuredArticleRC(safe).replace('I already have the checked answer key.', 'I have the answer key stored with this passage. It has not been independently checked again for this attempt.');
   if (!reply) return false;
   closeVarcCard();
   var deliveredConfig = Object.assign({}, getRCLabConfiguration(), { storedFallback:true, fallback:false, focusLabel:'Stored passage' });
@@ -25035,8 +25108,12 @@ function buildArticleRCAttemptHtml(exercise) {
   }).join('');
   var nextDisabled = !Number.isInteger(state.selections[index]) || index >= questions.length - 1;
   var allAnswered = answered === questions.length;
-  var note = submitted ? 'Answers submitted. Marg is using the checked key to review the decisions behind them.' : allAnswered ? 'All four answered. Submit once and Marg will review the complete pattern.' : 'Choose one option for every question. Answers are saved on this device.';
   var labConfig = exercise && exercise.content && exercise.content.rcLab || {};
+  var note = submitted
+    ? (labConfig.storedFallback
+      ? 'Answers submitted. Marg is reviewing them against the stored key for this passage. That key has not been independently checked again for this attempt.'
+      : 'Answers submitted. Marg is using the checked key to review the decisions behind them.')
+    : allAnswered ? 'All four answered. Submit once and Marg will review the complete pattern.' : 'Choose one option for every question. Answers are saved on this device.';
   var kicker = labConfig.storedFallback ? 'Stored passage · Aeon feed did not load' : labConfig.fallback ? 'RC Lab · verified mixed fallback' : 'RC Lab' + (labConfig.focusLabel ? ' · ' + labConfig.focusLabel : '');
   return '<div class="article-rc-head"><div><div class="article-rc-kicker">' + escapeVisualText(kicker) + '</div><div class="article-rc-title">' + escapeVisualText(exercise.title || setObj.topic || 'CAT reading passage') + '</div></div><div><div class="article-rc-progress">' + (index + 1) + ' / ' + questions.length + '</div><div class="article-rc-timer" data-rc-timer>' + elapsedLabel + '</div></div></div>' +
     '<div class="article-rc-step-row">' + steps + '</div>' +
