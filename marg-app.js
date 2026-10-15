@@ -3139,7 +3139,7 @@ When reviewing multiple answers, readability is mandatory. Give every question i
 
 You remember exercises you generated. When ACTIVE GENERATED EXERCISE MEMORY is present, it is your own passage, set or questions, including the hidden answer key and purpose. If the student says "check my answers" or submits choices such as "1-A, 2-C", check them immediately from that memory. Never ask them to resend your passage, questions or set. Diagnose the pattern across their choices, then give the smallest useful fix.
 
-EXERCISE TRUST OVERRIDES MENTORING: A missing question stem, incomplete condition, contradictory set, incorrect key, answer absent from the options, or solution that assumes unstated data is a Marg product failure—not evidence about the student. Say exactly what is broken, discard the item, and do not infer a cognitive pattern, weakness, careless mistake or score implication from it. Never repair the key by confidently inventing a new answer. Only an exercise with a stored key check may support a diagnosis. A second model pass can agree with a key, and that agreement does not prove the key is correct. Do not tell the student a key was independently verified unless the stored check is the local solver or a hand-checked pack.
+EXERCISE TRUST OVERRIDES MENTORING: A missing question stem, incomplete condition, contradictory set, incorrect key, answer absent from the options, or solution that assumes unstated data is a Marg product failure—not evidence about the student. Say exactly what is broken, discard the item, and do not infer a cognitive pattern, weakness, careless mistake or score implication from it. Never repair the key by confidently inventing a new answer. Only an exercise with a stored key check may support a diagnosis. A second model pass can agree with a key, and that agreement does not prove the key is correct. A local solver and an embedded passage key are not independent verification. Do not tell the student a key was independently verified unless a separate check recomputed it from the question and that status is stored.
 
 You also receive BEHAVIOURAL MEMORY, TOPIC PROGRESSION and ACTIVE PLAN MEMORY. Use them before advice. Begin from concrete evidence when it exists: "Last week you were at 86% in Percentages. Your ability did not disappear; your confidence in the source changed." Do not list memory mechanically. Use one relevant past result to show continuity, then make the current read. Never invent a score or previous event.
 
@@ -3486,9 +3486,9 @@ async function constructVerifiedQAResponse(request,signal) {
     data=engine.create(request.margQATopic,seed+i*71237,request.margQAQuestionCount);
     audit=engine.verify(data,request.margQATopic);
     if(!audit.valid)throw new Error('QA arithmetic proof failed: '+audit.issues.join('; '));
-    if(!wasPracticeRecentlySeen('qa',data))break;
+    if(!wasExactPracticeDelivered('qa',data))break;
   }
-  if(wasPracticeRecentlySeen('qa',data))throw new Error('No unseen QA pack was constructed');
+  if(wasExactPracticeDelivered('qa',data))throw new Error('No unseen QA pack was constructed');
   if(signal&&signal.aborted)throw new DOMException('Request cancelled','AbortError');
   return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(data)}]},finishReason:'STOP'}],margRequest:{upstreamCalls:0,construction:'independent-numeric-code-solver'}}),{status:200,headers:{'Content-Type':'application/json','X-Marg-Upstream-Calls':'0'}});
 }
@@ -3520,9 +3520,9 @@ async function constructVerifiedDILRResponse(request, signal) {
     catch(constructionError) { if(attempt===7) throw constructionError;continue; }
     verification = engine.verify(data, request.margDILRTopic);
     if (!verification.valid) throw new Error('DILR construction failed its independent code proof');
-    if (!wasPracticeRecentlySeen('dilr',data)) break;
+    if (!wasExactPracticeDelivered('dilr',data)) break;
   }
-  if (wasPracticeRecentlySeen('dilr',data)) throw new Error('No unseen DILR structure was constructed');
+  if (wasExactPracticeDelivered('dilr',data)) throw new Error('No unseen DILR structure was constructed');
   if (signal && signal.aborted) throw new DOMException('Request cancelled','AbortError');
   return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(data)}]},finishReason:'STOP'}],margRequest:{upstreamCalls:0,construction:'exhaustive-code-solver'}}), {status:200,headers:{'Content-Type':'application/json','X-Marg-Upstream-Calls':'0'}});
 }
@@ -19715,6 +19715,133 @@ function applyStudyResponseGuard(response, diagnosis) {
   return text;
 }
 
+function formatExactPracticeValue(value) {
+  if (!Number.isFinite(value)) return '';
+  if (Math.abs(value - Math.round(value)) < 1e-8) return String(Math.round(value));
+  for (var d = 2; d <= 10000; d++) {
+    var n = Math.round(value * d);
+    if (Math.abs(value - n / d) < 1e-10) return n + '/' + d;
+  }
+  return String(Math.round(value * 1000000) / 1000000);
+}
+
+function canonicalizeNumericToken(token) {
+  var compact = String(token || '').replace(/\s+/g, '');
+  if (/^\d+\/\d+$/.test(compact)) return compact;
+  if (/^\d+\.\d+$/.test(compact) && Math.abs(Number(compact) - Math.round(Number(compact))) < 1e-8) return String(Math.round(Number(compact)));
+  return compact;
+}
+
+function exactNumericTokens(option) {
+  return String(option || '').replace(/^[A-D]\s*[).:\-]\s*/, '').match(/\d+\s*\/\s*\d+|\d+(?:\.\d+)?/g) || [];
+}
+
+function optionHasExactValue(option, formatted) {
+  var target = canonicalizeNumericToken(formatted);
+  return exactNumericTokens(option).some(function(token) { return canonicalizeNumericToken(token) === target; });
+}
+
+function optionTagHasExactValue(tag, formatted) {
+  var body = String(tag || '').replace(/^\[OPTIONS:\s*/i, '').replace(/\]$/, '');
+  return body.split('|').some(function(part) { return optionHasExactValue(part, formatted); });
+}
+
+function practiceDistractors(value, formatted) {
+  var base = Math.round(value);
+  var candidates = [base - 4, base - 2, base + 2, base + 4, base + 6, base - 6];
+  var out = [];
+  candidates.forEach(function(n) {
+    if (n <= 0 || Math.abs(n - value) < 1) return;
+    var label = String(n);
+    if (label === formatted || out.indexOf(label) !== -1) return;
+    out.push(label);
+  });
+  return out.slice(0, 3);
+}
+
+function recentNumericPracticeContext() {
+  var parts = [];
+  (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : []).slice(-8).forEach(function(item) {
+    parts.push(String(item && item.content || ''));
+  });
+  try {
+    var data = typeof practiceData !== 'undefined' && practiceData ? practiceData[currentPracticeType] : null;
+    var question = data && Array.isArray(data.questions) ? data.questions[currentQuestionIndex] : null;
+    if (question && question.q) parts.push(String(question.q));
+  } catch (error) {}
+  return parts.join('\n');
+}
+
+function solveAlloyCopperAddition(response, context) {
+  var asked = String(response || '');
+  if (!/\b(?:how many|what is|find|calculate)\b/i.test(asked) || !/\bcopper\b/i.test(asked) || !/\balloy\b/i.test(asked) || !/\b(?:add|added)\b/i.test(asked)) return null;
+  var targetMatch = asked.match(/\b(?:make|making|becomes?|reach|to)\s+(?:the\s+)?(?:resulting\s+)?alloy\s+(\d+(?:\.\d+)?)\s*%/i);
+  if (!targetMatch) return null;
+  var originalMatch = asked.match(/\bcontains\s+(\d+(?:\.\d+)?)\s*%\s*copper\b/i) || String(context || '').match(/\bcontains\s+(\d+(?:\.\d+)?)\s*%\s*copper\b/i);
+  var massMatch = asked.match(/\balloy of\s+(\d+(?:\.\d+)?)\s*kg\b/i) || String(context || '').match(/\balloy of\s+(\d+(?:\.\d+)?)\s*kg\b/i);
+  if (!originalMatch || !massMatch) return null;
+  var original = Number(originalMatch[1]);
+  var target = Number(targetMatch[1]);
+  var kg = Number(massMatch[1]);
+  if (!(kg > 0) || !(target > original) || !(target < 100)) return null;
+  var answer = kg * (target - original) / (100 - target);
+  return { answer:answer, unit:'kg', stem:'An alloy of ' + kg + ' kg contains ' + original + '% copper. How many kg of pure copper must be added to make the resulting alloy ' + target + '% copper?' };
+}
+
+function solveTankCapacity(response) {
+  var asked = String(response || '');
+  var match = asked.match(/\btank is\s+(\d+(?:\.\d+)?)%\s*full\b[\s\S]{0,120}?(\d+(?:\.\d+)?)\s*litres?\s+are added[\s\S]{0,80}?(\d+(?:\.\d+)?)%\s*full/i);
+  if (!match || !/\b(?:capacity|how many|what is)\b/i.test(asked)) return null;
+  var start = Number(match[1]);
+  var litres = Number(match[2]);
+  var end = Number(match[3]);
+  if (!(end > start) || !(end < 100) || !(litres > 0)) return null;
+  return { answer:litres / ((end - start) / 100), unit:'litres', stem:'A tank is ' + start + '% full. After ' + litres + ' litres are added, it becomes ' + end + '% full. What is the tank’s capacity in litres?' };
+}
+
+function solveReversedPercentage(response) {
+  var asked = String(response || '');
+  var match = asked.match(/(\d+(?:\.\d+)?)%\s*more than[\s\S]{0,160}?what percentage less/i);
+  if (!match) return null;
+  var gap = Number(match[1]);
+  if (!(gap > 0)) return null;
+  return { answer:gap / (100 + gap) * 100, unit:'%', stem:'A quantity is ' + gap + '% more than another. The second is what percentage less than the first?' };
+}
+
+function solveRecognizedNumericQuestion(response, context) {
+  return solveAlloyCopperAddition(response, context) || solveTankCapacity(response) || solveReversedPercentage(response);
+}
+
+function numericChoiceBlock(text) {
+  var optionTags = String(text || '').match(/\[OPTIONS:[^\]]*\]/gi) || [];
+  var lettered = String(text || '').match(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+[^\n]+/gm) || [];
+  var tagsAreNumeric = optionTags.length > 0 && optionTags.every(function(tag) {
+    return tag.split('|').every(function(part) { return exactNumericTokens(part).length > 0; });
+  });
+  var lettersAreNumeric = lettered.length >= 3 && lettered.every(function(line) { return exactNumericTokens(line).length > 0; });
+  return { optionTags:optionTags, lettered:lettered, numeric:tagsAreNumeric || lettersAreNumeric };
+}
+
+function guardInvalidNumericPractice(text) {
+  var value = String(text || '');
+  var choices = numericChoiceBlock(value);
+  if (!choices.numeric) return value;
+  if (!/\b(?:how many|what is|find|calculate|what percentage)\b/i.test(value)) return value;
+  var solved = solveRecognizedNumericQuestion(value, recentNumericPracticeContext());
+  if (!solved || !Number.isFinite(solved.answer)) {
+    return value.replace(/\[OPTIONS:[^\]]*\]/gi, '').replace(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+[^\n]+/gm, '').trim() + '\n\nI’m not showing that as practice. Those choices were not checked against a solution, so they will not be used to judge your preparation.';
+  }
+  var formatted = formatExactPracticeValue(solved.answer);
+  var tagsMatch = !choices.optionTags.length || choices.optionTags.every(function(tag) { return optionTagHasExactValue(tag, formatted); });
+  var lettersMatch = choices.lettered.length < 3 || choices.lettered.some(function(line) { return optionHasExactValue(line, formatted); });
+  if (tagsMatch && lettersMatch) return value;
+  var distractors = practiceDistractors(solved.answer, formatted);
+  while (distractors.length < 3) distractors.push(String(20 + distractors.length * 3));
+  var rotated = [distractors[0], formatted, distractors[1], distractors[2]];
+  var stripped = value.replace(/\[OPTIONS:[^\]]*\]/gi, '').replace(/(?:^|\n)\s*[A-D]\s*[).:\-]\s+[^\n]+/gm, '').trim();
+  return stripped + '\n\nThe earlier choices did not include the answer, so they are discarded. Checked replacement: ' + solved.stem + '\n[OPTIONS: ' + rotated.join('|') + ']';
+}
+
 function applyMentorResponseGuard(response, diagnosis) {
   if (diagnosis && diagnosis.responseShape === 'study' && ensureStudyConfigured()) return applyStudyResponseGuard(response, diagnosis);
   if (diagnosis && diagnosis.hintOnly) return guardHintOnlyResponse(response);
@@ -19786,6 +19913,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = ensureConversationMomentumClose(text, diagnosis);
   text = guardDuplicateMessageAwareness(text, diagnosis);
   text = cleanMentorOpeningPunctuation(text);
+  text = guardInvalidNumericPractice(text);
   // Never discard an otherwise complete answer merely because natural prose
   // contains an unmatched quotation mark. The old quote-count heuristic
   // falsely removed valid RC exercises and appended an internal-sounding note.
@@ -20467,6 +20595,150 @@ async function runAuditRepairTests() {
   return results;
 }
 window.runAuditRepairTests = runAuditRepairTests;
+
+async function runReliabilityRepairTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  function optionTagHas(text, token) {
+    var tag = String(text || '').match(/\[OPTIONS:([^\]]*)\]/i);
+    return !!(tag && tag[1].split('|').some(function(part) { return optionHasExactValue(part, token); }));
+  }
+  var previousHistory = conversationHistory.slice();
+  var previousUser = currentUser;
+  var previousGuest = isGuestMode;
+  var previousPractice = practiceData;
+  var previousType = currentPracticeType;
+  var previousIndex = currentQuestionIndex;
+  var previousMemory = diagnosticMemory;
+  var previousPlan = activeMentorPlan;
+  var previousPending = pendingDiagnosticExercise;
+  var previousExercise = activeGeneratedExercise;
+  var previousTask = studentProfile && studentProfile.lastTask;
+  currentUser = null;
+  isGuestMode = false;
+  diagnosticMemory = {};
+  activeMentorPlan = null;
+  pendingDiagnosticExercise = null;
+  activeGeneratedExercise = null;
+  if (studentProfile) studentProfile.lastTask = null;
+  try { localStorage.removeItem(getUserScopedKey('marg_learning_record')); } catch (error) {}
+  try { localStorage.removeItem(getUserScopedKey('marg_seen_practice')); } catch (error) {}
+  if (typeof Response === 'undefined') {
+    globalThis.Response = function(body) { this._body = String(body || ''); this.json = function() { return Promise.resolve(JSON.parse(this._body)); }; };
+  }
+
+  conversationHistory = [{ role:'assistant', content:'An alloy of 40 kg contains 30% copper. How many kg of pure copper must be added to make the resulting alloy 50% copper? The answer is 16 kg.' }];
+  var kept = applyMentorResponseGuard('How many kg of pure copper must be added to make the resulting alloy 50% copper?\n[OPTIONS: 12|16|20|24]', { intent:'general_mentor', submittedAnswerText:'I missed the alloy question.' });
+  check('a solved alloy question keeps the exact option', optionTagHas(kept, '16') && kept.indexOf('did not include') === -1);
+  var replaced = applyMentorResponseGuard('You were 7 kg away from 16. How many kg of pure copper must be added to make the alloy 40% copper?\n[OPTIONS: 10|15|20]\n[OPTIONS: 10|15|20|25]', { intent:'general_mentor', submittedAnswerText:'I missed the alloy question.' });
+  check('the 40 percent alloy follow-up includes 20/3', optionTagHas(replaced, '20/3') && replaced.indexOf('6.7') === -1);
+  check('rounding does not become the alloy answer', optionTagHas(replaced, '7') === false && optionTagHas(replaced, '6.67') === false);
+  var unitOptions = guardInvalidNumericPractice('How many kg of pure copper must be added to make the alloy 40% copper?\n[OPTIONS: 10 kg|15 kg|20 kg|25 kg]');
+  check('unit labels do not hide a missing alloy answer', optionTagHas(unitOptions, '20/3'));
+  var already = guardInvalidNumericPractice('How many kg of pure copper must be added to make the alloy 40% copper?\n[OPTIONS: 4|20/3 kg|8|16]');
+  check('an exact fraction already offered is left in place', already.indexOf('did not include') === -1 && already.indexOf('20/3') !== -1);
+  var reversed = guardInvalidNumericPractice('A’s income is 20% more than B’s income. B’s income is what percentage less than A’s income?\n[OPTIONS: 10|15|20|25]');
+  check('a reversed percentage is not replaced by the original percent', optionTagHas(reversed, '50/3') && optionTagHas(reversed, '20') === false);
+  var tank = guardInvalidNumericPractice('A tank is 20% full. After 15 litres are added, it becomes 50% full. What is the tank’s capacity in litres?\n[OPTIONS: 30|40|45|60]');
+  check('tank capacity is not excluded by the option list', optionTagHas(tank, '50'));
+  var unchecked = guardInvalidNumericPractice('How many widgets remain after the transfer?\n[OPTIONS: 2|4|6|8]');
+  check('an unsolved numeric choice is not presented as practice', unchecked.indexOf('[OPTIONS:') === -1 && /will not be used to judge/.test(unchecked));
+
+  var engineBad = [];
+  MargQAEngine.topics.forEach(function(topic) {
+    for (var seed = 1; seed <= 5; seed++) {
+      var count = topic === 'Percentages' ? 8 : 3;
+      var pack = MargQAEngine.create(topic, seed * 17, count);
+      var audit = MargQAEngine.verify(pack, topic);
+      if (!audit.valid) engineBad.push(topic + ' seed ' + seed);
+      pack.questions.forEach(function(question) {
+        var values = question.options.map(function(option) { return option.slice(3); });
+        if (new Set(values).size !== 4) engineBad.push('duplicate options ' + topic);
+      });
+    }
+  });
+  check('solver packs keep four distinct options and a matching key', engineBad.length === 0);
+  var tenPack = MargQAEngine.create('Percentages', 3, 10);
+  check('template overlap inside a new solver pack is not a previous delivery', wasPracticeRecentlySeen('qa', tenPack) === true && practiceRepeatsDeliveredWork('qa', tenPack) === false);
+
+  var sectional = null;
+  var originalCreate = MargQAEngine.create;
+  try {
+    sectional = await constructVerifiedQAResponse({ margQATopic:'Percentages', margQAQuestionCount:10 });
+  } catch (error) { sectional = error; }
+  check('a fresh 10-question percentages pack is constructed', sectional && typeof sectional.json === 'function');
+  var seenPack = MargQAEngine.create('Percentages', 99, 10);
+  MargQAEngine.create = function() { return seenPack; };
+  markPracticeSeen('qa', seenPack);
+  var rejected = false;
+  try { await constructVerifiedQAResponse({ margQATopic:'Percentages', margQAQuestionCount:10 }); }
+  catch (error) { rejected = /No unseen QA pack/.test(String(error && error.message || '')); }
+  MargQAEngine.create = originalCreate;
+  check('an exactly delivered QA pack is still rejected', rejected === true);
+
+  try { localStorage.removeItem(getUserScopedKey('marg_learning_record')); } catch (error) {}
+  var learningPack = MargQAEngine.create('Percentages', 4, 8);
+  var alloy = learningPack.questions.filter(function(question) { return /alloy/i.test(question.q); })[0];
+  var election = learningPack.questions.filter(function(question) { return /election/i.test(question.q); })[0];
+  practiceData = { qa:{ questions:[alloy, election] } };
+  currentPracticeType = 'qa';
+  currentQuestionIndex = 0;
+  notePracticeResult('qa', alloy, 0, alloy.correct, false);
+  var missed = loadLearningRecord();
+  check('one percentages miss is a fact and not a hypothesis', missed.facts.length === 1 && missed.facts[0].kind === 'observed' && missed.hypothesis === null && missed.intervention.kind === 'gather_evidence');
+  alignUpcomingQuestionWithLearning(practiceData.qa, 'qa');
+  var nextItem = practiceData.qa.questions[1];
+  check('the next exercise stays on the missed skill', !!nextItem && practiceSkillOf(nextItem) === practiceSkillOf(alloy) && nextItem.q !== alloy.q && !/election/i.test(nextItem.q));
+  var home = buildHomeRecommendation();
+  check('home leaves the generic stuck-score card', home.title.indexOf('Not sure why') === -1 && /observation|evidence/i.test(home.title + ' ' + home.copy));
+  var turn = buildMentorTurnContext('What should I practise next?', { diagnosis:{ intent:'general_mentor', submittedAnswerText:'What should I practise next?' }, directive:'' });
+  check('the next turn can see the fact when behavioural memory is off', turn.indexOf('FACT') !== -1 && turn.indexOf('HYPOTHESIS: none') !== -1);
+  notePracticeResult('qa', nextItem, nextItem.correct, nextItem.correct, true);
+  var measured = loadLearningRecord();
+  check('one correct fresh item is not mastery', !!(measured.outcome && measured.outcome.correct === true && measured.outcome.mastery === false));
+  var measuredHome = buildHomeRecommendation();
+  check('home says the fresh correct item is not mastery', /not mastery/i.test(measuredHome.title));
+
+  noteLearningReport('I do not understand why the percentage base changes.');
+  var concept = loadLearningRecord();
+  check('a concept report is a hypothesis with a fresh check', concept.hypothesis && concept.hypothesis.kind === 'hypothesis' && concept.hypothesis.cause === 'conceptual' && concept.nextExercise && concept.nextExercise.independentlyVerified === false);
+  noteLearningReport('I knew the method but I added instead of subtracting.');
+  check('an execution report stays a hypothesis', loadLearningRecord().hypothesis.cause === 'execution' && loadLearningRecord().intervention.kind === 'fresh_check');
+  noteLearningReport('I ran out of time on the percentages questions.');
+  check('time pressure does not become a concept gap', loadLearningRecord().hypothesis.cause === 'time_pressure' && loadLearningRecord().intervention.kind === 'timed_fresh_check');
+  noteLearningReport('In VARC I chose the option that repeated the passage wording.');
+  var varcRecord = loadLearningRecord();
+  check('a VARC wording report selects an embedded check', varcRecord.hypothesis.cause === 'option_trap' && varcRecord.nextExercise && varcRecord.nextExercise.section === 'varc' && varcRecord.nextExercise.verification === 'embedded-passage-not-independently-checked');
+  noteLearningReport('In DILR I picked the wrong set and spent too long on a hard one.');
+  var dilrRecord = loadLearningRecord();
+  check('a DILR selection report does not pretend to be a solved key', dilrRecord.hypothesis.cause === 'selection' && dilrRecord.nextExercise && dilrRecord.nextExercise.verification === 'selection-rule-not-a-solved-key' && dilrRecord.nextExercise.independentlyVerified === false);
+
+  isGuestMode = true;
+  currentUser = null;
+  conversationHistory = [{ role:'user', content:'I missed the alloy question.' }, { role:'assistant', content:'One observation is saved.' }];
+  persistGuestBrowserSession();
+  var snapshot = sessionStorage.getItem(guestSessionStorageKey()) || '';
+  localStorage.removeItem(getUserScopedKey('marg_learning_record'));
+  var restored = restoreGuestTabSession();
+  check('a guest reload keeps the learning record', restored === true && /selection-rule-not-a-solved-key/.test(snapshot) && loadLearningRecord().hypothesis && loadLearningRecord().hypothesis.cause === 'selection');
+  clearPreviousGuestSession();
+  check('a new guest does not inherit the learning record', !localStorage.getItem('marg_learning_record_guest') && restoreGuestTabSession() === false);
+
+  conversationHistory = previousHistory;
+  currentUser = previousUser;
+  isGuestMode = previousGuest;
+  practiceData = previousPractice;
+  currentPracticeType = previousType;
+  currentQuestionIndex = previousIndex;
+  diagnosticMemory = previousMemory;
+  activeMentorPlan = previousPlan;
+  pendingDiagnosticExercise = previousPending;
+  activeGeneratedExercise = previousExercise;
+  if (studentProfile) studentProfile.lastTask = previousTask;
+  try { localStorage.removeItem(getUserScopedKey('marg_learning_record')); } catch (error) {}
+  return results;
+}
+window.runReliabilityRepairTests = runReliabilityRepairTests;
 
 var FAILURE_PATTERN_FALLBACK = "actually, let me not assume — what's the last question in this section that you got wrong and remember clearly? walk me through what happened";
 
@@ -21495,6 +21767,7 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
     getStudentStateContext(message, diagnosis) +
     exerciseContext +
     getBehavioralMemoryContext(message, diagnosis) +
+    getLearningRecordContext() +
     getTopicProgressionMemoryContext(message, diagnosis) +
     planContext +
     (allowAccountProfile ? personalGoalFactsForTurn() : '') +
@@ -23650,6 +23923,8 @@ async function sendMessage(fromQueue, submissionOptions) {
     return;
   }
 
+  if (!effectiveHasImages && !studyOwned) noteLearningReport(text);
+
   if (!effectiveHasImages && !studyOwned && maybeHandleAmbiguousShortInput(text)) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
     return;
@@ -24944,18 +25219,18 @@ async function createRCPassage() {
     if (validateRCPracticeSet(safeFallback, 4)) {
       var fallbackSet = safeFallback.sets[0];
       var fallbackReply = formatStructuredArticleRC(safeFallback);
-      var deliveredConfig = Object.assign({}, rcConfig, { fallback:true, focusLabel:'Verified mixed RC' });
+      var deliveredConfig = Object.assign({}, rcConfig, { fallback:true, embeddedKey:true, focusLabel:'Embedded RC' });
       storeActiveGeneratedExercise({
         type:'rc',
-        source:'rc-lab-verified-fallback',
-        title:fallbackSet.topic || 'Verified CAT RC',
-        purpose:'Reliable CAT RC practice after a fresh draft was discarded',
-        validationVerdict:{ status:'preverified', verification:{ mode:'local-verified-bank' } },
+        source:'rc-lab-embedded-fallback',
+        title:fallbackSet.topic || 'Embedded CAT RC',
+        purpose:'Embedded CAT RC practice after a fresh draft was discarded. The stored key has not been independently checked.',
+        validationVerdict:{ status:'stored_pack', verification:{ mode:'embedded-passage', provesKey:false, educationallyVerified:false } },
         content:{
           exerciseText:fallbackReply,
           answerKey:buildArticleRCAnswerMemory(safeFallback),
           structuredData:safeFallback,
-          article:{ title:fallbackSet.topic || 'Verified CAT RC', source:'Marg Original', url:'' },
+          article:{ title:fallbackSet.topic || 'Embedded CAT RC', source:'Marg Original', url:'' },
           rcLab:deliveredConfig
         }
       });
@@ -25109,12 +25384,13 @@ function buildArticleRCAttemptHtml(exercise) {
   var nextDisabled = !Number.isInteger(state.selections[index]) || index >= questions.length - 1;
   var allAnswered = answered === questions.length;
   var labConfig = exercise && exercise.content && exercise.content.rcLab || {};
+  var embeddedKey = !!(labConfig.storedFallback || labConfig.embeddedKey || labConfig.fallback);
   var note = submitted
-    ? (labConfig.storedFallback
+    ? (embeddedKey
       ? 'Answers submitted. Marg is reviewing them against the stored key for this passage. That key has not been independently checked again for this attempt.'
       : 'Answers submitted. Marg is using the checked key to review the decisions behind them.')
     : allAnswered ? 'All four answered. Submit once and Marg will review the complete pattern.' : 'Choose one option for every question. Answers are saved on this device.';
-  var kicker = labConfig.storedFallback ? 'Stored passage · Aeon feed did not load' : labConfig.fallback ? 'RC Lab · verified mixed fallback' : 'RC Lab' + (labConfig.focusLabel ? ' · ' + labConfig.focusLabel : '');
+  var kicker = labConfig.storedFallback ? 'Stored passage · Aeon feed did not load' : embeddedKey ? 'RC Lab · embedded passage · key not independently checked' : 'RC Lab' + (labConfig.focusLabel ? ' · ' + labConfig.focusLabel : '');
   return '<div class="article-rc-head"><div><div class="article-rc-kicker">' + escapeVisualText(kicker) + '</div><div class="article-rc-title">' + escapeVisualText(exercise.title || setObj.topic || 'CAT reading passage') + '</div></div><div><div class="article-rc-progress">' + (index + 1) + ' / ' + questions.length + '</div><div class="article-rc-timer" data-rc-timer>' + elapsedLabel + '</div></div></div>' +
     '<div class="article-rc-step-row">' + steps + '</div>' +
     '<div class="article-rc-tools"><button type="button" class="article-rc-tool primary" onclick="toggleArticleRCPassage(this)">' + (state.passageOpen ? 'Hide passage' : 'View passage') + '</button><button type="button" class="article-rc-tool" onclick="openArticleRCPassageFocus(this)">Focus · Aa</button></div>' +
@@ -25402,6 +25678,7 @@ function persistGuestBrowserSession() {
       profile:typeof progressiveProfileMemory !== 'undefined' ? progressiveProfileMemory : null,
       goal:typeof personalGoalMemory !== 'undefined' ? personalGoalMemory : null,
       studentProfile:studentProfile || null,
+      learningRecord:typeof loadLearningRecord === 'function' ? loadLearningRecord() : null,
       savedAt:Date.now()
     }));
   } catch (error) {}
@@ -25425,6 +25702,7 @@ function restoreGuestTabSession() {
   if (saved.profile) progressiveProfileMemory = saved.profile;
   if (saved.goal) personalGoalMemory = saved.goal;
   if (saved.studentProfile) studentProfile = saved.studentProfile;
+  if (saved.learningRecord && typeof saveLearningRecord === 'function') saveLearningRecord(saved.learningRecord);
   onboardingComplete = true;
   var loading = document.getElementById('loading-screen');
   var landing = document.getElementById('landing-page');
@@ -25450,7 +25728,7 @@ function clearPreviousGuestSession() {
   conversationHistory = [];
   if (typeof margAllChatMessages !== 'undefined') margAllChatMessages = [];
   if (typeof margThreadStates !== 'undefined') margThreadStates = {};
-  ['marg_progressive_profile_guest', 'marg_personal_goal_guest', 'marg_chat_topics_guest'].forEach(function(key) {
+  ['marg_progressive_profile_guest', 'marg_personal_goal_guest', 'marg_chat_topics_guest', 'marg_learning_record_guest'].forEach(function(key) {
     try { localStorage.removeItem(key); } catch (error) {}
   });
   try { sessionStorage.removeItem(guestSessionStorageKey()); } catch (error) {}
@@ -26681,6 +26959,258 @@ function getDurableMentorTaskRecommendation() {
   };
 }
 
+function emptyLearningRecord() {
+  return { facts:[], hypothesis:null, objective:null, intervention:null, outcome:null, nextExercise:null };
+}
+
+function loadLearningRecord() {
+  try {
+    var parsed = JSON.parse(localStorage.getItem(getUserScopedKey('marg_learning_record')) || 'null');
+    if (!parsed || !Array.isArray(parsed.facts)) return emptyLearningRecord();
+    return parsed;
+  } catch (error) { return emptyLearningRecord(); }
+}
+
+function saveLearningRecord(record) {
+  try { localStorage.setItem(getUserScopedKey('marg_learning_record'), JSON.stringify(record)); } catch (error) {}
+  try {
+    if (typeof isGuestMode !== 'undefined' && isGuestMode && !currentUser) {
+      var raw = sessionStorage.getItem(guestSessionStorageKey());
+      if (!raw) return;
+      var saved = JSON.parse(raw);
+      if (!saved || typeof saved !== 'object') return;
+      saved.learningRecord = record;
+      sessionStorage.setItem(guestSessionStorageKey(), JSON.stringify(saved));
+    }
+  } catch (error) {}
+}
+
+function practiceSkillOf(question) {
+  return String(question && (question.concept_check || question.marg_insight || question.trap_type) || '').trim();
+}
+
+function classifyLearningReport(message) {
+  var text = String(message || '');
+  if (text.length < 12) return null;
+  if (/\b(?:do not understand|don't understand|dont understand|confused about the concept|concept is unclear)\b/i.test(text) && /\b(?:percent|base|ratio|formula)\b/i.test(text)) {
+    return { section:'qa', topic:'Percentages', skill:'The comparison reverses the percentage base.', cause:'conceptual', hypothesis:'The student reports a conceptual misunderstanding of the percentage base. That report is a hypothesis, not an observed fact.' };
+  }
+  if (/\b(?:knew the (?:method|formula)|right method|added instead|subtracted wrong|arithmetic mistake|calculation error)\b/i.test(text)) {
+    return { section:'qa', topic:'Percentages', skill:'Conserve the original metal while the denominator grows.', cause:'execution', hypothesis:'The student reports knowing the method and missing the calculation. That is a hypothesis about execution, not a fact that the method is secure.' };
+  }
+  if (/\b(?:ran out of time|time pressure|not enough time)\b/i.test(text) && !/\bdilr\b/i.test(text)) {
+    return { section:'qa', topic:'Percentages', skill:'Track the unchanged count before changing the percentage base.', cause:'time_pressure', hypothesis:'The student reports time pressure. That hypothesis is not yet a concept gap.' };
+  }
+  if (/\b(?:picked the wrong (?:question|exercise|set)|wrong set|spent too long on a hard)\b/i.test(text) || (/\bdilr\b/i.test(text) && /\b(?:which (?:question|exercise) to (?:pick|attempt)|selection)\b/i.test(text))) {
+    return { section:'dilr', topic:'Question selection', skill:'Choose the attempt before solving it.', cause:'selection', hypothesis:'The student reports choosing the wrong question. The next check is the selection decision, not a new solved arrangement.' };
+  }
+  if (/\b(?:varc|reading comprehension|\brc\b)\b/i.test(text) && /\b(?:option|wording|trap)\b/i.test(text)) {
+    return { section:'varc', topic:'Reading', skill:'Reject an option that repeats wording without matching the claim.', cause:'option_trap', hypothesis:'The student reports choosing wording from the passage that does not answer the question. That is a hypothesis about an option trap.' };
+  }
+  return null;
+}
+
+function noteLearningReport(message) {
+  var classified = classifyLearningReport(message);
+  if (!classified) return null;
+  var record = loadLearningRecord();
+  var fact = { id:'report-' + Date.now() + '-' + record.facts.length, at:new Date().toISOString(), kind:'student_report', section:classified.section, topic:classified.topic, skill:classified.skill, stem:String(message).slice(0, 240), source:'student_report' };
+  record.facts.push(fact);
+  record.facts = record.facts.slice(-12);
+  record.hypothesis = { id:'hyp-' + fact.id, kind:'hypothesis', statement:classified.hypothesis, cause:classified.cause, skill:classified.skill, evidenceFactIds:[fact.id], status:'untested' };
+  record.objective = { section:classified.section, topic:classified.topic, skill:classified.skill, reason:classified.cause };
+  record.intervention = { kind:classified.cause === 'time_pressure' ? 'timed_fresh_check' : classified.cause === 'selection' ? 'selection_check' : 'fresh_check', skill:classified.skill, section:classified.section, served:false, mastery:false };
+  record.outcome = null;
+  record.nextExercise = null;
+  saveLearningRecord(record);
+  ensureLearningExercise(record);
+  return record;
+}
+
+function notePracticeResult(section, question, selectedIndex, correctIndex, isCorrect) {
+  if (!question) return false;
+  var record = loadLearningRecord();
+  var skill = practiceSkillOf(question);
+  var sectionName = section === 'rc' ? 'varc' : section;
+  var isCheck = !!(question.learningCheck || (record.intervention && record.intervention.served && record.objective && skill && skill === record.objective.skill));
+  if (isCheck) {
+    record.outcome = { at:new Date().toISOString(), correct:!!isCorrect, stem:String(question.q || '').slice(0, 240), mastery:false, note:isCorrect ? 'One correct answer on a fresh item. This is not mastery.' : 'The fresh item was also missed. That is another observation, not a diagnosis.' };
+    if (record.hypothesis) record.hypothesis.status = 'still_untested';
+    if (record.intervention) {
+      record.intervention.mastery = false;
+      record.intervention.served = !isCorrect ? false : true;
+      if (!isCorrect) record.intervention.kind = 'gather_evidence';
+    }
+    if (!isCorrect) {
+      record.facts.push({ id:'fact-' + Date.now(), at:new Date().toISOString(), kind:'observed', section:sectionName, topic:question.topic || (record.objective && record.objective.topic) || '', skill:skill, stem:String(question.q || '').slice(0, 240), selected:selectedIndex, correct:correctIndex, source:'practice' });
+      record.facts = record.facts.slice(-12);
+    }
+    saveLearningRecord(record);
+    return true;
+  }
+  if (isCorrect) return false;
+  var fact = { id:'fact-' + Date.now() + '-' + record.facts.length, at:new Date().toISOString(), kind:'observed', section:sectionName, topic:question.topic || '', skill:skill, stem:String(question.q || '').slice(0, 240), selected:selectedIndex, correct:correctIndex, source:'practice' };
+  record.facts.push(fact);
+  record.facts = record.facts.slice(-12);
+  if (!record.hypothesis || record.hypothesis.skill !== skill) record.hypothesis = null;
+  record.objective = { section:sectionName, topic:question.topic || skill, skill:skill, reason:'one_miss' };
+  record.intervention = { kind:'gather_evidence', skill:skill, section:sectionName, served:false, mastery:false };
+  record.outcome = null;
+  record.nextExercise = null;
+  saveLearningRecord(record);
+  return false;
+}
+
+function buildLearningExercise(record) {
+  if (!record || !record.objective) return null;
+  var section = record.objective.section;
+  var avoid = record.facts.length ? record.facts[record.facts.length - 1].stem : '';
+  if (section === 'qa' && typeof MargQAEngine !== 'undefined') {
+    var topic = MargQAEngine.topics.indexOf(record.objective.topic) !== -1 ? record.objective.topic : 'Percentages';
+    for (var seed = 1; seed <= 16; seed++) {
+      try {
+        var pack = MargQAEngine.create(topic, (seed * 71237) >>> 0, 8);
+        var audit = MargQAEngine.verify(pack, topic);
+        if (!audit.valid) continue;
+        for (var i = 0; i < pack.questions.length; i++) {
+          var question = pack.questions[i];
+          if (practiceSkillOf(question) === record.objective.skill && String(question.q) !== String(avoid || '')) {
+            return { section:'qa', skill:record.objective.skill, stem:question.q, correct:question.correct, options:question.options, solution:question.solution, verification:'independent-numeric-code-solver', independentlyVerified:false, question:question };
+          }
+        }
+      } catch (error) {}
+    }
+  }
+  if (section === 'varc' && typeof getVerifiedArticleRCFallback === 'function') {
+    var bank = getVerifiedArticleRCFallback('learning-evidence');
+    var setObj = bank && bank.sets && bank.sets[0];
+    var questions = setObj && setObj.questions || [];
+    var picked = questions.filter(function(item) { return /vocabular|wording|qualification/i.test(String(item && item.marg_insight || '') + ' ' + String(item && item.trap_type || '')); })[0] || questions[0];
+    if (!picked) return null;
+    return { section:'varc', skill:record.objective.skill, stem:picked.q, options:picked.options, correct:picked.correct, verification:'embedded-passage-not-independently-checked', independentlyVerified:false, question:picked };
+  }
+  if (section === 'dilr') {
+    return { section:'dilr', skill:record.objective.skill, stem:'You have 16 minutes and two DILR exercises. One is a long tournament. One is a short distribution whose first group is forced. Which do you attempt first, and when do you leave?', options:['Stay with the tournament until it is finished','Start the short distribution and leave if the first group is not forced within 4 minutes','Start the longer one because it looks worth more marks','Skip both'], correct:1, verification:'selection-rule-not-a-solved-key', independentlyVerified:false, question:{ q:'You have 16 minutes and two DILR exercises. One is a long tournament. One is a short distribution whose first group is forced. Which do you attempt first, and when do you leave?', options:['A. Stay with the tournament until it is finished','B. Start the short distribution and leave if the first group is not forced within 4 minutes','C. Start the longer one because it looks worth more marks','D. Skip both'], correct:1, concept_check:record.objective.skill, learningCheck:'selection_check' } };
+  }
+  return null;
+}
+
+function ensureLearningExercise(record) {
+  record = record || loadLearningRecord();
+  if (!record.objective) return null;
+  if (record.nextExercise && record.nextExercise.skill === record.objective.skill && record.nextExercise.stem) return record.nextExercise;
+  var built = buildLearningExercise(record);
+  if (!built) return null;
+  record.nextExercise = { section:built.section, skill:built.skill, stem:built.stem, options:built.options, correct:built.correct, verification:built.verification, independentlyVerified:false, question:built.question || null };
+  saveLearningRecord(record);
+  return record.nextExercise;
+}
+
+function alignUpcomingQuestionWithLearning(data, section) {
+  if (!data || section !== 'qa' || !Array.isArray(data.questions)) return data;
+  var record = loadLearningRecord();
+  if (!record.objective || !record.intervention || record.intervention.kind !== 'gather_evidence' || record.intervention.served) return data;
+  if (record.objective.section && record.objective.section !== 'qa') return data;
+  var nextIndex = currentQuestionIndex + 1;
+  if (nextIndex < 0 || nextIndex > data.questions.length) return data;
+  var upcoming = data.questions[nextIndex];
+  if (upcoming && practiceSkillOf(upcoming) === record.objective.skill) {
+    upcoming.learningCheck = 'gather_evidence';
+    record.intervention.served = true;
+    record.nextExercise = { section:'qa', skill:record.objective.skill, stem:upcoming.q, verification:'independent-numeric-code-solver', independentlyVerified:false };
+    saveLearningRecord(record);
+    return data;
+  }
+  var built = buildLearningExercise(record);
+  if (!built || !built.question) return data;
+  built.question.learningCheck = 'gather_evidence';
+  data.questions.splice(nextIndex, 0, built.question);
+  record.nextExercise = { section:'qa', skill:built.skill, stem:built.stem, options:built.options, correct:built.correct, verification:built.verification, independentlyVerified:false };
+  record.intervention.served = true;
+  saveLearningRecord(record);
+  return data;
+}
+
+function learningObjectiveBlocksPack(data, section) {
+  if (!data || section !== 'qa' || !Array.isArray(data.questions)) return false;
+  var record = loadLearningRecord();
+  if (!record.intervention || record.intervention.kind !== 'gather_evidence' || !record.objective || record.objective.section !== 'qa') return false;
+  var upcoming = data.questions[currentQuestionIndex + 1];
+  return !upcoming || practiceSkillOf(upcoming) !== record.objective.skill;
+}
+
+function getLearningRecordContext() {
+  var record = loadLearningRecord();
+  if (!record.facts.length && !record.hypothesis && !record.objective) return '';
+  var lines = ['\n\nACTIVE LEARNING RECORD — observed facts are separate from hypotheses:'];
+  record.facts.slice(-4).forEach(function(fact) {
+    lines.push('- FACT (' + fact.kind + ', ' + fact.section + '): ' + (fact.skill || fact.stem));
+  });
+  lines.push(record.hypothesis ? '- HYPOTHESIS (not a fact): ' + record.hypothesis.statement : '- HYPOTHESIS: none. Do not invent a diagnosis from the facts above.');
+  if (record.intervention) lines.push('- NEXT INTERVENTION: ' + record.intervention.kind + ' on ' + (record.objective && record.objective.skill || 'the same skill') + '.');
+  if (record.nextExercise) lines.push('- NEXT EXERCISE: ' + record.nextExercise.stem + ' [' + record.nextExercise.verification + ']');
+  lines.push(record.outcome ? '- OUTCOME: ' + record.outcome.note + ' mastery=' + record.outcome.mastery : '- OUTCOME: not yet measured. Do not infer mastery.');
+  return lines.join('\n');
+}
+
+function getLearningRecordRecommendation() {
+  var record = loadLearningRecord();
+  if (!record.objective) return null;
+  if (record.outcome && record.outcome.correct && record.outcome.mastery === false) {
+    return { title:'One fresh item was correct. That is not mastery.', copy:'The check used the same skill. A single correct answer does not show the problem is gone.', label:'Measured once', cta:'Keep the same skill →', action:{ destination:'learning_evidence' } };
+  }
+  if (!record.hypothesis) {
+    return { title:'One ' + (record.objective.topic || record.objective.section || 'practice') + ' miss still needs a second look.', copy:'The miss is recorded as an observation. There is not enough evidence for a diagnosis. The next step is a fresh item of the same kind.', label:'Gather evidence', cta:'Open the next checked item →', action:{ destination:'learning_evidence' } };
+  }
+  return { title:'Test one explanation, then check it.', copy:record.hypothesis.statement + ' One later correct answer will not be treated as mastery.', label:'Hypothesis, not a fact', cta:'Open the check →', action:{ destination:'learning_evidence' } };
+}
+
+function openLearningEvidenceExercise() {
+  var record = loadLearningRecord();
+  var exercise = ensureLearningExercise(record);
+  if (!exercise) return false;
+  record = loadLearningRecord();
+  if (exercise.section === 'qa' && typeof MargQAEngine !== 'undefined') {
+    var built = buildLearningExercise(record);
+    var question = built && built.question;
+    if (!question) return false;
+    question.learningCheck = record.intervention && record.intervention.kind || 'fresh_check';
+    practiceData.qa = { difficulty:'Mixed', topics_combined:[question.topic || 'Percentages'], questions:[question] };
+    currentPracticeType = 'qa';
+    currentQuestionIndex = 0;
+    currentSetIndex = 0;
+    practiceAnswered = false;
+    if (record.intervention) record.intervention.served = true;
+    saveLearningRecord(record);
+    switchTab('practice');
+    renderPractice(practiceData.qa);
+    return true;
+  }
+  if (exercise.section === 'varc') {
+    var passage = getVerifiedArticleRCFallback('learning-evidence');
+    practiceData.rc = passage;
+    currentPracticeType = 'rc';
+    currentQuestionIndex = 0;
+    currentSetIndex = 0;
+    practiceAnswered = false;
+    switchTab('practice');
+    renderPractice(passage);
+    return true;
+  }
+  if (exercise.section === 'dilr') {
+    var selectionQuestion = exercise.question || { q:exercise.stem, options:exercise.options, correct:exercise.correct, concept_check:exercise.skill, learningCheck:'selection_check' };
+    practiceData.dilr = { sets:[{ set_title:'Selection check', questions:[selectionQuestion] }] };
+    currentPracticeType = 'dilr';
+    currentQuestionIndex = 0;
+    currentSetIndex = 0;
+    practiceAnswered = false;
+    switchTab('practice');
+    renderPractice(practiceData.dilr);
+    return true;
+  }
+  return false;
+}
+
 function buildHomeRecommendation() {
   loadPendingDiagnosticExercise();
   loadActiveGeneratedExercise();
@@ -26717,6 +27247,9 @@ function buildHomeRecommendation() {
 
   var hypothesisFollowUp = getHypothesisFollowUpRecommendation();
   if (hypothesisFollowUp) return hypothesisFollowUp;
+
+  var learningRecommendation = getLearningRecordRecommendation();
+  if (learningRecommendation) return learningRecommendation;
 
   if (studentProfile && studentProfile.lastTask) {
     return {
@@ -26845,6 +27378,7 @@ function runHomeRecommendation() {
   if (action.destination === 'resume_plan') { resumeActiveMentorPlanFromHome(); return; }
   if (action.destination === 'durable_task') { resumeDurableMentorTask(action.taskId); return; }
   if (action.destination === 'hypothesis_experiment') { switchTab('chat'); launchHypothesisExperiment(action.hypothesisId); return; }
+  if (action.destination === 'learning_evidence') { openLearningEvidenceExercise(); return; }
   if (action.destination === 'practice' && action.section) {
     if (typeof openMargTool === 'function') openMargTool('practice');
     else {
@@ -27174,17 +27708,17 @@ async function startSectionalFromHub(section) {
     saveRCLabPreferences();
     switchTab('chat');
     // A sectional button must open a test, not begin a long article-generation
-    // workflow. Use the independently checked rotating RC bank immediately;
-    // Today’s VARC remains the separate article-grounded experience.
+    // workflow. The embedded passage opens immediately. Its key is stored with
+    // the passage and has not been independently checked.
     var readyVarc = getVerifiedArticleRCFallback('sectional|' + currentTopic + '|' + getTodayDate());
     if (validateRCPracticeSet(readyVarc, 4)) {
       var readySet = readyVarc.sets[0];
       var readyReply = formatStructuredArticleRC(readyVarc);
-      var readyConfig = Object.assign({}, getRCLabConfiguration(), { fallback:true, focusLabel:'Verified timed RC' });
+      var readyConfig = Object.assign({}, getRCLabConfiguration(), { fallback:true, embeddedKey:true, focusLabel:'Embedded timed RC' });
       storeActiveGeneratedExercise({
-        type:'rc', source:'varc-sectional-verified-ready', title:readySet.topic || 'Verified timed RC',
-        purpose:'Reliable timed CAT VARC sectional', validationVerdict:{ status:'preverified', verification:{ mode:'local-verified-bank' } },
-        content:{ exerciseText:readyReply, answerKey:buildArticleRCAnswerMemory(readyVarc), structuredData:readyVarc, article:{ title:readySet.topic || 'Verified timed RC', source:'Marg Original', url:'' }, rcLab:readyConfig }
+        type:'rc', source:'varc-sectional-embedded', title:readySet.topic || 'Embedded timed RC',
+        purpose:'Timed VARC practice from an embedded passage. The stored key has not been independently checked.', validationVerdict:{ status:'stored_pack', verification:{ mode:'embedded-passage', provesKey:false, educationallyVerified:false } },
+        content:{ exerciseText:readyReply, answerKey:buildArticleRCAnswerMemory(readyVarc), structuredData:readyVarc, article:{ title:readySet.topic || 'Embedded timed RC', source:'Marg Original', url:'' }, rcLab:readyConfig }
       });
       addArticleRCAttemptMessage(activeGeneratedExercise);
       conversationHistory.push({ role:'assistant', content:readyReply });
@@ -27964,6 +28498,19 @@ function wasPracticeRecentlySeen(section, data) {
   // Exact hashes miss the common repeat: the same item with new names, new
   // numbers or a few swapped words. Compare masked wording and structure.
   return getPracticeNoveltyIssues(section, data).length > 0;
+}
+
+function wasExactPracticeDelivered(section, data) {
+  // Solver packs repeat a topic template on purpose. Reject only a pack that
+  // was already delivered, not two questions inside one new pack.
+  var signature = practiceContentSignature(section, data);
+  var recent = getSeenPracticeSignatures().filter(function(item) { return item && item.section === section; });
+  return recent.some(function(item) { return item && item.signature === signature; });
+}
+
+function practiceRepeatsDeliveredWork(section, data) {
+  if (data && (data._margQAConstruction || data._margConstruction)) return wasExactPracticeDelivered(section, data);
+  return wasPracticeRecentlySeen(section, data);
 }
 
 function markPracticeSeen(section, data) {
@@ -29256,7 +29803,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
     var sectionalShapeValid = section === 'qa'
       ? validateQASetShape(parsed, expectedQATopic, expectedQuestionCount)
       : validateDILRPracticeSet(parsed, expectedSetCount);
-    if (wasPracticeRecentlySeen(section, parsed)) throw new Error('Generated test repeated a recently shown exercise');
+    if (practiceRepeatsDeliveredWork(section, parsed)) throw new Error('Generated test repeated a recently shown exercise');
     timedTestQuestions = flattenTimedTestQuestions(section, parsed);
     var timedDraftRepaired = false;
     if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion)) {
@@ -29280,7 +29827,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       knownTimedIssues = collectSolutionPresentationIssues(parsed, section).concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
       sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, expectedQATopic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
       timedTestQuestions = flattenTimedTestQuestions(section, parsed);
-      if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion) || wasPracticeRecentlySeen(section, parsed)) throw new Error('Repaired timed test failed structural or freshness checks');
+      if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion) || practiceRepeatsDeliveredWork(section, parsed)) throw new Error('Repaired timed test failed structural or freshness checks');
     }
     var timedAuditTimeoutMs = Math.max(8000, Math.min(
       isCompactTimedCheck ? (section === 'dilr' ? 40000 : 30000) : (section === 'dilr' ? 70000 : 55000),
@@ -29299,7 +29846,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
       if (!isCurrentGeneration()) return;
       sectionalShapeValid = section === 'qa' ? validateQASetShape(parsed, expectedQATopic, expectedQuestionCount) : validateDILRPracticeSet(parsed, expectedSetCount);
       timedTestQuestions = flattenTimedTestQuestions(section, parsed);
-      if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion) || wasPracticeRecentlySeen(section, parsed)) throw new Error('Repaired timed test failed structural or freshness checks');
+      if (!sectionalShapeValid || timedTestQuestions.length !== expectedQuestionCount || !timedTestQuestions.every(isValidTimedTestQuestion) || practiceRepeatsDeliveredWork(section, parsed)) throw new Error('Repaired timed test failed structural or freshness checks');
       knownTimedIssues = collectSolutionPresentationIssues(parsed, section).concat(collectGeneratedPracticeCompletenessIssues(parsed, section));
       semanticAudit = await auditGeneratedCATContent(section, parsed, expectedQATopic, knownTimedIssues, { timeoutMs:Math.max(8000,Math.min(30000,timedFlowDeadlineMs-Date.now())), maxTokens:18432, signal:generationController.signal, technicalRetry:false });
       if (!isCurrentGeneration()) return;
@@ -29791,7 +30338,7 @@ async function loadDailyPractice() {
       console.error('Practice parsed OK but yielded no questions/sets. Parsed shape:', practiceJson, 'Raw model output:', text);
       throw new Error('No questions generated');
     }
-    if (wasPracticeRecentlySeen(currentPracticeType, practiceJson)) {
+    if (practiceRepeatsDeliveredWork(currentPracticeType, practiceJson)) {
       throw new Error('Generated practice repeated a recently shown exercise');
     }
     // Structural checks cannot detect a missing relationship or a solution that
@@ -29810,7 +30357,7 @@ async function loadDailyPractice() {
       if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
       knownPracticeIssues = collectSolutionPresentationIssues(practiceJson, currentPracticeType).concat(collectGeneratedPracticeCompletenessIssues(practiceJson, currentPracticeType));
       if (currentPracticeType === 'rc') knownPracticeIssues = collectArticleRCStructureIssues(practiceJson, 3).concat(knownPracticeIssues);
-      if (wasPracticeRecentlySeen(currentPracticeType, practiceJson)) throw new Error('Repaired practice repeated a recently shown exercise');
+      if (practiceRepeatsDeliveredWork(currentPracticeType, practiceJson)) throw new Error('Repaired practice repeated a recently shown exercise');
     }
     content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">The questions are ready. Marg is now checking that the given information leads to one complete answer...</div></div>';
     var auditBudgetMs = Math.max(8000, Math.min(
@@ -29834,7 +30381,7 @@ async function loadDailyPractice() {
       if (currentPracticeType === 'rc') knownPracticeIssues = collectArticleRCStructureIssues(practiceJson, 3).concat(knownPracticeIssues);
       practiceAudit = await auditGeneratedCATContent(currentPracticeType, practiceJson, selectedPracticeTopic, knownPracticeIssues, { timeoutMs:Math.max(8000,Math.min(30000,practiceDeadlineMs-Date.now())), maxTokens:12288, signal:requestController.signal, technicalRetry:false });
       if (mySeq !== practiceLoadSeq || requestController.signal.aborted) return;
-      if (wasPracticeRecentlySeen(currentPracticeType, practiceJson)) throw new Error('Repaired practice repeated previously delivered material');
+      if (practiceRepeatsDeliveredWork(currentPracticeType, practiceJson)) throw new Error('Repaired practice repeated previously delivered material');
     }
     if (!practiceAudit.valid) {
       if (isGeminiLocationError(practiceAudit.error)) throw practiceAudit.error;
@@ -30145,14 +30692,15 @@ function selectAnswer(selectedIndex) {
   if (setObj && setObj.set_title) sessionResults.passageTitle = setObj.set_title;
   if (setObj && setObj.topics_combined) sessionResults.passageTitle = setObj.topics_combined.join(' + ');
 
+  notePracticeResult(currentPracticeType, q, selectedIndex, correct, isCorrect);
   if (!isCorrect) {
     var insight = q.marg_insight || q.common_mistake || ('Made a ' + currentPracticeType.toUpperCase() + ' error');
     var storedPattern = storeWrongAnswer(currentPracticeType, q, insight);
     if (storedPattern && storedPattern.occurrences >= 2) {
       updateCognitivePattern(currentPracticeType, storedPattern.label);
-      showInsightToast('<strong>This pattern has repeated</strong><br>' + storedPattern.label);
+      showInsightToast('This pattern has repeated. ' + storedPattern.label);
     } else {
-      showInsightToast('<strong>Saved as one data point</strong><br>' + insight);
+      showInsightToast('Saved as one data point. ' + insight);
     }
 
     // Show Ask Marg button in explanation
@@ -30281,6 +30829,8 @@ function nextQuestion() {
       showPracticeSummary();
     }
   } else {
+    alignUpcomingQuestionWithLearning(data, currentPracticeType);
+    if (learningObjectiveBlocksPack(data, currentPracticeType)) return;
     var total = data.questions.length;
     if (currentQuestionIndex < total - 1) {
       currentQuestionIndex++;
