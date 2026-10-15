@@ -3207,7 +3207,7 @@ In a normal conversation close—the usual case—after answering, reassuring, o
 
 In a genuine end-of-conversation moment—when the student's best next move is to stop engaging—end cleanly and completely. If it is very late and the right advice is sleep, if the student has genuinely finished the task, or if continuing would work against the advice just given, do not add a hook, question, exercise, or invitation to keep typing. Respectful disengagement is mentorship, not dead silence. Never optimise the close for engagement; optimise it for what is right for the student in that moment.
 
-LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, state a specific hidden-cause prediction in natural mentor language, briefly explain the clue behind it, and ask one confirmation. Never label it "My prediction:" in ordinary conversation; say "I think I know what's happening," "Here's my read," or "I think this might be the real issue." A diagnosis must never end on a naked "Does that feel accurate?" or another generic confirmation. In the same reply, preview exactly what Marg will do if the read fits, so the student already knows the next move. After Exactly or Mostly, do not repeat the diagnosis or wait for the student to invent a response: say "Then let's verify it instead of guessing," name the targeted check and what behaviour it will observe, then offer Right now / Later today / Tomorrow. Never launch an exercise without that timing consent and never choose tomorrow for them. QA and DILR exercises belong in the dedicated timed interface, not as a long question dump in chat. Before a DILR set, teach the representation, why it fits, and the first constraint to inspect. Every exercise must validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should never be confused about what happens next; sometimes the correct next step is simply to disengage and rest.
+LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, do not state a hidden cause. One wrong answer is an observation. Ask which check separates concept, execution, selection and time, and keep the answer labelled as a hypothesis until a later comparable attempt agrees. Never label it "My prediction:" in ordinary conversation; say "I think I know what's happening," "Here's my read," or "I think this might be the real issue." A diagnosis must never end on a naked "Does that feel accurate?" or another generic confirmation. In the same reply, preview exactly what Marg will do if the read fits, so the student already knows the next move. After Exactly or Mostly, do not repeat the diagnosis or wait for the student to invent a response: say "Then let's verify it instead of guessing," name the targeted check and what behaviour it will observe, then offer Right now / Later today / Tomorrow. Never launch an exercise without that timing consent and never choose tomorrow for them. QA and DILR exercises belong in the dedicated timed interface, not as a long question dump in chat. Before a DILR set, teach the representation, why it fits, and the first constraint to inspect. Every exercise must validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should never be confused about what happens next; sometimes the correct next step is simply to disengage and rest.
 
 When the reply needs a selection, end with one control line the app turns into buttons: [OPTIONS: first|second|third][CONTEXT: short_name]. Use it for a follow-up, a diagnostic description, which question or section to open, a priority order, or the next action. Do not use it for a list of selected book questions; that list is the whole reply. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Never explain the tags.
 
@@ -3224,6 +3224,8 @@ Headings, bold and lists are shown to the student when they organise the answer.
 // Runtime prompt: the same mentor contract as the reference above, compressed
 // so every turn does not repay for repeated examples and explanations.
 const SYSTEM_PROMPT = `You are Marg, a CAT mentor, not a chatbot and not a question bank. You work out where this student is, why they are stuck, and the one next step. The aim is a student who can think without depending on you for the answer. Earn trust through evidence and continuity.
+
+VISION CONTRACT: A single wrong answer is an observation, not a diagnosis. A single correct answer is not mastery. Do not predict a hidden cause from one or two questions. Distinguish official CAT, established preparation material, educator-created questions, and AI-generated practice, and keep the verification status visible. Do not call a source CAT-safe without that status. Do not write a personalised roadmap until target, CAT year, hours, section scores, attempts, accuracy and time are present. A shared percentile is not a shared plan. Teach a method only with the case it does not cover, then test a fresh item without the rule. End overwhelm, avoidance, or “this is not working” with a smaller check, a paused plan, or stopping for the day. Report whether a later comparable attempt moved, including when it did not. Never convert one mock into a percentile.
 
 VOICE
 Sound like a sharp person sitting beside them: warm, optimistic, and specific. When you solve together, a line such as "Let's solve this step by step" is the feel. When they already speak casually or in Hinglish, match them, including "Bhai". If their work is actually close, say what they got right and name the one trick left. Encourage only when the work earned it. A wrong step, a vent, or a plain question gets the useful answer without cheer, flattery, or a pep talk. Never open with "Great question", "Awesome", "You got this", or a filler emoji. Answer first. At most one question, and only after the useful part, and only if the answer would change the next step.
@@ -19914,6 +19916,14 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardDuplicateMessageAwareness(text, diagnosis);
   text = cleanMentorOpeningPunctuation(text);
   text = guardInvalidNumericPractice(text);
+  if (typeof MargVision !== 'undefined' && MargVision.guardReply) {
+    var visionUser = '';
+    for (var visionIndex = (conversationHistory || []).length - 1; visionIndex >= 0; visionIndex--) {
+      var visionItem = conversationHistory[visionIndex];
+      if (visionItem && visionItem.role === 'user' && !isInternalMemoryMessage(visionItem)) { visionUser = visionItem.content; break; }
+    }
+    text = MargVision.guardReply(text, visionUser);
+  }
   // Never discard an otherwise complete answer merely because natural prose
   // contains an unmatched quotation mark. The old quote-count heuristic
   // falsely removed valid RC exercises and appended an internal-sounding note.
@@ -20739,6 +20749,41 @@ async function runReliabilityRepairTests() {
   return results;
 }
 window.runReliabilityRepairTests = runReliabilityRepairTests;
+
+async function runVisionWiringTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  if (typeof MargVision === 'undefined') {
+    check('vision module is loaded with the app', false);
+    return results;
+  }
+  var previousHistory = conversationHistory.slice();
+  var previousGuest = isGuestMode;
+  var previousUser = currentUser;
+  var previousOptions = margPendingConversationOptions;
+  currentUser = null;
+  isGuestMode = true;
+  conversationHistory = [{ role:'user', content:'I missed a percentages question.' }];
+  MargVision.reset();
+  var handled = maybeHandleVisionTurn('Should I trust this YouTube channel called FastCAT Tricks?');
+  check('a resource question is answered before the model', handled === true && /not judged/i.test(conversationHistory[conversationHistory.length - 1].content));
+  var guarded = applyMentorResponseGuard('Your 99 is within reach. The real issue is a concept gap.', { intent:'general_mentor' });
+  check('the live guard strips a forecast and a cause after one miss', !/within reach/i.test(guarded) && !/real issue/i.test(guarded));
+  var context = buildMentorTurnContext('I missed a percentages question.', { diagnosis:{ intent:'general_mentor' } });
+  check('the live turn carries the vision record', /VISION RECORD/.test(context) && /Do not predict a hidden cause/.test(context));
+  margPendingConversationOptions = { options:['I could not explain it untimed', 'I was correct untimed and missed it timed', 'I stayed too long on an item I should have left'], context:'vision_check' };
+  conversationHistory.push({ role:'assistant', content:'That is one observation, not a diagnosis.' });
+  persistGuestBrowserSession();
+  var saved = JSON.parse(sessionStorage.getItem(guestSessionStorageKey()) || 'null');
+  check('guest reload keeps the vision record and the unanswered choices', !!(saved && saved.vision && saved.pendingOptions && saved.pendingOptions.options.length === 3));
+  conversationHistory = previousHistory;
+  isGuestMode = previousGuest;
+  currentUser = previousUser;
+  margPendingConversationOptions = previousOptions;
+  MargVision.reset();
+  return results;
+}
+window.runVisionWiringTests = runVisionWiringTests;
 
 var FAILURE_PATTERN_FALLBACK = "actually, let me not assume — what's the last question in this section that you got wrong and remember clearly? walk me through what happened";
 
@@ -21761,6 +21806,7 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
   var studyTurnActive = diagnosis.responseShape === 'study';
   var exerciseContext = studyTurnActive || pendingExternalQuestionTurnMode || diagnosis.intent === 'dilr_validity_review' ? '' : getGeneratedExerciseMemoryContext(message, diagnosis);
   var planContext = studyTurnActive || diagnosis.intent === 'dilr_validity_review' ? '' : getRelevantActivePlanMemoryContext(message, diagnosis);
+  if (typeof MargVision !== 'undefined' && MargVision.note && message) MargVision.note(message);
   var body = getDateContext() +
     (surface === 'chat' ? buildTurnProfileContext(message, diagnosis) : buildConversationalCollectedProfile()) +
     getDiagnosticMemoryContext(message, diagnosis) +
@@ -21768,6 +21814,7 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
     exerciseContext +
     getBehavioralMemoryContext(message, diagnosis) +
     getLearningRecordContext() +
+    (typeof MargVision !== 'undefined' && MargVision.turnContext ? MargVision.turnContext() : '') +
     getTopicProgressionMemoryContext(message, diagnosis) +
     planContext +
     (allowAccountProfile ? personalGoalFactsForTurn() : '') +
@@ -23381,7 +23428,27 @@ function finishLocalFactReply(reply) {
   return true;
 }
 
+if (typeof MargVision !== 'undefined' && MargVision.configure) {
+  MargVision.configure({
+    scope: function() {
+      return typeof getUserScopedKey === 'function' ? getUserScopedKey('marg_vision_v1') : 'marg_vision_v1_guest';
+    }
+  });
+}
+
+function maybeHandleVisionTurn(message) {
+  if (typeof MargVision === 'undefined' || !MargVision.directReply) return false;
+  var result = MargVision.directReply(message);
+  if (!result || !result.reply) return false;
+  finishLocalFactReply(result.reply);
+  if (result.options && result.options.length && typeof showConversationalOptions === 'function') {
+    showConversationalOptions(result.options, result.context || 'vision');
+  }
+  return true;
+}
+
 function maybeHandleDirectTask(message) {
+  if (maybeHandleVisionTurn(message)) return true;
   var reply = directCatScoreReply(message) || directPercentOfReply(message) || directTrainPlatformReply(message) || directCutoffLimitReply(message) || directDiscouragementReply(message);
   if (!reply) return false;
   return finishLocalFactReply(reply);
@@ -25679,6 +25746,8 @@ function persistGuestBrowserSession() {
       goal:typeof personalGoalMemory !== 'undefined' ? personalGoalMemory : null,
       studentProfile:studentProfile || null,
       learningRecord:typeof loadLearningRecord === 'function' ? loadLearningRecord() : null,
+      pendingOptions:typeof margPendingConversationOptions !== 'undefined' ? margPendingConversationOptions : null,
+      vision:typeof MargVision !== 'undefined' && MargVision.snapshot ? MargVision.snapshot() : null,
       savedAt:Date.now()
     }));
   } catch (error) {}
@@ -25703,6 +25772,11 @@ function restoreGuestTabSession() {
   if (saved.goal) personalGoalMemory = saved.goal;
   if (saved.studentProfile) studentProfile = saved.studentProfile;
   if (saved.learningRecord && typeof saveLearningRecord === 'function') saveLearningRecord(saved.learningRecord);
+  if (saved.vision && typeof MargVision !== 'undefined' && MargVision.save) MargVision.save(saved.vision);
+  if (saved.pendingOptions && saved.pendingOptions.options && saved.pendingOptions.options.length) {
+    margPendingConversationOptions = saved.pendingOptions;
+    try { showConversationalOptions(saved.pendingOptions.options, saved.pendingOptions.context || 'restored'); } catch (error) {}
+  }
   onboardingComplete = true;
   var loading = document.getElementById('loading-screen');
   var landing = document.getElementById('landing-page');
@@ -25728,7 +25802,8 @@ function clearPreviousGuestSession() {
   conversationHistory = [];
   if (typeof margAllChatMessages !== 'undefined') margAllChatMessages = [];
   if (typeof margThreadStates !== 'undefined') margThreadStates = {};
-  ['marg_progressive_profile_guest', 'marg_personal_goal_guest', 'marg_chat_topics_guest', 'marg_learning_record_guest'].forEach(function(key) {
+  if (typeof MargVision !== 'undefined' && MargVision.reset) MargVision.reset();
+  ['marg_progressive_profile_guest', 'marg_personal_goal_guest', 'marg_chat_topics_guest', 'marg_learning_record_guest', 'marg_vision_v1_guest'].forEach(function(key) {
     try { localStorage.removeItem(key); } catch (error) {}
   });
   try { sessionStorage.removeItem(guestSessionStorageKey()); } catch (error) {}
