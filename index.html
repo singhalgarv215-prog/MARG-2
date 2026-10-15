@@ -26,7 +26,7 @@
 <script defer src="/slash-tools.js?v=20260928-practice-config1"></script>
 <script defer src="/time-mock-blueprints.js?v=20260926-timebank1"></script>
 <script defer src="/cat-bank-verification.js?v=20261012-bank1"></script>
-<script defer src="/landing-bootstrap.js?v=20261014-review1"></script>
+<script defer src="/landing-bootstrap.js?v=20261015-repair1"></script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-VZ0N5RH912"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -1215,7 +1215,7 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button class="varc-close" onclick="closeVarcCard()">Close ×</button>
 </div>
 <div class="varc-article-title" id="varc-title">Train the part of RC that is costing you marks.</div>
-<div class="varc-article-meta" id="varc-meta">One original CAT passage · 4 checked questions · clickable answers</div>
+<div class="varc-article-meta" id="varc-meta">One original CAT passage · 4 questions · stored key, not an independent check</div>
 <div class="rc-lab-mode" role="tablist" aria-label="Choose how to configure your RC">
 <button class="rc-lab-mode-btn active" data-rc-mode="diagnose" onclick="selectRCLabMode('diagnose', this)">Fix what goes wrong</button>
 <button class="rc-lab-mode-btn" data-rc-mode="specific" onclick="selectRCLabMode('specific', this)">Choose question type</button>
@@ -1328,11 +1328,11 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <button class="section-more-btn" type="button" onclick="openAppMenu()" aria-label="Open more options">•••</button>
 </div>
 <div class="destination-content">
-<div class="destination-intro"><strong>Pressure-test one decision at a time</strong><span>Choose a VARC reading world, focused QA topic or DILR set family. Each test opens with clickable answers, a timer and a checked review.</span></div>
+<div class="destination-intro"><strong>Pressure-test one decision at a time</strong><span>Choose a VARC reading world, focused QA topic, or DILR family. Each card states how its answer key was checked.</span></div>
 <div class="sectional-groups">
 <div class="sectional-card">
 <div class="sectional-card-label">VARC</div><div class="sectional-card-title">Timed RC sectional</div>
-<div class="sectional-card-copy">1 CAT-length passage · 4 checked questions · timer and review.</div>
+<div class="sectional-card-copy">1 embedded passage · 4 questions · timer and review. The stored key has not been independently checked.</div>
 <select class="sectional-select" id="home-varc-sectional-topic" aria-label="Choose VARC reading world">
 <option value="surprise">Surprise theme</option><option value="ideas">Ideas &amp; Philosophy</option><option value="science">Science &amp; Society</option><option value="economics">Economics &amp; Policy</option><option value="history">History &amp; Culture</option>
 </select>
@@ -1340,15 +1340,15 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 </div>
 <div class="sectional-card">
 <div class="sectional-card-label">QA</div><div class="sectional-card-title">Focused QA sectional</div>
-<div class="sectional-card-copy">10 checked QA questions · 20 minutes · one selected topic.</div>
+<div class="sectional-card-copy">10 solver-checked QA questions · 20 minutes · one selected topic. Local numeric solver, not an independent review.</div>
 <select class="sectional-select" id="home-qa-sectional-topic" aria-label="Choose QA sectional topic">
 <option>Percentages</option><option>Ratios &amp; Proportions</option><option>Time-Speed-Distance</option><option>Profit &amp; Loss</option><option>Linear Equations</option><option>Quadratic Equations</option><option>Functions &amp; Inequalities</option><option>Geometry (Triangles, Circles)</option><option>Number Systems</option><option>Probability</option>
 </select>
 <button class="sectional-start" type="button" onclick="startSectionalFromHub('qa')">Start QA test →</button>
 </div>
 <div class="sectional-card">
-<div class="sectional-card-label">DILR</div><div class="sectional-card-title">Audited DILR sectional</div>
-<div class="sectional-card-copy">3 checked sets · 40 minutes · clickable questions and a review.</div>
+<div class="sectional-card-label">DILR</div><div class="sectional-card-title">DILR sectional</div>
+<div class="sectional-card-copy">12 solver-checked DILR questions · 40 minutes. Local solver only. No published DILR bank is in this pilot.</div>
 <select class="sectional-select" id="home-dilr-sectional-topic" aria-label="Choose DILR sectional topic">
 <option>Arrangements &amp; Rankings</option><option>Scheduling &amp; Allocation</option><option>Distribution &amp; Grouping</option><option>Games &amp; Tournaments</option><option>Routes &amp; Networks</option><option>Tables, Charts &amp; DI Caselets</option><option>Mixed Set Selection</option>
 </select>
