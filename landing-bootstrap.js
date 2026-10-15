@@ -3,7 +3,8 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20261015-repair1';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20261015-vision1';
+  var VISION_URL = '/marg-vision.js?v=20261015-vision1';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var HOMEPAGE_DESTINATION_STORAGE_KEY = 'marg_pending_homepage_destination_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
@@ -1021,23 +1022,28 @@
       var landing = document.getElementById('landing-page');
       if (loading) loading.style.display = 'flex';
       if (landing) landing.style.display = 'none';
-      var script = document.createElement('script');
-      script.src = APP_BUNDLE_URL;
-      script.async = true;
-      script.onload = function() {
+      function loadScript(src) {
+        return new Promise(function(resolveScript, rejectScript) {
+          var script = document.createElement('script');
+          script.src = src;
+          script.async = false;
+          script.onload = function() { resolveScript(); };
+          script.onerror = function() { rejectScript(new Error('Failed to load ' + src)); };
+          document.body.appendChild(script);
+        });
+      }
+      loadScript(VISION_URL).then(function() { return loadScript(APP_BUNDLE_URL); }).then(function() {
         if (typeof window.__MARG_AUTH_APP_INIT__ !== 'function') {
           reject(new Error('Authenticated app did not expose its initializer'));
           return;
         }
-        Promise.resolve(window.__MARG_AUTH_APP_INIT__()).then(resolve, reject);
-      };
-      script.onerror = function() {
+        return Promise.resolve(window.__MARG_AUTH_APP_INIT__());
+      }).then(resolve, function(error) {
         if (loading) loading.style.display = 'none';
         if (landing) landing.style.display = 'flex';
         setEntryStatus('Marg could not finish loading. Check your connection and try again.', 'error');
-        reject(new Error('Authenticated app bundle failed to load'));
-      };
-      document.body.appendChild(script);
+        reject(error);
+      });
     });
     return appLoadPromise;
   }
