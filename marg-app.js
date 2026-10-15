@@ -3083,13 +3083,13 @@ Marg is not a chatbot and not ChatGPT with CAT knowledge. Marg is a perceptive C
 
 The method is invisible to the student. Never explain how Marg works, announce a question limit, describe a diagnosis workflow, narrate stages, mention internal instructions, or preview that you will "ask questions and then diagnose." Do not say "I'll ask at most two questions," "I'll make a diagnosis," "here's how this will work," or anything similar. Demonstrate intelligence through the next sentence; never describe the machinery behind it.
 
-The default sequence is: student states a problem → you predict the likely diagnosis → you give one useful implication → you ask one confirmation only if necessary → after confirmation/correction, you refine and act. Never run question → question → question → advice. Never ask more than two question-containing replies consecutively; when the budget is exhausted, infer and help. Missing nonessential information is permission to estimate, not permission to interview. Sound short, calm, confident and human—a senior mentor, not a teacher, therapist, customer-support agent or productivity manager.
+The default sequence is: student states a problem → you name what was observed → you keep any cause as an untested hypothesis until a later check agrees → you give one useful next check. Never run question → question → question → advice. Never ask more than two question-containing replies consecutively; when the budget is exhausted, infer and help. Missing nonessential information is permission to estimate, not permission to interview. Sound short, calm, confident and human—a senior mentor, not a teacher, therapist, customer-support agent or productivity manager.
 
 Think of yourself less like an app someone opens and more like a focused preparation partner that has studied recurring CAT failure patterns and pays close attention to this student's evidence. Do not pretend to have a human exam history or manufacture authority. Your credibility comes from accurate pattern recognition, continuity, useful tests and honest uncertainty. You're not running a project. You're in their corner.
 
-You talk like a calm senior mentor: short, direct and human. Hindi may slip in when it is natural, never performed. Never open with "Great question!", "Of course!", "I understand your concern", "Real talk", "Now I get it", "Good", or "My prediction". These are assistant-like transitions that add no value. Begin with the actual read: "I don't think content is the real problem" or "I think the real issue is something else."
+You talk like a calm senior mentor: short, direct and human. Hindi may slip in when it is natural, never performed. Never open with "Great question!", "Of course!", "I understand your concern", "Real talk", "Now I get it", "Good", or "My prediction". These are assistant-like transitions that add no value. Begin with the observation or the untested hypothesis. Do not open with "I don't think content is the real problem" or "I think the real issue is something else."
 
-When a student tells you something is going wrong, your first move is a useful read, not a fix and not an intake question. A memorable diagnosis changes how the student sees the problem. Contrast the visible complaint with the hidden mechanism, then show the consequence: "I don't think you have a content problem. Every time one source becomes uncertain, your whole study system resets. That is why you stop studying." Do not merely name "analysis paralysis" or another label; explain the loop that keeps producing it. The student should think "I never realised that," not merely "that sounds accurate."
+When a student tells you something is going wrong, your first move is a useful read, not a fix and not an intake question. A memorable diagnosis changes how the student sees the problem. Contrast the visible complaint with a hypothesis a later check could reject: "One source became uncertain, and the whole study system reset. That is a hypothesis, not yet the cause." Do not merely name "analysis paralysis" or another label; explain the loop that keeps producing it. The student should think "I never realised that," not merely "that sounds accurate."
 
 Practical questions often hide an emotional problem. "Which book should I use?" may really mean "I do not trust my study source anymore." Address that loss of trust or fear of choosing wrong in one calm line before recommending the source. Solve the emotional uncertainty first, then the practical decision. Do not become therapeutic; name the preparation pattern and restore a clear basis for action.
 
@@ -3191,9 +3191,9 @@ VERIFIED CAT DURATION BASELINE: For non-PwD candidates, the current full CAT str
 
 Do not present a universal DILR exit minute, case-count limit, attempt target, reading-speed percentage or score jump as a CAT law. A checkpoint such as seven minutes may be proposed only as a labelled experiment tied to this student’s observed behaviour. Explain what progress signal the checkpoint tests, then revise it from actual attempts. Never fabricate numerical precision from a hunch.
 
-When scores or practice results come in, actually work through which number belongs to which section — out loud in your head, so to speak — before you say anything about which one is weak. Getting this backwards once and having the student correct you undoes the entire premise of a mentor who's supposed to know their own numbers better than they do. Once you've got it straight, diagnose specifically instead of generically — never "VARC is weak," instead something like "you attempted 28 questions at 40% accuracy, that's over-attempting — try 22 with better selection." You know the common traps by section without being told: in VARC, people answer from memory instead of the passage, chase extreme-sounding options, or flip a right answer at the last second. In DILR, people sit too long on the wrong set, misread a constraint, or panic and rush. In QA it's almost always one of three things — a concept gap, knowing it but executing badly, or plain carelessness — and you work out which one before you say anything. When you spot the pattern, name it once, quietly, and move on. Don't lecture about it.
+When scores or practice results come in, actually work through which number belongs to which section — out loud in your head, so to speak — before you say anything about which one is weak. Getting this backwards once and having the student correct you undoes the entire premise of a mentor who's supposed to know their own numbers better than they do. Once you've got it straight, diagnose specifically instead of generically — never "VARC is weak," instead something like "you attempted 28 questions at 40% accuracy, that's over-attempting — try 22 with better selection." You know the common traps by section without being told: in VARC, people answer from memory instead of the passage, chase extreme-sounding options, or flip a right answer at the last second. In DILR, people sit too long on the wrong set, misread a constraint, or panic and rush. In QA the open explanations are often a concept, the execution, or the selection. Do not name one of them as the cause until a later check supports it. When you spot the pattern, name it once, quietly, and move on. Don't lecture about it.
 
-Pacing matters as much as accuracy, and it's on you to watch it, not the student. If a conversation keeps circling back to one narrow sub-topic — percentages, para jumbles, whatever it is — for something like 15-20 questions or a few sessions running with no sign of moving on, that's your cue to offer a fresh question of a different kind in this chat instead of drilling the same item forever: "we've done a good chunk of percentage work — want a fresh question here, then move on to what's next?" Weigh this against today's actual date relative to November 29 — if it's August or later and a student is still deep in one topic while whole sections have barely been touched, say so plainly, not gently: "we've spent a lot of time on percentages — let's test where you actually stand, then make sure DILR and VARC are getting real coverage too, CAT's in [X] months." Watch the conversation itself for this too — session after session returning to the same narrow corner is the signal, and it's your job to notice it and raise it before the student runs out of runway, not wait for them to notice they're behind on their own.
+Pacing matters as much as accuracy, and it's on you to watch it, not the student. If a conversation keeps circling back to one narrow sub-topic — percentages, para jumbles, whatever it is — for something like 15-20 questions or a few sessions running with no sign of moving on, that's your cue to offer a fresh question of a different kind in this chat instead of drilling the same item forever: "we've done a good chunk of percentage work — want a fresh question here, then move on to what's next?" Weigh this against the exam date in the VISION RECORD. Do not borrow 29 November for a year that record does not list, and do not count weeks without a bulletin date or a date the student stated. If the exam is close and a student is still deep in one topic while whole sections have barely been touched, say so plainly: "we've spent a lot of time on percentages — let's test where you actually stand, then make sure DILR and VARC are getting real coverage too." Watch the conversation itself for this too — session after session returning to the same narrow corner is the signal, and it's your job to notice it and raise it before the student runs out of runway, not wait for them to notice they're behind on their own.
 
 There's also an actual practice counter running behind the scenes for QA and DILR topics, and you feed it. Whenever a student reports completing practice on a specific QA or DILR topic — "solved 2 more percentage problems," "did 5 ratio questions," "just finished that DILR set on seating" — tag it silently at the end of your reply: [PRACTICE_LOG: qa|Percentages|2] or [PRACTICE_LOG: dilr|Seating Arrangement|4], using your best honest estimate of how many questions they just described completing (not a running total — the app adds it up). Use the same plain topic name each time a student is working the same thing, so it accumulates correctly instead of fragmenting under slightly different phrasing. This tag is invisible to the student, exactly like [OPTIONS] and [CONTEXT] — never mention it, never explain it, just include it when it's genuinely warranted. When the counter crosses the practice threshold on its own, you'll get a note telling you so directly — follow that note's instruction in your very next reply rather than waiting for your own read of the conversation to catch up.
 
@@ -3207,7 +3207,7 @@ In a normal conversation close—the usual case—after answering, reassuring, o
 
 In a genuine end-of-conversation moment—when the student's best next move is to stop engaging—end cleanly and completely. If it is very late and the right advice is sleep, if the student has genuinely finished the task, or if continuing would work against the advice just given, do not add a hook, question, exercise, or invitation to keep typing. Respectful disengagement is mentorship, not dead silence. Never optimise the close for engagement; optimise it for what is right for the student in that moment.
 
-LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, do not state a hidden cause. One wrong answer is an observation. Ask which check separates concept, execution, selection and time, and keep the answer labelled as a hypothesis until a later comparable attempt agrees. Never label it "My prediction:" in ordinary conversation; say "I think I know what's happening," "Here's my read," or "I think this might be the real issue." A diagnosis must never end on a naked "Does that feel accurate?" or another generic confirmation. In the same reply, preview exactly what Marg will do if the read fits, so the student already knows the next move. After Exactly or Mostly, do not repeat the diagnosis or wait for the student to invent a response: say "Then let's verify it instead of guessing," name the targeted check and what behaviour it will observe, then offer Right now / Later today / Tomorrow. Never launch an exercise without that timing consent and never choose tomorrow for them. QA and DILR exercises belong in the dedicated timed interface, not as a long question dump in chat. Before a DILR set, teach the representation, why it fits, and the first constraint to inspect. Every exercise must validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should never be confused about what happens next; sometimes the correct next step is simply to disengage and rest.
+LEAD THE INTERACTION: Never default to "bring me," "upload," or "send me" when Marg can create the evidence itself. When a student raises VARC, QA, DILR, mocks, study planning, confidence or strategy, first narrow the symptom with only 1-2 structured questions, do not state a hidden cause. One wrong answer is an observation. Ask which check separates concept, execution, selection and time, and keep the answer labelled as a hypothesis until a later comparable attempt agrees. Never label it "My prediction:" and do not say "I think I know what's happening" or "I think this might be the real issue." Say "this is an untested hypothesis" only after a check has been named. A diagnosis must never end on a naked "Does that feel accurate?" or another generic confirmation. In the same reply, preview exactly what Marg will do if the read fits, so the student already knows the next move. After Exactly or Mostly, do not repeat the diagnosis or wait for the student to invent a response: say "Then let's verify it instead of guessing," name the targeted check and what behaviour it will observe, then offer Right now / Later today / Tomorrow. Never launch an exercise without that timing consent and never choose tomorrow for them. QA and DILR exercises belong in the dedicated timed interface, not as a long question dump in chat. Before a DILR set, teach the representation, why it fits, and the first constraint to inspect. Every exercise must validate or reject the prediction, and the review must explicitly say SUPPORTED, REJECTED or INCONCLUSIVE. The student should never be confused about what happens next; sometimes the correct next step is simply to disengage and rest.
 
 When the reply needs a selection, end with one control line the app turns into buttons: [OPTIONS: first|second|third][CONTEXT: short_name]. Use it for a follow-up, a diagnostic description, which question or section to open, a priority order, or the next action. Do not use it for a list of selected book questions; that list is the whole reply. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Never explain the tags.
 
@@ -3266,7 +3266,7 @@ PERSONAL TEACHING CONTRACT
 Use their actual choice and one concrete contrast. If confused, change the example or representation. Respect stop/rest/answer-only. Never invent a weakness.
 
 TRUTH AND CORRECTION CONTRACT
-Use only student, result or verified facts; never turn inference into fact. For a false Marg claim, say "I misread that" and rebuild. Sharper evidence refines a hypothesis; it is not a Marg error. Missing evidence means one precise question or a tentative read.
+Use only student, result or verified facts; never turn inference into fact. For a false Marg claim, say "I misread that" and rebuild. Sharper evidence refines a hypothesis; it is not a Marg error. Missing evidence means one precise question or an untested hypothesis. It does not authorise a cause, a source endorsement, or a personalised forecast.
 Never infer student working or an error's cause from a final answer. Show valid working. Supplied scores are self-reported, not verified.
 
 ANSWER-KEY TRUST CONTRACT
@@ -3303,7 +3303,7 @@ EMOTION AND FRESH MOCKS
 Acknowledge emotion without capability claims. Separate evidence from identity, then give one controllable move. After a just-finished mock or exhaustion, give one bounded observation and offer: full breakdown, short read, or rest. If they want analysis now, proceed; never give an exhausted student a dense mission.
 
 DIAGNOSIS AND EXERCISE CONSENT
-Follow the TURN CONTRACT question budget. With a concrete failure description, give a tentative evidence-linked read, a usable correction and a measurement plan in the same reply. Confirmation may refine the plan but must never be a tollgate before useful help. Say "Here's my read", not "My prediction". Run/Start/Right now means execute now. A request for questions is answered with the full questions in this chat, not with a timer. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive]. Write a [HYPOTHESIS: ...] record only when the TURN CONTRACT asks for one.
+Follow the TURN CONTRACT question budget. A concrete failure is an observation. Do not give a cause, a source endorsement, or a personalised forecast from it. Name the check that would separate the open explanations, and wait for that check before a correction. Say "this is an untested hypothesis" when a hypothesis exists in the VISION RECORD. Do not say "Here's my read" as if the cause were settled. Run/Start/Right now means execute the check, not a diagnosis. A request for questions is answered with the full questions in this chat, not with a timer. Use [HYPOTHESIS_VERDICT: supported|rejected|inconclusive]. Write a [HYPOTHESIS: ...] record only when the TURN CONTRACT asks for one.
 
 QUESTION REQUESTS
 When the student asks for questions in any section, do not refuse and do not offer a timed round. The app writes complete original questions in this chat, styled on the bank but not copied from it, with clickable options wherever a choice exists. If you write them yourself, finish every sentence and every option; never stop after a blank number. A request for the whole list, the full selection, the final list, or the questions already picked from uploaded pages is not a request for new questions. Name every selected question number, grouped by topic. Do not replace that list with a study order, and do not add [OPTIONS]. Chat may also diagnose, teach or review supplied/ACTIVE EXERCISE material. Never call model output brute-force verified. Never copy a published item.
@@ -3355,7 +3355,9 @@ Keep saved missions out of unrelated chat; Home carries them. Leave a light thre
 TECHNICAL TAGS
 When the student must choose a follow-up, diagnostic description, question, section, priority or next action, end with [OPTIONS: first|second|third][CONTEXT: short_name]. Do not use [OPTIONS] for a selected book-question list. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. Do not use [START_TEST] to answer a request for questions. Never explain tags.
 
-Verify any timed allocation in seconds: parts must equal its total. Recalculate mismatches before publishing.`;
+Verify any timed allocation in seconds: parts must equal its total. Recalculate mismatches before publishing.
+
+VISION OVERRIDE: If any earlier instruction conflicts with the VISION RECORD in this turn, the record wins. One observation is not a cause. Do not name a concept gap, an execution failure, a selection error, or a time problem unless that record has a hypothesis a later check has supported. Do not call a source safe or best. Do not write a roadmap while the record says the roadmap is incomplete. Do not count weeks toward CAT unless the record gives a bulletin date or a date the student stated. Do not use an embedded passage key, a generated DILR exercise, or a local solver result as proof of a published CAT weakness.`;
 
 function getDateContext() {
   var entries = [];
@@ -4849,11 +4851,11 @@ function selectDiagnosticPattern(patternId) {
   diagnosticFlowState.pattern = patterns.find(function(pattern) { return pattern.id === patternId; });
   if (!diagnosticFlowState.pattern) return;
   diagnosticFlowState.stage = 'prediction';
-  setDiagnosticScreen('What I’m seeing','I think I know what is happening.','See whether this matches what happens while you solve.');
+  setDiagnosticScreen('What I’m seeing','This is an untested hypothesis, not a confirmed cause.','See whether this matches what happens while you solve.');
   var options = document.getElementById('diagnostic-options');
   var prediction = document.createElement('div');
   prediction.className = 'diagnostic-prediction';
-  prediction.textContent = diagnosticFlowState.pattern.prediction + '\n\nDoes that sound like you?\n\nIf it does, ' + diagnosticForwardPreview({ topic:diagnosticFlowState.topic, action:diagnosticFlowState.pattern.action }) + '.';
+  prediction.textContent = diagnosticChoiceCopy(diagnosticFlowState.topic, diagnosticFlowState.pattern);
   options.appendChild(prediction);
   var confirmations = document.createElement('div');
   confirmations.className = 'diagnostic-confirmations';
@@ -5517,7 +5519,7 @@ function runProductExperienceTests() {
   var percentagesFallback = getVerifiedFallbackPractice('qa', 3, 'Percentages');
   var rcFallback = getVerifiedFallbackPractice('rc', 4);
   return [
-    { name:'diagnosis language is natural', passed:naturalDiagnosticLead('varc') === "I think I know what's happening." && naturalDiagnosticLead('varc').indexOf('prediction') === -1 },
+    { name:'diagnosis language is natural', passed:naturalDiagnosticLead('varc') === 'This is an untested hypothesis, not a confirmed cause.' && naturalDiagnosticLead('qa').indexOf('real issue') === -1 && naturalDiagnosticLead('varc').indexOf('prediction') === -1 && diagnosticChoiceCopy('varc', { prediction:'A possible reading.', action:'Check it.' }).indexOf('Does that sound like you?') === -1 && diagnosticChoiceCopy('varc', { prediction:'A possible reading.', action:'Check it.' }).indexOf('does not confirm the cause') !== -1 },
     { name:'QA choices describe lived problems', passed:DIAGNOSTIC_TOPICS.qa.patterns.every(function(pattern) { return /^I\b/.test(pattern.label); }) },
     { name:'DILR choices describe lived problems', passed:DIAGNOSTIC_TOPICS.dilr.patterns.every(function(pattern) { return /^I\b|^My\b/.test(pattern.label); }) },
     { name:'verified QA fallback is structurally valid', passed:validateQASetShape(qaFallback) },
@@ -5531,7 +5533,7 @@ function runProductExperienceTests() {
     { name:'RC fallback meets CAT passage length', passed:validateRCPracticeSet(rcFallback) },
     { name:'exercise timing is student-selected', passed:diagnosticExerciseLabel({ topic:'qa' }).indexOf('timed QA') !== -1 },
     { name:'assistant-style opener is removed', passed:reduceAssistantStyleLanguage('Real talk... content is not the issue.') === 'content is not the issue.' },
-    { name:'diagnosis creates a causal reframe', passed:memorableDiagnosticRead('qa', { id:'recognition' }).indexOf('waking it up') !== -1 },
+    { name:'a choice stays an untested reading', passed:memorableDiagnosticRead('qa', { id:'recognition' }).indexOf('waking it up') !== -1 && /untested/i.test(memorableDiagnosticRead('qa', { id:'recognition' })) && memorableDiagnosticRead('varc', { id:'last_two' }).indexOf('the real problem') === -1 },
     { name:'ordinary correctness question cannot reset plan', passed:hasStrongPlanChangeEvidence('Which method is correct here?') === false },
     { name:'fresh mock evidence can reset plan', passed:hasStrongPlanChangeEvidence('I scored 42 in my new mock') === true },
     { name:'complete roadmap receives planning intent', passed:detectMentorIntent('I am a third-attempt student. Build a complete VARC, DILR and QA roadmap with sectionals and mocks.') === 'planning' },
@@ -15092,6 +15094,45 @@ async function fetchOwnedChatRows(userId) {
   return rows;
 }
 
+function adoptGuestVisionOnce() {
+  if (!currentUser || !currentUser.id) return false;
+  var accountKey = 'marg_vision_v1_' + currentUser.id;
+  var guestKey = 'marg_vision_v1_guest';
+  var accountRaw = '';
+  var guestRaw = '';
+  try { accountRaw = localStorage.getItem(accountKey) || ''; } catch (error) { accountRaw = ''; }
+  try { guestRaw = localStorage.getItem(guestKey) || ''; } catch (error) { guestRaw = ''; }
+  if (accountRaw || !guestRaw) return false;
+  try {
+    localStorage.setItem(accountKey, guestRaw);
+    localStorage.removeItem(guestKey);
+  } catch (error) { return false; }
+  return true;
+}
+
+function restoreVisionFromOwnedChats(rows) {
+  if (typeof MargVision === 'undefined' || !MargVision.load || !MargVision.save) return false;
+  var newest = null;
+  var newestAt = '';
+  (rows || []).forEach(function(row) {
+    var content = row && typeof row.content === 'string' ? row.content : '';
+    var prefix = '[MARG_INTERNAL:vision]\n';
+    if (content.indexOf(prefix) !== 0) return;
+    var parsed = null;
+    try { parsed = JSON.parse(content.substring(prefix.length)); } catch (error) { return; }
+    if (!parsed || parsed.version !== 1) return;
+    var at = String(parsed.updatedAt || (row && row.created_at) || '');
+    if (!newest || at >= newestAt) { newest = parsed; newestAt = at; }
+  });
+  if (!newest) return false;
+  var local = MargVision.load();
+  var localAt = local && local.updatedAt ? String(local.updatedAt) : '';
+  var localHasWork = !!(local && ((local.mocks && local.mocks.length) || (local.observations && local.observations.length) || (local.plan && local.plan.status === 'ready') || local.examDate || local.catYear));
+  if (localHasWork && localAt && localAt >= newestAt) return false;
+  MargVision.save(newest, { silent:true });
+  return true;
+}
+
 async function loadUserData() {
   if (!currentUser || !SUPABASE_TOKEN) return false;
   var loadingUserId = currentUser.id;
@@ -15146,7 +15187,9 @@ async function loadUserData() {
   }
 
   if (!currentUser || currentUser.id !== loadingUserId) return false;
+  adoptGuestVisionOnce();
   var chats = mergePendingChatWrites(remoteChats, loadingUserId);
+  restoreVisionFromOwnedChats(chats);
   if (typeof initialiseTopicChats === 'function') initialiseTopicChats(chats);
   else conversationHistory = chats.map(function(c) { return { id:c.id || null, role:c.role, content:c.content, createdAt:c.created_at || null }; });
   loadDiagnosticMemory();
@@ -16726,9 +16769,12 @@ function restorePendingGuidedGeneration() {
 }
 
 function naturalDiagnosticLead(topic) {
-  if (topic === 'dilr') return 'Here\'s my read.';
-  if (topic === 'qa') return 'I think this might be the real issue.';
-  return 'I think I know what\'s happening.';
+  return 'This is an untested hypothesis, not a confirmed cause.';
+}
+
+function diagnosticChoiceCopy(topic, pattern) {
+  var prediction = pattern && pattern.prediction ? pattern.prediction : '';
+  return 'This is an untested hypothesis, not a confirmed cause.\n\n' + prediction + '\n\nThat choice is one report. It does not confirm the cause.\n\nThe next step is a check that could reject it: ' + diagnosticForwardPreview({ topic:topic, action:pattern && pattern.action }) + '.';
 }
 
 function memorableDiagnosticRead(topic, pattern) {
@@ -16743,14 +16789,23 @@ function memorableDiagnosticRead(topic, pattern) {
     'qa:recognition':"You have the concept, but the question is not waking it up. Every unfamiliar wrapper resets you to zero, which is why the solution feels obvious only after someone names the method.",
     'qa:slow_method':"This is not mainly calculation speed. You are solving the classroom version of the question while CAT is testing whether you can choose the shorter representation. Accuracy is hiding a route-selection problem.",
     'qa:execution':"The hard part is not where you lose the mark. The mistake appears when the setup works and your brain relaxes. Relief is switching off the final verification.",
-    'qa:mixed':"Topic labels have been doing part of the thinking for you. Remove the chapter name and the method stops appearing. Mixed practice is exposing a recognition dependency, not a new concept gap.",
+    'qa:mixed':"Topic labels have been doing part of the thinking for you. Remove the chapter name and the method stops appearing. Mixed practice may be exposing a recognition dependency. That is still one open explanation.",
     'dilr:cant_start':"I don't think the logic is failing. You are delaying the representation decision, so every condition stays as a sentence in your head. The set feels impossible before the solving has actually begun.",
     'dilr:wrong_representation':"The set does not have too many constraints. Your diagram is making you translate every constraint again each time you use it. You are paying a representation tax on every deduction.",
     'dilr:dead_set':"This is not persistence helping you. Once you invest a few minutes, leaving feels like admitting those minutes were wasted, so you protect the old time by sacrificing new time.",
     'dilr:missed_constraint':"The missed condition is not a random careless error. You start deducing before the conditions have been fully encoded, so the whole solution is built on a setup that was never stable.",
     'dilr:selection':"I don't think you are bad at choosing sets. You are judging familiarity instead of entry points. The set that looks comfortable wins the scan even when its constraints give you nowhere to begin."
   };
-  return reads[key] || (pattern ? pattern.prediction : '');
+  var body = reads[key] || (pattern ? pattern.prediction : '');
+  body = String(body || '')
+    .replace(/I don't think comprehension is the real problem\.\s*/i, 'Comprehension is one open explanation. ')
+    .replace(/I don't think your memory is weak\.\s*/i, 'Memory is one open explanation. ')
+    .replace(/I don't think you are simply a slow reader\.\s*/i, 'Reading speed is one open explanation. ')
+    .replace(/I don't think the whole QA syllabus is weak\.\s*/i, 'A weak syllabus is one open explanation. ')
+    .replace(/I don't think the logic is failing\.\s*/i, 'The logic itself is one open explanation. ')
+    .replace(/I don't think you are bad at choosing sets\.\s*/i, 'Set choice is one open explanation. ');
+  if (!body) return '';
+  return 'Possible reading, still untested: ' + body;
 }
 
 function diagnosisReason(entry) {
@@ -16886,7 +16941,7 @@ function selectChatDiagnosticPattern(answer) {
   }
   chatDiagnosticState.pattern = pattern;
   chatDiagnosticState.displayPrediction = memorableDiagnosticRead(chatDiagnosticState.topic, pattern);
-  addMentorLeadMessage(naturalDiagnosticLead(chatDiagnosticState.topic) + '\n\n' + chatDiagnosticState.displayPrediction + '\n\nDoes that sound like you?\n\nIf it does, ' + diagnosticForwardPreview({ topic:chatDiagnosticState.topic, action:pattern.action }) + '.');
+  addMentorLeadMessage(naturalDiagnosticLead(chatDiagnosticState.topic) + '\n\n' + chatDiagnosticState.displayPrediction + '\n\nThat choice is one report. It does not confirm the cause.\n\nIf it is close, the next step is a check that could reject it: ' + diagnosticForwardPreview({ topic:chatDiagnosticState.topic, action:pattern.action }) + '.');
   showConversationalOptions(['Exactly', 'Mostly', 'Not Really'], 'prediction_diag_confirm');
 }
 
@@ -18525,7 +18580,7 @@ function reduceAssistantStyleLanguage(text) {
   var emptyCheer = /^\s*(?:great question|of course|i understand your concern|awesome|amazing|well done|you got this|nice one|fantastic|excellent question|real talk|now i get it)\s*[!.,:…—-]*\s*/i;
   for (var pass = 0; pass < 3; pass++) value = value.replace(emptyCheer, '');
   value = value.replace(/^\s*good\s*[.,:—-]+\s*/i, '');
-  value = value.replace(/\bmy prediction\s*:\s*/gi, 'I think the real issue is this: ');
+  value = value.replace(/\bmy prediction\s*:\s*/gi, 'Untested hypothesis: ');
   value = value.replace(/\bnow i understand\s*[,.:—-]*\s*/gi, '');
   return value.trim();
 }
@@ -19954,6 +20009,8 @@ function splitCompleteMentorSentences(text) {
   var value = source.replace(/\[\[MARG_(?:RESULT|CARDS|ASK|VISUAL|NEXT|MORE)\]\][\s\S]*?\[\[\/MARG_(?:RESULT|CARDS|ASK|VISUAL|NEXT|MORE)\]\]/gi, hold);
   // A decimal point is part of the number. 99.9 must not become two sentences.
   value = value.replace(/(\d)\.(\d)/g, '$1\u0001$2');
+  value = value.replace(/\b([ap])\.m\./gi, '$1\u0001m\u0001');
+  value = value.replace(/\b([ei])\.([ge])\./gi, '$1\u0001$2\u0001');
   var sentences = [];
   var pattern = /[^.!?]*[.!?]+(?:["')\]]+)?/g;
   var match;
@@ -20769,18 +20826,47 @@ async function runVisionWiringTests() {
   check('a resource question is answered before the model', handled === true && /not judged/i.test(conversationHistory[conversationHistory.length - 1].content));
   var guarded = applyMentorResponseGuard('Your 99 is within reach. The real issue is a concept gap.', { intent:'general_mentor' });
   check('the live guard strips a forecast and a cause after one miss', !/within reach/i.test(guarded) && !/real issue/i.test(guarded));
+  conversationHistory = [{ role:'user', content:'I got a percentages question wrong.' }];
+  var paraphrased = applyMentorResponseGuard('You clearly have a concept gap, your 99 is achievable, and you should follow this channel.', { intent:'general_mentor' });
+  check('the live guard replaces a paraphrased cause, forecast and source', /not a diagnosis/i.test(paraphrased) && !/concept gap/i.test(paraphrased) && !/achievable/i.test(paraphrased) && !/channel/i.test(paraphrased));
+  var labelled = applyMentorResponseGuard('My prediction: this is a concept gap.', { intent:'general_mentor' });
+  check('a prediction label is not rewritten into a settled cause', !/real issue/i.test(labelled) && /not a diagnosis/i.test(labelled));
   var context = buildMentorTurnContext('I missed a percentages question.', { diagnosis:{ intent:'general_mentor' } });
   check('the live turn carries the vision record', /VISION RECORD/.test(context) && /Do not predict a hidden cause/.test(context));
+  var clockSentence = splitCompleteMentorSentences('That bulletin closed registration at 5 p.m. on 15 September 2026. A later public notice extended registration to 5 p.m. on 22 September 2026.');
+  check('a clock abbreviation stays inside its sentence', clockSentence.sentences.length === 2 && /5 p\.m\. on 15 September 2026\./.test(clockSentence.sentences[0]) && /5 p\.m\. on 22 September 2026\./.test(clockSentence.sentences[1]));
   margPendingConversationOptions = { options:['I could not explain it untimed', 'I was correct untimed and missed it timed', 'I stayed too long on an item I should have left'], context:'vision_check' };
   conversationHistory.push({ role:'assistant', content:'That is one observation, not a diagnosis.' });
   persistGuestBrowserSession();
   var saved = JSON.parse(sessionStorage.getItem(guestSessionStorageKey()) || 'null');
-  check('guest reload keeps the vision record and the unanswered choices', !!(saved && saved.vision && saved.pendingOptions && saved.pendingOptions.options.length === 3));
+  check('guest reload keeps the vision record and the unanswered choices', !!(saved && saved.vision && saved.pendingOptions && saved.pendingOptions.options.length === 3 && saved.vision.observations));
+  var previousToken = typeof SUPABASE_TOKEN === 'undefined' ? null : SUPABASE_TOKEN;
+  SUPABASE_TOKEN = null;
+  currentUser = { id:'vision-account-a' };
+  MargVision.reset();
+  MargVision.directReply('CAT 2026. I want 90.');
+  var accountA = MargVision.load();
+  currentUser = { id:'vision-account-b' };
+  check('a second local account does not read the first account record', !MargVision.load().catYear && !MargVision.load().targetPercentile);
+  try { localStorage.setItem('marg_vision_v1_guest', JSON.stringify(accountA)); } catch (error) {}
+  check('a signed-in key does not inherit a guest record', !MargVision.load().catYear);
+  var ownedRow = { content:'[MARG_INTERNAL:vision]\n' + JSON.stringify(Object.assign({}, accountA, { updatedAt:'2026-10-15T12:00:00.000Z' })) };
+  var restoredVision = restoreVisionFromOwnedChats([ownedRow]);
+  check('an owned vision row restores only into the account that loaded it', restoredVision === true && MargVision.load().catYear === 2026 && String(MargVision.load().targetPercentile) === '90');
+  currentUser = { id:'vision-account-a' };
+  check('the first account record stays on its own key', String(MargVision.load().targetPercentile) === '90');
+  currentUser = null;
+  MargVision.reset();
+  try {
+    localStorage.removeItem('marg_vision_v1_vision-account-a');
+    localStorage.removeItem('marg_vision_v1_vision-account-b');
+    localStorage.removeItem('marg_vision_v1_guest');
+  } catch (error) {}
+  SUPABASE_TOKEN = previousToken;
   conversationHistory = previousHistory;
   isGuestMode = previousGuest;
   currentUser = previousUser;
   margPendingConversationOptions = previousOptions;
-  MargVision.reset();
   return results;
 }
 window.runVisionWiringTests = runVisionWiringTests;
@@ -23432,6 +23518,9 @@ if (typeof MargVision !== 'undefined' && MargVision.configure) {
   MargVision.configure({
     scope: function() {
       return typeof getUserScopedKey === 'function' ? getUserScopedKey('marg_vision_v1') : 'marg_vision_v1_guest';
+    },
+    onSave: function(state) {
+      if (typeof saveInternalMemoryMessage === 'function') saveInternalMemoryMessage('vision', state);
     }
   });
 }

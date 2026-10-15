@@ -3,8 +3,8 @@
 
   var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
   var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
-  var APP_BUNDLE_URL = '/marg-app.js?v=20261015-vision1';
-  var VISION_URL = '/marg-vision.js?v=20261015-vision1';
+  var APP_BUNDLE_URL = '/marg-app.js?v=20261015-vision2';
+  var VISION_URL = '/marg-vision.js?v=20261015-vision2';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';
   var HOMEPAGE_DESTINATION_STORAGE_KEY = 'marg_pending_homepage_destination_v1';
   var DEEP_LINK_QUESTION_STORAGE_KEY = 'marg_pending_deep_link_question_v1';
@@ -36,8 +36,8 @@
     },
     mock:{
       kicker:'Mock analysis',
-      title:'Separate the score from the execution problem.',
-      copy:'Enter section scores or add the scorecard image. Marg will look for the decision pattern behind the collapse before changing your plan.',
+      title:'A score shows where the marks fell.',
+      copy:'Enter section scores or add the scorecard image. Marg will not name a cause from the score. Attempts, accuracy and time come first.',
       outcome:'After Google: Marg opens Mock Analysis inside chat with score and image inputs ready.'
     },
     chat:{
@@ -830,7 +830,7 @@
       button.setAttribute('aria-pressed', selected ? 'true' : 'false');
       button.disabled = true;
     });
-    title.textContent = result.title;
+    title.textContent = 'Untested hypothesis: ' + String(result.title || '').replace(/^That is the tell—\s*/i, '');
     body.textContent = result.body;
     resultBox.classList.add('visible');
     if (actions) actions.classList.add('visible');
