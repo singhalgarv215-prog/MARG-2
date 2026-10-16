@@ -4,11 +4,26 @@
 (function(root) {
   'use strict';
 
-  var PLANNING_MONTH = 11;
-  var PLANNING_DAY = 29;
   var GUEST_KEY = 'marg_vision_v1_guest';
+  var ONE_OBSERVATION = 'That is one observation, not a diagnosis. I will not assign concept, execution, selection or time from this miss. The same wrong answer can be three different problems.';
+  // CAT 2026 information bulletin: the IIMs conduct the test on Sunday, 29 November 2026.
+  // Other years are not in this record. A missing year must not borrow 29 November.
+  var CAT_SCHEDULE = {
+    2026: {
+      iso:'2026-11-29',
+      label:'Sunday, 29 November 2026',
+      status:'information_bulletin',
+      sessions:3,
+      registrationClose:'2026-09-22',
+      admitFrom:'2026-11-04',
+      source:'CAT 2026 information bulletin: the test is on Sunday, 29 November 2026, in three sessions. Admit cards in that bulletin run from 4 November 2026. That bulletin closed registration at 5 p.m. on 15 September 2026. A later public notice extended registration to 5 p.m. on 22 September 2026.'
+    }
+  };
+  var MONTHS = { january:1, february:2, march:3, april:4, may:5, june:6, july:7, august:8, september:9, october:10, november:11, december:12, jan:1, feb:2, mar:3, apr:4, jun:6, jul:7, aug:8, sep:9, sept:9, oct:10, nov:11, dec:12 };
   var scopeFn = function() { return GUEST_KEY; };
   var nowFn = function() { return new Date(); };
+  var onSaveFn = null;
+  var lastSavedStamp = '';
 
   function emptyState() {
     return {
@@ -26,6 +41,7 @@
       methodsTaught:[],
       comparable:[],
       plan:null,
+      examDate:null,
       updatedAt:null
     };
   }
@@ -39,9 +55,6 @@
     var key = scopeFn();
     var raw = '';
     try { raw = store ? (store.getItem(key) || '') : ''; } catch (error) { raw = ''; }
-    if (!raw && key !== GUEST_KEY && store) {
-      try { raw = store.getItem(GUEST_KEY) || ''; } catch (error) { raw = ''; }
-    }
     if (!raw) return emptyState();
     try {
       var parsed = JSON.parse(raw);
@@ -50,21 +63,37 @@
     } catch (error) { return emptyState(); }
   }
 
-  function save(state) {
+  function stampOf(state) {
+    try {
+      var copy = JSON.parse(JSON.stringify(state || {}));
+      delete copy.updatedAt;
+      return JSON.stringify(copy);
+    } catch (error) { return ''; }
+  }
+
+  function save(state, options) {
     state.updatedAt = new Date().toISOString();
     var store = storage();
-    if (!store) return state;
-    try { store.setItem(scopeFn(), JSON.stringify(state)); } catch (error) {}
+    if (store) {
+      try { store.setItem(scopeFn(), JSON.stringify(state)); } catch (error) {}
+    }
+    var stamp = stampOf(state);
+    if (options && options.silent) {
+      lastSavedStamp = stamp;
+      return state;
+    }
+    if (stamp !== lastSavedStamp && onSaveFn) {
+      lastSavedStamp = stamp;
+      try { onSaveFn(JSON.parse(JSON.stringify(state))); } catch (error) {}
+    }
     return state;
   }
 
   function reset() {
     var store = storage();
+    lastSavedStamp = '';
     if (!store) return emptyState();
     try { store.removeItem(scopeFn()); } catch (error) {}
-    if (scopeFn() !== GUEST_KEY) {
-      try { store.removeItem(GUEST_KEY); } catch (error) {}
-    }
     return emptyState();
   }
 
@@ -72,18 +101,60 @@
     options = options || {};
     if (typeof options.scope === 'function') scopeFn = options.scope;
     if (typeof options.now === 'function') nowFn = options.now;
+    if (typeof options.onSave === 'function') onSaveFn = options.onSave;
   }
 
-  function weeksUntil(year) {
-    var planningYear = year || 2026;
-    var exam = Date.UTC(planningYear, PLANNING_MONTH - 1, PLANNING_DAY);
+  function utcToday() {
     var now = nowFn();
-    var today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    return Math.round((exam - today) / (7 * 86400000));
+    return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   }
 
-  function planningDateLabel(year) {
-    return '29 November ' + (year || 2026);
+  function parseIsoDate(iso) {
+    var match = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+
+  function weeksBetween(iso) {
+    var exam = parseIsoDate(iso);
+    if (exam === null) return null;
+    return Math.round((exam - utcToday()) / (7 * 86400000));
+  }
+
+  function statedExamDate(text) {
+    var match = String(text || '').match(/\b(?:my |the )?(?:CAT|exam|admit card)(?:\s+exam)?(?:\s+date)?\s+(?:is(?:\s+on)?|on)\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(20\d{2})\b/i);
+    if (!match) return null;
+    var month = MONTHS[match[2].toLowerCase()];
+    var day = Number(match[1]);
+    var year = Number(match[3]);
+    if (!month || day < 1 || day > 31) return null;
+    var iso = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+    if (parseIsoDate(iso) === null) return null;
+    return { iso:iso, label:match[1] + ' ' + match[2] + ' ' + year, status:'student_stated', source:'The student stated this exam date. It is not a bulletin date unless it matches one.', sessions:null };
+  }
+
+  function resolveExamDate(state) {
+    if (state && state.examDate && state.examDate.iso) return state.examDate;
+    var bulletin = state && CAT_SCHEDULE[state.catYear];
+    return bulletin || null;
+  }
+
+  function scheduleLine(state) {
+    var exam = resolveExamDate(state);
+    if (!exam) {
+      var yearLabel = state && state.catYear ? 'CAT ' + state.catYear : 'this CAT year';
+      return 'I do not have a verified exam date for ' + yearLabel + '. I will not count weeks, and I will not borrow the 2026 date. Send the date from the notification or your admit card.';
+    }
+    var weeks = weeksBetween(exam.iso);
+    var when = weeks === null ? '' : weeks > 0 ? ' That is ' + weeks + ' weeks from this clock.' : weeks === 0 ? ' That date is this week on this clock.' : ' That date is already past on this clock.';
+    var registration = '';
+    if (exam.registrationClose && parseIsoDate(exam.registrationClose) !== null && utcToday() > parseIsoDate(exam.registrationClose) && weeks !== null && weeks >= 0) {
+      registration = ' Registration in that bulletin has closed, so the date that matters now is the exam, not a new application window.';
+    }
+    var source = exam.status === 'student_stated'
+      ? 'You stated the exam date as ' + exam.label + '. I am using that date only.'
+      : exam.source;
+    return source + when + registration;
   }
 
   function clip(text) {
@@ -136,6 +207,11 @@
     }
     var year = text.match(/\bCAT\s*(20\d{2})\b/i);
     if (year) state.catYear = Number(year[1]);
+    var stated = statedExamDate(text);
+    if (stated) {
+      state.examDate = stated;
+      state.catYear = Number(stated.iso.slice(0, 4));
+    }
     var hours = text.match(/\b(\d+(?:\.\d+)?)\s*hours?\s*(?:a|per)\s*day\b/i);
     if (hours) state.hoursPerDay = Number(hours[1]);
     namedResources(text).forEach(function(name) {
@@ -250,7 +326,8 @@
       cause:cause,
       total:mock.total,
       target:state.targetPercentile,
-      weeks:weeksUntil(state.catYear),
+      weeks:weeksBetween(resolveExamDate(state) && resolveExamDate(state).iso),
+      schedule:scheduleLine(state),
       hoursPerDay:state.hoursPerDay,
       wait:accurateButThin.filter(function(key) { return key !== priority; }),
       resource:resource,
@@ -276,8 +353,7 @@
     if (plan.status !== 'ready') {
       return 'I will not write a roadmap from a shared target alone. A student at 35 and a student at 75 can both want 99, and the path is not the same. Still missing: ' + plan.missing.join('; ') + '. Send the missing piece in one message. A total score is not enough.';
     }
-    var weeks = plan.weeks;
-    var dateLine = 'The planning date I am using is ' + planningDateLabel(state.catYear) + (weeks >= 0 ? ' (' + weeks + ' weeks from the clock I have). It is not a substitute for the official notification.' : '. That date is already past on this clock, so tell me the date on your admit card before I allocate weeks.');
+    var dateLine = plan.schedule || scheduleLine(state);
     var path = plan.mode === 'foundation'
       ? 'This is a foundation path. The first work is one cause check in ' + plan.priority.toUpperCase() + ', not a syllabus and not a percentile forecast.'
       : plan.mode === 'leakage'
@@ -317,9 +393,27 @@
       /\b(?:para ?jumbles?|odd one|reading comprehension|\brc\b|varc|dilr|representation|percentages|quant|\bqa\b)\b/i.test(text);
   }
 
+  function isSolutionAsk(text) {
+    return /\b(?:what is the answer|solve this|explain the (?:solution|answer|question)|show the working|full solution)\b/i.test(text);
+  }
+
   function isObservationAsk(text) {
-    if (/\b(?:solution|what is the answer|explain the (?:question|solution)|solve this)\b/i.test(text)) return false;
-    return /\b(?:i (?:missed|got this wrong|got it wrong)|why did i (?:miss|get it wrong)|one wrong answer)\b/i.test(text);
+    if (isSolutionAsk(text)) return false;
+    return /\b(?:i (?:missed|got .{0,48}wrong)|why (?:did|do) i (?:miss|keep missing|get .{0,40}wrong)|one wrong answer|incorrect answer)\b/i.test(text);
+  }
+
+  function assignsUnsupportedClaim(text) {
+    return /\b(?:the real (?:issue|problem)|concept gap|execution failure|fundamentals (?:problem|issue|gap)|you(?:'re| are) weak|i know what(?:'s| is) happening|your (?:actual|real) problem is|that is the tell|within reach|guaranteed|achievable|assured|gettable|cat-safe|you should follow|best (?:book|channel|resource) for you|proves you (?:don'?t|do not) (?:understand|know))\b/i.test(String(text || ''));
+  }
+
+  function evidenceLines() {
+    return [
+      'Diagnostic evidence of a published CAT item: the 79 QA items whose answers were recomputed from the question.',
+      'The 8 VARC paragraph summaries can support a summary check only. They are not a reading-comprehension diagnosis.',
+      'Published DILR: none served. A generated DILR exercise is not diagnostic evidence.',
+      'Local numeric QA solver: one fresh observation of a named skill. Not an independent review and not evidence about a published CAT item.',
+      'Embedded passage key: not independently checked. Not diagnostic evidence.'
+    ];
   }
 
   function isEmotionalAsk(text) {
@@ -464,7 +558,7 @@
     state.awaiting = 'check_choice';
     save(state);
     return {
-      reply:'That is one observation, not a diagnosis. I will not assign concept, execution, selection or time from this miss. The same wrong answer can be three different problems.',
+      reply:ONE_OBSERVATION,
       options:['I could not explain it untimed', 'I was correct untimed and missed it timed', 'I stayed too long on an item I should have left'],
       context:'vision_check'
     };
@@ -632,6 +726,8 @@
       '- Hypothesis: ' + (hypothesis ? hypothesis.statement + ' Status: ' + hypothesis.status + '.' : 'none. Do not invent one.'),
       '- Named resources: ' + (state.resourcesNamed.length ? state.resourcesNamed.join(', ') + ' (named only, not verified).' : 'none.'),
       '- Published ledger: 79 QA recomputed, 8 VARC paragraph summaries, 0 DILR served.',
+      '- Schedule: ' + scheduleLine(state),
+      '- ' + evidenceLines().join(' '),
       '- If the student is overwhelmed or asks to stop, the next action is a smaller check, a paused plan, or stopping for the day.'
     ];
     return lines.join('\n');
@@ -639,22 +735,28 @@
 
   function guardReply(text, userText) {
     var value = String(text || '');
+    var user = String(userText || '');
     if (!value) return value;
+    if (isSolutionAsk(user) && !assignsUnsupportedClaim(value)) return value;
     var state = load();
     var hypothesis = activeHypothesis(state);
     var confirmed = hypothesis && hypothesis.status === 'confirmed';
+    if (!confirmed && isObservationAsk(user) && assignsUnsupportedClaim(value)) return ONE_OBSERVATION;
+    if (isResourceAsk(user) && !isRoadmapAsk(user) && assignsUnsupportedClaim(value)) return resourceReply(user);
+    if (isRoadmapAsk(user) && buildPlan(state).status !== 'ready' && /\b(?:timetable|weekly plan|monday|your 99|within reach)\b/i.test(value)) return planReply(buildPlan(state), state);
     var sentences = value.split(/(?<=[.!])\s+/);
     var kept = sentences.filter(function(sentence) {
-      if (/\b(?:within reach|guaranteed|you will (?:hit|reach|get) \d+|realistic percentile)\b/i.test(sentence)) return false;
+      if (/\b(?:within reach|guaranteed|achievable|assured|gettable|you will (?:hit|reach|get|score) \d+)\b/i.test(sentence)) return false;
+      if (/\b(?:percentile|%ile)\b[^.!?]{0,48}\brealistic\b|\brealistic\b[^.!?]{0,48}\b(?:percentile|%ile)\b/i.test(sentence)) return false;
       if (/\b(?:this is mastery|you have mastered|mastered this)\b/i.test(sentence)) return false;
-      if (!confirmed && /\b(?:the real (?:issue|problem) is|you have a concept gap|i know what(?:'s| is) happening|exactly which mistake)\b/i.test(sentence) && isObservationAsk(userText || '')) return false;
-      if (/\b(?:trusted youtube|safe to follow this channel|cat-safe)\b/i.test(sentence)) return false;
+      if (!confirmed && (isObservationAsk(user) || isSolutionAsk(user)) && /\b(?:concept gap|execution failure|fundamentals (?:problem|issue|gap)|the real (?:issue|problem)|i know what)\b/i.test(sentence)) return false;
+      if (/\b(?:cat-safe|you should follow)\b/i.test(sentence)) return false;
       return true;
     });
     var next = kept.join(' ').trim();
-    if (next.length >= 40) return next;
-    if (isObservationAsk(userText || '') && !confirmed) return 'That miss is one observation. I do not have a confirmed cause, so I will not name one.';
-    return value;
+    if (!confirmed && isObservationAsk(user) && next.length < 40) return ONE_OBSERVATION;
+    if (!next) return 'I removed a forecast, a cause, or a source judgment that this record does not support.';
+    return next;
   }
 
   function runVisionImplementationTests() {
@@ -708,15 +810,30 @@
     check('no accuracy movement is reported as no movement', /did not move/i.test(moved.reply) && !/percentile/i.test(moved.reply));
     var guarded = guardReply('Your 99 is within reach if you follow this. The real issue is a concept gap. Trust this channel, it is CAT-safe.', 'I missed a percentages question.');
     check('the guard removes a forecast, a hidden cause and a CAT-safe channel', !/within reach/i.test(guarded) && !/real issue/i.test(guarded) && !/CAT-safe/i.test(guarded));
+    reset();
+    var bulletinPlan = directReply('Build my roadmap. CAT 2026. I want 95. I can study 2 hours a day. QA 20 from 10 attempts at 60% accuracy in 40 minutes. VARC 18 from 10 attempts at 55% accuracy in 40 minutes. DILR 12 from 5 attempts at 40% accuracy in 40 minutes.');
+    check('CAT 2026 uses the bulletin date and does not reopen registration', /29 November 2026/.test(bulletinPlan.reply) && /information bulletin/.test(bulletinPlan.reply) && /Registration in that bulletin has closed/.test(bulletinPlan.reply));
+    reset();
+    var unknownYear = directReply('Build my roadmap. CAT 2027. I want 95. I can study 2 hours a day. QA 20 from 10 attempts at 60% accuracy in 40 minutes. VARC 18 from 10 attempts at 55% accuracy in 40 minutes. DILR 12 from 5 attempts at 40% accuracy in 40 minutes.');
+    check('another CAT year does not borrow 29 November', !/29 November/.test(unknownYear.reply) && /will not count weeks/.test(unknownYear.reply));
+    directReply('My CAT exam is on 30 November 2027.');
+    var statedPlan = directReply('Build my roadmap.');
+    check('a stated exam date replaces the missing bulletin', statedPlan && /30 November 2027/.test(statedPlan.reply) && /stated the exam date/.test(statedPlan.reply) && !/29 November/.test(statedPlan.reply));
+    var snapshot = JSON.parse(JSON.stringify(load()));
+    reset();
+    check('reset clears the record', !load().mocks.length && !load().examDate);
+    save(snapshot);
+    check('a saved record round-trips', load().targetPercentile === snapshot.targetPercentile && load().plan && load().plan.planId === snapshot.plan.planId && load().examDate && load().examDate.iso === '2027-11-30');
+    reset();
+    var paraphrase = directReply('I got a percentages question wrong and I think it is a concept gap.');
+    check('a paraphrased miss stays an observation', paraphrase && /not a diagnosis/.test(paraphrase.reply) && !/concept gap/.test(paraphrase.reply));
+    var sneaky = guardReply('You clearly have a concept gap, your 99 is achievable, and you should follow this channel.', 'I got a percentages question wrong.');
+    check('a model-shaped cause, forecast and source are replaced', /not a diagnosis/.test(sneaky) && !/concept gap/.test(sneaky) && !/achievable/.test(sneaky) && !/channel/.test(sneaky));
+    check('published DILR and the local solver are not diagnostic evidence', /not diagnostic evidence/.test(turnContext()) && /79 QA/.test(turnContext()));
     var solved = directReply('What is 40% of 80?');
     check('a direct percentage question is left to the existing solver', solved === null);
     var context = turnContext();
     check('the model contract forbids a hidden cause and an incomplete roadmap', /Do not predict a hidden cause/.test(context) && /incomplete|Roadmap:/.test(context));
-    var snapshot = JSON.parse(JSON.stringify(load()));
-    reset();
-    check('reset clears the record', !load().mocks.length);
-    save(snapshot);
-    check('a saved record round-trips', load().targetPercentile === snapshot.targetPercentile && load().plan && load().plan.planId === snapshot.plan.planId);
     nowFn = previousNow;
     reset();
     return results;
