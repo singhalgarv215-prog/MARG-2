@@ -4529,7 +4529,7 @@ function trimHistoryForGroundedRequest(requestHistory) {
 function getImageAnalysisDirective(attachments) {
   var count = Array.isArray(attachments) ? attachments.length : attachments ? 1 : 0;
   if (!count) return '';
-  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually” or changed answer. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers, do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
+  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually” or changed answer. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, use only the images attached to this message. Do not repeat question numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers from the images attached to this message, and do not repeat numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If a number or question boundary is unreadable, say so instead of guessing. If a number or question boundary is unreadable, say so instead of guessing. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
 }
 
 function isBareQuestionReference(message) {
@@ -4577,7 +4577,7 @@ function anchorMentorAnalysisToImageContext(mentorAnalysis, userMessage, imageAt
   }
   if (refersToEarlierUploadedMaterial(userMessage)) {
     diagnosis.priorImageReference = true;
-    analysis.directive += '\n\nEARLIER-IMAGE CONTINUITY: Earlier image binaries are not automatically available unless the private source resolver reopens a user-owned saved image and provides it on this turn. Use it only when the structured active-question context identifies the source. If no saved source was resolved, use exact question details already transcribed in this conversation or ask for the relevant page once. Never pretend to reread an old page or invent unseen questions, and never replace the request with generated material.';
+    analysis.directive += '\n\nEARLIER-IMAGE CONTINUITY: Earlier image binaries are not automatically available unless the private source resolver reopens a user-owned saved image and provides it on this turn. Use it only when the structured active-question context identifies the source. If no saved source was resolved, use an extracted question list only when that chapter’s extraction is still stored. A remembered chapter name is not the page. If the extraction is gone, ask for those images again instead of reconstructing the questions. Never pretend to reread an old page or invent unseen questions, and never replace the request with generated material.';
   }
   return analysis;
 }
@@ -20355,6 +20355,7 @@ function runMentorVoiceTests() {
 window.runMentorVoiceTests = runMentorVoiceTests;
 
 async function runSelectedQuestionListTests() {
+  if (typeof resetBookMaterialMemory === 'function') resetBookMaterialMemory();
   var sample = [
     'Q2 (Quadratic Sign & Symmetries*): Perfect test.',
     'Q8 (Multiplicative Functional Equation*): Tests prime factorization.',
@@ -20493,6 +20494,89 @@ async function runSelectedQuestionListTests() {
 }
 window.runSelectedQuestionListTests = runSelectedQuestionListTests;
 
+async function runBookMaterialBoundaryTests() {
+  resetBookMaterialMemory();
+  var previousHistory = conversationHistory;
+  var previousAdd = addMessage;
+  var previousSave = saveChatMessage;
+  var previousFetch = fetchWithTimeout;
+  var html = '';
+  var requestBody = '';
+  addMessage = function(_role, value) { html = String(value || ''); return {}; };
+  saveChatMessage = function() {};
+  function rosterFor(message) {
+    var text = String(message || '');
+    if (/quadratic/i.test(text)) return 'Quadratic Equations\nQ2, Q8, Q14, Q21.';
+    if (/logarithm/i.test(text)) return 'Logarithms\nQ3, Q8, Q15, Q22.';
+    if (/percentage/i.test(text)) return 'Percentages\nQ41, Q42, Q43, Q44.';
+    if (/time and work/i.test(text)) return 'Time and Work\nQ55, Q56, Q57, Q58.';
+    return '';
+  }
+  fetchWithTimeout = function(_url, options) {
+    requestBody = options && options.body || '';
+    var student = '';
+    try { student = JSON.parse(requestBody).contents[0].parts.filter(function(part) { return part && part.text; }).map(function(part) { return part.text; }).join('\n'); } catch (error) { student = ''; }
+    var roster = rosterFor(student);
+    return Promise.resolve({ json:function() { return Promise.resolve({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:roster }] } }] }); } });
+  };
+  var image = [{ data:'abc', mimeType:'image/jpeg', name:'page.jpg' }];
+  conversationHistory = [];
+  var quadratic = await maybeHandleBookQuestionPages('These are the Quadratic Equations pages. Select questions from these pages.', image);
+  var quadraticHtml = html;
+  html = '';
+  var logarithms = await maybeHandleBookQuestionPages('These are the Logarithms pages. Select questions from these pages.', image);
+  var logarithmsHtml = html;
+  var isolatedPrompt = requestBody.indexOf('Q21') === -1 && requestBody.indexOf('Repeat those numbers') === -1 && requestBody.indexOf('Repeat the ones') === -1;
+  html = '';
+  var again = await maybeHandleBookQuestionPages('Select questions from Quadratic Equations.');
+  var againHtml = html;
+  html = '';
+  var mixed = await maybeHandleBookQuestionPages('Select a mixed selection from Quadratic Equations and Logarithms.');
+  var mixedHtml = html;
+  html = '';
+  var ambiguous = await maybeHandleBookQuestionPages('Select questions from the earlier chapter.');
+  var ambiguousHtml = html;
+  html = '';
+  var percentages = await maybeHandleBookQuestionPages('These are the Percentages pages. Select questions from these pages.', image);
+  html = '';
+  var timeWork = await maybeHandleBookQuestionPages('These are the Time and Work pages. Select questions from these pages.', image);
+  html = '';
+  var expired = await maybeHandleBookQuestionPages('Select questions from Quadratic Equations again.');
+  var expiredHtml = html;
+  html = '';
+  var mixedPartial = await maybeHandleBookQuestionPages('Select a mixed selection from Quadratic Equations and Logarithms.');
+  var mixedPartialHtml = html;
+  html = '';
+  conversationHistory = conversationHistory.concat([
+    { role:'user', content:'I finished a timed drill.' },
+    { role:'assistant', content:'Good. Tell me what slowed you down.' },
+    { role:'user', content:'The arithmetic was fine. I want to talk about the mock.' },
+    { role:'assistant', content:'We can look at the mock without opening an old chapter.' }
+  ]);
+  var rememberedOnly = await maybeHandleBookQuestionPages('Can you select questions from Quadratic Equations? The pages were earlier in this chat.');
+  var rememberedHtml = html;
+  html = '';
+  fetchWithTimeout = function() { return Promise.resolve({ json:function() { return Promise.resolve({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'' }] } }] }); } }); };
+  var unreadable = await maybeHandleBookQuestionPages('These are the Logarithms pages. Select questions from these pages.', image);
+  var unreadableHtml = html;
+  var promptIgnoresKnown = bookRosterInstruction('Select questions from these pages.', 'Q21, Q14, Q2').indexOf('Q21') === -1;
+  conversationHistory = previousHistory;
+  addMessage = previousAdd;
+  saveChatMessage = previousSave;
+  fetchWithTimeout = previousFetch;
+  resetBookMaterialMemory();
+  return [
+    { name:'a new chapter is selected only from its own pages', passed:quadratic === true && logarithms === true && quadraticHtml.indexOf('Q21') !== -1 && quadraticHtml.indexOf('Q22') === -1 && logarithmsHtml.indexOf('Q22') !== -1 && logarithmsHtml.indexOf('Q21') === -1 && logarithmsHtml.indexOf('Q14') === -1 && isolatedPrompt && promptIgnoresKnown },
+    { name:'the same question number stays separate in two chapters', passed:mixed === true && mixedHtml.indexOf('Q8 · Quadratic Equations') !== -1 && mixedHtml.indexOf('Q8 · Logarithms') !== -1 && mixedHtml.indexOf('Q21') !== -1 && mixedHtml.indexOf('Q22') !== -1 },
+    { name:'a stored chapter can be selected again while its extraction remains', passed:again === true && againHtml.indexOf('Q21') !== -1 && againHtml.indexOf('Q22') === -1 && againHtml.indexOf('Quadratic Equations') !== -1 },
+    { name:'an unnamed earlier chapter asks which source to use', passed:ambiguous === true && ambiguousHtml.indexOf('Which chapter should I use') !== -1 && ambiguousHtml.indexOf('Quadratic Equations') !== -1 && ambiguousHtml.indexOf('Logarithms') !== -1 && ambiguousHtml.indexOf('marg-qlist') === -1 },
+    { name:'a dropped extraction asks for the pages again', passed:percentages === true && timeWork === true && expired === true && rememberedOnly === true && expiredHtml.indexOf('Q21') === -1 && expiredHtml.indexOf('Q8') === -1 && expiredHtml.indexOf('Upload the Quadratic Equations images again') !== -1 && rememberedHtml.indexOf('Q21') === -1 && rememberedHtml.indexOf('write new questions') !== -1 && rememberedHtml.indexOf('Upload the Quadratic Equations images again') !== -1 },
+    { name:'a mixed request uses only chapters that can still be read', passed:mixedPartial === true && mixedPartialHtml.indexOf('Q22') !== -1 && mixedPartialHtml.indexOf('Q21') === -1 && mixedPartialHtml.indexOf('Upload the Quadratic Equations images again') !== -1 && mixedPartialHtml.indexOf('I will not substitute') !== -1 },
+    { name:'an unreadable upload does not fall back to an earlier chapter', passed:unreadable === true && unreadableHtml.indexOf('could not read') !== -1 && unreadableHtml.indexOf('Q21') === -1 && unreadableHtml.indexOf('Q22') === -1 && unreadableHtml.indexOf('marg-qlist') === -1 }
+  ];
+}
+window.runBookMaterialBoundaryTests = runBookMaterialBoundaryTests;
+
 function runConversationCloseTests() {
   var previousHistory = (conversationHistory || []).slice();
   conversationHistory = [];
@@ -20538,6 +20622,7 @@ function runConversationCloseTests() {
 window.runConversationCloseTests = runConversationCloseTests;
 
 async function runAuditRepairTests() {
+  if (typeof resetBookMaterialMemory === 'function') resetBookMaterialMemory();
   var results = [];
   function check(name, passed) { results.push({ name:name, passed:!!passed }); }
   var score = 'CAT marking is plus 3 for correct and minus 1 for wrong. I got 14 right and 6 wrong. What is my score? Show the arithmetic.';
@@ -22690,6 +22775,8 @@ function asksForExistingQuestionList(text) {
 function wantsBookQuestionSelection(text) {
   var value = String(text || '');
   if (asksToInventQuestions(value) && !refusesGeneratedQuestions(value) && !isSelectedQuestionListRequest(value)) return false;
+  if (typeof asksAmbiguousBookSource === 'function' && asksAmbiguousBookSource(value)) return true;
+  if (typeof knownBookChapterInText === 'function' && knownBookChapterInText(value) && /\b(?:select|selection|list|questions?|pick|choose)\b/i.test(value) && !/\b(?:solve|explain|why|answer)\b/i.test(value)) return true;
   if (isSelectedQuestionListRequest(value) || studentWillSendMorePages(value)) return true;
   if (refusesGeneratedQuestions(value) && /\b(?:list|selected|images?|pages?|pictures?|photos?|chapter|uploaded)\b/i.test(value)) return true;
   if (/\b(?:selected|curated|high[- ]yield)\b[\s\S]{0,40}\bquestions?\b/i.test(value)) return true;
@@ -22705,6 +22792,7 @@ function bookSelectionLimit(text) {
   var value = String(text || '');
   var count = value.match(/\b(\d{1,3})\s+questions?\b/i);
   var named = count ? Number(count[1]) : 0;
+  if (named >= 1 && named <= 80 && /\b(?:select|pick|choose)\b/i.test(value) && /\b(?:pages?|images?|pictures?|photos?|chapter|uploaded)\b/i.test(value)) return named;
   if (named >= 5 && named <= 80 && /\b(?:total|about|around|roughly|selected)\b/i.test(value)) return named;
   if (/\b(?:not all|don['’]?t ask for all|do not ask for all|selected one|selected questions|questions i should|should do|should solve)\b/i.test(value)) return named >= 5 && named <= 80 ? named : 30;
   return 0;
@@ -22741,44 +22829,536 @@ function looksLikeGeneratedPracticeQuestion(text) {
   return ((String(text || '').match(/(?:^|\n)\s*[A-D][.)]\s+\S/g) || []).length >= 3);
 }
 
+var BOOK_MATERIAL_EXTRACTION_CAP = 3;
+var bookMaterialMemory = [];
+var bookMaterialAdopted = false;
+var BOOK_CHAPTERS = [
+  ['Quadratic Equations', /\bquadratic equations?\b/i],
+  ['Logarithms', /\blogarithms?\b/i],
+  ['Linear Equations', /\blinear equations?\b/i],
+  ['Inequalities', /\binequalit(?:y|ies)\b/i],
+  ['Coordinate Geometry', /\bcoordinate geometry\b/i],
+  ['Number System', /\bnumber systems?\b/i],
+  ['Time and Work', /\btime and work\b/i],
+  ['Progressions', /\bprogressions?\b/i],
+  ['Permutations', /\bpermutations?\b/i],
+  ['Probability', /\bprobability\b/i],
+  ['Trigonometry', /\btrigonometry\b/i],
+  ['Percentages', /\bpercentages?\b/i],
+  ['Geometry', /\bgeometry\b/i],
+  ['Functions', /\bfunctions?\b/i]
+];
+
+function bookMaterialQuestionKey(item) {
+  var chapter = String(item && item.chapter || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return (chapter ? chapter + ':' : '') + String(item && item.id || '');
+}
+
+function resetBookMaterialMemory() {
+  bookMaterialMemory = [];
+  bookMaterialAdopted = true;
+}
+
+function cloneBookQuestion(item) {
+  return {
+    id:item.id,
+    label:item.label,
+    title:item.title || '',
+    group:item.group || '',
+    chapter:item.chapter || '',
+    priority:!!item.priority,
+    specific:!!item.specific,
+    order:item.order || 0,
+    priorityOrder:item.priorityOrder == null ? 999 : item.priorityOrder,
+    seen:item.seen || 0
+  };
+}
+
+function bookMaterialNorm(chapter) {
+  return String(chapter || '').toLowerCase();
+}
+
+function knownBookChapterInText(text) {
+  var value = String(text || '');
+  var blocked = /^(?:earlier|previous|older|other|another|first|same|this|that|these|those|next|last|whole|full|entire|current|new|rest|remaining)$/i;
+  var explicit = value.match(/\b([a-z][a-z0-9 &'’\-]{2,48}?)\s+chapter\b/i);
+  if (explicit && !blocked.test(String(explicit[1] || '').trim())) {
+    var named = explicit[1].trim();
+    for (var i = 0; i < BOOK_CHAPTERS.length; i++) if (BOOK_CHAPTERS[i][1].test(named)) return BOOK_CHAPTERS[i][0];
+  }
+  for (var j = 0; j < BOOK_CHAPTERS.length; j++) if (BOOK_CHAPTERS[j][1].test(value)) return BOOK_CHAPTERS[j][0];
+  return '';
+}
+
+function bookChaptersNamedInText(text) {
+  var value = String(text || '');
+  var found = [];
+  BOOK_CHAPTERS.forEach(function(entry) {
+    if (entry[1].test(value) && found.indexOf(entry[0]) === -1) found.push(entry[0]);
+  });
+  return found;
+}
+
+function isSameBatchBookContinuation(text) {
+  var value = String(text || '');
+  if (typeof studentWillSendMorePages === 'function' && studentWillSendMorePages(value)) return true;
+  return /\b(?:rest|remaining|more)\b[\s\S]{0,32}\b(?:of\s+(?:the\s+)?)?(?:pictur|photo|image|page)/i.test(value);
+}
+
+function isNewBookUploadTurn(text) {
+  var value = String(text || '');
+  if (isSameBatchBookContinuation(value)) return false;
+  return /\b(?:these|those|here are|attached|uploaded)\b[\s\S]{0,48}\b(?:pages?|pictures?|photos?|images?)\b/i.test(value) ||
+    /\b(?:pages?|pictures?|photos?|images?)\b[\s\S]{0,32}\b(?:attached|uploaded)\b/i.test(value);
+}
+
+function wantsMixedBookChapters(text) {
+  var value = String(text || '');
+  var named = bookChaptersNamedInText(value);
+  if (named.length >= 2 && /\b(?:and|plus|with|both)\b/i.test(value) && /\b(?:questions?|select|selection|list|pick|choose)\b/i.test(value)) return true;
+  return /\b(?:mixed selection|mix of|both chapters|from both|across (?:both|the) chapters)\b/i.test(value) && /\b(?:questions?|select|selection|list)\b/i.test(value);
+}
+
+function asksAmbiguousBookSource(text) {
+  var value = String(text || '');
+  if (knownBookChapterInText(value) || wantsMixedBookChapters(value)) return false;
+  return /\b(?:earlier|previous|older|other|another|first)\s+(?:chapter|upload)\b/i.test(value);
+}
+
+function findBookMaterialMemory(chapter) {
+  var key = bookMaterialNorm(chapter);
+  var found = null;
+  bookMaterialMemory.forEach(function(entry) {
+    if (entry && bookMaterialNorm(entry.chapter) === key) found = entry;
+  });
+  return found;
+}
+
+function compactBookMaterialEntry(entry) {
+  return {
+    chapter:entry.chapter,
+    extractionAvailable:entry.extractionAvailable !== false && !!(entry.questions && entry.questions.length),
+    memoryOnly:entry.extractionAvailable === false || !(entry.questions && entry.questions.length),
+    questions:(entry.questions || []).map(cloneBookQuestion),
+    sourceText:String(entry.sourceText || '').slice(0, 4000),
+    priorityGroup:entry.priorityGroup || ''
+  };
+}
+
+function enforceBookMaterialCap() {
+  var cap = typeof BOOK_MATERIAL_EXTRACTION_CAP === 'number' ? BOOK_MATERIAL_EXTRACTION_CAP : 3;
+  if (cap < 1) cap = 1;
+  var available = bookMaterialMemory.filter(function(entry) {
+    return entry && entry.extractionAvailable !== false && entry.questions && entry.questions.length;
+  });
+  while (available.length > cap) {
+    var oldest = available.shift();
+    oldest.extractionAvailable = false;
+    oldest.memoryOnly = true;
+    oldest.questions = [];
+    oldest.sourceText = '';
+  }
+}
+
+function persistBookMaterialIndex() {
+  try {
+    if (typeof isGuestMode !== 'undefined' && isGuestMode && typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+  } catch (error) {}
+  if (typeof currentUser === 'undefined' || !currentUser || typeof saveInternalMemoryMessage !== 'function') return;
+  try {
+    saveInternalMemoryMessage('book-material', { groups:bookMaterialMemory.map(compactBookMaterialEntry) });
+  } catch (error) {}
+}
+
+function rememberBookMaterialEntry(group) {
+  if (!group || !group.chapter) return null;
+  var entry = findBookMaterialMemory(group.chapter);
+  if (!entry) {
+    entry = { chapter:group.chapter, extractionAvailable:true, memoryOnly:false, questions:[], sourceText:'', priorityGroup:'' };
+    bookMaterialMemory.push(entry);
+  }
+  if (group.extractionAvailable === false) {
+    entry.extractionAvailable = false;
+    entry.memoryOnly = true;
+    entry.questions = [];
+    entry.sourceText = '';
+    persistBookMaterialIndex();
+    return entry;
+  }
+  if (group.questions && group.questions.length) {
+    entry.extractionAvailable = true;
+    entry.memoryOnly = false;
+    entry.chapter = group.chapter;
+    entry.questions = group.questions.map(cloneBookQuestion);
+    entry.sourceText = group.sourceText || '';
+    entry.priorityGroup = group.priorityGroup || '';
+    enforceBookMaterialCap();
+    persistBookMaterialIndex();
+  }
+  return entry;
+}
+
+function releaseBookMaterialSource(chapter) {
+  var name = knownBookChapterInText(chapter) || String(chapter || '').trim();
+  if (!name) return null;
+  return rememberBookMaterialEntry({ chapter:name, extractionAvailable:false, questions:[] });
+}
+
+function latestBookMaterialFromHistory() {
+  var history = (typeof conversationHistory === 'undefined' ? [] : conversationHistory) || [];
+  var saved = null;
+  history.forEach(function(item) {
+    if (typeof parseInternalMemoryMessage !== 'function') return;
+    var payload = parseInternalMemoryMessage(item, 'book-material');
+    if (payload && Array.isArray(payload.groups)) saved = payload.groups;
+  });
+  return saved;
+}
+
+function ensureBookMaterialAdopted() {
+  if (bookMaterialAdopted) return;
+  bookMaterialAdopted = true;
+  if (bookMaterialMemory.length) return;
+  var saved = latestBookMaterialFromHistory();
+  if (!saved || !saved.length) return;
+  bookMaterialMemory = saved.map(function(entry) {
+    return {
+      chapter:entry.chapter,
+      extractionAvailable:entry.extractionAvailable !== false && !!(entry.questions && entry.questions.length),
+      memoryOnly:entry.extractionAvailable === false || !(entry.questions && entry.questions.length),
+      questions:(entry.questions || []).map(cloneBookQuestion),
+      sourceText:entry.sourceText || '',
+      priorityGroup:entry.priorityGroup || ''
+    };
+  });
+}
+
+function stampBookQuestionChapter(list, chapter) {
+  (list && list.items || []).forEach(function(item) {
+    if (chapter) item.chapter = chapter;
+    if (chapter && !item.group) item.group = chapter;
+  });
+  return list;
+}
+
+function emptyBookGroup(chapter) {
+  return { chapter:chapter || '', questions:[], extractionAvailable:true, memoryOnly:false, sourceText:'', priorityGroup:'', byKey:{} };
+}
+
+function addQuestionsToBookGroup(group, list) {
+  (list && list.items || []).forEach(function(item) {
+    if (!item || !item.id) return;
+    var copy = cloneBookQuestion(item);
+    if (group.chapter) copy.chapter = group.chapter;
+    if (group.chapter && !copy.group) copy.group = group.chapter;
+    var key = bookMaterialQuestionKey(copy);
+    if (group.byKey[key]) return;
+    group.byKey[key] = copy;
+    group.questions.push(copy);
+  });
+  if (list && list.priorityGroup && !group.priorityGroup) group.priorityGroup = list.priorityGroup;
+  return group;
+}
+
+function inferBookMaterialGroupsFromHistory() {
+  var history = (typeof conversationHistory === 'undefined' ? [] : conversationHistory) || [];
+  var groups = [];
+  var current = null;
+  function open(chapter) {
+    current = emptyBookGroup(chapter || '');
+    groups.push(current);
+    return current;
+  }
+  history.forEach(function(item) {
+    if (!item || (typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item))) return;
+    if (item.role === 'user') {
+      var text = String(item.content || '');
+      var chapter = knownBookChapterInText(text);
+      var continuing = isSameBatchBookContinuation(text);
+      if (continuing && current && (!chapter || !current.chapter || bookMaterialNorm(current.chapter) === bookMaterialNorm(chapter))) {
+        if (chapter && !current.chapter) current.chapter = chapter;
+        return;
+      }
+      if (chapter && current && bookMaterialNorm(current.chapter) === bookMaterialNorm(chapter) && !isNewBookUploadTurn(text)) return;
+      if (isNewBookUploadTurn(text) || (chapter && (!current || bookMaterialNorm(current.chapter) !== bookMaterialNorm(chapter)))) {
+        open(chapter);
+        return;
+      }
+      if (!current && (/\bpages?\b/i.test(text) || (typeof mentionsPhotographedBookPages === 'function' && mentionsPhotographedBookPages(text)))) open('');
+      return;
+    }
+    if (item.role !== 'assistant') return;
+    var content = String(item.content || '');
+    if (!content || looksLikeGeneratedPracticeQuestion(content)) return;
+    var list = collectSelectedBookQuestions(content);
+    if (!list.total) return;
+    if (!current) open('');
+    if (/could not finish the rest of this answer/i.test(content)) current.sourceText = content;
+    addQuestionsToBookGroup(current, list);
+  });
+  return groups;
+}
+
+function groupFromMemoryEntry(entry) {
+  var group = emptyBookGroup(entry.chapter);
+  group.extractionAvailable = entry.extractionAvailable !== false && !!(entry.questions && entry.questions.length);
+  group.memoryOnly = entry.extractionAvailable === false || !(entry.questions && entry.questions.length);
+  group.sourceText = entry.sourceText || '';
+  group.priorityGroup = entry.priorityGroup || '';
+  if (group.extractionAvailable) addQuestionsToBookGroup(group, { items:entry.questions, priorityGroup:entry.priorityGroup || '' });
+  return group;
+}
+
+function resolveBookMaterialGroups() {
+  ensureBookMaterialAdopted();
+  var inferred = inferBookMaterialGroupsFromHistory();
+  if (!bookMaterialMemory.length) return inferred;
+  var used = {};
+  var groups = [];
+  inferred.forEach(function(group) {
+    var key = bookMaterialNorm(group.chapter);
+    var memory = key ? findBookMaterialMemory(group.chapter) : null;
+    if (memory) {
+      if (used[key]) return;
+      used[key] = true;
+      groups.push(groupFromMemoryEntry(memory));
+      return;
+    }
+    groups.push(group);
+  });
+  bookMaterialMemory.forEach(function(entry) {
+    var key = bookMaterialNorm(entry.chapter);
+    if (!key || used[key]) return;
+    used[key] = true;
+    groups.push(groupFromMemoryEntry(entry));
+  });
+  return groups;
+}
+
+function listFromBookGroup(group) {
+  var items = (group && group.questions || []).slice();
+  return { items:items, total:items.length, priorityGroup:group && group.priorityGroup || '' };
+}
+
+function preserveNamedBookGroups(groups) {
+  (groups || []).forEach(function(group) {
+    if (!group || !group.chapter || !(group.questions && group.questions.length)) return;
+    var existing = findBookMaterialMemory(group.chapter);
+    if (existing && (existing.extractionAvailable === false || (existing.questions && existing.questions.length))) return;
+    rememberBookMaterialEntry(group);
+  });
+}
+
+function latestBookGroup(groups) {
+  var list = groups || [];
+  for (var i = list.length - 1; i >= 0; i--) {
+    if (list[i] && list[i].extractionAvailable !== false && list[i].questions && list[i].questions.length) return list[i];
+  }
+  return null;
+}
+
+function groupForBookRequest(message) {
+  var groups = resolveBookMaterialGroups();
+  var text = String(message || '');
+  var named = bookChaptersNamedInText(text);
+  if (wantsMixedBookChapters(text)) {
+    var available = [];
+    var missing = [];
+    var pool = named.length ? named : groups.map(function(group) { return group.chapter; }).filter(Boolean);
+    var seenChapter = {};
+    pool.forEach(function(chapter) {
+      if (!chapter || seenChapter[bookMaterialNorm(chapter)]) return;
+      seenChapter[bookMaterialNorm(chapter)] = true;
+      var group = null;
+      groups.forEach(function(entry) {
+        if (bookMaterialNorm(entry.chapter) === bookMaterialNorm(chapter)) group = entry;
+      });
+      if (group && group.extractionAvailable !== false && group.questions && group.questions.length) available.push(group);
+      else missing.push(chapter);
+    });
+    return { mixed:true, available:available, missing:missing, groups:groups };
+  }
+  if (asksAmbiguousBookSource(text)) {
+    var readable = groups.filter(function(group) { return group.chapter && group.extractionAvailable !== false && group.questions && group.questions.length; });
+    if (readable.length > 1) return { clarify:true, groups:readable };
+    if (readable.length === 1) return { group:readable[0] };
+    var remembered = groups.filter(function(group) { return group.chapter; });
+    if (remembered.length) return { clarify:true, groups:remembered };
+  }
+  var chapter = knownBookChapterInText(text);
+  if (chapter) {
+    var match = null;
+    groups.forEach(function(group) {
+      if (bookMaterialNorm(group.chapter) === bookMaterialNorm(chapter)) match = group;
+    });
+    if (match && match.extractionAvailable === false) return { unavailable:true, chapter:chapter, group:match };
+    if (match && match.questions && match.questions.length) return { group:match };
+    if (match) return { unavailable:true, chapter:chapter, group:match };
+    return { missing:true, chapter:chapter };
+  }
+  var unlabeled = null;
+  groups.forEach(function(group) {
+    if (!group.chapter && group.questions && group.questions.length) unlabeled = group;
+  });
+  if (unlabeled && !bookMaterialMemory.length) return { group:unlabeled };
+  var latest = latestBookGroup(groups);
+  if (latest) return { group:latest };
+  if (unlabeled) return { group:unlabeled };
+  return { group:null };
+}
+
+function continuationBase(chapter) {
+  if (chapter) {
+    var memory = findBookMaterialMemory(chapter);
+    if (memory && memory.extractionAvailable !== false && memory.questions && memory.questions.length) return groupFromMemoryEntry(memory);
+  }
+  var prior = inferBookMaterialGroupsFromHistory();
+  if (chapter) {
+    var match = null;
+    prior.forEach(function(group) {
+      if (bookMaterialNorm(group.chapter) === bookMaterialNorm(chapter)) match = group;
+    });
+    if (match) return match;
+  }
+  return prior.length ? prior[prior.length - 1] : emptyBookGroup(chapter || '');
+}
+
+function mergeContinuationGroup(chapter, extracted, roster) {
+  var base = continuationBase(chapter);
+  var group = emptyBookGroup(chapter || base.chapter || '');
+  group.priorityGroup = base.priorityGroup || '';
+  group.sourceText = roster || '';
+  addQuestionsToBookGroup(group, { items:base.questions, priorityGroup:base.priorityGroup || '' });
+  addQuestionsToBookGroup(group, extracted);
+  return group;
+}
+
+function freshBookGroup(chapter, extracted, roster) {
+  var group = emptyBookGroup(chapter || '');
+  group.sourceText = roster || '';
+  group.priorityGroup = extracted.priorityGroup || '';
+  addQuestionsToBookGroup(group, extracted);
+  return group;
+}
+
+function bookSelectionLead(group, limit, fresh) {
+  var chapter = group && group.chapter ? group.chapter : '';
+  if (chapter && fresh) return limit ? 'Here are the questions to do from these ' + chapter + ' pages.' : 'Here is the selection from these ' + chapter + ' pages.';
+  if (chapter) return limit ? 'Here are the questions to do from the ' + chapter + ' pages I can still read.' : 'Here is the selection from the ' + chapter + ' pages I can still read.';
+  return limit ? 'Here are the questions to do from these pages.' : 'Here is the selection from these pages.';
+}
+
+function noteBookUserTurn(text) {
+  if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return;
+  var lastUser = '';
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    if (conversationHistory[i] && conversationHistory[i].role === 'user') {
+      lastUser = String(conversationHistory[i].content || '');
+      break;
+    }
+  }
+  if (lastUser === String(text || '')) return;
+  conversationHistory.push({ role:'user', content:String(text || '') });
+}
+
+function publishBookUnreadable() {
+  var line = 'I could not read question numbers on these pages. Send a clearer photo of the same pages. I will not use an earlier chapter in their place.';
+  addMessage('marg', escapeChatHtml(line), true);
+  rememberBookAssistantText(line);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+}
+
+function publishBookSourceUnavailable(chapter) {
+  var name = chapter || 'that chapter';
+  var line = 'I remember ' + name + ' from earlier in this chat, but I do not have those pages now. Upload the ' + name + ' images again and I will select from them. I will not write new questions in their place.';
+  addMessage('marg', escapeChatHtml(line), true);
+  rememberBookAssistantText(line);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+}
+
+function publishBookClarification(groups) {
+  var names = [];
+  (groups || []).forEach(function(group) {
+    if (group && group.chapter && names.indexOf(group.chapter) === -1) names.push(group.chapter);
+  });
+  var line = names.length ? 'Which chapter should I use: ' + names.join(' or ') + '?' : 'Which chapter should I use? Name it, or upload the pages.';
+  addMessage('marg', escapeChatHtml(line), true);
+  rememberBookAssistantText(line);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+}
+
+function publishMixedBookSelection(target, limit) {
+  var available = target && target.available || [];
+  var missing = target && target.missing || [];
+  var availableNames = available.map(function(group) { return group.chapter; }).filter(Boolean);
+  var note = '';
+  if (missing.length && availableNames.length) note = 'I can select from ' + availableNames.join(' and ') + '. Upload the ' + missing.join(' and ') + ' images again if you want that chapter included. I will not substitute questions from a chapter I cannot read.';
+  else if (missing.length) note = 'I do not have ' + missing.join(' and ') + ' available. Upload those images again and I will select from them. I will not write new questions in their place.';
+  if (!available.length) {
+    var missingLine = note || 'Upload the chapters you want mixed.';
+    addMessage('marg', escapeChatHtml(missingLine), true);
+    rememberBookAssistantText(missingLine);
+    if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+    return;
+  }
+  var list = limitBookQuestionList(mergeBookQuestionLists(available.map(listFromBookGroup)), limit);
+  var lead = 'Here is the mixed selection from ' + availableNames.join(' and ') + '.';
+  if (list.total >= 1) publishBookChecklist(list, note, lead);
+  else publishBookMissing('');
+}
+
+window.resetBookMaterialMemory = resetBookMaterialMemory;
+window.releaseBookMaterialSource = releaseBookMaterialSource;
+
+
 function mergeBookQuestionLists(lists) {
-  var byId = {};
+  var byKey = {};
   var seen = 0;
   var priorityGroup = '';
   (lists || []).forEach(function(list) {
     if (list && list.priorityGroup) priorityGroup = list.priorityGroup;
     (list && list.items || []).forEach(function(item) {
       if (!item || !item.id) return;
-      var existing = byId[item.id];
+      var key = bookMaterialQuestionKey(item);
+      var existing = byKey[key];
       if (!existing) {
-        byId[item.id] = { id:item.id, label:item.label, title:item.title || '', group:item.group || '', priority:!!item.priority, specific:!!item.specific, order:item.order, priorityOrder:item.priorityOrder == null ? 999 : item.priorityOrder, seen:seen++ };
+        var copy = cloneBookQuestion(item);
+        copy.seen = seen++;
+        byKey[key] = copy;
         return;
       }
       if ((item.title || '').length > (existing.title || '').length) existing.title = item.title;
       if (item.group && !existing.group) existing.group = item.group;
+      if (item.chapter && !existing.chapter) existing.chapter = item.chapter;
       if (item.priority) existing.priority = true;
     });
   });
-  var items = Object.keys(byId).map(function(id) { return byId[id]; });
+  var items = Object.keys(byKey).map(function(key) { return byKey[key]; });
   return { items:items, total:items.length, priorityGroup:priorityGroup };
 }
 
 function assistantBookRosterTexts() {
   if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return [];
-  return conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; }).filter(function(text) {
+  return conversationHistory.filter(function(item) {
+    return item && item.role === 'assistant' && !(typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item));
+  }).map(function(item) { return item.content || ''; }).filter(function(text) {
     if (!text || looksLikeGeneratedPracticeQuestion(text)) return false;
     return collectSelectedBookQuestions(text).total > 0;
   });
 }
 
 function bookRosterWasCutOff() {
-  return assistantBookRosterTexts().some(function(text) {
-    return /could not finish the rest of this answer/i.test(text);
-  });
+  var available = bookMaterialMemory.filter(function(entry) { return entry && entry.extractionAvailable !== false && entry.sourceText; });
+  var latest = available[available.length - 1];
+  if (latest) return /could not finish the rest of this answer/i.test(latest.sourceText);
+  var texts = assistantBookRosterTexts();
+  return /could not finish the rest of this answer/i.test(texts[texts.length - 1] || '');
 }
 
 function collectedBookQuestionList(extraText) {
-  var lists = assistantBookRosterTexts().map(collectSelectedBookQuestions);
+  var target = groupForBookRequest('');
+  var lists = [];
+  if (target && target.group && target.group.extractionAvailable !== false) lists.push(listFromBookGroup(target.group));
   if (extraText && !looksLikeGeneratedPracticeQuestion(extraText)) lists.push(collectSelectedBookQuestions(extraText));
   return mergeBookQuestionLists(lists);
 }
@@ -22806,21 +23386,29 @@ function selectedQuestionListPlain(list) {
 }
 
 function selectedQuestionRowCopy(item) {
-  return item.title ? item.label + '. ' + item.title : item.label;
+  var title = String(item.title || '');
+  var chapter = String(item.chapter || '');
+  if (title && chapter && title.toLowerCase() === chapter.toLowerCase()) return item.label + ' · ' + chapter;
+  if (title && chapter) return item.label + '. ' + title + ' · ' + chapter;
+  if (title) return item.label + '. ' + title;
+  if (chapter) return item.label + ' · ' + chapter;
+  return item.label;
 }
 
 function renderSelectedQuestionList(list, lead) {
   if (typeof ensureMentorRichTextStyles === 'function') ensureMentorRichTextStyles();
   var items = (list && list.items || []).slice();
   var saved = [];
-  try { saved = JSON.parse(localStorage.getItem('marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.')) || '[]'); } catch (e) { saved = []; }
+  var storeIds = items.map(bookMaterialQuestionKey).sort();
+  try { saved = JSON.parse(localStorage.getItem('marg_qlist_v1_' + storeIds.join('.')) || '[]'); } catch (e) { saved = []; }
   if (!Array.isArray(saved)) saved = [];
   function escapeList(value) {
     return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
   function row(item) {
-    var done = saved.indexOf(item.id) !== -1;
-    return '<button type="button" class="marg-qpick' + (done ? ' done' : '') + '" data-qid="' + escapeList(item.id) + '"><span class="marg-qpick-mark" aria-hidden="true"></span><span class="marg-qpick-copy">' + escapeList(selectedQuestionRowCopy(item)) + '</span></button>';
+    var key = bookMaterialQuestionKey(item);
+    var done = saved.indexOf(key) !== -1;
+    return '<button type="button" class="marg-qpick' + (done ? ' done' : '') + '" data-qid="' + escapeList(key) + '"><span class="marg-qpick-mark" aria-hidden="true"></span><span class="marg-qpick-copy">' + escapeList(selectedQuestionRowCopy(item)) + '</span></button>';
   }
   var explicit = items.some(function(item) { return item.group; });
   var groups;
@@ -22843,9 +23431,9 @@ function renderSelectedQuestionList(list, lead) {
       ['Mixed CAT-style applications', rest.filter(function(item) { return questionListGroup(item.title) === 'Mixed CAT-style applications'; })]
     ].filter(function(group) { return group[1].length; });
   }
-  var doneCount = items.filter(function(item) { return saved.indexOf(item.id) !== -1; }).length;
-  var store = 'marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.');
-  var intro = lead || 'Here is the full selection from the pages already in this chat.';
+  var doneCount = items.filter(function(item) { return saved.indexOf(bookMaterialQuestionKey(item)) !== -1; }).length;
+  var store = 'marg_qlist_v1_' + storeIds.join('.');
+  var intro = lead || 'Here is the selection from these pages.';
   return '<div class="mentor-paragraph">' + escapeList(intro) + '</div><div class="marg-qlist" data-store="' + escapeList(store) + '"><div class="marg-qlist-title">Your selected question list</div><div class="marg-qlist-banner"><span class="marg-qlist-dot" aria-hidden="true"></span><div><div class="marg-qlist-priority">Priority 1 — Do these first</div><div class="marg-qlist-note">Core concepts and useful problem-solving practice</div></div></div>' +
     groups.map(function(group) {
       return '<div class="marg-qlist-group">' + escapeList(group[0]) + '</div>' + group[1].sort(function(a, b) { return a.priority ? a.priorityOrder - b.priorityOrder : a.order - b.order; }).map(row).join('');
@@ -22899,7 +23487,7 @@ function rememberBookAssistantText(text) {
 }
 
 function publishBookChecklist(list, extraNote, lead) {
-  var note = bookRosterWasCutOff() ? 'The last read stopped before the page finished. This is every number already in the chat. Send the page that was cut off if one is missing.' : String(extraNote || '');
+  var note = bookRosterWasCutOff() ? 'The last read stopped before the page finished. This is every number already read from these pages. Send the page that was cut off if one is missing.' : String(extraNote || '');
   var html = (note ? '<div class="mentor-paragraph">' + escapeChatHtml(note) + '</div>' : '') + renderSelectedQuestionList(list, lead);
   addMessage('marg', html, true);
   rememberBookAssistantText(selectedQuestionListPlain(list));
@@ -22918,7 +23506,16 @@ function publishBookHold(hasImages) {
 function publishBookMissing(message) {
   var text = String(message || '');
   var rosterCount = 0;
-  try { rosterCount = collectedBookQuestionList().total || 0; } catch (error) { rosterCount = 0; }
+  try {
+    var namedChapter = typeof knownBookChapterInText === 'function' ? knownBookChapterInText(text) : '';
+    if (namedChapter) {
+      var namedGroup = null;
+      resolveBookMaterialGroups().forEach(function(group) {
+        if (group && bookMaterialNorm(group.chapter) === bookMaterialNorm(namedChapter)) namedGroup = group;
+      });
+      rosterCount = namedGroup && namedGroup.extractionAvailable !== false ? (namedGroup.questions || []).length : 0;
+    } else rosterCount = collectedBookQuestionList().total || 0;
+  } catch (error) { rosterCount = 0; }
   var mentionsSource = /\b(?:upload|images?|pictures?|photos?|pages?|chapter|arun sharma)\b/i.test(text);
   var line = !rosterCount && !mentionsSource
     ? 'No pages are in this chat, so I cannot read a question list from them. Upload the pages, or name the chapter you can see, and I’ll work from that.'
@@ -22944,17 +23541,14 @@ function bookRosterInstruction(message, known) {
   var instruction = limit
     ? 'Read every attached page. Choose about ' + limit + ' of the highest-yield questions that are actually visible. Do not list every question on the page. Do not write a question stem, the options, a solution, or a new practice question.'
     : 'Read every attached page. Reply with only the question numbers that are visible. Do not write the question stem, the options, a solution, or a new practice question.';
-  instruction += ' One topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not stop in the middle of a page. End the reply with a period.';
-  if (/\bQ\s*\d/i.test(known || '')) instruction += '\n\nNumbers already recorded from earlier pages are below. Repeat the ones that belong in this reply, then add the numbers on these pages.\n' + known;
+  instruction += ' One topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not stop in the middle of a page. Use only these attached pages. Do not copy question numbers from an earlier chapter. If a number or a question boundary is unreadable, say so instead of guessing. End the reply with a period.';
   return instruction;
 }
 
 async function requestCompactBookRoster(message, images) {
   var ready = (images || []).filter(function(item) { return item && item.data; });
   if (!ready.length || typeof fetchWithTimeout !== 'function' || typeof WORKER_URL === 'undefined' || typeof buildGeminiRequest !== 'function') return '';
-  var known = selectedQuestionListPlain(collectedBookQuestionList());
-  var instruction = bookRosterInstruction(message, known);
-  if (/\bQ\s*\d/i.test(known)) instruction += '\n\nNumbers already recorded from earlier pages are below. Repeat those numbers, then add the numbers on these pages, so this reply is the full list.\n' + known;
+  var instruction = bookRosterInstruction(message, '');
   var parts = ready.map(function(item) {
     return { inlineData:{ mimeType:item.mimeType || 'image/jpeg', data:item.data } };
   });
@@ -22982,17 +23576,74 @@ async function maybeHandleBookQuestionPages(message, images) {
   var hasImages = ready.length > 0;
   if (!wantsBookQuestionSelection(text)) return false;
   if (asksToInventQuestions(text) && !isSelectedQuestionListRequest(text) && !refusesGeneratedQuestions(text)) return false;
-  var roster = hasImages ? await requestCompactBookRoster(text, ready) : '';
+  if (studentWillSendMorePages(text) && !hasImages) {
+    publishBookHold(false);
+    return true;
+  }
+  if (!hasImages && wantsMixedBookChapters(text)) {
+    publishMixedBookSelection(groupForBookRequest(text), bookSelectionLimit(text));
+    return true;
+  }
+  if (!hasImages && asksAmbiguousBookSource(text)) {
+    var ambiguous = groupForBookRequest(text);
+    if (ambiguous && ambiguous.clarify) {
+      publishBookClarification(ambiguous.groups);
+      return true;
+    }
+  }
+  if (!hasImages) {
+    var stored = groupForBookRequest(text);
+    if (stored && stored.unavailable) {
+      publishBookSourceUnavailable(stored.chapter);
+      return true;
+    }
+    if (stored && stored.missing) {
+      publishBookMissing(text);
+      return true;
+    }
+    var storedList = stored && stored.group ? limitBookQuestionList(listFromBookGroup(stored.group), bookSelectionLimit(text)) : { items:[], total:0 };
+    if (storedList.total >= 3) {
+      publishBookChecklist(storedList, '', bookSelectionLead(stored.group, bookSelectionLimit(text), false));
+      return true;
+    }
+    publishBookMissing(text);
+    return true;
+  }
+  var prior = inferBookMaterialGroupsFromHistory();
+  preserveNamedBookGroups(prior);
+  var chapter = knownBookChapterInText(text);
+  var latestNamed = '';
+  for (var i = prior.length - 1; i >= 0; i--) if (prior[i] && prior[i].chapter) { latestNamed = prior[i].chapter; break; }
+  var continuing = isSameBatchBookContinuation(text) && (!chapter || !latestNamed || bookMaterialNorm(latestNamed) === bookMaterialNorm(chapter));
+  var roster = await requestCompactBookRoster(text, ready);
+  var extracted = roster && !looksLikeGeneratedPracticeQuestion(roster) ? collectSelectedBookQuestions(roster) : { items:[], total:0, priorityGroup:'' };
+  stampBookQuestionChapter(extracted, chapter);
+  if (!extracted.total) {
+    if (continuing) {
+      var current = continuationBase(chapter);
+      if (current && current.questions && current.questions.length >= 3) {
+        publishBookChecklist(listFromBookGroup(current), 'I could not read question numbers on the newest pages. This list is only what I already read from these pages.', bookSelectionLead(current, bookSelectionLimit(text), false));
+        return true;
+      }
+    }
+    publishBookUnreadable();
+    return true;
+  }
+  var group = continuing ? mergeContinuationGroup(chapter, extracted, roster) : freshBookGroup(chapter, extracted, roster);
+  if (group.chapter) rememberBookMaterialEntry(group);
+  noteBookUserTurn(text);
   if (roster) rememberBookAssistantText(roster);
   if (studentWillSendMorePages(text)) {
-    publishBookHold(hasImages);
+    publishBookHold(true);
     return true;
   }
   var limit = bookSelectionLimit(text);
-  var list = limitBookQuestionList(collectedBookQuestionList(), limit);
-  var lead = limit ? 'Here are the questions to do from the pages already in this chat.' : '';
-  if (list.total >= 3) {
-    publishBookChecklist(list, hasImages && !roster ? 'I could not read question numbers on the newest pages. This is every number already in the chat. Send those pages once more if one is missing.' : '', lead);
+  var list = limitBookQuestionList(listFromBookGroup(group), limit);
+  var limitation = /could not finish the rest of this answer|unreadable|could not read|not readable|unclear/i.test(roster || '')
+    ? 'Part of this page was unreadable, so this list includes only the numbers I could read.'
+    : '';
+  if (list.total >= 1) {
+    publishBookChecklist(list, limitation, bookSelectionLead(group, limit, true));
     return true;
   }
   publishBookMissing(text);
@@ -23002,7 +23653,7 @@ async function maybeHandleBookQuestionPages(message, images) {
 async function refillBookQuestionList(reply, request, timeoutMs) {
   if (looksLikeBookQuestionSelection(reply) || typeof fetchWithTimeout !== 'function' || typeof WORKER_URL === 'undefined') return reply;
   var next = copyRequestForContinuation(request, true);
-  var override = '\n\nBOOK LIST OVERRIDE: The word limit does not apply. Reply with only the selected question numbers from the uploaded pages, grouped by topic. Put each topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not add an introduction, a study plan, or [OPTIONS].';
+  var override = '\n\nBOOK LIST OVERRIDE: The word limit does not apply. Reply with only the selected question numbers from the pages attached to this request, grouped by topic. Do not copy numbers from an earlier chapter. Put each topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not add an introduction, a study plan, or [OPTIONS].';
   var parts = next.systemInstruction && next.systemInstruction.parts;
   if (parts && parts[0] && typeof parts[0].text === 'string') parts[0].text += override;
   else next.systemInstruction = { parts:[{ text:override.trim() }] };
@@ -25837,6 +26488,7 @@ function persistGuestBrowserSession() {
       learningRecord:typeof loadLearningRecord === 'function' ? loadLearningRecord() : null,
       pendingOptions:typeof margPendingConversationOptions !== 'undefined' ? margPendingConversationOptions : null,
       vision:typeof MargVision !== 'undefined' && MargVision.snapshot ? MargVision.snapshot() : null,
+      bookMaterial:typeof bookMaterialMemory !== 'undefined' ? bookMaterialMemory.map(compactBookMaterialEntry) : [],
       savedAt:Date.now()
     }));
   } catch (error) {}
@@ -25862,6 +26514,19 @@ function restoreGuestTabSession() {
   if (saved.studentProfile) studentProfile = saved.studentProfile;
   if (saved.learningRecord && typeof saveLearningRecord === 'function') saveLearningRecord(saved.learningRecord);
   if (saved.vision && typeof MargVision !== 'undefined' && MargVision.save) MargVision.save(saved.vision);
+  if (Array.isArray(saved.bookMaterial)) {
+    bookMaterialMemory = saved.bookMaterial.map(function(entry) {
+      return {
+        chapter:entry.chapter,
+        extractionAvailable:entry.extractionAvailable !== false && !!(entry.questions && entry.questions.length),
+        memoryOnly:entry.extractionAvailable === false || !(entry.questions && entry.questions.length),
+        questions:(entry.questions || []).map(cloneBookQuestion),
+        sourceText:entry.sourceText || '',
+        priorityGroup:entry.priorityGroup || ''
+      };
+    });
+    bookMaterialAdopted = true;
+  }
   if (saved.pendingOptions && saved.pendingOptions.options && saved.pendingOptions.options.length) {
     margPendingConversationOptions = saved.pendingOptions;
     try { showConversationalOptions(saved.pendingOptions.options, saved.pendingOptions.context || 'restored'); } catch (error) {}
@@ -25885,6 +26550,7 @@ function restoreGuestTabSession() {
 }
 
 function clearPreviousGuestSession() {
+  if (typeof resetBookMaterialMemory === 'function') resetBookMaterialMemory();
   progressiveProfileMemory = null;
   personalGoalMemory = null;
   margPendingConversationOptions = null;
