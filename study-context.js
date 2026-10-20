@@ -905,6 +905,15 @@
     return value;
   }
 
+  function finishedEquationLine(line) {
+    var value = str(line).trim();
+    if (!value || !/=/.test(value)) return false;
+    if (/[=+\-−–—×÷*/^]\s*$/.test(value)) return false;
+    if (/(?:\b(?:and|or|but|the|a|an|of|to|in|that|which|with|for|as|is|are|because|than|by|from|on|at|its|their)|[,;:(])$/i.test(value)) return false;
+    var rhs = value.split('=').pop().trim();
+    return !!rhs && rhs.length <= 80 && /[\dA-Za-z]/.test(rhs);
+  }
+
   function looksCutOff(text) {
     var value = withoutTrailingMentorControls(text);
     if (!value) return false;
@@ -916,7 +925,9 @@
     if (finishedTableRow && hasTableRule) return false;
     if ((value.match(/\*\*/g) || []).length % 2 === 1) return true;
     if (/^(?:\*\*)?\(?[A-E](?:[).:])(?:\*\*)?\s*$/.test(last)) return true;
-    if (/(?:\b(?:and|or|but|the|a|an|of|to|in|that|which|with|for|as|is|are|because|than|by|from|on|at|its|their)|[,;:(\-–—])$/i.test(last)) return true;
+    if (/(?:\b(?:and|or|but|the|a|an|of|to|in|that|which|with|for|as|is|are|because|than|by|from|on|at|its|their)|[,;:(=\-–—])$/i.test(last)) return true;
+    // A finished equation is the end of a derivation, not a sentence that stopped early.
+    if (finishedEquationLine(last)) return false;
     // A final Q block that has fewer than four options has been cut mid-block.
     var blocks = value.split(/\n(?=\s*(?:\*\*)?(?:Q(?:uestion)?\s*)?\d{1,2}\s*[).:])/i);
     var tail = blocks[blocks.length - 1];
@@ -926,7 +937,7 @@
 
   function buildContinuationPrompt(partial) {
     var tail = str(partial).slice(-1400);
-    return 'Your previous reply stopped before it was finished. Continue it from the exact point where it stopped. Do not repeat anything already written, do not apologise, do not add an introduction or a new heading, and keep the same layout. If the last sentence, option or question was cut mid-way, complete it first, then carry on until the whole answer is finished.\n\nTHE END OF YOUR PREVIOUS REPLY (continue directly after it):\n<<<\n' + tail + '\n>>>';
+    return 'Your previous reply stopped before it was finished. Continue it from the exact point where it stopped. Do not repeat anything already written, do not apologise, do not add an introduction or a new heading, and keep the same layout. If the last sentence, option or question was cut mid-way, complete it first, then carry on until the whole answer is finished. If the final answer and its derivation are already complete, return nothing. Do not add a closing about the next question, a selected batch, or say the solution is already covered.\n\nTHE END OF YOUR PREVIOUS REPLY (continue directly after it):\n<<<\n' + tail + '\n>>>';
   }
 
   function stitchContinuation(previous, next) {
