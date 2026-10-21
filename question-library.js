@@ -507,7 +507,7 @@ function buildQuestionContextDirective(question, reference) {
   return '\n\nVERIFIED ACTIVE QUESTION CONTEXT:\nIdentity: ' + questionCandidateLabel(question) +
     '\nSection: ' + normaliseQuestionSection(question.section).toUpperCase() +
     '\nStem: ' + question.stem + options +
-    '\nAnswer this exact question only. Begin with “' + questionCandidateLabel(question) + ':”. Do not substitute another question with the same number. ' + depthRule;
+    '\nAnswer this exact question only. Begin with “' + questionCandidateLabel(question) + ':”. Do not substitute another question with the same number. Copy every number from the stem. Do not replace an intermediate value with a different number, and do not add a closing about the next question or say the solution is already covered. ' + depthRule;
 }
 
 function buildImageConfirmation(extraction) {
@@ -606,7 +606,7 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
 async function verifyQuestionResponseDraft(draft, userMessage, attachments, resolution) {
   if (!resolution || !resolution.question || !String(draft || '').trim()) return String(draft || '');
   var question = resolution.question;
-  var verifierPrompt = 'Independently solve the exact question below and audit the draft line by line. Check every equation, intermediate calculation, option, and final result. Never approve a claim that a book or official key is wrong unless the complete visible stem proves it. Return JSON only: {"valid":true,"verified_section":"qa|dilr|varc|unknown","verified_question_number":"","issues":[],"corrected_answer":""}. If any step or conclusion is wrong, valid=false and corrected_answer must contain a complete clean replacement answer at the depth requested by the user. If the source is insufficient, valid=false and corrected_answer must ask for the missing crop rather than guess.\n\nQUESTION: ' + question.stem + '\nOPTIONS: ' + JSON.stringify(question.options || []) + '\nUSER REQUEST: ' + userMessage + '\nDRAFT: ' + draft;
+  var verifierPrompt = 'Independently solve the exact question below and audit the draft line by line. Check every equation, intermediate calculation, option, and final result. A step is wrong when its number does not follow from the previous line or from a number in the stem. Never approve a claim that a book or official key is wrong unless the complete visible stem proves it. Return JSON only: {"valid":true,"verified_section":"qa|dilr|varc|unknown","verified_question_number":"","issues":[],"corrected_answer":""}. If any step or conclusion is wrong, valid=false and corrected_answer must contain one clean replacement derivation at the depth requested by the user, with no second solution and no closing invitation. If the source is insufficient, valid=false and corrected_answer must ask for the missing crop rather than guess.\n\nQUESTION: ' + question.stem + '\nOPTIONS: ' + JSON.stringify(question.options || []) + '\nUSER REQUEST: ' + userMessage + '\nDRAFT: ' + draft;
   try {
     var requestHistory = [{ role:'user', content:verifierPrompt }];
     if (attachments && attachments.length) requestHistory = buildHistoryWithImageAttachment(requestHistory, attachments, verifierPrompt);
@@ -617,8 +617,9 @@ async function verifyQuestionResponseDraft(draft, userMessage, attachments, reso
     var first = raw.indexOf('{'), last = raw.lastIndexOf('}');
     if (first < 0 || last <= first) return String(draft || '');
     var audit = JSON.parse(raw.slice(first, last + 1));
-    if (audit.valid === true) return String(draft || '');
+    if (audit.valid === true) return typeof stripRedundantSolutionClosers === 'function' ? stripRedundantSolutionClosers(String(draft || '')) : String(draft || '');
     var corrected = String(audit.corrected_answer || '').trim();
+    if (corrected && typeof stripRedundantSolutionClosers === 'function') corrected = stripRedundantSolutionClosers(corrected);
     return corrected || 'I could not independently verify this result from the available source, so I won’t present it as correct. Please send a closer crop of the complete question and options.';
   } catch(error) {
     return String(draft || '');

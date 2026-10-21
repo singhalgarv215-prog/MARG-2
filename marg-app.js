@@ -1637,7 +1637,25 @@ function repairPercentFractionClaims(text) {
   });
 }
 
+function statedSolutionAnswer(text) {
+  var value = String(text || '');
+  var labelled = value.split('\n').filter(function(row) {
+    return /\b(?:correct answer|final answer|answer|total factors?|number of factors)\b/i.test(row);
+  })[0];
+  if (labelled) {
+    var nums = labelled.match(/-?\d+(?:\.\d+)?/g);
+    if (nums && nums.length) return Number(nums[nums.length - 1]);
+  }
+  var identity = value.match(/^\s*Q\s*\d{1,3}\b[^\n]{0,200}$/m);
+  if (identity) {
+    var tail = identity[0].match(/:\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (tail) return Number(tail[1]);
+  }
+  return null;
+}
+
 function repairInconsistentEqualityChains(text) {
+  var stated = statedSolutionAnswer(text);
   var operand = '(?:\\([^()]+\\)|\\d+(?:\\.\\d+)?)';
   var expression = operand + '(?:\\s*[×÷+\\-−–—*/^]\\s*' + operand + ')+';
   var chainPattern = new RegExp(expression + '(?:\\s*=\\s*' + expression + ')*(?:\\s*=\\s*' + operand + ')+', 'g');
@@ -1651,6 +1669,12 @@ function repairInconsistentEqualityChains(text) {
       var tolerance = Math.max(0.002, Math.abs(values[0]) * 0.01);
       var consistent = values.every(function(value) { return Math.abs(value - values[0]) <= tolerance; });
       if (consistent) return chain;
+      // The shown result is the answer already given. Replacing it with the
+      // left-hand product would publish a different number beside that answer.
+      if (typeof stated === 'number' && Number.isFinite(stated)) {
+        var answerTolerance = Math.max(0.002, Math.abs(stated) * 0.01);
+        if (Math.abs(values[values.length - 1] - stated) <= answerTolerance && Math.abs(values[0] - stated) > answerTolerance) return chain;
+      }
       return parts[0] + ' = ' + formatDeterministicNumber(values[0]);
     });
   }).join('\n');
@@ -1668,6 +1692,7 @@ function guardDeterministicArithmeticEqualities(text) {
     return '\u0000(' + a + ' × ' + b + ') ' + firstOperator.replace('−', '-') + ' (' + c + ' × ' + d + ') = ' + first + ' ' + firstOperator.replace('−', '-') + ' ' + second + ' = ' + net;
   });
   value = repairInconsistentEqualityChains(repairPercentFractionClaims(value));
+  var statedAnswer = statedSolutionAnswer(value);
   // Recompute only self-contained numeric equalities. Algebraic equations are
   // left alone; they need symbolic reasoning rather than a brittle parser.
   var equalityPattern = /(^|\n|[:;=]\s*)([₹\s\d,.()+\-−–—×·÷*/^√%]+)=\s*((?:₹|Rs\.?\s*)?-?[\d,]+(?:\.\d+)?)/gim;
@@ -1682,6 +1707,7 @@ function guardDeterministicArithmeticEqualities(text) {
     try { computed = evaluateDeterministicArithmetic(expression); } catch(e) { return match; }
     var shownNumber = Number(String(shown).replace(/(?:₹|Rs\.?)/gi, '').replace(/,/g, '').trim());
     if (computed === null || !Number.isFinite(shownNumber)) return match;
+    if (typeof statedAnswer === 'number' && Number.isFinite(statedAnswer) && Math.abs(shownNumber - statedAnswer) <= Math.max(1e-9, Math.abs(statedAnswer) * 1e-8) && Math.abs(computed - shownNumber) > Math.max(1e-9, Math.abs(computed) * 1e-8)) return match;
     var tolerance = Math.max(1e-9, Math.abs(computed) * 1e-8);
     if (Math.abs(computed - shownNumber) <= tolerance) return match;
     var corrected = Math.abs(computed - Math.round(computed)) < 1e-10
@@ -4529,7 +4555,7 @@ function trimHistoryForGroundedRequest(requestHistory) {
 function getImageAnalysisDirective(attachments) {
   var count = Array.isArray(attachments) ? attachments.length : attachments ? 1 : 0;
   if (!count) return '';
-  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually” or changed answer. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, use only the images attached to this message. Do not repeat question numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers from the images attached to this message, and do not repeat numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If a number or question boundary is unreadable, say so instead of guessing. If a number or question boundary is unreadable, say so instead of guessing. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
+  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, keep every intermediate value consistent with the previous line and with the final answer, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually”, changed answer, second solution, or closing invitation to the next question. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, use only the images attached to this message. Do not repeat question numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers from the images attached to this message, and do not repeat numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If a number or question boundary is unreadable, say so instead of guessing. If a number or question boundary is unreadable, say so instead of guessing. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
 }
 
 function isBareQuestionReference(message) {
@@ -12215,6 +12241,24 @@ async function runStudyExperienceTests() {
     } catch (jsonError) { jsonRejected = jsonError instanceof SyntaxError && /stopped before it was complete/.test(jsonError.message); }
     check('question JSON that cannot be resumed is rejected instead of saved', jsonRejected === true && jsonFailCalls === 2);
     check('a dangling fragment is detected as cut off', MargStudy.looksCutOff('Q2. Which option is best?\nA. one\nB. two') && !MargStudy.looksCutOff('The author concedes the point.'));
+    check('a finished equation is not treated as cut off', !MargStudy.looksCutOff('Total factors = (8 + 1) × (6 + 1) = 49') && MargStudy.looksCutOff('The factor count is') && MargStudy.looksCutOff('log_2(2x) ='));
+    var solution = 'Q8 — factors of x^4 from logarithms system: 49\n\nStep-by-step solution.\n\nlog_2(2x) = 6\n(6 + 1) × (6 + 1) = 49';
+    var closerCalls = 0;
+    fetchWithTimeout = async function() {
+      closerCalls++;
+      return { json:async function() { return { candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'By Q8 I went from your selected batch, or let me know if any step in Q8 was unclear.' }] } }] }; } };
+    };
+    var solved = await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:solution }] } }] }, { contents:[{ role:'user', parts:[{ text:'solve Q8' }] }], generationConfig:{} }, 1000);
+    check('a finished image solution is not extended with batch closers', closerCalls === 0 && solved.indexOf('log_2(2x) = 6') !== -1 && solved.indexOf('= 49') !== -1 && solved.indexOf('selected batch') === -1 && !/could not finish/.test(solved) && resolveStudyReply.unfinished === false);
+    var piled = solution + '\n\nUsing the other option for\nBy Q8 I went from your selected batch, or let me know if any step in Q8 was unclear.\nBy Q8 I went from your selected batch, or let me know if any step in Q8 was unclear.\nI completed the full answer in my previous message.\nThe solution for Q8 is completely covered above.\nThe Q8 solution is fully batched and verified above.\nMove to Q9 from your batch next and share your value when done.\nI could not finish the rest of this answer.\nSay continue and I will finish it from there.';
+    var cleanedPile = await resolveStudyReply({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:piled }] } }] }, { contents:[], generationConfig:{} }, 1000);
+    check('duplicate solution closers are removed from one reply', cleanedPile.indexOf('log_2(2x) = 6') !== -1 && cleanedPile.indexOf('(6 + 1) × (6 + 1) = 49') !== -1 && cleanedPile.indexOf('selected batch') === -1 && cleanedPile.indexOf('fully batched') === -1 && cleanedPile.indexOf('Move to Q9') === -1 && cleanedPile.indexOf('Using the other option') === -1 && !/could not finish/.test(cleanedPile));
+    var keptFactor = guardDeterministicArithmeticEqualities('Answer is 49.\n(8 + 1) × (6 + 1) = 49');
+    check('a stated answer is not replaced by a conflicting factor product', keptFactor.indexOf('= 49') !== -1 && keptFactor.indexOf('= 63') === -1 && keptFactor.indexOf('63') === -1);
+    var keptLog = guardDeterministicArithmeticEqualities('Q8 — factors of x^4 from logarithms system: 49\n2 + log_2(2x) = 8\nlog_2(2x) = 6');
+    check('a logarithm line is not rewritten as arithmetic', keptLog.indexOf('log_2(2x) = 8') !== -1 && keptLog.indexOf('log_2(2x) = 6') !== -1);
+    var keptAnswer = guardCleanSolvedQuestionResponse('Answer is 49.\nlog_2(2x) = 8\nlog_2(2x) = 6\nx = 2', { hasImage:true, intent:'image_question', submittedAnswerText:'Solve Q8 from the uploaded pictures' });
+    check('a correct opening answer survives disagreeing steps', /^Answer is 49\./.test(keptAnswer) && keptAnswer.indexOf('log_2(2x) = 8') !== -1 && keptAnswer.indexOf('log_2(2x) = 6') !== -1);
 
     // 6. CAT layout: structure survives the guard, history cleaning and rendering.
     var structured = 'PASSAGE 1\n' + P1 + '\n\n1. Which of the following best states the central claim of the passage?\nA. Precision follows from better instruments\nB. Precision depends on institutions that bind themselves\nC. Merchants resisted all standards\nD. States cannot improve accuracy\n\nAnswer: B\nExplanation: The last sentence ties precision to institutions.';
@@ -19307,8 +19351,12 @@ function guardCleanSolvedQuestionResponse(text, diagnosis) {
   var equations = Array.from(value.matchAll(/=\s*(?:₹|Rs\.?\s*)?(-?\d+(?:\.\d+)?)\b/g));
   if (lead && equations.length) {
     var opening = Number(lead[2]);
-    var finalValue = Number(equations[equations.length - 1][1]);
-    if (Number.isFinite(opening) && Number.isFinite(finalValue) && Math.abs(opening - finalValue) > 1e-9) {
+    var finals = equations.map(function(item) { return Number(item[1]); }).filter(function(item) { return Number.isFinite(item); });
+    var agreed = finals.length > 0 && finals.every(function(item) { return Math.abs(item - finals[finals.length - 1]) <= 1e-9; });
+    var finalValue = finals[finals.length - 1];
+    // Disagreeing steps are not a reason to replace the stated answer with
+    // whichever number happened to come last.
+    if (agreed && Number.isFinite(opening) && Number.isFinite(finalValue) && Math.abs(opening - finalValue) > 1e-9) {
       value = value.replace(lead[0], lead[1] + String(finalValue));
     }
   }
@@ -19964,6 +20012,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardModulusGraphOverclaim(text, diagnosis);
   text = guardImageResponseGrounding(text, diagnosis);
   text = guardCleanSolvedQuestionResponse(text, diagnosis);
+  text = stripRedundantSolutionClosers(text);
   text = guardRecommendedQuestionCount(text);
   text = stripGenericConversationalOptionTags(text);
   text = ensureSolverFirstResponse(text, diagnosis);
@@ -24401,6 +24450,68 @@ function preservedMentorPieces(text) {
   return { preserved:preserved, dangling:String(split.remainder || '').trim() };
 }
 
+function redundantSolutionCloserLine(line) {
+  var value = String(line || '').trim();
+  if (!value) return false;
+  if (/could not finish the rest of this answer/i.test(value)) return true;
+  if (/say continue and I will finish it from there/i.test(value)) return true;
+  if (/\b(?:selected batch|completely covered above|fully batched|previous message)\b/i.test(value)) return true;
+  if (/\bmove to\s+q\s*\d+/i.test(value)) return true;
+  if (/\blet me know if any step\b/i.test(value)) return true;
+  if (/\bcompleted the full answer\b/i.test(value)) return true;
+  if (/^by\s+q\s*\d+\b/i.test(value) && /\b(?:batch|unclear|above|next)\b/i.test(value)) return true;
+  if (/^using the other option\b/i.test(value)) return true;
+  return false;
+}
+
+function closerLinesNearlySame(a, b) {
+  function norm(line) {
+    return String(line || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  var left = norm(a), right = norm(b);
+  if (!left || !right || left.length < 24 || right.length < 24) return false;
+  return left === right || left.indexOf(right) !== -1 || right.indexOf(left) !== -1;
+}
+
+function stripRedundantSolutionClosers(text) {
+  var value = String(text || '').replace(/\s+$/, '');
+  if (!value) return value;
+  var lines = value.split('\n');
+  var end = lines.length;
+  var removed = '';
+  while (end > 0) {
+    var line = lines[end - 1].trim();
+    if (!line || redundantSolutionCloserLine(line) || (removed && closerLinesNearlySame(line, removed))) {
+      if (line) removed = line;
+      end--;
+      continue;
+    }
+    break;
+  }
+  var kept = lines.slice(0, end).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (!kept) return String(text || '').trim();
+  if (statedSolutionAnswer(value) !== null && statedSolutionAnswer(kept) === null) return String(text || '').trim();
+  return kept;
+}
+
+function mentorSolutionAlreadyComplete(text) {
+  var value = stripRedundantSolutionClosers(text);
+  if (!value || typeof MargStudy === 'undefined' || MargStudy.looksCutOff(value)) return false;
+  if (statedSolutionAnswer(value) === null) return false;
+  var equations = value.split('\n').filter(function(line) { return /=/.test(line) && /\d/.test(line); });
+  return equations.length >= 1 || /\b(?:step-by-step|total factors|number of factors)\b/i.test(value);
+}
+
+function continuationChunkIsRedundant(previous, chunk) {
+  var next = String(chunk || '').trim();
+  if (!next) return true;
+  var lines = next.split('\n').map(function(line) { return line.trim(); }).filter(Boolean);
+  if (!lines.length) return true;
+  if (lines.every(redundantSolutionCloserLine)) return true;
+  if (mentorSolutionAlreadyComplete(previous) && /^(?:step-by-step|q\s*\d+\b|by\s+q\s*\d+)/i.test(lines[0])) return true;
+  return false;
+}
+
 function unfinishedMentorReply(text) {
   var trimmed = String(text || '').trim();
   var pieces = preservedMentorPieces(trimmed);
@@ -24444,6 +24555,14 @@ async function resolveStudyReply(payload, request, timeoutMs, options) {
     truncated = isGeminiStructuredResponseTruncated(retryPayload);
     try { text = getGeminiText(retryPayload); } catch (error) { if (!truncated) throw error; text = ''; }
   }
+  if (!jsonMode) {
+    text = stripRedundantSolutionClosers(text);
+    if (mentorSolutionAlreadyComplete(text)) {
+      resolveStudyReply.unfinished = false;
+      resolveStudyReply.preserveFullReply = true;
+      return text;
+    }
+  }
   var continued = false;
   var noProgress = 0;
   for (var round = 0; text && mentorReplyLooksUnfinished(text, truncated, jsonMode) && round < 4 && noProgress < 2; round++) {
@@ -24457,10 +24576,20 @@ async function resolveStudyReply(payload, request, timeoutMs, options) {
     truncated = isGeminiStructuredResponseTruncated(payloadNext);
     var chunk = '';
     try { chunk = getGeminiText(payloadNext); } catch (error) { noProgress++; continue; }
+    if (!jsonMode && continuationChunkIsRedundant(text, chunk)) {
+      noProgress++;
+      continue;
+    }
     var before = text.length;
     text = MargStudy.stitchContinuation(text, chunk);
     if (text.length - before <= 12) noProgress++;
     else noProgress = 0;
+  }
+  if (!jsonMode) text = stripRedundantSolutionClosers(text);
+  if (!jsonMode && mentorSolutionAlreadyComplete(text)) {
+    resolveStudyReply.unfinished = false;
+    resolveStudyReply.preserveFullReply = true;
+    return text;
   }
   if (text && !mentorReplyLooksUnfinished(text, truncated, jsonMode)) {
     resolveStudyReply.preserveFullReply = continued;
