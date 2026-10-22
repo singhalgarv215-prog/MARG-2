@@ -98,6 +98,16 @@ function studyContextOwnsTurn(message) {
   } catch (error) { return false; }
 }
 
+function looksLikeNamedSavedQuestionRequest(message) {
+  var text = String(message || '').trim();
+  if (!/\bquestion\b/i.test(text)) return false;
+  if (!/\b(?:explain|solve|reopen|what about|go back to|back to)\b/i.test(text)) return false;
+  if (isConversationalQuestionReference(text) || isPreviousImageReference(text)) return false;
+  if (/\bq(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text)) return false;
+  if (/\b(?:first|second|third|fourth|fifth|last|next)\s+(?:one|question)\b/i.test(text)) return false;
+  return true;
+}
+
 function isSavedQuestionResolutionRequest(message) {
   var text = String(message || '').trim();
   if (!text || isStrategyHabitRequest(text)) return false;
@@ -107,6 +117,7 @@ function isSavedQuestionResolutionRequest(message) {
   if (/^(?:please\s+)?(?:solve|explain|answer|check)\s+(?:this|that)(?:\s+question)?[?.!\s]*$/i.test(text)) return true;
   if (/^(?:please\s+)?(?:walk me through|explain|solve|answer|check)\s+q(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text)) return true;
   if (isExplicitSavedPageReference(text) || isConversationalQuestionReference(text)) return true;
+  if (looksLikeNamedSavedQuestionRequest(text)) return true;
   if (hasActiveSavedQuestion() && (isShortSavedQuestionFollowup(text) || isActiveQuestionDiscussion(text))) return true;
   var numbered = /\bq(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text) || /\b(?:first|second|third|fourth|fifth|last)\s+question\b/i.test(text);
   var resolution = /\b(?:solve|explain|answer|why|wrong|incorrect|solution|walk me through|check|reopen|show me)\b/i.test(text) ||
@@ -123,10 +134,11 @@ function parseQuestionReference(message) {
   var shortFollowup = isShortSavedQuestionFollowup(text);
   var conversational = isConversationalQuestionReference(text);
   var previousImage = isPreviousImageReference(text);
-  var optionFollowup = (shortFollowup || numberMatch || conversational) ? /\boption\s+([A-H])\b/i.exec(text) : null;
+  var namedQuestion = looksLikeNamedSavedQuestionRequest(text);
+  var optionFollowup = (shortFollowup || numberMatch || conversational || namedQuestion) ? /\boption\s+([A-H])\b/i.exec(text) : null;
   var earlierLibraryReference = isExplicitSavedPageReference(text);
   var continuation = !previousImage && (shortFollowup || !!optionFollowup || isActiveQuestionDiscussion(text) || (conversational && !earlierLibraryReference));
-  if (!numberMatch && !ordinalMatch && !continuation && !earlierLibraryReference && !previousImage) return null;
+  if (!numberMatch && !ordinalMatch && !continuation && !earlierLibraryReference && !previousImage && !namedQuestion) return null;
   var sectionMatch = text.match(/\b(VARC|RC|DILR|LRDI|QA|quant|quants)\b/i);
   return {
     number:numberMatch ? numberMatch[1] : '',
@@ -137,8 +149,25 @@ function parseQuestionReference(message) {
     libraryQuery:earlierLibraryReference && !previousImage,
     section:sectionMatch ? normaliseQuestionSection(sectionMatch[1]) : '',
     yesterday:/\byesterday/i.test(text),
+    namedQuestion:namedQuestion && !numberMatch,
     depth:getRequestedAnswerDepth(text)
   };
+}
+
+function questionLabelInText(label, text) {
+  var escaped = String(label || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!escaped) return false;
+  return new RegExp('(?:^|[^a-z0-9])' + escaped + '(?:[^a-z0-9]|$)').test(text);
+}
+
+function questionsNamedInMessage(message, questions) {
+  var text = String(message || '').toLowerCase();
+  if (!looksLikeNamedSavedQuestionRequest(text)) return [];
+  var list = Array.isArray(questions) ? questions.filter(Boolean) : [];
+  return list.filter(function(question) {
+    var labels = [question.topic, question.short_label].map(function(value) { return String(value || '').trim().toLowerCase(); }).filter(function(value) { return value.length >= 4; });
+    return labels.some(function(label) { return questionLabelInText(label, text); });
+  });
 }
 
 function questionCandidateLabel(question) {
@@ -217,6 +246,14 @@ function parseQuestionExtractionPayload(raw) {
         topic:String(page && page.topic || '').trim().slice(0, 160),
         confidence:Math.max(0, Math.min(1, Number(page && page.confidence) || 0))
       };
+    });
+    value.questions.forEach(function(question) {
+      var number = String(question.question_number || '');
+      if (!number) return;
+      var page = value.pages.find(function(item) { return item.page_index === question.page_index; });
+      var haystack = String(page && page.text || '') + '\n' + String(question.stem || '');
+      var marker = new RegExp('\\b(?:question|q)\\s*[-:#.]?\\s*' + number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+      if (!marker.test(haystack)) question.question_number = '';
     });
     return value;
   } catch(error) { return null; }
@@ -668,6 +705,12 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
     var previousTurn = resolvePreviousImageTurn(reference, threadData);
     if (previousTurn.blocked) return { blocked:true, reply:previousTurn.reply };
     resolved = { status:'resolved', question:previousTurn.question, candidates:[previousTurn.question] };
+  }
+  if (reference.namedQuestion && !reference.number && !reference.previousImage) {
+    var namedQuestions = questionsNamedInMessage(message, threadData.questions);
+    if (namedQuestions.length === 1) resolved = { status:'resolved', question:namedQuestions[0], candidates:namedQuestions };
+    else if (namedQuestions.length > 1) resolved = { status:'ambiguous', candidates:namedQuestions };
+    else return { blocked:false, attachments:[], directive:'' };
   }
   if (reference.libraryQuery && !reference.previousImage && resolved.status !== 'resolved') {
     var allData;
