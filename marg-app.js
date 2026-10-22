@@ -1637,7 +1637,25 @@ function repairPercentFractionClaims(text) {
   });
 }
 
+function statedSolutionAnswer(text) {
+  var value = String(text || '');
+  var labelled = value.split('\n').filter(function(row) {
+    return /\b(?:correct answer|final answer|answer|total factors?|number of factors)\b/i.test(row);
+  })[0];
+  if (labelled) {
+    var nums = labelled.match(/-?\d+(?:\.\d+)?/g);
+    if (nums && nums.length) return Number(nums[nums.length - 1]);
+  }
+  var identity = value.match(/^\s*Q\s*\d{1,3}\b[^\n]{0,200}$/m);
+  if (identity) {
+    var tail = identity[0].match(/:\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (tail) return Number(tail[1]);
+  }
+  return null;
+}
+
 function repairInconsistentEqualityChains(text) {
+  var stated = statedSolutionAnswer(text);
   var operand = '(?:\\([^()]+\\)|\\d+(?:\\.\\d+)?)';
   var expression = operand + '(?:\\s*[×÷+\\-−–—*/^]\\s*' + operand + ')+';
   var chainPattern = new RegExp(expression + '(?:\\s*=\\s*' + expression + ')*(?:\\s*=\\s*' + operand + ')+', 'g');
@@ -1651,6 +1669,12 @@ function repairInconsistentEqualityChains(text) {
       var tolerance = Math.max(0.002, Math.abs(values[0]) * 0.01);
       var consistent = values.every(function(value) { return Math.abs(value - values[0]) <= tolerance; });
       if (consistent) return chain;
+      // The shown result is the answer already given. Replacing it with the
+      // left-hand product would publish a different number beside that answer.
+      if (typeof stated === 'number' && Number.isFinite(stated)) {
+        var answerTolerance = Math.max(0.002, Math.abs(stated) * 0.01);
+        if (Math.abs(values[values.length - 1] - stated) <= answerTolerance && Math.abs(values[0] - stated) > answerTolerance) return chain;
+      }
       return parts[0] + ' = ' + formatDeterministicNumber(values[0]);
     });
   }).join('\n');
@@ -1668,6 +1692,7 @@ function guardDeterministicArithmeticEqualities(text) {
     return '\u0000(' + a + ' × ' + b + ') ' + firstOperator.replace('−', '-') + ' (' + c + ' × ' + d + ') = ' + first + ' ' + firstOperator.replace('−', '-') + ' ' + second + ' = ' + net;
   });
   value = repairInconsistentEqualityChains(repairPercentFractionClaims(value));
+  var statedAnswer = statedSolutionAnswer(value);
   // Recompute only self-contained numeric equalities. Algebraic equations are
   // left alone; they need symbolic reasoning rather than a brittle parser.
   var equalityPattern = /(^|\n|[:;=]\s*)([₹\s\d,.()+\-−–—×·÷*/^√%]+)=\s*((?:₹|Rs\.?\s*)?-?[\d,]+(?:\.\d+)?)/gim;
@@ -1682,6 +1707,7 @@ function guardDeterministicArithmeticEqualities(text) {
     try { computed = evaluateDeterministicArithmetic(expression); } catch(e) { return match; }
     var shownNumber = Number(String(shown).replace(/(?:₹|Rs\.?)/gi, '').replace(/,/g, '').trim());
     if (computed === null || !Number.isFinite(shownNumber)) return match;
+    if (typeof statedAnswer === 'number' && Number.isFinite(statedAnswer) && Math.abs(shownNumber - statedAnswer) <= Math.max(1e-9, Math.abs(statedAnswer) * 1e-8) && Math.abs(computed - shownNumber) > Math.max(1e-9, Math.abs(computed) * 1e-8)) return match;
     var tolerance = Math.max(1e-9, Math.abs(computed) * 1e-8);
     if (Math.abs(computed - shownNumber) <= tolerance) return match;
     var corrected = Math.abs(computed - Math.round(computed)) < 1e-10
@@ -3228,7 +3254,7 @@ const SYSTEM_PROMPT = `You are Marg, a CAT mentor, not a chatbot and not a quest
 VISION CONTRACT: A single wrong answer is an observation, not a diagnosis. A single correct answer is not mastery. Do not predict a hidden cause from one or two questions. Distinguish official CAT, established preparation material, educator-created questions, and AI-generated practice, and keep the verification status visible. Do not call a source CAT-safe without that status. Do not write a personalised roadmap until target, CAT year, hours, section scores, attempts, accuracy and time are present. A shared percentile is not a shared plan. Teach a method only with the case it does not cover, then test a fresh item without the rule. End overwhelm, avoidance, or “this is not working” with a smaller check, a paused plan, or stopping for the day. Report whether a later comparable attempt moved, including when it did not. Never convert one mock into a percentile.
 
 VOICE
-Sound like a sharp person sitting beside them: warm, optimistic, and specific. When you solve together, a line such as "Let's solve this step by step" is the feel. When they already speak casually or in Hinglish, match them, including "Bhai". If their work is actually close, say what they got right and name the one trick left. Encourage only when the work earned it. A wrong step, a vent, or a plain question gets the useful answer without cheer, flattery, or a pep talk. Never open with "Great question", "Awesome", "You got this", or a filler emoji. Answer first. At most one question, and only after the useful part, and only if the answer would change the next step.
+Sound like a sharp person sitting beside them: warm, optimistic, and specific. When you solve together, a line such as "Let's solve this step by step" is the feel. When they already speak casually or in Hinglish, match them, including "Bhai". If their work is actually close, say what they got right and name the one trick left. Encourage only when the work earned it. A wrong step, a vent, or a plain question gets the useful answer without cheer, flattery, or a pep talk. Never open with "Great question", "Great job", "Awesome", "You got this", "I understand your frustration", or a filler emoji. Start with the student's question, the mistake, the evidence, or the next action. Prefer short, clear sentences. Use a bullet only for independent items, and keep a complete sentence when it makes the step clearer. For a quantitative solution, show the essential steps, the calculation, and why it follows. For VARC and DILR, show the reasoning and the evidence for the answer. Do not repeat what the student already said. Match the depth to the question and to what they have already shown they understand. Do not claim you analyzed their history, performance, or question data unless that information was actually supplied in this turn. Answer first. At most one question, and only after the useful part, and only if the answer would change the next step.
 
 TEACHING
 Explain why an answer works. If they are still working and have not asked for the answer, find the likely miss and give a hint sized to them. If they ask for the answer, solution or explanation, give the complete one first. Never hold a solution back to push an exercise. Reduce help over time: first with the rule, then without it, then in a new situation. One correct answer is not mastery.
@@ -4529,7 +4555,7 @@ function trimHistoryForGroundedRequest(requestHistory) {
 function getImageAnalysisDirective(attachments) {
   var count = Array.isArray(attachments) ? attachments.length : attachments ? 1 : 0;
   if (!count) return '';
-  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually” or changed answer. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers, do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
+  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, keep every intermediate value consistent with the previous line and with the final answer, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually”, changed answer, second solution, or closing invitation to the next question. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, use only the images attached to this message. Do not repeat question numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers from the images attached to this message, and do not repeat numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If a number or question boundary is unreadable, say so instead of guessing. If a number or question boundary is unreadable, say so instead of guessing. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
 }
 
 function isBareQuestionReference(message) {
@@ -4577,7 +4603,7 @@ function anchorMentorAnalysisToImageContext(mentorAnalysis, userMessage, imageAt
   }
   if (refersToEarlierUploadedMaterial(userMessage)) {
     diagnosis.priorImageReference = true;
-    analysis.directive += '\n\nEARLIER-IMAGE CONTINUITY: Earlier image binaries are not automatically available unless the private source resolver reopens a user-owned saved image and provides it on this turn. Use it only when the structured active-question context identifies the source. If no saved source was resolved, use exact question details already transcribed in this conversation or ask for the relevant page once. Never pretend to reread an old page or invent unseen questions, and never replace the request with generated material.';
+    analysis.directive += '\n\nEARLIER-IMAGE CONTINUITY: Earlier image binaries are not automatically available unless the private source resolver reopens a user-owned saved image and provides it on this turn. Use it only when the structured active-question context identifies the source. If no saved source was resolved, use an extracted question list only when that chapter’s extraction is still stored. A remembered chapter name is not the page. If the extraction is gone, ask for those images again instead of reconstructing the questions. Never pretend to reread an old page or invent unseen questions, and never replace the request with generated material.';
   }
   return analysis;
 }
@@ -9617,6 +9643,76 @@ function messageNamesExerciseQuestion(message) {
   });
 }
 
+function answerKeyStatusLabel(exercise, question) {
+  var explicit = question && (question.keySource || question.answerSource);
+  if (explicit) return String(explicit).slice(0, 80);
+  var status = String(exercise && exercise.validationVerdict && (exercise.validationVerdict.status || exercise.validationVerdict) || '').toLowerCase();
+  if (status === 'independently_verified') return 'independently verified';
+  if (status === 'verified_local') return 'locally checked';
+  if (status === 'model_checked') return 'model-checked agreement, not independent proof';
+  if (status === 'computed' || status === 'computed_answer') return 'computed';
+  if (status === 'embedded') return 'embedded in the source';
+  if (!status) return 'model-generated';
+  return status;
+}
+
+function exerciseAnswerKeyEntries(exercise) {
+  return rawExerciseQuestions(exercise).map(function(question, index) {
+    if (!question) return null;
+    var raw = question.correct != null ? question.correct : question.answer;
+    if (raw == null || raw === '') return null;
+    var number = String(question.number || question.question_number || (index + 1));
+    var key = typeof raw === 'number' && Array.isArray(question.options) && question.options[raw] != null
+      ? String.fromCharCode(65 + raw)
+      : String(raw).trim();
+    if (!key) return null;
+    return { number:number, key:key, status:answerKeyStatusLabel(exercise, question) };
+  }).filter(Boolean).sort(function(a, b) {
+    return String(a.number).localeCompare(String(b.number), undefined, { numeric:true });
+  });
+}
+
+function answerKeyToken(value) {
+  var text = String(value || '').trim();
+  var letter = text.match(/^([A-H])\b/i);
+  if (letter && text.length < 80) return letter[1].toUpperCase();
+  return text.toLowerCase().replace(/\s+/g, ' ');
+}
+
+function libraryDirectiveKeyForQuestion(directive, number) {
+  var text = String(directive || '');
+  var specific = text.match(new RegExp('Q\\s*' + number + '\\b[^\\n]{0,120}?(?:answer key|official answer|embedded key|computed answer|key|answer)\\s*[:=]\\s*([^\\n;]+)', 'i'));
+  if (specific) return specific[1].trim();
+  if (new RegExp('Identity:[^\\n]*\\bQ\\s*' + number + '\\b', 'i').test(text)) {
+    var generic = text.match(/(?:answer key|official answer|embedded key|computed answer)\s*[:=]\s*([^\n;]+)/i);
+    if (generic) return generic[1].trim();
+  }
+  return '';
+}
+
+function reconcileLibraryAndExerciseKeys(diagnosis) {
+  var directive = String(diagnosis && diagnosis.libraryQuestionDirective || '');
+  var entries = exerciseAnswerKeyEntries(activeGeneratedExercise);
+  if (!entries.length) return '';
+  var lines = ['\n\nANSWER KEY OWNERSHIP: The question library owns this turn\'s active question context. Do not repeat that directive. Each key below stays attached to the question named here.'];
+  if (!isActiveExerciseCurrentInConversation()) {
+    lines.push('The saved exercise is not the question visible in this turn. Do not apply its key to the library question.');
+  }
+  entries.forEach(function(entry) {
+    var mentioned = libraryDirectiveKeyForQuestion(directive, entry.number);
+    if (!mentioned) {
+      lines.push('- Q' + entry.number + ': ' + entry.key + ' [' + entry.status + ']');
+      return;
+    }
+    if (answerKeyToken(mentioned) === answerKeyToken(entry.key)) {
+      lines.push('- Q' + entry.number + ': ' + entry.key + ' [' + entry.status + ']');
+      return;
+    }
+    lines.push('- CONFLICT Q' + entry.number + ': question context says "' + mentioned + '"; saved exercise says "' + entry.key + '" [' + entry.status + ']. Both are preserved. Do not choose one.');
+  });
+  return lines.join('\n');
+}
+
 function getGeneratedExerciseMemoryContext(message, diagnosis) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
   if (!activeGeneratedExercise) return '';
@@ -9633,10 +9729,12 @@ function getGeneratedExerciseMemoryContext(message, diagnosis) {
     reviewFollowUp = false;
     validationFollowUp = false;
   }
-  if (libraryOwned) {
+  var libraryDirectiveOwned = !!(diagnosis && diagnosis.libraryOwnsQuestionContext);
+  if (!libraryDirectiveOwned && libraryOwned) {
     if (!messageNamesExerciseQuestion(message)) return '';
-  } else if (!reviewFollowUp && !validationFollowUp) return '';
+  } else if (!libraryDirectiveOwned && !reviewFollowUp && !validationFollowUp) return '';
   if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(message)) return '\n\nUse only the newly pasted passage/questions for this turn. The saved exercise key belongs to different material and must not be applied.';
+  if (libraryDirectiveOwned) return reconcileLibraryAndExerciseKeys(diagnosis);
   if (!isActiveExerciseCurrentInConversation()) return '\n\nEXERCISE IDENTITY: The newest passage/questions in this conversation are different from the saved exercise. Do not use the old key, score or selections. Check only the newest visible material and the answers supplied in this turn. If verification fails, leave it ungraded. Never ask the student to paste it again.';
   if (isHypothesisExperiment(activeGeneratedExercise) && activeGeneratedExercise.experimentEvaluation) {
     var experiment = activeGeneratedExercise.experimentEvaluation;
@@ -10626,7 +10724,9 @@ function normalizeBehaviorPattern(section, insight) {
   var normalizedSection = section === 'varc' ? 'rc' : section;
   var key = 'other';
   var label = 'repeated execution error';
-  if (/critic|recommend|alternative|next step|never said|invent|added something|author.*suggest/.test(text)) { key = 'invented_author_step'; label = 'turning criticism into an unstated recommendation'; }
+  if (/\bscope[_\s-]*distortion\b/.test(text)) { key = 'scope_distortion'; label = 'reading a claim more broadly or narrowly than the passage supports'; }
+  else if (/\bsunken[_\s-]*cost[_\s-]*fallacy\b/.test(text)) { key = 'sunken_cost_fallacy'; label = 'staying with a DILR set because time was already spent'; }
+  else if (/critic|recommend|alternative|next step|never said|invent|added something|author.*suggest/.test(text)) { key = 'invented_author_step'; label = 'turning criticism into an unstated recommendation'; }
   else if (/scope|too broad|too narrow|beyond|overreach/.test(text)) { key = 'scope_shift'; label = 'accepting an option with the wrong scope'; }
   else if (/extreme|always|never|completely|absolute/.test(text)) { key = 'extreme_language'; label = 'missing extreme-language traps'; }
   else if (/last two|second.guess|change.*answer|option elimination/.test(text)) { key = 'final_two_options'; label = 'losing precision between the final two options'; }
@@ -10689,17 +10789,77 @@ function recordBehaviorPattern(section, insight, evidence, source) {
     return pattern.section === normalized.section && pattern.key === normalized.key && pattern.sourceThreadId === getCurrentMentorThreadId();
   });
   if (!existing) {
-    existing = { section:normalized.section, key:normalized.key, label:normalized.label, occurrences:0, firstSeen:getTodayDate(), sourceThreadId:getCurrentMentorThreadId() };
+    existing = { section:normalized.section, key:normalized.key, label:normalized.label, occurrences:0, eventIds:[], firstSeen:getTodayDate(), sourceThreadId:getCurrentMentorThreadId() };
     behavioralMemory.patterns.push(existing);
   }
+  if (!Array.isArray(existing.eventIds)) existing.eventIds = [];
+  var evidenceText = String(evidence || insight).substring(0, 220);
+  var eventId = simpleStableHash([normalized.section, normalized.key, evidenceText, source || 'practice', existing.sourceThreadId || getCurrentMentorThreadId()].join('|'));
+  if (existing.eventIds.indexOf(eventId) !== -1) return existing;
+  existing.eventIds.push(eventId);
+  existing.eventIds = existing.eventIds.slice(-12);
   if (existing.occurrences > 0 && existing.lastSeen) existing.previousSeen = existing.lastSeen;
   existing.occurrences++;
   existing.label = normalized.label;
   existing.lastSeen = getTodayDate();
-  existing.lastEvidence = String(evidence || insight).substring(0, 220);
+  existing.lastEvidence = evidenceText;
   existing.source = source || 'practice';
   saveBehavioralMemory();
   return existing;
+}
+
+function patternSectionLabel(section) {
+  var value = String(section || '').toLowerCase();
+  if (value === 'rc' || value === 'varc' || value === 'va' || value === 'verbal') return 'VARC';
+  if (value === 'dilr' || value === 'lrdi') return 'DILR';
+  if (value === 'qa' || value === 'quant' || value === 'quants') return 'QA';
+  return value ? value.toUpperCase() : 'GENERAL';
+}
+
+function distinctPatternCount(pattern) {
+  var occurrences = Number(pattern && pattern.occurrences || 0);
+  if (pattern && Array.isArray(pattern.eventIds) && pattern.eventIds.length) return Math.max(pattern.eventIds.length, occurrences);
+  return occurrences;
+}
+
+function repeatedPatternIsStale(pattern) {
+  var seen = String(pattern && pattern.lastSeen || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(seen)) return true;
+  var today = Date.parse(String(getTodayDate() || '') + 'T00:00:00Z');
+  var seenAt = Date.parse(seen + 'T00:00:00Z');
+  if (!Number.isFinite(today) || !Number.isFinite(seenAt)) return true;
+  return today - seenAt > 120 * 24 * 60 * 60 * 1000;
+}
+
+function repeatedPatternCounterEvidence(pattern) {
+  var direct = String(pattern && pattern.counterEvidence || '').trim();
+  if (direct) return direct.substring(0, 180);
+  var siblings = (behavioralMemory && behavioralMemory.patterns || []).filter(function(item) {
+    return item && item !== pattern && item.section === pattern.section && item.key && item.key === pattern.key && (item.status === 'rejected' || item.doNotReuse) && item.lastEvidence;
+  });
+  if (!siblings.length) return '';
+  return siblings.map(function(item) { return String(item.lastEvidence); }).join('; ').substring(0, 180);
+}
+
+function buildRepeatedPatternCandidateBlock(patterns) {
+  var candidates = (patterns || []).filter(function(pattern) {
+    return pattern && pattern.key && distinctPatternCount(pattern) >= 2 && !repeatedPatternIsStale(pattern);
+  }).slice(0, 3);
+  if (!candidates.length) return '';
+  return '\n\nREPEATED PATTERN CANDIDATE\n' + candidates.map(function(pattern) {
+    var count = distinctPatternCount(pattern);
+    var counter = repeatedPatternCounterEvidence(pattern);
+    var evidenceCount = count === 2 ? 'two' : String(count);
+    var lines = [
+      '- Pattern: ' + pattern.key,
+      '- Section: ' + patternSectionLabel(pattern.section),
+      '- Evidence: ' + evidenceCount + ' distinct relevant attempts' + (pattern.lastEvidence ? '; latest observation: ' + pattern.lastEvidence : ''),
+      '- Confidence: based on available evidence (' + evidenceCount + ' distinct observations). This is a candidate, not a confirmed psychological diagnosis.'
+    ];
+    if (counter) lines.push('- Counter-evidence: ' + counter);
+    lines.push('- Instruction: verify relevance before using this pattern to guide the next intervention. Observed behavior is not an inferred explanation, and a small or old sample is not a permanent label.');
+    return lines.join('\n');
+  }).join('\n');
 }
 
 function getBehavioralMemoryContext(message, diagnosis) {
@@ -10718,7 +10878,7 @@ function getBehavioralMemoryContext(message, diagnosis) {
     return String(b.lastSeen || '').localeCompare(String(a.lastSeen || ''));
   }).slice(0, 6);
   if (!patterns.length) return '';
-  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student. If a current error matches a pattern seen 2+ times and no belief is linked, call it the same recurring error, still not a confirmed diagnosis.';
+  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student. If a current error matches a pattern seen 2+ times and no belief is linked, call it the same recurring error, still not a confirmed diagnosis.' + buildRepeatedPatternCandidateBlock(patterns);
 }
 
 function describeBehavioralPatternLine(pattern) {
@@ -12215,6 +12375,24 @@ async function runStudyExperienceTests() {
     } catch (jsonError) { jsonRejected = jsonError instanceof SyntaxError && /stopped before it was complete/.test(jsonError.message); }
     check('question JSON that cannot be resumed is rejected instead of saved', jsonRejected === true && jsonFailCalls === 2);
     check('a dangling fragment is detected as cut off', MargStudy.looksCutOff('Q2. Which option is best?\nA. one\nB. two') && !MargStudy.looksCutOff('The author concedes the point.'));
+    check('a finished equation is not treated as cut off', !MargStudy.looksCutOff('Total factors = (8 + 1) × (6 + 1) = 49') && MargStudy.looksCutOff('The factor count is') && MargStudy.looksCutOff('log_2(2x) ='));
+    var solution = 'Q8 — factors of x^4 from logarithms system: 49\n\nStep-by-step solution.\n\nlog_2(2x) = 6\n(6 + 1) × (6 + 1) = 49';
+    var closerCalls = 0;
+    fetchWithTimeout = async function() {
+      closerCalls++;
+      return { json:async function() { return { candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:'By Q8 I went from your selected batch, or let me know if any step in Q8 was unclear.' }] } }] }; } };
+    };
+    var solved = await resolveStudyReply({ candidates:[{ finishReason:'MAX_TOKENS', content:{ parts:[{ text:solution }] } }] }, { contents:[{ role:'user', parts:[{ text:'solve Q8' }] }], generationConfig:{} }, 1000);
+    check('a finished image solution is not extended with batch closers', closerCalls === 0 && solved.indexOf('log_2(2x) = 6') !== -1 && solved.indexOf('= 49') !== -1 && solved.indexOf('selected batch') === -1 && !/could not finish/.test(solved) && resolveStudyReply.unfinished === false);
+    var piled = solution + '\n\nUsing the other option for\nBy Q8 I went from your selected batch, or let me know if any step in Q8 was unclear.\nBy Q8 I went from your selected batch, or let me know if any step in Q8 was unclear.\nI completed the full answer in my previous message.\nThe solution for Q8 is completely covered above.\nThe Q8 solution is fully batched and verified above.\nMove to Q9 from your batch next and share your value when done.\nI could not finish the rest of this answer.\nSay continue and I will finish it from there.';
+    var cleanedPile = await resolveStudyReply({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:piled }] } }] }, { contents:[], generationConfig:{} }, 1000);
+    check('duplicate solution closers are removed from one reply', cleanedPile.indexOf('log_2(2x) = 6') !== -1 && cleanedPile.indexOf('(6 + 1) × (6 + 1) = 49') !== -1 && cleanedPile.indexOf('selected batch') === -1 && cleanedPile.indexOf('fully batched') === -1 && cleanedPile.indexOf('Move to Q9') === -1 && cleanedPile.indexOf('Using the other option') === -1 && !/could not finish/.test(cleanedPile));
+    var keptFactor = guardDeterministicArithmeticEqualities('Answer is 49.\n(8 + 1) × (6 + 1) = 49');
+    check('a stated answer is not replaced by a conflicting factor product', keptFactor.indexOf('= 49') !== -1 && keptFactor.indexOf('= 63') === -1 && keptFactor.indexOf('63') === -1);
+    var keptLog = guardDeterministicArithmeticEqualities('Q8 — factors of x^4 from logarithms system: 49\n2 + log_2(2x) = 8\nlog_2(2x) = 6');
+    check('a logarithm line is not rewritten as arithmetic', keptLog.indexOf('log_2(2x) = 8') !== -1 && keptLog.indexOf('log_2(2x) = 6') !== -1);
+    var keptAnswer = guardCleanSolvedQuestionResponse('Answer is 49.\nlog_2(2x) = 8\nlog_2(2x) = 6\nx = 2', { hasImage:true, intent:'image_question', submittedAnswerText:'Solve Q8 from the uploaded pictures' });
+    check('a correct opening answer survives disagreeing steps', /^Answer is 49\./.test(keptAnswer) && keptAnswer.indexOf('log_2(2x) = 8') !== -1 && keptAnswer.indexOf('log_2(2x) = 6') !== -1);
 
     // 6. CAT layout: structure survives the guard, history cleaning and rendering.
     var structured = 'PASSAGE 1\n' + P1 + '\n\n1. Which of the following best states the central claim of the passage?\nA. Precision follows from better instruments\nB. Precision depends on institutions that bind themselves\nC. Merchants resisted all standards\nD. States cannot improve accuracy\n\nAnswer: B\nExplanation: The last sentence ties precision to institutions.';
@@ -18053,7 +18231,7 @@ function getLikelyHiddenProblem(intent, message) {
   if (intent === 'vague') return 'UNKNOWN: the message does not contain enough evidence for a preparation diagnosis. Offer neutral starting choices without assigning an emotional state or weak section.';
   if (intent === 'varc_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a VARC process failure. Use only that described moment; any cause remains a working hypothesis until tested.' : 'UNKNOWN: a VARC label or score does not identify whether the cause is reading, claim location, option evaluation, selection or pace.';
   if (intent === 'dilr_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a DILR process failure. Reflect the stated decision only; do not turn it into a recurring pattern without another observation.' : 'UNKNOWN: a DILR label or score does not identify set selection, representation, constraint use, persistence or pace.';
-  if (intent === 'qa_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a QA process failure. Separate the stated moment from unobserved concept, recognition and execution causes.' : 'UNKNOWN: a QA label or score cannot distinguish concept recall, method recognition, execution, selection or pace.';
+  if (intent === 'qa_diagnosis') return (evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a QA process failure. Separate the stated moment from unobserved concept, recognition and execution causes.' : 'UNKNOWN: a QA label or score cannot distinguish concept recall, method recognition, execution, selection or pace.') + ' Multi-topic crossover and an easy-question comfort bubble are competing hypotheses, not established diagnoses.';
   if (intent === 'mock_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT plus outcome data: use the described mock decision, but do not invent attempts, timing or causes not supplied.' : 'UNKNOWN CAUSE: scores establish outcomes only. Attempts, accuracy, timing, selection and error states must remain unknown unless explicitly supplied.';
   if (intent === 'pacing_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a timing failure. The cause is still a hypothesis and must be separated from the stated outcome.' : 'UNKNOWN: saying “slow” does not identify selection, representation, reading or calculation as the cause.';
   if (intent === 'planning') return 'The student needs a prioritised decision, not a comprehensive syllabus dump. Build around the highest-leverage weakness and the time actually available.';
@@ -18065,7 +18243,7 @@ function getConsecutiveQuestionResponses() {
   for (var i = conversationHistory.length - 1; i >= 0; i--) {
     var item = conversationHistory[i];
     if (isInternalMemoryMessage(item)) continue;
-    if (!item || item.role !== 'assistant') continue;
+    if (!item || item.role !== 'assistant' || item.kind === 'dilr_strategic_checkpoint') continue;
     // A one-line typo clarification protects accuracy; it is not an intake or
     // diagnostic question and should not consume the student's question budget.
     if (/^\s*(?:I may be reading .{1,30} wrong\.|Did you mean .{1,30}\?)(?:\s+What did you mean\?|\s+What'?s going on\?)?\s*$/i.test(String(item.content || ''))) continue;
@@ -18577,12 +18755,24 @@ function removeMentorProcessMetaLanguage(text) {
 
 function reduceAssistantStyleLanguage(text) {
   var value = removeMentorProcessMetaLanguage(text);
-  var emptyCheer = /^\s*(?:great question|of course|i understand your concern|awesome|amazing|well done|you got this|nice one|fantastic|excellent question|real talk|now i get it)\s*[!.,:…—-]*\s*/i;
+  var emptyCheer = /^\s*(?:great question|great job|of course|i understand your concern|i understand your frustration|awesome|amazing|well done|you got this|nice one|fantastic|excellent question|real talk|now i get it)\s*[!.,:…—-]*\s*/i;
   for (var pass = 0; pass < 3; pass++) value = value.replace(emptyCheer, '');
   value = value.replace(/^\s*good\s*[.,:—-]+\s*/i, '');
   value = value.replace(/\bmy prediction\s*:\s*/gi, 'Untested hypothesis: ');
   value = value.replace(/\bnow i understand\s*[,.:—-]*\s*/gi, '');
   return value.trim();
+}
+
+function guardUnexaminedHistoryClaim(text, diagnosis) {
+  var value = String(text || '');
+  if (!/\bI(?:'ve| have)?\s+(?:already\s+)?(?:analyzed|analysed|reviewed|checked)\s+(?:your\s+)?(?:history|performance|question data|past attempts)\b/i.test(value)) return value;
+  var message = diagnosis && (diagnosis.submittedAnswerText || diagnosis.userMessage) || '';
+  var behavioral = '';
+  var diagnostic = '';
+  try { behavioral = getBehavioralMemoryContext(message, diagnosis || {}); } catch (error) { behavioral = ''; }
+  try { diagnostic = getDiagnosticMemoryContext(message, diagnosis || {}); } catch (error) { diagnostic = ''; }
+  if (String(behavioral || '').trim() || String(diagnostic || '').trim()) return value;
+  return value.replace(/\bI(?:'ve| have)?\s+(?:already\s+)?(?:analyzed|analysed|reviewed|checked)\s+(?:your\s+)?(?:history|performance|question data|past attempts)[^.!?\n]*[.!?]?/gi, 'I do not have history, performance, or question data for this turn.');
 }
 
 function studentSpeaksHinglish(text) {
@@ -18600,6 +18790,7 @@ function mentorVoiceInstruction(message, diagnosis) {
   var register = studentSpeaksHinglish(text)
     ? 'They are already speaking casually or in Hinglish, so match that register. Bhai is welcome.'
     : 'Keep their register. Do not insert Bhai into a plain English message.';
+  register += ' Do not open with "Great job" or "I understand your frustration".';
   var wantsAnswer = !!(diagnosis && diagnosis.requestedExistingSolutions) || /\b(?:(?:just |please )?(?:give|tell|show) (?:me )?(?:the )?(?:full )?(?:answer|solution)|full solution|explain why|worked solution)\b/i.test(text);
   var shortFact = text.split(/\s+/).filter(Boolean).length <= 14 && /\b(?:what is|how many|calculate|percent of)\b/i.test(text) && !studentShowsPartialWork(text);
   if (emotion === 'low-confidence' || emotion === 'frustrated' || emotion === 'anxious' || emotion === 'drained' || intent === 'confidence_breakdown') {
@@ -19307,8 +19498,12 @@ function guardCleanSolvedQuestionResponse(text, diagnosis) {
   var equations = Array.from(value.matchAll(/=\s*(?:₹|Rs\.?\s*)?(-?\d+(?:\.\d+)?)\b/g));
   if (lead && equations.length) {
     var opening = Number(lead[2]);
-    var finalValue = Number(equations[equations.length - 1][1]);
-    if (Number.isFinite(opening) && Number.isFinite(finalValue) && Math.abs(opening - finalValue) > 1e-9) {
+    var finals = equations.map(function(item) { return Number(item[1]); }).filter(function(item) { return Number.isFinite(item); });
+    var agreed = finals.length > 0 && finals.every(function(item) { return Math.abs(item - finals[finals.length - 1]) <= 1e-9; });
+    var finalValue = finals[finals.length - 1];
+    // Disagreeing steps are not a reason to replace the stated answer with
+    // whichever number happened to come last.
+    if (agreed && Number.isFinite(opening) && Number.isFinite(finalValue) && Math.abs(opening - finalValue) > 1e-9) {
       value = value.replace(lead[0], lead[1] + String(finalValue));
     }
   }
@@ -19910,6 +20105,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   }
   text = guardSectionAlignment(text, diagnosis);
   text = guardFalseMemoryAgreement(text, diagnosis);
+  text = guardUnexaminedHistoryClaim(text, diagnosis);
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
@@ -19964,6 +20160,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardModulusGraphOverclaim(text, diagnosis);
   text = guardImageResponseGrounding(text, diagnosis);
   text = guardCleanSolvedQuestionResponse(text, diagnosis);
+  text = stripRedundantSolutionClosers(text);
   text = guardRecommendedQuestionCount(text);
   text = stripGenericConversationalOptionTags(text);
   text = ensureSolverFirstResponse(text, diagnosis);
@@ -20355,6 +20552,7 @@ function runMentorVoiceTests() {
 window.runMentorVoiceTests = runMentorVoiceTests;
 
 async function runSelectedQuestionListTests() {
+  if (typeof resetBookMaterialMemory === 'function') resetBookMaterialMemory();
   var sample = [
     'Q2 (Quadratic Sign & Symmetries*): Perfect test.',
     'Q8 (Multiplicative Functional Equation*): Tests prime factorization.',
@@ -20493,6 +20691,89 @@ async function runSelectedQuestionListTests() {
 }
 window.runSelectedQuestionListTests = runSelectedQuestionListTests;
 
+async function runBookMaterialBoundaryTests() {
+  resetBookMaterialMemory();
+  var previousHistory = conversationHistory;
+  var previousAdd = addMessage;
+  var previousSave = saveChatMessage;
+  var previousFetch = fetchWithTimeout;
+  var html = '';
+  var requestBody = '';
+  addMessage = function(_role, value) { html = String(value || ''); return {}; };
+  saveChatMessage = function() {};
+  function rosterFor(message) {
+    var text = String(message || '');
+    if (/quadratic/i.test(text)) return 'Quadratic Equations\nQ2, Q8, Q14, Q21.';
+    if (/logarithm/i.test(text)) return 'Logarithms\nQ3, Q8, Q15, Q22.';
+    if (/percentage/i.test(text)) return 'Percentages\nQ41, Q42, Q43, Q44.';
+    if (/time and work/i.test(text)) return 'Time and Work\nQ55, Q56, Q57, Q58.';
+    return '';
+  }
+  fetchWithTimeout = function(_url, options) {
+    requestBody = options && options.body || '';
+    var student = '';
+    try { student = JSON.parse(requestBody).contents[0].parts.filter(function(part) { return part && part.text; }).map(function(part) { return part.text; }).join('\n'); } catch (error) { student = ''; }
+    var roster = rosterFor(student);
+    return Promise.resolve({ json:function() { return Promise.resolve({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:roster }] } }] }); } });
+  };
+  var image = [{ data:'abc', mimeType:'image/jpeg', name:'page.jpg' }];
+  conversationHistory = [];
+  var quadratic = await maybeHandleBookQuestionPages('These are the Quadratic Equations pages. Select questions from these pages.', image);
+  var quadraticHtml = html;
+  html = '';
+  var logarithms = await maybeHandleBookQuestionPages('These are the Logarithms pages. Select questions from these pages.', image);
+  var logarithmsHtml = html;
+  var isolatedPrompt = requestBody.indexOf('Q21') === -1 && requestBody.indexOf('Repeat those numbers') === -1 && requestBody.indexOf('Repeat the ones') === -1;
+  html = '';
+  var again = await maybeHandleBookQuestionPages('Select questions from Quadratic Equations.');
+  var againHtml = html;
+  html = '';
+  var mixed = await maybeHandleBookQuestionPages('Select a mixed selection from Quadratic Equations and Logarithms.');
+  var mixedHtml = html;
+  html = '';
+  var ambiguous = await maybeHandleBookQuestionPages('Select questions from the earlier chapter.');
+  var ambiguousHtml = html;
+  html = '';
+  var percentages = await maybeHandleBookQuestionPages('These are the Percentages pages. Select questions from these pages.', image);
+  html = '';
+  var timeWork = await maybeHandleBookQuestionPages('These are the Time and Work pages. Select questions from these pages.', image);
+  html = '';
+  var expired = await maybeHandleBookQuestionPages('Select questions from Quadratic Equations again.');
+  var expiredHtml = html;
+  html = '';
+  var mixedPartial = await maybeHandleBookQuestionPages('Select a mixed selection from Quadratic Equations and Logarithms.');
+  var mixedPartialHtml = html;
+  html = '';
+  conversationHistory = conversationHistory.concat([
+    { role:'user', content:'I finished a timed drill.' },
+    { role:'assistant', content:'Good. Tell me what slowed you down.' },
+    { role:'user', content:'The arithmetic was fine. I want to talk about the mock.' },
+    { role:'assistant', content:'We can look at the mock without opening an old chapter.' }
+  ]);
+  var rememberedOnly = await maybeHandleBookQuestionPages('Can you select questions from Quadratic Equations? The pages were earlier in this chat.');
+  var rememberedHtml = html;
+  html = '';
+  fetchWithTimeout = function() { return Promise.resolve({ json:function() { return Promise.resolve({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:'' }] } }] }); } }); };
+  var unreadable = await maybeHandleBookQuestionPages('These are the Logarithms pages. Select questions from these pages.', image);
+  var unreadableHtml = html;
+  var promptIgnoresKnown = bookRosterInstruction('Select questions from these pages.', 'Q21, Q14, Q2').indexOf('Q21') === -1;
+  conversationHistory = previousHistory;
+  addMessage = previousAdd;
+  saveChatMessage = previousSave;
+  fetchWithTimeout = previousFetch;
+  resetBookMaterialMemory();
+  return [
+    { name:'a new chapter is selected only from its own pages', passed:quadratic === true && logarithms === true && quadraticHtml.indexOf('Q21') !== -1 && quadraticHtml.indexOf('Q22') === -1 && logarithmsHtml.indexOf('Q22') !== -1 && logarithmsHtml.indexOf('Q21') === -1 && logarithmsHtml.indexOf('Q14') === -1 && isolatedPrompt && promptIgnoresKnown },
+    { name:'the same question number stays separate in two chapters', passed:mixed === true && mixedHtml.indexOf('Q8 · Quadratic Equations') !== -1 && mixedHtml.indexOf('Q8 · Logarithms') !== -1 && mixedHtml.indexOf('Q21') !== -1 && mixedHtml.indexOf('Q22') !== -1 },
+    { name:'a stored chapter can be selected again while its extraction remains', passed:again === true && againHtml.indexOf('Q21') !== -1 && againHtml.indexOf('Q22') === -1 && againHtml.indexOf('Quadratic Equations') !== -1 },
+    { name:'an unnamed earlier chapter asks which source to use', passed:ambiguous === true && ambiguousHtml.indexOf('Which chapter should I use') !== -1 && ambiguousHtml.indexOf('Quadratic Equations') !== -1 && ambiguousHtml.indexOf('Logarithms') !== -1 && ambiguousHtml.indexOf('marg-qlist') === -1 },
+    { name:'a dropped extraction asks for the pages again', passed:percentages === true && timeWork === true && expired === true && rememberedOnly === true && expiredHtml.indexOf('Q21') === -1 && expiredHtml.indexOf('Q8') === -1 && expiredHtml.indexOf('Upload the Quadratic Equations images again') !== -1 && rememberedHtml.indexOf('Q21') === -1 && rememberedHtml.indexOf('write new questions') !== -1 && rememberedHtml.indexOf('Upload the Quadratic Equations images again') !== -1 },
+    { name:'a mixed request uses only chapters that can still be read', passed:mixedPartial === true && mixedPartialHtml.indexOf('Q22') !== -1 && mixedPartialHtml.indexOf('Q21') === -1 && mixedPartialHtml.indexOf('Upload the Quadratic Equations images again') !== -1 && mixedPartialHtml.indexOf('I will not substitute') !== -1 },
+    { name:'an unreadable upload does not fall back to an earlier chapter', passed:unreadable === true && unreadableHtml.indexOf('could not read') !== -1 && unreadableHtml.indexOf('Q21') === -1 && unreadableHtml.indexOf('Q22') === -1 && unreadableHtml.indexOf('marg-qlist') === -1 }
+  ];
+}
+window.runBookMaterialBoundaryTests = runBookMaterialBoundaryTests;
+
 function runConversationCloseTests() {
   var previousHistory = (conversationHistory || []).slice();
   conversationHistory = [];
@@ -20538,6 +20819,7 @@ function runConversationCloseTests() {
 window.runConversationCloseTests = runConversationCloseTests;
 
 async function runAuditRepairTests() {
+  if (typeof resetBookMaterialMemory === 'function') resetBookMaterialMemory();
   var results = [];
   function check(name, passed) { results.push({ name:name, passed:!!passed }); }
   var score = 'CAT marking is plus 3 for correct and minus 1 for wrong. I got 14 right and 6 wrong. What is my score? Show the arithmetic.';
@@ -21406,7 +21688,13 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     return routeAdHocDILRRequestToVerifiedInterface(userMessage);
   }
   var mentorAnalysis = anchorMentorAnalysisToImageContext(buildDiagnosisDirective(userMessage), userMessage, imageAttachments);
-  if (questionResolution && questionResolution.directive) mentorAnalysis.directive += questionResolution.directive;
+  if (questionResolution && questionResolution.directive) {
+    mentorAnalysis.directive += questionResolution.directive;
+    if (mentorAnalysis.diagnosis) {
+      mentorAnalysis.diagnosis.libraryOwnsQuestionContext = true;
+      mentorAnalysis.diagnosis.libraryQuestionDirective = questionResolution.directive;
+    }
+  }
   if (pendingExternalQuestionTurnMode === 'review') {
     mentorAnalysis.diagnosis.intent = 'answer_review';
     mentorAnalysis.directive += getPendingExternalQuestionContext();
@@ -21881,6 +22169,48 @@ function chooseTurnFollowUp(message, diagnosis) {
   return '';
 }
 
+function qaProgressionRows() {
+  var rows = Object.keys(topicProgression || {}).map(function(key) { return topicProgression[key]; }).filter(function(item) {
+    return item && String(item.section || '').toLowerCase() === 'qa';
+  });
+  if (rows.length) return rows;
+  var stored = {};
+  try { stored = JSON.parse(localStorage.getItem(topicProgressionStorageKey()) || '{}') || {}; } catch (error) { stored = {}; }
+  return Object.keys(stored).map(function(key) { return stored[key]; }).filter(function(item) {
+    return item && String(item.section || '').toLowerCase() === 'qa';
+  });
+}
+
+function buildQaDiagnosisHypothesisContext(message, diagnosis) {
+  if (!diagnosis || diagnosis.intent !== 'qa_diagnosis') return '';
+  var text = String(message || '');
+  var rows = qaProgressionRows();
+  var mentionsMix = /\b(?:mix|mixed|combin|together|crossover|both topics)\b/i.test(text) || /\b(?:algebra|arithmetic|geometry|numbers?)\b[\s\S]{0,40}\b(?:and|with)\b[\s\S]{0,24}\b(?:algebra|arithmetic|geometry|numbers?)\b/i.test(text);
+  var mentionsEasyHard = /\b(?:easy|hard|harder|comfort|familiar|difficult|tough)\b/i.test(text);
+  var lines = [
+    '\n\nQA DIAGNOSTIC HYPOTHESES — competing explanations, not diagnoses:',
+    '- Multi-topic crossover blindspot: concepts may be solvable alone and still fail when one question combines them. Treat this as a hypothesis only when separate topics and mixed questions were both observed.',
+    '- Easy-question comfort bubble: familiar or easy questions may feel comfortable while harder questions, or the decision to attempt them, do not. Treat this as a hypothesis only when difficulty, accuracy, time, or skips were both observed.',
+    'Do not assert either hypothesis from one question or from missing data. Keep observed facts separate from interpretations and from the next action.'
+  ];
+  if (rows.length) {
+    lines.push('Recorded QA rows actually available:');
+    rows.slice(0, 6).forEach(function(item) {
+      var accuracy = item.lastAccuracy === null || item.lastAccuracy === undefined ? 'not measured' : item.lastAccuracy + '%';
+      lines.push('- ' + (item.topic || 'QA') + ': last accuracy ' + accuracy + '; concept questions ' + (item.conceptQuestionsCompleted || 0) + '; timed sectionals ' + (item.timedSectionalsCompleted || 0) + '.');
+    });
+  } else {
+    lines.push('No QA attempt history, difficulty, accuracy, time, topic combination, skip, or error-type record was examined for this turn.');
+  }
+  if (mentionsMix && mentionsEasyHard) lines.push('The message describes both a topic mix and an easy-versus-hard contrast. Keep them competing. Do not collapse them into one diagnosis.');
+  if (!rows.length && !mentionsMix && !mentionsEasyHard) {
+    lines.push('Evidence is insufficient. Ask for one mixed timed sample, or the last two questions with topic, difficulty, and result. Do not invent attempts. The next action is that sample, not a label.');
+  } else {
+    lines.push('Next action: one timed sample that can separate the open hypothesis, using a mixed question if crossover is open, or one easy and one harder question from the same topic if comfort is open.');
+  }
+  return lines.join('\n');
+}
+
 function buildMentorTurnContext(message, mentorAnalysis, extras) {
   extras = extras || {};
   var diagnosis = mentorAnalysis && mentorAnalysis.diagnosis || {};
@@ -21899,6 +22229,8 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
     getStudentStateContext(message, diagnosis) +
     exerciseContext +
     getBehavioralMemoryContext(message, diagnosis) +
+    (studyTurnActive ? '' : buildQaDiagnosisHypothesisContext(message, diagnosis)) +
+    (typeof getDilrCheckpointContext === 'function' ? getDilrCheckpointContext() : '') +
     getLearningRecordContext() +
     (typeof MargVision !== 'undefined' && MargVision.turnContext ? MargVision.turnContext() : '') +
     getTopicProgressionMemoryContext(message, diagnosis) +
@@ -22690,6 +23022,8 @@ function asksForExistingQuestionList(text) {
 function wantsBookQuestionSelection(text) {
   var value = String(text || '');
   if (asksToInventQuestions(value) && !refusesGeneratedQuestions(value) && !isSelectedQuestionListRequest(value)) return false;
+  if (typeof asksAmbiguousBookSource === 'function' && asksAmbiguousBookSource(value)) return true;
+  if (typeof knownBookChapterInText === 'function' && knownBookChapterInText(value) && /\b(?:select|selection|list|questions?|pick|choose)\b/i.test(value) && !/\b(?:solve|explain|why|answer)\b/i.test(value)) return true;
   if (isSelectedQuestionListRequest(value) || studentWillSendMorePages(value)) return true;
   if (refusesGeneratedQuestions(value) && /\b(?:list|selected|images?|pages?|pictures?|photos?|chapter|uploaded)\b/i.test(value)) return true;
   if (/\b(?:selected|curated|high[- ]yield)\b[\s\S]{0,40}\bquestions?\b/i.test(value)) return true;
@@ -22705,6 +23039,7 @@ function bookSelectionLimit(text) {
   var value = String(text || '');
   var count = value.match(/\b(\d{1,3})\s+questions?\b/i);
   var named = count ? Number(count[1]) : 0;
+  if (named >= 1 && named <= 80 && /\b(?:select|pick|choose)\b/i.test(value) && /\b(?:pages?|images?|pictures?|photos?|chapter|uploaded)\b/i.test(value)) return named;
   if (named >= 5 && named <= 80 && /\b(?:total|about|around|roughly|selected)\b/i.test(value)) return named;
   if (/\b(?:not all|don['’]?t ask for all|do not ask for all|selected one|selected questions|questions i should|should do|should solve)\b/i.test(value)) return named >= 5 && named <= 80 ? named : 30;
   return 0;
@@ -22741,44 +23076,536 @@ function looksLikeGeneratedPracticeQuestion(text) {
   return ((String(text || '').match(/(?:^|\n)\s*[A-D][.)]\s+\S/g) || []).length >= 3);
 }
 
+var BOOK_MATERIAL_EXTRACTION_CAP = 3;
+var bookMaterialMemory = [];
+var bookMaterialAdopted = false;
+var BOOK_CHAPTERS = [
+  ['Quadratic Equations', /\bquadratic equations?\b/i],
+  ['Logarithms', /\blogarithms?\b/i],
+  ['Linear Equations', /\blinear equations?\b/i],
+  ['Inequalities', /\binequalit(?:y|ies)\b/i],
+  ['Coordinate Geometry', /\bcoordinate geometry\b/i],
+  ['Number System', /\bnumber systems?\b/i],
+  ['Time and Work', /\btime and work\b/i],
+  ['Progressions', /\bprogressions?\b/i],
+  ['Permutations', /\bpermutations?\b/i],
+  ['Probability', /\bprobability\b/i],
+  ['Trigonometry', /\btrigonometry\b/i],
+  ['Percentages', /\bpercentages?\b/i],
+  ['Geometry', /\bgeometry\b/i],
+  ['Functions', /\bfunctions?\b/i]
+];
+
+function bookMaterialQuestionKey(item) {
+  var chapter = String(item && item.chapter || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return (chapter ? chapter + ':' : '') + String(item && item.id || '');
+}
+
+function resetBookMaterialMemory() {
+  bookMaterialMemory = [];
+  bookMaterialAdopted = true;
+}
+
+function cloneBookQuestion(item) {
+  return {
+    id:item.id,
+    label:item.label,
+    title:item.title || '',
+    group:item.group || '',
+    chapter:item.chapter || '',
+    priority:!!item.priority,
+    specific:!!item.specific,
+    order:item.order || 0,
+    priorityOrder:item.priorityOrder == null ? 999 : item.priorityOrder,
+    seen:item.seen || 0
+  };
+}
+
+function bookMaterialNorm(chapter) {
+  return String(chapter || '').toLowerCase();
+}
+
+function knownBookChapterInText(text) {
+  var value = String(text || '');
+  var blocked = /^(?:earlier|previous|older|other|another|first|same|this|that|these|those|next|last|whole|full|entire|current|new|rest|remaining)$/i;
+  var explicit = value.match(/\b([a-z][a-z0-9 &'’\-]{2,48}?)\s+chapter\b/i);
+  if (explicit && !blocked.test(String(explicit[1] || '').trim())) {
+    var named = explicit[1].trim();
+    for (var i = 0; i < BOOK_CHAPTERS.length; i++) if (BOOK_CHAPTERS[i][1].test(named)) return BOOK_CHAPTERS[i][0];
+  }
+  for (var j = 0; j < BOOK_CHAPTERS.length; j++) if (BOOK_CHAPTERS[j][1].test(value)) return BOOK_CHAPTERS[j][0];
+  return '';
+}
+
+function bookChaptersNamedInText(text) {
+  var value = String(text || '');
+  var found = [];
+  BOOK_CHAPTERS.forEach(function(entry) {
+    if (entry[1].test(value) && found.indexOf(entry[0]) === -1) found.push(entry[0]);
+  });
+  return found;
+}
+
+function isSameBatchBookContinuation(text) {
+  var value = String(text || '');
+  if (typeof studentWillSendMorePages === 'function' && studentWillSendMorePages(value)) return true;
+  return /\b(?:rest|remaining|more)\b[\s\S]{0,32}\b(?:of\s+(?:the\s+)?)?(?:pictur|photo|image|page)/i.test(value);
+}
+
+function isNewBookUploadTurn(text) {
+  var value = String(text || '');
+  if (isSameBatchBookContinuation(value)) return false;
+  return /\b(?:these|those|here are|attached|uploaded)\b[\s\S]{0,48}\b(?:pages?|pictures?|photos?|images?)\b/i.test(value) ||
+    /\b(?:pages?|pictures?|photos?|images?)\b[\s\S]{0,32}\b(?:attached|uploaded)\b/i.test(value);
+}
+
+function wantsMixedBookChapters(text) {
+  var value = String(text || '');
+  var named = bookChaptersNamedInText(value);
+  if (named.length >= 2 && /\b(?:and|plus|with|both)\b/i.test(value) && /\b(?:questions?|select|selection|list|pick|choose)\b/i.test(value)) return true;
+  return /\b(?:mixed selection|mix of|both chapters|from both|across (?:both|the) chapters)\b/i.test(value) && /\b(?:questions?|select|selection|list)\b/i.test(value);
+}
+
+function asksAmbiguousBookSource(text) {
+  var value = String(text || '');
+  if (knownBookChapterInText(value) || wantsMixedBookChapters(value)) return false;
+  return /\b(?:earlier|previous|older|other|another|first)\s+(?:chapter|upload)\b/i.test(value);
+}
+
+function findBookMaterialMemory(chapter) {
+  var key = bookMaterialNorm(chapter);
+  var found = null;
+  bookMaterialMemory.forEach(function(entry) {
+    if (entry && bookMaterialNorm(entry.chapter) === key) found = entry;
+  });
+  return found;
+}
+
+function compactBookMaterialEntry(entry) {
+  return {
+    chapter:entry.chapter,
+    extractionAvailable:entry.extractionAvailable !== false && !!(entry.questions && entry.questions.length),
+    memoryOnly:entry.extractionAvailable === false || !(entry.questions && entry.questions.length),
+    questions:(entry.questions || []).map(cloneBookQuestion),
+    sourceText:String(entry.sourceText || '').slice(0, 4000),
+    priorityGroup:entry.priorityGroup || ''
+  };
+}
+
+function enforceBookMaterialCap() {
+  var cap = typeof BOOK_MATERIAL_EXTRACTION_CAP === 'number' ? BOOK_MATERIAL_EXTRACTION_CAP : 3;
+  if (cap < 1) cap = 1;
+  var available = bookMaterialMemory.filter(function(entry) {
+    return entry && entry.extractionAvailable !== false && entry.questions && entry.questions.length;
+  });
+  while (available.length > cap) {
+    var oldest = available.shift();
+    oldest.extractionAvailable = false;
+    oldest.memoryOnly = true;
+    oldest.questions = [];
+    oldest.sourceText = '';
+  }
+}
+
+function persistBookMaterialIndex() {
+  try {
+    if (typeof isGuestMode !== 'undefined' && isGuestMode && typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+  } catch (error) {}
+  if (typeof currentUser === 'undefined' || !currentUser || typeof saveInternalMemoryMessage !== 'function') return;
+  try {
+    saveInternalMemoryMessage('book-material', { groups:bookMaterialMemory.map(compactBookMaterialEntry) });
+  } catch (error) {}
+}
+
+function rememberBookMaterialEntry(group) {
+  if (!group || !group.chapter) return null;
+  var entry = findBookMaterialMemory(group.chapter);
+  if (!entry) {
+    entry = { chapter:group.chapter, extractionAvailable:true, memoryOnly:false, questions:[], sourceText:'', priorityGroup:'' };
+    bookMaterialMemory.push(entry);
+  }
+  if (group.extractionAvailable === false) {
+    entry.extractionAvailable = false;
+    entry.memoryOnly = true;
+    entry.questions = [];
+    entry.sourceText = '';
+    persistBookMaterialIndex();
+    return entry;
+  }
+  if (group.questions && group.questions.length) {
+    entry.extractionAvailable = true;
+    entry.memoryOnly = false;
+    entry.chapter = group.chapter;
+    entry.questions = group.questions.map(cloneBookQuestion);
+    entry.sourceText = group.sourceText || '';
+    entry.priorityGroup = group.priorityGroup || '';
+    enforceBookMaterialCap();
+    persistBookMaterialIndex();
+  }
+  return entry;
+}
+
+function releaseBookMaterialSource(chapter) {
+  var name = knownBookChapterInText(chapter) || String(chapter || '').trim();
+  if (!name) return null;
+  return rememberBookMaterialEntry({ chapter:name, extractionAvailable:false, questions:[] });
+}
+
+function latestBookMaterialFromHistory() {
+  var history = (typeof conversationHistory === 'undefined' ? [] : conversationHistory) || [];
+  var saved = null;
+  history.forEach(function(item) {
+    if (typeof parseInternalMemoryMessage !== 'function') return;
+    var payload = parseInternalMemoryMessage(item, 'book-material');
+    if (payload && Array.isArray(payload.groups)) saved = payload.groups;
+  });
+  return saved;
+}
+
+function ensureBookMaterialAdopted() {
+  if (bookMaterialAdopted) return;
+  bookMaterialAdopted = true;
+  if (bookMaterialMemory.length) return;
+  var saved = latestBookMaterialFromHistory();
+  if (!saved || !saved.length) return;
+  bookMaterialMemory = saved.map(function(entry) {
+    return {
+      chapter:entry.chapter,
+      extractionAvailable:entry.extractionAvailable !== false && !!(entry.questions && entry.questions.length),
+      memoryOnly:entry.extractionAvailable === false || !(entry.questions && entry.questions.length),
+      questions:(entry.questions || []).map(cloneBookQuestion),
+      sourceText:entry.sourceText || '',
+      priorityGroup:entry.priorityGroup || ''
+    };
+  });
+}
+
+function stampBookQuestionChapter(list, chapter) {
+  (list && list.items || []).forEach(function(item) {
+    if (chapter) item.chapter = chapter;
+    if (chapter && !item.group) item.group = chapter;
+  });
+  return list;
+}
+
+function emptyBookGroup(chapter) {
+  return { chapter:chapter || '', questions:[], extractionAvailable:true, memoryOnly:false, sourceText:'', priorityGroup:'', byKey:{} };
+}
+
+function addQuestionsToBookGroup(group, list) {
+  (list && list.items || []).forEach(function(item) {
+    if (!item || !item.id) return;
+    var copy = cloneBookQuestion(item);
+    if (group.chapter) copy.chapter = group.chapter;
+    if (group.chapter && !copy.group) copy.group = group.chapter;
+    var key = bookMaterialQuestionKey(copy);
+    if (group.byKey[key]) return;
+    group.byKey[key] = copy;
+    group.questions.push(copy);
+  });
+  if (list && list.priorityGroup && !group.priorityGroup) group.priorityGroup = list.priorityGroup;
+  return group;
+}
+
+function inferBookMaterialGroupsFromHistory() {
+  var history = (typeof conversationHistory === 'undefined' ? [] : conversationHistory) || [];
+  var groups = [];
+  var current = null;
+  function open(chapter) {
+    current = emptyBookGroup(chapter || '');
+    groups.push(current);
+    return current;
+  }
+  history.forEach(function(item) {
+    if (!item || (typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item))) return;
+    if (item.role === 'user') {
+      var text = String(item.content || '');
+      var chapter = knownBookChapterInText(text);
+      var continuing = isSameBatchBookContinuation(text);
+      if (continuing && current && (!chapter || !current.chapter || bookMaterialNorm(current.chapter) === bookMaterialNorm(chapter))) {
+        if (chapter && !current.chapter) current.chapter = chapter;
+        return;
+      }
+      if (chapter && current && bookMaterialNorm(current.chapter) === bookMaterialNorm(chapter) && !isNewBookUploadTurn(text)) return;
+      if (isNewBookUploadTurn(text) || (chapter && (!current || bookMaterialNorm(current.chapter) !== bookMaterialNorm(chapter)))) {
+        open(chapter);
+        return;
+      }
+      if (!current && (/\bpages?\b/i.test(text) || (typeof mentionsPhotographedBookPages === 'function' && mentionsPhotographedBookPages(text)))) open('');
+      return;
+    }
+    if (item.role !== 'assistant') return;
+    var content = String(item.content || '');
+    if (!content || looksLikeGeneratedPracticeQuestion(content)) return;
+    var list = collectSelectedBookQuestions(content);
+    if (!list.total) return;
+    if (!current) open('');
+    if (/could not finish the rest of this answer/i.test(content)) current.sourceText = content;
+    addQuestionsToBookGroup(current, list);
+  });
+  return groups;
+}
+
+function groupFromMemoryEntry(entry) {
+  var group = emptyBookGroup(entry.chapter);
+  group.extractionAvailable = entry.extractionAvailable !== false && !!(entry.questions && entry.questions.length);
+  group.memoryOnly = entry.extractionAvailable === false || !(entry.questions && entry.questions.length);
+  group.sourceText = entry.sourceText || '';
+  group.priorityGroup = entry.priorityGroup || '';
+  if (group.extractionAvailable) addQuestionsToBookGroup(group, { items:entry.questions, priorityGroup:entry.priorityGroup || '' });
+  return group;
+}
+
+function resolveBookMaterialGroups() {
+  ensureBookMaterialAdopted();
+  var inferred = inferBookMaterialGroupsFromHistory();
+  if (!bookMaterialMemory.length) return inferred;
+  var used = {};
+  var groups = [];
+  inferred.forEach(function(group) {
+    var key = bookMaterialNorm(group.chapter);
+    var memory = key ? findBookMaterialMemory(group.chapter) : null;
+    if (memory) {
+      if (used[key]) return;
+      used[key] = true;
+      groups.push(groupFromMemoryEntry(memory));
+      return;
+    }
+    groups.push(group);
+  });
+  bookMaterialMemory.forEach(function(entry) {
+    var key = bookMaterialNorm(entry.chapter);
+    if (!key || used[key]) return;
+    used[key] = true;
+    groups.push(groupFromMemoryEntry(entry));
+  });
+  return groups;
+}
+
+function listFromBookGroup(group) {
+  var items = (group && group.questions || []).slice();
+  return { items:items, total:items.length, priorityGroup:group && group.priorityGroup || '' };
+}
+
+function preserveNamedBookGroups(groups) {
+  (groups || []).forEach(function(group) {
+    if (!group || !group.chapter || !(group.questions && group.questions.length)) return;
+    var existing = findBookMaterialMemory(group.chapter);
+    if (existing && (existing.extractionAvailable === false || (existing.questions && existing.questions.length))) return;
+    rememberBookMaterialEntry(group);
+  });
+}
+
+function latestBookGroup(groups) {
+  var list = groups || [];
+  for (var i = list.length - 1; i >= 0; i--) {
+    if (list[i] && list[i].extractionAvailable !== false && list[i].questions && list[i].questions.length) return list[i];
+  }
+  return null;
+}
+
+function groupForBookRequest(message) {
+  var groups = resolveBookMaterialGroups();
+  var text = String(message || '');
+  var named = bookChaptersNamedInText(text);
+  if (wantsMixedBookChapters(text)) {
+    var available = [];
+    var missing = [];
+    var pool = named.length ? named : groups.map(function(group) { return group.chapter; }).filter(Boolean);
+    var seenChapter = {};
+    pool.forEach(function(chapter) {
+      if (!chapter || seenChapter[bookMaterialNorm(chapter)]) return;
+      seenChapter[bookMaterialNorm(chapter)] = true;
+      var group = null;
+      groups.forEach(function(entry) {
+        if (bookMaterialNorm(entry.chapter) === bookMaterialNorm(chapter)) group = entry;
+      });
+      if (group && group.extractionAvailable !== false && group.questions && group.questions.length) available.push(group);
+      else missing.push(chapter);
+    });
+    return { mixed:true, available:available, missing:missing, groups:groups };
+  }
+  if (asksAmbiguousBookSource(text)) {
+    var readable = groups.filter(function(group) { return group.chapter && group.extractionAvailable !== false && group.questions && group.questions.length; });
+    if (readable.length > 1) return { clarify:true, groups:readable };
+    if (readable.length === 1) return { group:readable[0] };
+    var remembered = groups.filter(function(group) { return group.chapter; });
+    if (remembered.length) return { clarify:true, groups:remembered };
+  }
+  var chapter = knownBookChapterInText(text);
+  if (chapter) {
+    var match = null;
+    groups.forEach(function(group) {
+      if (bookMaterialNorm(group.chapter) === bookMaterialNorm(chapter)) match = group;
+    });
+    if (match && match.extractionAvailable === false) return { unavailable:true, chapter:chapter, group:match };
+    if (match && match.questions && match.questions.length) return { group:match };
+    if (match) return { unavailable:true, chapter:chapter, group:match };
+    return { missing:true, chapter:chapter };
+  }
+  var unlabeled = null;
+  groups.forEach(function(group) {
+    if (!group.chapter && group.questions && group.questions.length) unlabeled = group;
+  });
+  if (unlabeled && !bookMaterialMemory.length) return { group:unlabeled };
+  var latest = latestBookGroup(groups);
+  if (latest) return { group:latest };
+  if (unlabeled) return { group:unlabeled };
+  return { group:null };
+}
+
+function continuationBase(chapter) {
+  if (chapter) {
+    var memory = findBookMaterialMemory(chapter);
+    if (memory && memory.extractionAvailable !== false && memory.questions && memory.questions.length) return groupFromMemoryEntry(memory);
+  }
+  var prior = inferBookMaterialGroupsFromHistory();
+  if (chapter) {
+    var match = null;
+    prior.forEach(function(group) {
+      if (bookMaterialNorm(group.chapter) === bookMaterialNorm(chapter)) match = group;
+    });
+    if (match) return match;
+  }
+  return prior.length ? prior[prior.length - 1] : emptyBookGroup(chapter || '');
+}
+
+function mergeContinuationGroup(chapter, extracted, roster) {
+  var base = continuationBase(chapter);
+  var group = emptyBookGroup(chapter || base.chapter || '');
+  group.priorityGroup = base.priorityGroup || '';
+  group.sourceText = roster || '';
+  addQuestionsToBookGroup(group, { items:base.questions, priorityGroup:base.priorityGroup || '' });
+  addQuestionsToBookGroup(group, extracted);
+  return group;
+}
+
+function freshBookGroup(chapter, extracted, roster) {
+  var group = emptyBookGroup(chapter || '');
+  group.sourceText = roster || '';
+  group.priorityGroup = extracted.priorityGroup || '';
+  addQuestionsToBookGroup(group, extracted);
+  return group;
+}
+
+function bookSelectionLead(group, limit, fresh) {
+  var chapter = group && group.chapter ? group.chapter : '';
+  if (chapter && fresh) return limit ? 'Here are the questions to do from these ' + chapter + ' pages.' : 'Here is the selection from these ' + chapter + ' pages.';
+  if (chapter) return limit ? 'Here are the questions to do from the ' + chapter + ' pages I can still read.' : 'Here is the selection from the ' + chapter + ' pages I can still read.';
+  return limit ? 'Here are the questions to do from these pages.' : 'Here is the selection from these pages.';
+}
+
+function noteBookUserTurn(text) {
+  if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return;
+  var lastUser = '';
+  for (var i = conversationHistory.length - 1; i >= 0; i--) {
+    if (conversationHistory[i] && conversationHistory[i].role === 'user') {
+      lastUser = String(conversationHistory[i].content || '');
+      break;
+    }
+  }
+  if (lastUser === String(text || '')) return;
+  conversationHistory.push({ role:'user', content:String(text || '') });
+}
+
+function publishBookUnreadable() {
+  var line = 'I could not read question numbers on these pages. Send a clearer photo of the same pages. I will not use an earlier chapter in their place.';
+  addMessage('marg', escapeChatHtml(line), true);
+  rememberBookAssistantText(line);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+}
+
+function publishBookSourceUnavailable(chapter) {
+  var name = chapter || 'that chapter';
+  var line = 'I remember ' + name + ' from earlier in this chat, but I do not have those pages now. Upload the ' + name + ' images again and I will select from them. I will not write new questions in their place.';
+  addMessage('marg', escapeChatHtml(line), true);
+  rememberBookAssistantText(line);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+}
+
+function publishBookClarification(groups) {
+  var names = [];
+  (groups || []).forEach(function(group) {
+    if (group && group.chapter && names.indexOf(group.chapter) === -1) names.push(group.chapter);
+  });
+  var line = names.length ? 'Which chapter should I use: ' + names.join(' or ') + '?' : 'Which chapter should I use? Name it, or upload the pages.';
+  addMessage('marg', escapeChatHtml(line), true);
+  rememberBookAssistantText(line);
+  if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+}
+
+function publishMixedBookSelection(target, limit) {
+  var available = target && target.available || [];
+  var missing = target && target.missing || [];
+  var availableNames = available.map(function(group) { return group.chapter; }).filter(Boolean);
+  var note = '';
+  if (missing.length && availableNames.length) note = 'I can select from ' + availableNames.join(' and ') + '. Upload the ' + missing.join(' and ') + ' images again if you want that chapter included. I will not substitute questions from a chapter I cannot read.';
+  else if (missing.length) note = 'I do not have ' + missing.join(' and ') + ' available. Upload those images again and I will select from them. I will not write new questions in their place.';
+  if (!available.length) {
+    var missingLine = note || 'Upload the chapters you want mixed.';
+    addMessage('marg', escapeChatHtml(missingLine), true);
+    rememberBookAssistantText(missingLine);
+    if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+    return;
+  }
+  var list = limitBookQuestionList(mergeBookQuestionLists(available.map(listFromBookGroup)), limit);
+  var lead = 'Here is the mixed selection from ' + availableNames.join(' and ') + '.';
+  if (list.total >= 1) publishBookChecklist(list, note, lead);
+  else publishBookMissing('');
+}
+
+window.resetBookMaterialMemory = resetBookMaterialMemory;
+window.releaseBookMaterialSource = releaseBookMaterialSource;
+
+
 function mergeBookQuestionLists(lists) {
-  var byId = {};
+  var byKey = {};
   var seen = 0;
   var priorityGroup = '';
   (lists || []).forEach(function(list) {
     if (list && list.priorityGroup) priorityGroup = list.priorityGroup;
     (list && list.items || []).forEach(function(item) {
       if (!item || !item.id) return;
-      var existing = byId[item.id];
+      var key = bookMaterialQuestionKey(item);
+      var existing = byKey[key];
       if (!existing) {
-        byId[item.id] = { id:item.id, label:item.label, title:item.title || '', group:item.group || '', priority:!!item.priority, specific:!!item.specific, order:item.order, priorityOrder:item.priorityOrder == null ? 999 : item.priorityOrder, seen:seen++ };
+        var copy = cloneBookQuestion(item);
+        copy.seen = seen++;
+        byKey[key] = copy;
         return;
       }
       if ((item.title || '').length > (existing.title || '').length) existing.title = item.title;
       if (item.group && !existing.group) existing.group = item.group;
+      if (item.chapter && !existing.chapter) existing.chapter = item.chapter;
       if (item.priority) existing.priority = true;
     });
   });
-  var items = Object.keys(byId).map(function(id) { return byId[id]; });
+  var items = Object.keys(byKey).map(function(key) { return byKey[key]; });
   return { items:items, total:items.length, priorityGroup:priorityGroup };
 }
 
 function assistantBookRosterTexts() {
   if (typeof conversationHistory === 'undefined' || !Array.isArray(conversationHistory)) return [];
-  return conversationHistory.filter(function(item) { return item && item.role === 'assistant'; }).map(function(item) { return item.content || ''; }).filter(function(text) {
+  return conversationHistory.filter(function(item) {
+    return item && item.role === 'assistant' && !(typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item));
+  }).map(function(item) { return item.content || ''; }).filter(function(text) {
     if (!text || looksLikeGeneratedPracticeQuestion(text)) return false;
     return collectSelectedBookQuestions(text).total > 0;
   });
 }
 
 function bookRosterWasCutOff() {
-  return assistantBookRosterTexts().some(function(text) {
-    return /could not finish the rest of this answer/i.test(text);
-  });
+  var available = bookMaterialMemory.filter(function(entry) { return entry && entry.extractionAvailable !== false && entry.sourceText; });
+  var latest = available[available.length - 1];
+  if (latest) return /could not finish the rest of this answer/i.test(latest.sourceText);
+  var texts = assistantBookRosterTexts();
+  return /could not finish the rest of this answer/i.test(texts[texts.length - 1] || '');
 }
 
 function collectedBookQuestionList(extraText) {
-  var lists = assistantBookRosterTexts().map(collectSelectedBookQuestions);
+  var target = groupForBookRequest('');
+  var lists = [];
+  if (target && target.group && target.group.extractionAvailable !== false) lists.push(listFromBookGroup(target.group));
   if (extraText && !looksLikeGeneratedPracticeQuestion(extraText)) lists.push(collectSelectedBookQuestions(extraText));
   return mergeBookQuestionLists(lists);
 }
@@ -22806,21 +23633,29 @@ function selectedQuestionListPlain(list) {
 }
 
 function selectedQuestionRowCopy(item) {
-  return item.title ? item.label + '. ' + item.title : item.label;
+  var title = String(item.title || '');
+  var chapter = String(item.chapter || '');
+  if (title && chapter && title.toLowerCase() === chapter.toLowerCase()) return item.label + ' · ' + chapter;
+  if (title && chapter) return item.label + '. ' + title + ' · ' + chapter;
+  if (title) return item.label + '. ' + title;
+  if (chapter) return item.label + ' · ' + chapter;
+  return item.label;
 }
 
 function renderSelectedQuestionList(list, lead) {
   if (typeof ensureMentorRichTextStyles === 'function') ensureMentorRichTextStyles();
   var items = (list && list.items || []).slice();
   var saved = [];
-  try { saved = JSON.parse(localStorage.getItem('marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.')) || '[]'); } catch (e) { saved = []; }
+  var storeIds = items.map(bookMaterialQuestionKey).sort();
+  try { saved = JSON.parse(localStorage.getItem('marg_qlist_v1_' + storeIds.join('.')) || '[]'); } catch (e) { saved = []; }
   if (!Array.isArray(saved)) saved = [];
   function escapeList(value) {
     return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
   function row(item) {
-    var done = saved.indexOf(item.id) !== -1;
-    return '<button type="button" class="marg-qpick' + (done ? ' done' : '') + '" data-qid="' + escapeList(item.id) + '"><span class="marg-qpick-mark" aria-hidden="true"></span><span class="marg-qpick-copy">' + escapeList(selectedQuestionRowCopy(item)) + '</span></button>';
+    var key = bookMaterialQuestionKey(item);
+    var done = saved.indexOf(key) !== -1;
+    return '<button type="button" class="marg-qpick' + (done ? ' done' : '') + '" data-qid="' + escapeList(key) + '"><span class="marg-qpick-mark" aria-hidden="true"></span><span class="marg-qpick-copy">' + escapeList(selectedQuestionRowCopy(item)) + '</span></button>';
   }
   var explicit = items.some(function(item) { return item.group; });
   var groups;
@@ -22843,9 +23678,9 @@ function renderSelectedQuestionList(list, lead) {
       ['Mixed CAT-style applications', rest.filter(function(item) { return questionListGroup(item.title) === 'Mixed CAT-style applications'; })]
     ].filter(function(group) { return group[1].length; });
   }
-  var doneCount = items.filter(function(item) { return saved.indexOf(item.id) !== -1; }).length;
-  var store = 'marg_qlist_v1_' + items.map(function(item) { return item.id; }).sort().join('.');
-  var intro = lead || 'Here is the full selection from the pages already in this chat.';
+  var doneCount = items.filter(function(item) { return saved.indexOf(bookMaterialQuestionKey(item)) !== -1; }).length;
+  var store = 'marg_qlist_v1_' + storeIds.join('.');
+  var intro = lead || 'Here is the selection from these pages.';
   return '<div class="mentor-paragraph">' + escapeList(intro) + '</div><div class="marg-qlist" data-store="' + escapeList(store) + '"><div class="marg-qlist-title">Your selected question list</div><div class="marg-qlist-banner"><span class="marg-qlist-dot" aria-hidden="true"></span><div><div class="marg-qlist-priority">Priority 1 — Do these first</div><div class="marg-qlist-note">Core concepts and useful problem-solving practice</div></div></div>' +
     groups.map(function(group) {
       return '<div class="marg-qlist-group">' + escapeList(group[0]) + '</div>' + group[1].sort(function(a, b) { return a.priority ? a.priorityOrder - b.priorityOrder : a.order - b.order; }).map(row).join('');
@@ -22899,7 +23734,7 @@ function rememberBookAssistantText(text) {
 }
 
 function publishBookChecklist(list, extraNote, lead) {
-  var note = bookRosterWasCutOff() ? 'The last read stopped before the page finished. This is every number already in the chat. Send the page that was cut off if one is missing.' : String(extraNote || '');
+  var note = bookRosterWasCutOff() ? 'The last read stopped before the page finished. This is every number already read from these pages. Send the page that was cut off if one is missing.' : String(extraNote || '');
   var html = (note ? '<div class="mentor-paragraph">' + escapeChatHtml(note) + '</div>' : '') + renderSelectedQuestionList(list, lead);
   addMessage('marg', html, true);
   rememberBookAssistantText(selectedQuestionListPlain(list));
@@ -22918,7 +23753,16 @@ function publishBookHold(hasImages) {
 function publishBookMissing(message) {
   var text = String(message || '');
   var rosterCount = 0;
-  try { rosterCount = collectedBookQuestionList().total || 0; } catch (error) { rosterCount = 0; }
+  try {
+    var namedChapter = typeof knownBookChapterInText === 'function' ? knownBookChapterInText(text) : '';
+    if (namedChapter) {
+      var namedGroup = null;
+      resolveBookMaterialGroups().forEach(function(group) {
+        if (group && bookMaterialNorm(group.chapter) === bookMaterialNorm(namedChapter)) namedGroup = group;
+      });
+      rosterCount = namedGroup && namedGroup.extractionAvailable !== false ? (namedGroup.questions || []).length : 0;
+    } else rosterCount = collectedBookQuestionList().total || 0;
+  } catch (error) { rosterCount = 0; }
   var mentionsSource = /\b(?:upload|images?|pictures?|photos?|pages?|chapter|arun sharma)\b/i.test(text);
   var line = !rosterCount && !mentionsSource
     ? 'No pages are in this chat, so I cannot read a question list from them. Upload the pages, or name the chapter you can see, and I’ll work from that.'
@@ -22944,17 +23788,14 @@ function bookRosterInstruction(message, known) {
   var instruction = limit
     ? 'Read every attached page. Choose about ' + limit + ' of the highest-yield questions that are actually visible. Do not list every question on the page. Do not write a question stem, the options, a solution, or a new practice question.'
     : 'Read every attached page. Reply with only the question numbers that are visible. Do not write the question stem, the options, a solution, or a new practice question.';
-  instruction += ' One topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not stop in the middle of a page. End the reply with a period.';
-  if (/\bQ\s*\d/i.test(known || '')) instruction += '\n\nNumbers already recorded from earlier pages are below. Repeat the ones that belong in this reply, then add the numbers on these pages.\n' + known;
+  instruction += ' One topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not stop in the middle of a page. Use only these attached pages. Do not copy question numbers from an earlier chapter. If a number or a question boundary is unreadable, say so instead of guessing. End the reply with a period.';
   return instruction;
 }
 
 async function requestCompactBookRoster(message, images) {
   var ready = (images || []).filter(function(item) { return item && item.data; });
   if (!ready.length || typeof fetchWithTimeout !== 'function' || typeof WORKER_URL === 'undefined' || typeof buildGeminiRequest !== 'function') return '';
-  var known = selectedQuestionListPlain(collectedBookQuestionList());
-  var instruction = bookRosterInstruction(message, known);
-  if (/\bQ\s*\d/i.test(known)) instruction += '\n\nNumbers already recorded from earlier pages are below. Repeat those numbers, then add the numbers on these pages, so this reply is the full list.\n' + known;
+  var instruction = bookRosterInstruction(message, '');
   var parts = ready.map(function(item) {
     return { inlineData:{ mimeType:item.mimeType || 'image/jpeg', data:item.data } };
   });
@@ -22982,17 +23823,74 @@ async function maybeHandleBookQuestionPages(message, images) {
   var hasImages = ready.length > 0;
   if (!wantsBookQuestionSelection(text)) return false;
   if (asksToInventQuestions(text) && !isSelectedQuestionListRequest(text) && !refusesGeneratedQuestions(text)) return false;
-  var roster = hasImages ? await requestCompactBookRoster(text, ready) : '';
+  if (studentWillSendMorePages(text) && !hasImages) {
+    publishBookHold(false);
+    return true;
+  }
+  if (!hasImages && wantsMixedBookChapters(text)) {
+    publishMixedBookSelection(groupForBookRequest(text), bookSelectionLimit(text));
+    return true;
+  }
+  if (!hasImages && asksAmbiguousBookSource(text)) {
+    var ambiguous = groupForBookRequest(text);
+    if (ambiguous && ambiguous.clarify) {
+      publishBookClarification(ambiguous.groups);
+      return true;
+    }
+  }
+  if (!hasImages) {
+    var stored = groupForBookRequest(text);
+    if (stored && stored.unavailable) {
+      publishBookSourceUnavailable(stored.chapter);
+      return true;
+    }
+    if (stored && stored.missing) {
+      publishBookMissing(text);
+      return true;
+    }
+    var storedList = stored && stored.group ? limitBookQuestionList(listFromBookGroup(stored.group), bookSelectionLimit(text)) : { items:[], total:0 };
+    if (storedList.total >= 3) {
+      publishBookChecklist(storedList, '', bookSelectionLead(stored.group, bookSelectionLimit(text), false));
+      return true;
+    }
+    publishBookMissing(text);
+    return true;
+  }
+  var prior = inferBookMaterialGroupsFromHistory();
+  preserveNamedBookGroups(prior);
+  var chapter = knownBookChapterInText(text);
+  var latestNamed = '';
+  for (var i = prior.length - 1; i >= 0; i--) if (prior[i] && prior[i].chapter) { latestNamed = prior[i].chapter; break; }
+  var continuing = isSameBatchBookContinuation(text) && (!chapter || !latestNamed || bookMaterialNorm(latestNamed) === bookMaterialNorm(chapter));
+  var roster = await requestCompactBookRoster(text, ready);
+  var extracted = roster && !looksLikeGeneratedPracticeQuestion(roster) ? collectSelectedBookQuestions(roster) : { items:[], total:0, priorityGroup:'' };
+  stampBookQuestionChapter(extracted, chapter);
+  if (!extracted.total) {
+    if (continuing) {
+      var current = continuationBase(chapter);
+      if (current && current.questions && current.questions.length >= 3) {
+        publishBookChecklist(listFromBookGroup(current), 'I could not read question numbers on the newest pages. This list is only what I already read from these pages.', bookSelectionLead(current, bookSelectionLimit(text), false));
+        return true;
+      }
+    }
+    publishBookUnreadable();
+    return true;
+  }
+  var group = continuing ? mergeContinuationGroup(chapter, extracted, roster) : freshBookGroup(chapter, extracted, roster);
+  if (group.chapter) rememberBookMaterialEntry(group);
+  noteBookUserTurn(text);
   if (roster) rememberBookAssistantText(roster);
   if (studentWillSendMorePages(text)) {
-    publishBookHold(hasImages);
+    publishBookHold(true);
     return true;
   }
   var limit = bookSelectionLimit(text);
-  var list = limitBookQuestionList(collectedBookQuestionList(), limit);
-  var lead = limit ? 'Here are the questions to do from the pages already in this chat.' : '';
-  if (list.total >= 3) {
-    publishBookChecklist(list, hasImages && !roster ? 'I could not read question numbers on the newest pages. This is every number already in the chat. Send those pages once more if one is missing.' : '', lead);
+  var list = limitBookQuestionList(listFromBookGroup(group), limit);
+  var limitation = /could not finish the rest of this answer|unreadable|could not read|not readable|unclear/i.test(roster || '')
+    ? 'Part of this page was unreadable, so this list includes only the numbers I could read.'
+    : '';
+  if (list.total >= 1) {
+    publishBookChecklist(list, limitation, bookSelectionLead(group, limit, true));
     return true;
   }
   publishBookMissing(text);
@@ -23002,7 +23900,7 @@ async function maybeHandleBookQuestionPages(message, images) {
 async function refillBookQuestionList(reply, request, timeoutMs) {
   if (looksLikeBookQuestionSelection(reply) || typeof fetchWithTimeout !== 'function' || typeof WORKER_URL === 'undefined') return reply;
   var next = copyRequestForContinuation(request, true);
-  var override = '\n\nBOOK LIST OVERRIDE: The word limit does not apply. Reply with only the selected question numbers from the uploaded pages, grouped by topic. Put each topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not add an introduction, a study plan, or [OPTIONS].';
+  var override = '\n\nBOOK LIST OVERRIDE: The word limit does not apply. Reply with only the selected question numbers from the pages attached to this request, grouped by topic. Do not copy numbers from an earlier chapter. Put each topic on its own line, then one line of numbers such as Q8, Q10, Q14. Keep a range such as Q3-4 as one item. Do not add an introduction, a study plan, or [OPTIONS].';
   var parts = next.systemInstruction && next.systemInstruction.parts;
   if (parts && parts[0] && typeof parts[0].text === 'string') parts[0].text += override;
   else next.systemInstruction = { parts:[{ text:override.trim() }] };
@@ -23750,6 +24648,68 @@ function preservedMentorPieces(text) {
   return { preserved:preserved, dangling:String(split.remainder || '').trim() };
 }
 
+function redundantSolutionCloserLine(line) {
+  var value = String(line || '').trim();
+  if (!value) return false;
+  if (/could not finish the rest of this answer/i.test(value)) return true;
+  if (/say continue and I will finish it from there/i.test(value)) return true;
+  if (/\b(?:selected batch|completely covered above|fully batched|previous message)\b/i.test(value)) return true;
+  if (/\bmove to\s+q\s*\d+/i.test(value)) return true;
+  if (/\blet me know if any step\b/i.test(value)) return true;
+  if (/\bcompleted the full answer\b/i.test(value)) return true;
+  if (/^by\s+q\s*\d+\b/i.test(value) && /\b(?:batch|unclear|above|next)\b/i.test(value)) return true;
+  if (/^using the other option\b/i.test(value)) return true;
+  return false;
+}
+
+function closerLinesNearlySame(a, b) {
+  function norm(line) {
+    return String(line || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  var left = norm(a), right = norm(b);
+  if (!left || !right || left.length < 24 || right.length < 24) return false;
+  return left === right || left.indexOf(right) !== -1 || right.indexOf(left) !== -1;
+}
+
+function stripRedundantSolutionClosers(text) {
+  var value = String(text || '').replace(/\s+$/, '');
+  if (!value) return value;
+  var lines = value.split('\n');
+  var end = lines.length;
+  var removed = '';
+  while (end > 0) {
+    var line = lines[end - 1].trim();
+    if (!line || redundantSolutionCloserLine(line) || (removed && closerLinesNearlySame(line, removed))) {
+      if (line) removed = line;
+      end--;
+      continue;
+    }
+    break;
+  }
+  var kept = lines.slice(0, end).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (!kept) return String(text || '').trim();
+  if (statedSolutionAnswer(value) !== null && statedSolutionAnswer(kept) === null) return String(text || '').trim();
+  return kept;
+}
+
+function mentorSolutionAlreadyComplete(text) {
+  var value = stripRedundantSolutionClosers(text);
+  if (!value || typeof MargStudy === 'undefined' || MargStudy.looksCutOff(value)) return false;
+  if (statedSolutionAnswer(value) === null) return false;
+  var equations = value.split('\n').filter(function(line) { return /=/.test(line) && /\d/.test(line); });
+  return equations.length >= 1 || /\b(?:step-by-step|total factors|number of factors)\b/i.test(value);
+}
+
+function continuationChunkIsRedundant(previous, chunk) {
+  var next = String(chunk || '').trim();
+  if (!next) return true;
+  var lines = next.split('\n').map(function(line) { return line.trim(); }).filter(Boolean);
+  if (!lines.length) return true;
+  if (lines.every(redundantSolutionCloserLine)) return true;
+  if (mentorSolutionAlreadyComplete(previous) && /^(?:step-by-step|q\s*\d+\b|by\s+q\s*\d+)/i.test(lines[0])) return true;
+  return false;
+}
+
 function unfinishedMentorReply(text) {
   var trimmed = String(text || '').trim();
   var pieces = preservedMentorPieces(trimmed);
@@ -23793,6 +24753,14 @@ async function resolveStudyReply(payload, request, timeoutMs, options) {
     truncated = isGeminiStructuredResponseTruncated(retryPayload);
     try { text = getGeminiText(retryPayload); } catch (error) { if (!truncated) throw error; text = ''; }
   }
+  if (!jsonMode) {
+    text = stripRedundantSolutionClosers(text);
+    if (mentorSolutionAlreadyComplete(text)) {
+      resolveStudyReply.unfinished = false;
+      resolveStudyReply.preserveFullReply = true;
+      return text;
+    }
+  }
   var continued = false;
   var noProgress = 0;
   for (var round = 0; text && mentorReplyLooksUnfinished(text, truncated, jsonMode) && round < 4 && noProgress < 2; round++) {
@@ -23806,10 +24774,20 @@ async function resolveStudyReply(payload, request, timeoutMs, options) {
     truncated = isGeminiStructuredResponseTruncated(payloadNext);
     var chunk = '';
     try { chunk = getGeminiText(payloadNext); } catch (error) { noProgress++; continue; }
+    if (!jsonMode && continuationChunkIsRedundant(text, chunk)) {
+      noProgress++;
+      continue;
+    }
     var before = text.length;
     text = MargStudy.stitchContinuation(text, chunk);
     if (text.length - before <= 12) noProgress++;
     else noProgress = 0;
+  }
+  if (!jsonMode) text = stripRedundantSolutionClosers(text);
+  if (!jsonMode && mentorSolutionAlreadyComplete(text)) {
+    resolveStudyReply.unfinished = false;
+    resolveStudyReply.preserveFullReply = true;
+    return text;
   }
   if (text && !mentorReplyLooksUnfinished(text, truncated, jsonMode)) {
     resolveStudyReply.preserveFullReply = continued;
@@ -24150,7 +25128,13 @@ async function sendMessage(fromQueue, submissionOptions) {
   }
 
   const mentorAnalysis = anchorMentorAnalysisToImageContext(buildDiagnosisDirective(text), text, effectiveImageAttachments);
-  if (questionResolution && questionResolution.directive) mentorAnalysis.directive += questionResolution.directive;
+  if (questionResolution && questionResolution.directive) {
+    mentorAnalysis.directive += questionResolution.directive;
+    if (mentorAnalysis.diagnosis) {
+      mentorAnalysis.diagnosis.libraryOwnsQuestionContext = true;
+      mentorAnalysis.diagnosis.libraryQuestionDirective = questionResolution.directive;
+    }
+  }
   if (pendingExternalQuestionTurnMode === 'review') {
     mentorAnalysis.diagnosis.intent = 'answer_review';
     mentorAnalysis.directive += getPendingExternalQuestionContext();
@@ -25837,6 +26821,7 @@ function persistGuestBrowserSession() {
       learningRecord:typeof loadLearningRecord === 'function' ? loadLearningRecord() : null,
       pendingOptions:typeof margPendingConversationOptions !== 'undefined' ? margPendingConversationOptions : null,
       vision:typeof MargVision !== 'undefined' && MargVision.snapshot ? MargVision.snapshot() : null,
+      bookMaterial:typeof bookMaterialMemory !== 'undefined' ? bookMaterialMemory.map(compactBookMaterialEntry) : [],
       savedAt:Date.now()
     }));
   } catch (error) {}
@@ -25862,6 +26847,19 @@ function restoreGuestTabSession() {
   if (saved.studentProfile) studentProfile = saved.studentProfile;
   if (saved.learningRecord && typeof saveLearningRecord === 'function') saveLearningRecord(saved.learningRecord);
   if (saved.vision && typeof MargVision !== 'undefined' && MargVision.save) MargVision.save(saved.vision);
+  if (Array.isArray(saved.bookMaterial)) {
+    bookMaterialMemory = saved.bookMaterial.map(function(entry) {
+      return {
+        chapter:entry.chapter,
+        extractionAvailable:entry.extractionAvailable !== false && !!(entry.questions && entry.questions.length),
+        memoryOnly:entry.extractionAvailable === false || !(entry.questions && entry.questions.length),
+        questions:(entry.questions || []).map(cloneBookQuestion),
+        sourceText:entry.sourceText || '',
+        priorityGroup:entry.priorityGroup || ''
+      };
+    });
+    bookMaterialAdopted = true;
+  }
   if (saved.pendingOptions && saved.pendingOptions.options && saved.pendingOptions.options.length) {
     margPendingConversationOptions = saved.pendingOptions;
     try { showConversationalOptions(saved.pendingOptions.options, saved.pendingOptions.context || 'restored'); } catch (error) {}
@@ -25885,6 +26883,7 @@ function restoreGuestTabSession() {
 }
 
 function clearPreviousGuestSession() {
+  if (typeof resetBookMaterialMemory === 'function') resetBookMaterialMemory();
   progressiveProfileMemory = null;
   personalGoalMemory = null;
   margPendingConversationOptions = null;
@@ -27005,6 +28004,8 @@ var timedTestDiagnosticEntry = null;
 var timedTestRequestedCount = 0;
 var timedTestGenerationStartedAt = null;
 var timedTestDifficulty = 'cat';
+var dilrCheckpointState = null;
+var dilrCheckpointPageHiddenOverride = null;
 var topicProgression = {};
 
 function topicProgressionStorageKey() {
@@ -29814,6 +30815,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   }
   if (timedTestGenerationController) timedTestGenerationController.abort();
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+  resetDilrCheckpoint();
   var generationSequence = ++timedTestGenerationSequence;
   var generationController = new AbortController();
   timedTestGenerationController = generationController;
@@ -30150,6 +31152,7 @@ function renderTimedTestQuestion() {
 
 function selectTimedTestAnswer(idx) {
   timedTestAnswers[timedTestIndex] = idx;
+  noteDilrCheckpointAnswer(timedTestIndex, idx);
   recordActiveExerciseSelection(timedTestIndex + 1, idx, timedTestQuestions[timedTestIndex] ? timedTestQuestions[timedTestIndex].correct : null);
   renderTimedTestQuestionNav();
   renderTimedTestQuestion();
@@ -30169,11 +31172,130 @@ function formatTimedTestClock(seconds) {
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 
+function resetDilrCheckpoint() {
+  dilrCheckpointState = null;
+}
+
+function dilrCheckpointHidden() {
+  if (typeof dilrCheckpointPageHiddenOverride === 'boolean') return dilrCheckpointPageHiddenOverride;
+  try { return document.hidden === true; } catch (error) { return false; }
+}
+
+function watchDilrCheckpointVisibility() {
+  if (watchDilrCheckpointVisibility.bound) return;
+  watchDilrCheckpointVisibility.bound = true;
+  try {
+    document.addEventListener('visibilitychange', function() {
+      if (!dilrCheckpointState || dilrCheckpointState.fired) return;
+      var now = Date.now();
+      if (document.hidden === true) {
+        if (!dilrCheckpointState.hiddenSince) {
+          var delta = now - (dilrCheckpointState.lastTickAt || now);
+          if (delta > 0 && delta < 120000) dilrCheckpointState.activeMs += delta;
+          dilrCheckpointState.hiddenSince = now;
+          dilrCheckpointState.lastTickAt = now;
+        }
+      } else if (dilrCheckpointState.hiddenSince) {
+        dilrCheckpointState.lastTickAt = now;
+        dilrCheckpointState.hiddenSince = null;
+      }
+    });
+  } catch (error) {}
+}
+
+function beginDilrCheckpoint() {
+  watchDilrCheckpointVisibility();
+  if (timedTestSection !== 'dilr' || !timedTestQuestions.length || timedTestSubmitted) {
+    dilrCheckpointState = null;
+    return;
+  }
+  var now = Date.now();
+  dilrCheckpointState = {
+    attemptId:timedTestGenerationSequence,
+    section:'dilr',
+    topic:timedTestTopic || '',
+    questionCount:timedTestQuestions.length,
+    startedAt:now,
+    activeMs:0,
+    lastTickAt:now,
+    hiddenSince:null,
+    hasCorrect:false,
+    fired:false,
+    text:''
+  };
+}
+
+function noteDilrCheckpointAnswer(questionIndex, selectedIndex) {
+  if (!dilrCheckpointState || dilrCheckpointState.fired || timedTestSection !== 'dilr') return;
+  var question = timedTestQuestions[questionIndex];
+  if (question && selectedIndex === question.correct) dilrCheckpointState.hasCorrect = true;
+}
+
+function advanceDilrCheckpointClock(nowMs) {
+  if (!dilrCheckpointState || dilrCheckpointState.fired) return;
+  var now = Number(nowMs) || Date.now();
+  if (dilrCheckpointHidden()) {
+    if (!dilrCheckpointState.hiddenSince) dilrCheckpointState.hiddenSince = now;
+    dilrCheckpointState.lastTickAt = now;
+    return;
+  }
+  if (dilrCheckpointState.hiddenSince) {
+    dilrCheckpointState.lastTickAt = now;
+    dilrCheckpointState.hiddenSince = null;
+    return;
+  }
+  var delta = now - (dilrCheckpointState.lastTickAt || now);
+  if (delta > 0 && delta <= 15 * 60 * 1000) dilrCheckpointState.activeMs += delta;
+  dilrCheckpointState.lastTickAt = now;
+}
+
+function maybeFireDilrStrategicCheckpoint(nowMs) {
+  if (!dilrCheckpointState || dilrCheckpointState.fired) return null;
+  if (dilrCheckpointState.attemptId !== timedTestGenerationSequence) return null;
+  if (timedTestSection !== 'dilr' || timedTestSubmitted) return null;
+  advanceDilrCheckpointClock(nowMs);
+  if (dilrCheckpointState.hasCorrect) return null;
+  if (dilrCheckpointState.activeMs < 8 * 60 * 1000) return null;
+  dilrCheckpointState.fired = true;
+  var answered = (timedTestAnswers || []).filter(function(answer) { return answer != null; }).length;
+  var text = answered
+    ? 'You\'ve spent eight minutes on this DILR set without a correct submission. This is a time checkpoint, not a sunk-cost diagnosis. Reassess the structure you have. If it still does not support the next question, take the strategic drop and protect the remaining time. If the structure is workable, use it on the next question instead of restarting.'
+    : 'You\'ve spent eight minutes without a correct submission. Pause and reassess: have you established a workable structure, and is this set still worth pursuing? If not, take the strategic drop and protect your remaining time.';
+  dilrCheckpointState.text = text;
+  try {
+    if (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory)) {
+      conversationHistory.push({ role:'assistant', content:text, kind:'dilr_strategic_checkpoint', attemptId:dilrCheckpointState.attemptId });
+    }
+  } catch (error) {}
+  try { if (typeof addMargMessage === 'function') addMargMessage(text); } catch (error) {}
+  try {
+    var contentEl = document.getElementById('tt-content');
+    if (contentEl && contentEl.nodeType === 1) {
+      var note = document.createElement('div');
+      note.className = 'dilr-strategic-checkpoint';
+      note.textContent = text;
+      if (contentEl.firstChild) contentEl.insertBefore(note, contentEl.firstChild);
+      else contentEl.appendChild(note);
+    }
+  } catch (error) {}
+  return text;
+}
+
+function getDilrCheckpointContext() {
+  if (!dilrCheckpointState || !dilrCheckpointState.text) return '';
+  if (dilrCheckpointState.attemptId !== timedTestGenerationSequence || timedTestSection !== 'dilr') return '';
+  var remaining = Number(timedTestSecondsLeft);
+  var remainingLine = Number.isFinite(remaining) && remaining >= 0 ? ' Remaining time on this set: ' + formatTimedTestClock(remaining) + '.' : '';
+  return '\n\nACTIVE DILR TIMED SET CHECKPOINT:\n' + dilrCheckpointState.text + '\nAttempt: ' + dilrCheckpointState.attemptId + '. Topic: ' + (dilrCheckpointState.topic || 'unspecified') + '. Questions: ' + dilrCheckpointState.questionCount + '.' + remainingLine + ' This is a time checkpoint for the active set. Do not call it a sunk-cost fallacy unless a separate repeated-pattern candidate says so. Use the set structure, progress so far, and remaining time before recommending continue or abandon.';
+}
+
 function startTimedTestTimer() {
   if (timedTestTimerHandle) clearInterval(timedTestTimerHandle);
   var timerEl = document.getElementById('tt-timer');
   timerEl.textContent = formatTimedTestClock(timedTestSecondsLeft);
+  beginDilrCheckpoint();
   timedTestTimerHandle = setInterval(function() {
+    maybeFireDilrStrategicCheckpoint();
     timedTestSecondsLeft--;
     if (timedTestSecondsLeft <= 0) {
       timedTestSecondsLeft = 0;
@@ -30197,6 +31319,7 @@ function confirmExitTimedTest() {
 
 function closeTimedTest() {
   timedTestGenerationSequence++;
+  resetDilrCheckpoint();
   if (timedTestGenerationController) { timedTestGenerationController.abort(); timedTestGenerationController = null; }
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
   document.getElementById('timed-test-overlay').classList.remove('visible');
@@ -30214,6 +31337,7 @@ function submitTimedTest(isAutoSubmit) {
   if (timedTestSubmitted) return;
   timedTestSubmitted = true;
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+  resetDilrCheckpoint();
 
   var correct = 0, wrong = 0, skipped = 0, marks = 0;
   timedTestQuestions.forEach(function(q, i) {
@@ -31687,3 +32811,196 @@ async function submitFeedback() {
 
 // Leaving the page is not consent to open a modal over the next question.
 // Feedback remains available through More and each response's Report action.
+
+async function runDishaQuestionIntelligenceTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  var saved = {
+    behavioral:behavioralMemory,
+    diagnostic:diagnosticMemory,
+    topic:topicProgression,
+    history:conversationHistory,
+    exercise:activeGeneratedExercise,
+    section:timedTestSection,
+    topicName:timedTestTopic,
+    questions:timedTestQuestions,
+    answers:timedTestAnswers,
+    submitted:timedTestSubmitted,
+    sequence:timedTestGenerationSequence,
+    seconds:timedTestSecondsLeft,
+    checkpoint:dilrCheckpointState,
+    hidden:dilrCheckpointPageHiddenOverride,
+    thread:typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId,
+    activeQuestion:typeof margActiveQuestionContext === 'undefined' ? undefined : margActiveQuestionContext,
+    extract:typeof extractQuestionImageContext === 'function' ? extractQuestionImageContext : null,
+    library:typeof fetchQuestionLibraryData === 'function' ? fetchQuestionLibraryData : null,
+    download:typeof downloadQuestionImage === 'function' ? downloadQuestionImage : null
+  };
+  try {
+    check('generic cheer is removed and the explanation stays', reduceAssistantStyleLanguage('Great job! The factor count is 49 because (6 + 1) × (6 + 1) = 49.') === 'The factor count is 49 because (6 + 1) × (6 + 1) = 49.' && reduceAssistantStyleLanguage('I understand your frustration. The next step is to check the sign.') === 'The next step is to check the sign.');
+    check('scope distortion and sunk-cost fallacy keep their own ids', normalizeBehaviorPattern('varc', 'scope_distortion').key === 'scope_distortion' && normalizeBehaviorPattern('dilr', 'sunken_cost_fallacy').key === 'sunken_cost_fallacy' && normalizeBehaviorPattern('rc', 'too broad').key === 'scope_shift' && normalizeBehaviorPattern('dilr', 'sunk cost').key === 'set_selection');
+
+    diagnosticMemory = {};
+    behavioralMemory = { patterns:[] };
+    margActiveThreadId = 'thread-disha';
+    check('an unexamined history claim is not presented as analysis', guardUnexaminedHistoryClaim('I analyzed your history and the issue is scope.', { intent:'general_mentor', submittedAnswerText:'hello' }).indexOf('I do not have history') !== -1);
+    recordBehaviorPattern('varc', 'scope_distortion', 'passage A widened the claim', 'practice');
+    var once = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('one observation does not raise a repeated-pattern candidate', once.indexOf('REPEATED PATTERN CANDIDATE') === -1 && once.indexOf('one observation') !== -1);
+    recordBehaviorPattern('varc', 'scope_distortion', 'passage A widened the claim', 'practice');
+    var duplicated = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('a duplicate event does not inflate the distinct count', duplicated.indexOf('REPEATED PATTERN CANDIDATE') === -1 && distinctPatternCount(behavioralMemory.patterns.filter(function(pattern) { return pattern.key === 'scope_distortion'; })[0]) === 1);
+    recordBehaviorPattern('varc', 'scope_distortion', 'passage B dropped a limiter', 'practice');
+    var repeated = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('two distinct observations can flag a candidate without a diagnosis', repeated.indexOf('REPEATED PATTERN CANDIDATE') !== -1 && repeated.indexOf('scope_distortion') !== -1 && repeated.indexOf('VARC') !== -1 && repeated.indexOf('two distinct relevant attempts') !== -1 && repeated.indexOf('not a confirmed psychological diagnosis') !== -1);
+    var unrelated = getBehavioralMemoryContext('How should I approach QA?', { intent:'qa_diagnosis', requestedSection:'qa' });
+    check('a VARC candidate is not injected into a QA turn', unrelated.indexOf('REPEATED PATTERN CANDIDATE') === -1 && unrelated.indexOf('scope_distortion') === -1);
+    behavioralMemory.patterns.forEach(function(pattern) { if (pattern.key === 'scope_distortion') pattern.counterEvidence = 'a later passage kept the limiter'; });
+    var countered = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('counter-evidence stays visible on a candidate', countered.indexOf('Counter-evidence:') !== -1 && countered.indexOf('kept the limiter') !== -1);
+    behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:3, eventIds:['a','b','c'], lastSeen:'2024-01-01', lastEvidence:'old passage', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
+    var stale = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('a stale pattern is not injected as a repeated candidate', stale.indexOf('REPEATED PATTERN CANDIDATE') === -1);
+    behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:2, eventIds:['a','b'], lastSeen:getTodayDate(), lastEvidence:'fresh passage', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
+    var examined = guardUnexaminedHistoryClaim('I analyzed your performance. The limiter was dropped.', { intent:'varc_diagnosis', requestedSection:'varc', submittedAnswerText:'My VARC accuracy dropped' });
+    check('a history claim stays when performance context was actually selected', examined.indexOf('I analyzed your performance') !== -1);
+
+    topicProgression = {};
+    var insufficient = buildQaDiagnosisHypothesisContext('How should I approach QA?', { intent:'qa_diagnosis', requestedSection:'qa' });
+    check('QA diagnosis names both hypotheses and does not invent performance', insufficient.indexOf('Multi-topic crossover blindspot') !== -1 && insufficient.indexOf('Easy-question comfort bubble') !== -1 && insufficient.indexOf('No QA attempt history') !== -1 && insufficient.indexOf('Do not invent') !== -1 && insufficient.indexOf('%') === -1 && buildQaDiagnosisHypothesisContext('How should I approach VARC?', { intent:'varc_diagnosis' }) === '');
+    topicProgression = {
+      algebra:{ section:'qa', topic:'Algebra', lastAccuracy:80, conceptQuestionsCompleted:4, timedSectionalsCompleted:1, updatedAt:'2026-10-01' },
+      arithmetic:{ section:'qa', topic:'Arithmetic', lastAccuracy:70, conceptQuestionsCompleted:3, timedSectionalsCompleted:0, updatedAt:'2026-10-02' }
+    };
+    var competing = buildQaDiagnosisHypothesisContext('I can do algebra and arithmetic separately but mixed questions fail, and easy ones feel fine while hard ones stall.', { intent:'qa_diagnosis', requestedSection:'qa' });
+    check('sufficient and contradictory QA evidence stays competing', competing.indexOf('Algebra') !== -1 && competing.indexOf('Arithmetic') !== -1 && competing.indexOf('80%') !== -1 && competing.indexOf('Do not collapse') !== -1 && competing.indexOf('not diagnoses') !== -1 && competing.indexOf('you have a crossover') === -1);
+    var qaTurn = buildMentorTurnContext('How should I approach QA?', { diagnosis:{ intent:'qa_diagnosis', requestedSection:'qa', submittedAnswerText:'How should I approach QA?' }, directive:'QA TURN' }, { surface:'chat' });
+    check('the QA hypotheses reach the mentor turn context', qaTurn.indexOf('QA DIAGNOSTIC HYPOTHESES') !== -1 && qaTurn.indexOf('QA TURN') !== -1);
+
+    conversationHistory = [];
+    timedTestSection = 'dilr';
+    timedTestTopic = 'Seating';
+    timedTestQuestions = [{ q:'Who sits at the end?', options:['A','B','C','D'], correct:2 }];
+    timedTestAnswers = [null];
+    timedTestSubmitted = false;
+    timedTestSecondsLeft = 900;
+    timedTestGenerationSequence = 4;
+    dilrCheckpointPageHiddenOverride = null;
+    resetDilrCheckpoint();
+    check('opening a set does not start the checkpoint before the timer', maybeFireDilrStrategicCheckpoint(Date.now() + 10 * 60 * 1000) === null && !dilrCheckpointState);
+    beginDilrCheckpoint();
+    var started = dilrCheckpointState.startedAt;
+    check('under eight minutes does not fire', maybeFireDilrStrategicCheckpoint(started + 7 * 60 * 1000) === null);
+    var fired = maybeFireDilrStrategicCheckpoint(started + 8 * 60 * 1000);
+    check('eight minutes without a correct submission fires once into the chat path', !!fired && fired.indexOf("You've spent eight minutes without a correct submission") !== -1 && conversationHistory.some(function(item) { return item && item.kind === 'dilr_strategic_checkpoint' && item.content === fired; }) && maybeFireDilrStrategicCheckpoint(started + 9 * 60 * 1000) === null);
+    var checkpointContext = getDilrCheckpointContext();
+    var mentorCheckpoint = buildMentorTurnContext('Should I continue this set?', { diagnosis:{ intent:'dilr_diagnosis', requestedSection:'dilr' }, directive:'' }, { surface:'chat' });
+    check('the chat intervention carries the active set', checkpointContext.indexOf('Seating') !== -1 && checkpointContext.indexOf('Questions: 1') !== -1 && checkpointContext.indexOf('sunk-cost fallacy') !== -1 && mentorCheckpoint.indexOf('ACTIVE DILR TIMED SET CHECKPOINT') !== -1 && mentorCheckpoint.indexOf(fired) !== -1);
+    resetDilrCheckpoint();
+    timedTestGenerationSequence = 5;
+    beginDilrCheckpoint();
+    noteDilrCheckpointAnswer(0, 2);
+    check('a correct submission blocks the checkpoint', maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 8 * 60 * 1000) === null);
+    resetDilrCheckpoint();
+    timedTestAnswers = [0];
+    timedTestGenerationSequence = 6;
+    beginDilrCheckpoint();
+    var wrong = maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 8 * 60 * 1000);
+    check('wrong answers reassess without a sunk-cost diagnosis', !!wrong && wrong.indexOf('not a sunk-cost diagnosis') !== -1 && wrong.indexOf('strategic drop') !== -1);
+    resetDilrCheckpoint();
+    timedTestSection = 'qa';
+    timedTestGenerationSequence = 7;
+    beginDilrCheckpoint();
+    check('a QA timed round does not use the DILR checkpoint', !dilrCheckpointState && maybeFireDilrStrategicCheckpoint(Date.now() + 8 * 60 * 1000) === null);
+    timedTestSection = 'dilr';
+    timedTestAnswers = [null];
+    timedTestGenerationSequence = 8;
+    beginDilrCheckpoint();
+    dilrCheckpointPageHiddenOverride = true;
+    check('hidden time is not counted', maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 10 * 60 * 1000) === null && dilrCheckpointState.activeMs === 0);
+    dilrCheckpointPageHiddenOverride = false;
+    maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 10 * 60 * 1000);
+    check('visible time after a hide can still reach eight minutes once', maybeFireDilrStrategicCheckpoint(dilrCheckpointState.lastTickAt + 8 * 60 * 1000) !== null);
+    var previousAttempt = dilrCheckpointState && dilrCheckpointState.attemptId;
+    timedTestGenerationSequence = 9;
+    resetDilrCheckpoint();
+    beginDilrCheckpoint();
+    check('switching sets clears the previous checkpoint', !dilrCheckpointState.text && dilrCheckpointState.attemptId !== previousAttempt && getDilrCheckpointContext() === '');
+
+    var extracted = {
+      status:'ready',
+      extraction:{ readable:true, summary:'one page' },
+      questions:[{ id:'local-0-1', question_number:'8', section:'qa', stem:'If log2(2x) = 6, how many factors does x^4 have?', options:['A. 7','B. 49','C. 63','D. 12'], short_label:'factors', topic:'Logarithms', confidence:0.92 }]
+    };
+    extractQuestionImageContext = function(attachments) {
+      attachments.forEach(function(item) { item.extractionSeen = true; });
+      return Promise.resolve(extracted);
+    };
+    var imageTurn = await prepareQuestionContextForTurn('Solve this', [{ data:'image-bytes', mimeType:'image/jpeg', name:'q.jpg' }]);
+    var imageContext = buildMentorTurnContext('Solve this', { diagnosis:{ intent:'image_question', hasImage:true }, directive:imageTurn.directive }, { surface:'chat' });
+    check('a confident extraction reaches the prompt with the original image', imageTurn.blocked === false && imageTurn.attachments.length === 1 && imageTurn.attachments[0].data === 'image-bytes' && imageTurn.directive.indexOf('CURRENT IMAGE DIRECT MODE') !== -1 && imageTurn.directive.indexOf('Identity:') !== -1 && imageTurn.directive.indexOf('Section: QA') !== -1 && imageTurn.directive.indexOf('Stem:') !== -1 && imageTurn.directive.indexOf('B. 49') !== -1 && imageTurn.directive.indexOf('Question number: 8') !== -1 && imageTurn.directive.indexOf('Logarithms') !== -1 && imageTurn.directive.indexOf('not verified') !== -1 && imageTurn.directive.indexOf('image-bytes') === -1 && imageContext.indexOf('EXTRACTED QUESTION') !== -1 && imageContext.indexOf('If log2(2x) = 6') !== -1);
+    extractQuestionImageContext = function() {
+      return Promise.resolve({ status:'ready', extraction:{ readable:true }, questions:[{ section:'qa', stem:'Value of x is +3 or -3?', options:['A. +2','B. -2'], confidence:0.42 }] });
+    };
+    var uncertain = await prepareQuestionContextForTurn('What is the sign?', [{ data:'image-bytes', mimeType:'image/jpeg' }]);
+    check('uncertain numbers and signs stay visible and unverified', uncertain.directive.indexOf('uncertain') !== -1 && uncertain.directive.indexOf('+3') !== -1 && uncertain.directive.indexOf('-2') !== -1 && uncertain.directive.indexOf('not verified') !== -1 && uncertain.directive.indexOf('VERIFIED ACTIVE') === -1 && uncertain.attachments.length === 1);
+
+    var activeQuestion = { id:'q8', question_number:'8', stem:'Active log stem', section:'qa', options:['A one','B two','C three','D four'], image_id:'img-8', short_label:'Logarithms', topic:'Logarithms' };
+    margActiveThreadId = 'thread-disha';
+    margActiveQuestionContext = { question_id:'q8', image_id:'img-8', conversation_id:'thread-disha', question:activeQuestion };
+    fetchQuestionLibraryData = function() { return Promise.resolve({ images:[{ id:'img-8', storage_path:'pages/q8.jpg', conversation_id:'thread-disha' }], questions:[activeQuestion] }); };
+    downloadQuestionImage = function() { return Promise.resolve({ data:'page-bytes', mimeType:'image/jpeg', name:'q8.jpg' }); };
+    var discussed = await prepareQuestionContextForTurn('Explain the question we were discussing.', []);
+    var optionTurn = await prepareQuestionContextForTurn('What about option C in that question?', []);
+    var again = await prepareQuestionContextForTurn('Can you solve that one again?', []);
+    check('clear references resolve to the active question', discussed.blocked === false && discussed.directive.indexOf('Active log stem') !== -1 && discussed.attachments[0].data === 'page-bytes' && optionTurn.directive.indexOf('Active log stem') !== -1 && parseQuestionReference('What about option C in that question?').option === 'C' && again.directive.indexOf('Active log stem') !== -1);
+    var quadratic = { id:'q8a', question_number:'8', stem:'FIRST CHAPTER STEM', section:'qa', image_id:'img-a', short_label:'Quadratic Equations', topic:'Quadratic Equations' };
+    var logs = { id:'q8b', question_number:'8', stem:'SECOND CHAPTER STEM', section:'qa', image_id:'img-b', short_label:'Logarithms', topic:'Logarithms' };
+    margActiveQuestionContext = null;
+    fetchQuestionLibraryData = function() { return Promise.resolve({ images:[{ id:'img-a' }, { id:'img-b' }], questions:[quadratic, logs] }); };
+    var ambiguous = await prepareQuestionContextForTurn('What about option C in that question?', []);
+    var repeatedNumber = await prepareQuestionContextForTurn('Solve Q8', []);
+    check('repeated question numbers and multiple images ask instead of guessing', ambiguous.blocked === true && /which one/i.test(ambiguous.reply) && ambiguous.reply.indexOf('Quadratic Equations') !== -1 && ambiguous.reply.indexOf('Logarithms') !== -1 && ambiguous.reply.indexOf('FIRST CHAPTER STEM') === -1 && repeatedNumber.blocked === true && repeatedNumber.reply.indexOf('SECOND CHAPTER STEM') === -1);
+    var previous = await prepareQuestionContextForTurn('Continue from the previous image.', []);
+    check('multiple recent images do not silently continue one page', previous.blocked === true && /more than one recent image/i.test(previous.reply) && previous.reply.indexOf('FIRST CHAPTER STEM') === -1);
+    fetchQuestionLibraryData = function() { return Promise.resolve({ images:[{ id:'img-8', storage_path:'pages/q8.jpg' }], questions:[activeQuestion] }); };
+    margActiveQuestionContext = { question_id:'old', image_id:'old', conversation_id:'other-thread', question:{ id:'old', question_number:'1', stem:'DO NOT RECONSTRUCT THIS STEM', image_id:'old' } };
+    var previousOne = await prepareQuestionContextForTurn('Continue from the previous image.', []);
+    check('the previous image stays on this chat and not an older thread', previousOne.blocked === false && previousOne.directive.indexOf('Active log stem') !== -1 && previousOne.directive.indexOf('DO NOT RECONSTRUCT THIS STEM') === -1);
+    fetchQuestionLibraryData = function() { return Promise.resolve({ images:[], questions:[] }); };
+    margActiveQuestionContext = { question_id:'old', conversation_id:'other-thread', question:{ id:'old', question_number:'3', stem:'DO NOT RECONSTRUCT THIS STEM', image_id:'gone' } };
+    var missing = await prepareQuestionContextForTurn('Explain the question we were discussing.', []);
+    var otherNumber = await prepareQuestionContextForTurn('Can you solve Q8?', []);
+    check('missing and mismatched questions ask for a reupload', missing.blocked === true && /re-upload/i.test(missing.reply) && missing.reply.indexOf('DO NOT RECONSTRUCT THIS STEM') === -1 && otherNumber.blocked === true && otherNumber.reply.indexOf('DO NOT RECONSTRUCT THIS STEM') === -1);
+
+    activeGeneratedExercise = { id:'ex-key', type:'qa', validationVerdict:{ status:'verified_local' }, content:{ questions:[{ number:'1', q:'Stem one', options:['A','B','C','D'], correct:1 }] } };
+    var sameKey = getGeneratedExerciseMemoryContext('Why is Q1 wrong?', { intent:'question_reference', libraryOwnsQuestionContext:true, libraryQuestionDirective:'\nIdentity: Q1\nStem: Stem one\nQ1 answer key: B\n' });
+    var conflict = getGeneratedExerciseMemoryContext('Why is Q1 wrong?', { intent:'question_reference', libraryOwnsQuestionContext:true, libraryQuestionDirective:'\nIdentity: Q1\nQ1 answer key: C\n' });
+    var preserved = getGeneratedExerciseMemoryContext('Solve this image', { intent:'image_question', libraryOwnsQuestionContext:true, libraryQuestionDirective:'\nIdentity: Q4\nStem: other image\n' });
+    check('library ownership keeps one matching key and does not dump the exercise', sameKey.indexOf('ACTIVE GENERATED EXERCISE MEMORY') === -1 && sameKey.indexOf('CONFLICT') === -1 && (sameKey.match(/Q1: B/g) || []).length === 1 && sameKey.indexOf('locally checked') !== -1);
+    check('conflicting answer keys stay side by side', conflict.indexOf('CONFLICT Q1') !== -1 && conflict.indexOf('question context says "C"') !== -1 && conflict.indexOf('saved exercise says "B"') !== -1 && conflict.indexOf('Do not choose one') !== -1);
+    check('a key absent from the library directive is preserved', preserved.indexOf('Q1: B') !== -1 && preserved.indexOf('ACTIVE GENERATED EXERCISE MEMORY') === -1 && preserved.indexOf('[locally checked]') !== -1);
+  } finally {
+    behavioralMemory = saved.behavioral;
+    diagnosticMemory = saved.diagnostic;
+    topicProgression = saved.topic;
+    conversationHistory = saved.history;
+    activeGeneratedExercise = saved.exercise;
+    timedTestSection = saved.section;
+    timedTestTopic = saved.topicName;
+    timedTestQuestions = saved.questions;
+    timedTestAnswers = saved.answers;
+    timedTestSubmitted = saved.submitted;
+    timedTestGenerationSequence = saved.sequence;
+    timedTestSecondsLeft = saved.seconds;
+    dilrCheckpointState = saved.checkpoint;
+    dilrCheckpointPageHiddenOverride = saved.hidden;
+    margActiveThreadId = saved.thread;
+    margActiveQuestionContext = saved.activeQuestion;
+    if (saved.extract) extractQuestionImageContext = saved.extract;
+    if (saved.library) fetchQuestionLibraryData = saved.library;
+    if (saved.download) downloadQuestionImage = saved.download;
+  }
+  return results;
+}
+window.runDishaQuestionIntelligenceTests = runDishaQuestionIntelligenceTests;
