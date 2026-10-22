@@ -3254,7 +3254,7 @@ const SYSTEM_PROMPT = `You are Marg, a CAT mentor, not a chatbot and not a quest
 VISION CONTRACT: A single wrong answer is an observation, not a diagnosis. A single correct answer is not mastery. Do not predict a hidden cause from one or two questions. Distinguish official CAT, established preparation material, educator-created questions, and AI-generated practice, and keep the verification status visible. Do not call a source CAT-safe without that status. Do not write a personalised roadmap until target, CAT year, hours, section scores, attempts, accuracy and time are present. A shared percentile is not a shared plan. Teach a method only with the case it does not cover, then test a fresh item without the rule. End overwhelm, avoidance, or “this is not working” with a smaller check, a paused plan, or stopping for the day. Report whether a later comparable attempt moved, including when it did not. Never convert one mock into a percentile.
 
 VOICE
-Sound like a sharp person sitting beside them: warm, optimistic, and specific. When you solve together, a line such as "Let's solve this step by step" is the feel. When they already speak casually or in Hinglish, match them, including "Bhai". If their work is actually close, say what they got right and name the one trick left. Encourage only when the work earned it. A wrong step, a vent, or a plain question gets the useful answer without cheer, flattery, or a pep talk. Never open with "Great question", "Awesome", "You got this", or a filler emoji. Answer first. At most one question, and only after the useful part, and only if the answer would change the next step.
+Sound like a sharp person sitting beside them: warm, optimistic, and specific. When you solve together, a line such as "Let's solve this step by step" is the feel. When they already speak casually or in Hinglish, match them, including "Bhai". If their work is actually close, say what they got right and name the one trick left. Encourage only when the work earned it. A wrong step, a vent, or a plain question gets the useful answer without cheer, flattery, or a pep talk. Never open with "Great question", "Great job", "Awesome", "You got this", "I understand your frustration", or a filler emoji. Start with the student's question, the mistake, the evidence, or the next action. Prefer short, clear sentences. Use a bullet only for independent items, and keep a complete sentence when it makes the step clearer. For a quantitative solution, show the essential steps, the calculation, and why it follows. For VARC and DILR, show the reasoning and the evidence for the answer. Do not repeat what the student already said. Match the depth to the question and to what they have already shown they understand. Do not claim you analyzed their history, performance, or question data unless that information was actually supplied in this turn. Answer first. At most one question, and only after the useful part, and only if the answer would change the next step.
 
 TEACHING
 Explain why an answer works. If they are still working and have not asked for the answer, find the likely miss and give a hint sized to them. If they ask for the answer, solution or explanation, give the complete one first. Never hold a solution back to push an exercise. Reduce help over time: first with the rule, then without it, then in a new situation. One correct answer is not mastery.
@@ -9643,6 +9643,76 @@ function messageNamesExerciseQuestion(message) {
   });
 }
 
+function answerKeyStatusLabel(exercise, question) {
+  var explicit = question && (question.keySource || question.answerSource);
+  if (explicit) return String(explicit).slice(0, 80);
+  var status = String(exercise && exercise.validationVerdict && (exercise.validationVerdict.status || exercise.validationVerdict) || '').toLowerCase();
+  if (status === 'independently_verified') return 'independently verified';
+  if (status === 'verified_local') return 'locally checked';
+  if (status === 'model_checked') return 'model-checked agreement, not independent proof';
+  if (status === 'computed' || status === 'computed_answer') return 'computed';
+  if (status === 'embedded') return 'embedded in the source';
+  if (!status) return 'model-generated';
+  return status;
+}
+
+function exerciseAnswerKeyEntries(exercise) {
+  return rawExerciseQuestions(exercise).map(function(question, index) {
+    if (!question) return null;
+    var raw = question.correct != null ? question.correct : question.answer;
+    if (raw == null || raw === '') return null;
+    var number = String(question.number || question.question_number || (index + 1));
+    var key = typeof raw === 'number' && Array.isArray(question.options) && question.options[raw] != null
+      ? String.fromCharCode(65 + raw)
+      : String(raw).trim();
+    if (!key) return null;
+    return { number:number, key:key, status:answerKeyStatusLabel(exercise, question) };
+  }).filter(Boolean).sort(function(a, b) {
+    return String(a.number).localeCompare(String(b.number), undefined, { numeric:true });
+  });
+}
+
+function answerKeyToken(value) {
+  var text = String(value || '').trim();
+  var letter = text.match(/^([A-H])\b/i);
+  if (letter && text.length < 80) return letter[1].toUpperCase();
+  return text.toLowerCase().replace(/\s+/g, ' ');
+}
+
+function libraryDirectiveKeyForQuestion(directive, number) {
+  var text = String(directive || '');
+  var specific = text.match(new RegExp('Q\\s*' + number + '\\b[^\\n]{0,120}?(?:answer key|official answer|embedded key|computed answer|key|answer)\\s*[:=]\\s*([^\\n;]+)', 'i'));
+  if (specific) return specific[1].trim();
+  if (new RegExp('Identity:[^\\n]*\\bQ\\s*' + number + '\\b', 'i').test(text)) {
+    var generic = text.match(/(?:answer key|official answer|embedded key|computed answer)\s*[:=]\s*([^\n;]+)/i);
+    if (generic) return generic[1].trim();
+  }
+  return '';
+}
+
+function reconcileLibraryAndExerciseKeys(diagnosis) {
+  var directive = String(diagnosis && diagnosis.libraryQuestionDirective || '');
+  var entries = exerciseAnswerKeyEntries(activeGeneratedExercise);
+  if (!entries.length) return '';
+  var lines = ['\n\nANSWER KEY OWNERSHIP: The question library owns this turn\'s active question context. Do not repeat that directive. Each key below stays attached to the question named here.'];
+  if (!isActiveExerciseCurrentInConversation()) {
+    lines.push('The saved exercise is not the question visible in this turn. Do not apply its key to the library question.');
+  }
+  entries.forEach(function(entry) {
+    var mentioned = libraryDirectiveKeyForQuestion(directive, entry.number);
+    if (!mentioned) {
+      lines.push('- Q' + entry.number + ': ' + entry.key + ' [' + entry.status + ']');
+      return;
+    }
+    if (answerKeyToken(mentioned) === answerKeyToken(entry.key)) {
+      lines.push('- Q' + entry.number + ': ' + entry.key + ' [' + entry.status + ']');
+      return;
+    }
+    lines.push('- CONFLICT Q' + entry.number + ': question context says "' + mentioned + '"; saved exercise says "' + entry.key + '" [' + entry.status + ']. Both are preserved. Do not choose one.');
+  });
+  return lines.join('\n');
+}
+
 function getGeneratedExerciseMemoryContext(message, diagnosis) {
   if (!activeGeneratedExercise) loadActiveGeneratedExercise();
   if (!activeGeneratedExercise) return '';
@@ -9659,10 +9729,12 @@ function getGeneratedExerciseMemoryContext(message, diagnosis) {
     reviewFollowUp = false;
     validationFollowUp = false;
   }
-  if (libraryOwned) {
+  var libraryDirectiveOwned = !!(diagnosis && diagnosis.libraryOwnsQuestionContext);
+  if (!libraryDirectiveOwned && libraryOwned) {
     if (!messageNamesExerciseQuestion(message)) return '';
-  } else if (!reviewFollowUp && !validationFollowUp) return '';
+  } else if (!libraryDirectiveOwned && !reviewFollowUp && !validationFollowUp) return '';
   if (typeof isFreshPastedPracticeMaterial === 'function' && isFreshPastedPracticeMaterial(message)) return '\n\nUse only the newly pasted passage/questions for this turn. The saved exercise key belongs to different material and must not be applied.';
+  if (libraryDirectiveOwned) return reconcileLibraryAndExerciseKeys(diagnosis);
   if (!isActiveExerciseCurrentInConversation()) return '\n\nEXERCISE IDENTITY: The newest passage/questions in this conversation are different from the saved exercise. Do not use the old key, score or selections. Check only the newest visible material and the answers supplied in this turn. If verification fails, leave it ungraded. Never ask the student to paste it again.';
   if (isHypothesisExperiment(activeGeneratedExercise) && activeGeneratedExercise.experimentEvaluation) {
     var experiment = activeGeneratedExercise.experimentEvaluation;
@@ -10652,7 +10724,9 @@ function normalizeBehaviorPattern(section, insight) {
   var normalizedSection = section === 'varc' ? 'rc' : section;
   var key = 'other';
   var label = 'repeated execution error';
-  if (/critic|recommend|alternative|next step|never said|invent|added something|author.*suggest/.test(text)) { key = 'invented_author_step'; label = 'turning criticism into an unstated recommendation'; }
+  if (/\bscope[_\s-]*distortion\b/.test(text)) { key = 'scope_distortion'; label = 'reading a claim more broadly or narrowly than the passage supports'; }
+  else if (/\bsunken[_\s-]*cost[_\s-]*fallacy\b/.test(text)) { key = 'sunken_cost_fallacy'; label = 'staying with a DILR set because time was already spent'; }
+  else if (/critic|recommend|alternative|next step|never said|invent|added something|author.*suggest/.test(text)) { key = 'invented_author_step'; label = 'turning criticism into an unstated recommendation'; }
   else if (/scope|too broad|too narrow|beyond|overreach/.test(text)) { key = 'scope_shift'; label = 'accepting an option with the wrong scope'; }
   else if (/extreme|always|never|completely|absolute/.test(text)) { key = 'extreme_language'; label = 'missing extreme-language traps'; }
   else if (/last two|second.guess|change.*answer|option elimination/.test(text)) { key = 'final_two_options'; label = 'losing precision between the final two options'; }
@@ -10715,17 +10789,77 @@ function recordBehaviorPattern(section, insight, evidence, source) {
     return pattern.section === normalized.section && pattern.key === normalized.key && pattern.sourceThreadId === getCurrentMentorThreadId();
   });
   if (!existing) {
-    existing = { section:normalized.section, key:normalized.key, label:normalized.label, occurrences:0, firstSeen:getTodayDate(), sourceThreadId:getCurrentMentorThreadId() };
+    existing = { section:normalized.section, key:normalized.key, label:normalized.label, occurrences:0, eventIds:[], firstSeen:getTodayDate(), sourceThreadId:getCurrentMentorThreadId() };
     behavioralMemory.patterns.push(existing);
   }
+  if (!Array.isArray(existing.eventIds)) existing.eventIds = [];
+  var evidenceText = String(evidence || insight).substring(0, 220);
+  var eventId = simpleStableHash([normalized.section, normalized.key, evidenceText, source || 'practice', existing.sourceThreadId || getCurrentMentorThreadId()].join('|'));
+  if (existing.eventIds.indexOf(eventId) !== -1) return existing;
+  existing.eventIds.push(eventId);
+  existing.eventIds = existing.eventIds.slice(-12);
   if (existing.occurrences > 0 && existing.lastSeen) existing.previousSeen = existing.lastSeen;
   existing.occurrences++;
   existing.label = normalized.label;
   existing.lastSeen = getTodayDate();
-  existing.lastEvidence = String(evidence || insight).substring(0, 220);
+  existing.lastEvidence = evidenceText;
   existing.source = source || 'practice';
   saveBehavioralMemory();
   return existing;
+}
+
+function patternSectionLabel(section) {
+  var value = String(section || '').toLowerCase();
+  if (value === 'rc' || value === 'varc' || value === 'va' || value === 'verbal') return 'VARC';
+  if (value === 'dilr' || value === 'lrdi') return 'DILR';
+  if (value === 'qa' || value === 'quant' || value === 'quants') return 'QA';
+  return value ? value.toUpperCase() : 'GENERAL';
+}
+
+function distinctPatternCount(pattern) {
+  var occurrences = Number(pattern && pattern.occurrences || 0);
+  if (pattern && Array.isArray(pattern.eventIds) && pattern.eventIds.length) return Math.max(pattern.eventIds.length, occurrences);
+  return occurrences;
+}
+
+function repeatedPatternIsStale(pattern) {
+  var seen = String(pattern && pattern.lastSeen || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(seen)) return true;
+  var today = Date.parse(String(getTodayDate() || '') + 'T00:00:00Z');
+  var seenAt = Date.parse(seen + 'T00:00:00Z');
+  if (!Number.isFinite(today) || !Number.isFinite(seenAt)) return true;
+  return today - seenAt > 120 * 24 * 60 * 60 * 1000;
+}
+
+function repeatedPatternCounterEvidence(pattern) {
+  var direct = String(pattern && pattern.counterEvidence || '').trim();
+  if (direct) return direct.substring(0, 180);
+  var siblings = (behavioralMemory && behavioralMemory.patterns || []).filter(function(item) {
+    return item && item !== pattern && item.section === pattern.section && item.key && item.key === pattern.key && (item.status === 'rejected' || item.doNotReuse) && item.lastEvidence;
+  });
+  if (!siblings.length) return '';
+  return siblings.map(function(item) { return String(item.lastEvidence); }).join('; ').substring(0, 180);
+}
+
+function buildRepeatedPatternCandidateBlock(patterns) {
+  var candidates = (patterns || []).filter(function(pattern) {
+    return pattern && pattern.key && distinctPatternCount(pattern) >= 2 && !repeatedPatternIsStale(pattern);
+  }).slice(0, 3);
+  if (!candidates.length) return '';
+  return '\n\nREPEATED PATTERN CANDIDATE\n' + candidates.map(function(pattern) {
+    var count = distinctPatternCount(pattern);
+    var counter = repeatedPatternCounterEvidence(pattern);
+    var evidenceCount = count === 2 ? 'two' : String(count);
+    var lines = [
+      '- Pattern: ' + pattern.key,
+      '- Section: ' + patternSectionLabel(pattern.section),
+      '- Evidence: ' + evidenceCount + ' distinct relevant attempts' + (pattern.lastEvidence ? '; latest observation: ' + pattern.lastEvidence : ''),
+      '- Confidence: based on available evidence (' + evidenceCount + ' distinct observations). This is a candidate, not a confirmed psychological diagnosis.'
+    ];
+    if (counter) lines.push('- Counter-evidence: ' + counter);
+    lines.push('- Instruction: verify relevance before using this pattern to guide the next intervention. Observed behavior is not an inferred explanation, and a small or old sample is not a permanent label.');
+    return lines.join('\n');
+  }).join('\n');
 }
 
 function getBehavioralMemoryContext(message, diagnosis) {
@@ -10744,7 +10878,7 @@ function getBehavioralMemoryContext(message, diagnosis) {
     return String(b.lastSeen || '').localeCompare(String(a.lastSeen || ''));
   }).slice(0, 6);
   if (!patterns.length) return '';
-  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student. If a current error matches a pattern seen 2+ times and no belief is linked, call it the same recurring error, still not a confirmed diagnosis.';
+  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student. If a current error matches a pattern seen 2+ times and no belief is linked, call it the same recurring error, still not a confirmed diagnosis.' + buildRepeatedPatternCandidateBlock(patterns);
 }
 
 function describeBehavioralPatternLine(pattern) {
@@ -18097,7 +18231,7 @@ function getLikelyHiddenProblem(intent, message) {
   if (intent === 'vague') return 'UNKNOWN: the message does not contain enough evidence for a preparation diagnosis. Offer neutral starting choices without assigning an emotional state or weak section.';
   if (intent === 'varc_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a VARC process failure. Use only that described moment; any cause remains a working hypothesis until tested.' : 'UNKNOWN: a VARC label or score does not identify whether the cause is reading, claim location, option evaluation, selection or pace.';
   if (intent === 'dilr_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a DILR process failure. Reflect the stated decision only; do not turn it into a recurring pattern without another observation.' : 'UNKNOWN: a DILR label or score does not identify set selection, representation, constraint use, persistence or pace.';
-  if (intent === 'qa_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a QA process failure. Separate the stated moment from unobserved concept, recognition and execution causes.' : 'UNKNOWN: a QA label or score cannot distinguish concept recall, method recognition, execution, selection or pace.';
+  if (intent === 'qa_diagnosis') return (evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a QA process failure. Separate the stated moment from unobserved concept, recognition and execution causes.' : 'UNKNOWN: a QA label or score cannot distinguish concept recall, method recognition, execution, selection or pace.') + ' Multi-topic crossover and an easy-question comfort bubble are competing hypotheses, not established diagnoses.';
   if (intent === 'mock_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT plus outcome data: use the described mock decision, but do not invent attempts, timing or causes not supplied.' : 'UNKNOWN CAUSE: scores establish outcomes only. Attempts, accuracy, timing, selection and error states must remain unknown unless explicitly supplied.';
   if (intent === 'pacing_diagnosis') return evidence.hasProcess ? 'OBSERVED SELF-REPORT: the student described a timing failure. The cause is still a hypothesis and must be separated from the stated outcome.' : 'UNKNOWN: saying “slow” does not identify selection, representation, reading or calculation as the cause.';
   if (intent === 'planning') return 'The student needs a prioritised decision, not a comprehensive syllabus dump. Build around the highest-leverage weakness and the time actually available.';
@@ -18109,7 +18243,7 @@ function getConsecutiveQuestionResponses() {
   for (var i = conversationHistory.length - 1; i >= 0; i--) {
     var item = conversationHistory[i];
     if (isInternalMemoryMessage(item)) continue;
-    if (!item || item.role !== 'assistant') continue;
+    if (!item || item.role !== 'assistant' || item.kind === 'dilr_strategic_checkpoint') continue;
     // A one-line typo clarification protects accuracy; it is not an intake or
     // diagnostic question and should not consume the student's question budget.
     if (/^\s*(?:I may be reading .{1,30} wrong\.|Did you mean .{1,30}\?)(?:\s+What did you mean\?|\s+What'?s going on\?)?\s*$/i.test(String(item.content || ''))) continue;
@@ -18621,12 +18755,24 @@ function removeMentorProcessMetaLanguage(text) {
 
 function reduceAssistantStyleLanguage(text) {
   var value = removeMentorProcessMetaLanguage(text);
-  var emptyCheer = /^\s*(?:great question|of course|i understand your concern|awesome|amazing|well done|you got this|nice one|fantastic|excellent question|real talk|now i get it)\s*[!.,:…—-]*\s*/i;
+  var emptyCheer = /^\s*(?:great question|great job|of course|i understand your concern|i understand your frustration|awesome|amazing|well done|you got this|nice one|fantastic|excellent question|real talk|now i get it)\s*[!.,:…—-]*\s*/i;
   for (var pass = 0; pass < 3; pass++) value = value.replace(emptyCheer, '');
   value = value.replace(/^\s*good\s*[.,:—-]+\s*/i, '');
   value = value.replace(/\bmy prediction\s*:\s*/gi, 'Untested hypothesis: ');
   value = value.replace(/\bnow i understand\s*[,.:—-]*\s*/gi, '');
   return value.trim();
+}
+
+function guardUnexaminedHistoryClaim(text, diagnosis) {
+  var value = String(text || '');
+  if (!/\bI(?:'ve| have)?\s+(?:already\s+)?(?:analyzed|analysed|reviewed|checked)\s+(?:your\s+)?(?:history|performance|question data|past attempts)\b/i.test(value)) return value;
+  var message = diagnosis && (diagnosis.submittedAnswerText || diagnosis.userMessage) || '';
+  var behavioral = '';
+  var diagnostic = '';
+  try { behavioral = getBehavioralMemoryContext(message, diagnosis || {}); } catch (error) { behavioral = ''; }
+  try { diagnostic = getDiagnosticMemoryContext(message, diagnosis || {}); } catch (error) { diagnostic = ''; }
+  if (String(behavioral || '').trim() || String(diagnostic || '').trim()) return value;
+  return value.replace(/\bI(?:'ve| have)?\s+(?:already\s+)?(?:analyzed|analysed|reviewed|checked)\s+(?:your\s+)?(?:history|performance|question data|past attempts)[^.!?\n]*[.!?]?/gi, 'I do not have history, performance, or question data for this turn.');
 }
 
 function studentSpeaksHinglish(text) {
@@ -18644,6 +18790,7 @@ function mentorVoiceInstruction(message, diagnosis) {
   var register = studentSpeaksHinglish(text)
     ? 'They are already speaking casually or in Hinglish, so match that register. Bhai is welcome.'
     : 'Keep their register. Do not insert Bhai into a plain English message.';
+  register += ' Do not open with "Great job" or "I understand your frustration".';
   var wantsAnswer = !!(diagnosis && diagnosis.requestedExistingSolutions) || /\b(?:(?:just |please )?(?:give|tell|show) (?:me )?(?:the )?(?:full )?(?:answer|solution)|full solution|explain why|worked solution)\b/i.test(text);
   var shortFact = text.split(/\s+/).filter(Boolean).length <= 14 && /\b(?:what is|how many|calculate|percent of)\b/i.test(text) && !studentShowsPartialWork(text);
   if (emotion === 'low-confidence' || emotion === 'frustrated' || emotion === 'anxious' || emotion === 'drained' || intent === 'confidence_breakdown') {
@@ -19958,6 +20105,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   }
   text = guardSectionAlignment(text, diagnosis);
   text = guardFalseMemoryAgreement(text, diagnosis);
+  text = guardUnexaminedHistoryClaim(text, diagnosis);
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
@@ -21540,7 +21688,13 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     return routeAdHocDILRRequestToVerifiedInterface(userMessage);
   }
   var mentorAnalysis = anchorMentorAnalysisToImageContext(buildDiagnosisDirective(userMessage), userMessage, imageAttachments);
-  if (questionResolution && questionResolution.directive) mentorAnalysis.directive += questionResolution.directive;
+  if (questionResolution && questionResolution.directive) {
+    mentorAnalysis.directive += questionResolution.directive;
+    if (mentorAnalysis.diagnosis) {
+      mentorAnalysis.diagnosis.libraryOwnsQuestionContext = true;
+      mentorAnalysis.diagnosis.libraryQuestionDirective = questionResolution.directive;
+    }
+  }
   if (pendingExternalQuestionTurnMode === 'review') {
     mentorAnalysis.diagnosis.intent = 'answer_review';
     mentorAnalysis.directive += getPendingExternalQuestionContext();
@@ -22015,6 +22169,48 @@ function chooseTurnFollowUp(message, diagnosis) {
   return '';
 }
 
+function qaProgressionRows() {
+  var rows = Object.keys(topicProgression || {}).map(function(key) { return topicProgression[key]; }).filter(function(item) {
+    return item && String(item.section || '').toLowerCase() === 'qa';
+  });
+  if (rows.length) return rows;
+  var stored = {};
+  try { stored = JSON.parse(localStorage.getItem(topicProgressionStorageKey()) || '{}') || {}; } catch (error) { stored = {}; }
+  return Object.keys(stored).map(function(key) { return stored[key]; }).filter(function(item) {
+    return item && String(item.section || '').toLowerCase() === 'qa';
+  });
+}
+
+function buildQaDiagnosisHypothesisContext(message, diagnosis) {
+  if (!diagnosis || diagnosis.intent !== 'qa_diagnosis') return '';
+  var text = String(message || '');
+  var rows = qaProgressionRows();
+  var mentionsMix = /\b(?:mix|mixed|combin|together|crossover|both topics)\b/i.test(text) || /\b(?:algebra|arithmetic|geometry|numbers?)\b[\s\S]{0,40}\b(?:and|with)\b[\s\S]{0,24}\b(?:algebra|arithmetic|geometry|numbers?)\b/i.test(text);
+  var mentionsEasyHard = /\b(?:easy|hard|harder|comfort|familiar|difficult|tough)\b/i.test(text);
+  var lines = [
+    '\n\nQA DIAGNOSTIC HYPOTHESES — competing explanations, not diagnoses:',
+    '- Multi-topic crossover blindspot: concepts may be solvable alone and still fail when one question combines them. Treat this as a hypothesis only when separate topics and mixed questions were both observed.',
+    '- Easy-question comfort bubble: familiar or easy questions may feel comfortable while harder questions, or the decision to attempt them, do not. Treat this as a hypothesis only when difficulty, accuracy, time, or skips were both observed.',
+    'Do not assert either hypothesis from one question or from missing data. Keep observed facts separate from interpretations and from the next action.'
+  ];
+  if (rows.length) {
+    lines.push('Recorded QA rows actually available:');
+    rows.slice(0, 6).forEach(function(item) {
+      var accuracy = item.lastAccuracy === null || item.lastAccuracy === undefined ? 'not measured' : item.lastAccuracy + '%';
+      lines.push('- ' + (item.topic || 'QA') + ': last accuracy ' + accuracy + '; concept questions ' + (item.conceptQuestionsCompleted || 0) + '; timed sectionals ' + (item.timedSectionalsCompleted || 0) + '.');
+    });
+  } else {
+    lines.push('No QA attempt history, difficulty, accuracy, time, topic combination, skip, or error-type record was examined for this turn.');
+  }
+  if (mentionsMix && mentionsEasyHard) lines.push('The message describes both a topic mix and an easy-versus-hard contrast. Keep them competing. Do not collapse them into one diagnosis.');
+  if (!rows.length && !mentionsMix && !mentionsEasyHard) {
+    lines.push('Evidence is insufficient. Ask for one mixed timed sample, or the last two questions with topic, difficulty, and result. Do not invent attempts. The next action is that sample, not a label.');
+  } else {
+    lines.push('Next action: one timed sample that can separate the open hypothesis, using a mixed question if crossover is open, or one easy and one harder question from the same topic if comfort is open.');
+  }
+  return lines.join('\n');
+}
+
 function buildMentorTurnContext(message, mentorAnalysis, extras) {
   extras = extras || {};
   var diagnosis = mentorAnalysis && mentorAnalysis.diagnosis || {};
@@ -22033,6 +22229,8 @@ function buildMentorTurnContext(message, mentorAnalysis, extras) {
     getStudentStateContext(message, diagnosis) +
     exerciseContext +
     getBehavioralMemoryContext(message, diagnosis) +
+    (studyTurnActive ? '' : buildQaDiagnosisHypothesisContext(message, diagnosis)) +
+    (typeof getDilrCheckpointContext === 'function' ? getDilrCheckpointContext() : '') +
     getLearningRecordContext() +
     (typeof MargVision !== 'undefined' && MargVision.turnContext ? MargVision.turnContext() : '') +
     getTopicProgressionMemoryContext(message, diagnosis) +
@@ -24930,7 +25128,13 @@ async function sendMessage(fromQueue, submissionOptions) {
   }
 
   const mentorAnalysis = anchorMentorAnalysisToImageContext(buildDiagnosisDirective(text), text, effectiveImageAttachments);
-  if (questionResolution && questionResolution.directive) mentorAnalysis.directive += questionResolution.directive;
+  if (questionResolution && questionResolution.directive) {
+    mentorAnalysis.directive += questionResolution.directive;
+    if (mentorAnalysis.diagnosis) {
+      mentorAnalysis.diagnosis.libraryOwnsQuestionContext = true;
+      mentorAnalysis.diagnosis.libraryQuestionDirective = questionResolution.directive;
+    }
+  }
   if (pendingExternalQuestionTurnMode === 'review') {
     mentorAnalysis.diagnosis.intent = 'answer_review';
     mentorAnalysis.directive += getPendingExternalQuestionContext();
@@ -27800,6 +28004,8 @@ var timedTestDiagnosticEntry = null;
 var timedTestRequestedCount = 0;
 var timedTestGenerationStartedAt = null;
 var timedTestDifficulty = 'cat';
+var dilrCheckpointState = null;
+var dilrCheckpointPageHiddenOverride = null;
 var topicProgression = {};
 
 function topicProgressionStorageKey() {
@@ -30609,6 +30815,7 @@ async function startTimedTest(section, topic, questionCount, diagnosticEntry, ge
   }
   if (timedTestGenerationController) timedTestGenerationController.abort();
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+  resetDilrCheckpoint();
   var generationSequence = ++timedTestGenerationSequence;
   var generationController = new AbortController();
   timedTestGenerationController = generationController;
@@ -30945,6 +31152,7 @@ function renderTimedTestQuestion() {
 
 function selectTimedTestAnswer(idx) {
   timedTestAnswers[timedTestIndex] = idx;
+  noteDilrCheckpointAnswer(timedTestIndex, idx);
   recordActiveExerciseSelection(timedTestIndex + 1, idx, timedTestQuestions[timedTestIndex] ? timedTestQuestions[timedTestIndex].correct : null);
   renderTimedTestQuestionNav();
   renderTimedTestQuestion();
@@ -30964,11 +31172,130 @@ function formatTimedTestClock(seconds) {
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 
+function resetDilrCheckpoint() {
+  dilrCheckpointState = null;
+}
+
+function dilrCheckpointHidden() {
+  if (typeof dilrCheckpointPageHiddenOverride === 'boolean') return dilrCheckpointPageHiddenOverride;
+  try { return document.hidden === true; } catch (error) { return false; }
+}
+
+function watchDilrCheckpointVisibility() {
+  if (watchDilrCheckpointVisibility.bound) return;
+  watchDilrCheckpointVisibility.bound = true;
+  try {
+    document.addEventListener('visibilitychange', function() {
+      if (!dilrCheckpointState || dilrCheckpointState.fired) return;
+      var now = Date.now();
+      if (document.hidden === true) {
+        if (!dilrCheckpointState.hiddenSince) {
+          var delta = now - (dilrCheckpointState.lastTickAt || now);
+          if (delta > 0 && delta < 120000) dilrCheckpointState.activeMs += delta;
+          dilrCheckpointState.hiddenSince = now;
+          dilrCheckpointState.lastTickAt = now;
+        }
+      } else if (dilrCheckpointState.hiddenSince) {
+        dilrCheckpointState.lastTickAt = now;
+        dilrCheckpointState.hiddenSince = null;
+      }
+    });
+  } catch (error) {}
+}
+
+function beginDilrCheckpoint() {
+  watchDilrCheckpointVisibility();
+  if (timedTestSection !== 'dilr' || !timedTestQuestions.length || timedTestSubmitted) {
+    dilrCheckpointState = null;
+    return;
+  }
+  var now = Date.now();
+  dilrCheckpointState = {
+    attemptId:timedTestGenerationSequence,
+    section:'dilr',
+    topic:timedTestTopic || '',
+    questionCount:timedTestQuestions.length,
+    startedAt:now,
+    activeMs:0,
+    lastTickAt:now,
+    hiddenSince:null,
+    hasCorrect:false,
+    fired:false,
+    text:''
+  };
+}
+
+function noteDilrCheckpointAnswer(questionIndex, selectedIndex) {
+  if (!dilrCheckpointState || dilrCheckpointState.fired || timedTestSection !== 'dilr') return;
+  var question = timedTestQuestions[questionIndex];
+  if (question && selectedIndex === question.correct) dilrCheckpointState.hasCorrect = true;
+}
+
+function advanceDilrCheckpointClock(nowMs) {
+  if (!dilrCheckpointState || dilrCheckpointState.fired) return;
+  var now = Number(nowMs) || Date.now();
+  if (dilrCheckpointHidden()) {
+    if (!dilrCheckpointState.hiddenSince) dilrCheckpointState.hiddenSince = now;
+    dilrCheckpointState.lastTickAt = now;
+    return;
+  }
+  if (dilrCheckpointState.hiddenSince) {
+    dilrCheckpointState.lastTickAt = now;
+    dilrCheckpointState.hiddenSince = null;
+    return;
+  }
+  var delta = now - (dilrCheckpointState.lastTickAt || now);
+  if (delta > 0 && delta <= 15 * 60 * 1000) dilrCheckpointState.activeMs += delta;
+  dilrCheckpointState.lastTickAt = now;
+}
+
+function maybeFireDilrStrategicCheckpoint(nowMs) {
+  if (!dilrCheckpointState || dilrCheckpointState.fired) return null;
+  if (dilrCheckpointState.attemptId !== timedTestGenerationSequence) return null;
+  if (timedTestSection !== 'dilr' || timedTestSubmitted) return null;
+  advanceDilrCheckpointClock(nowMs);
+  if (dilrCheckpointState.hasCorrect) return null;
+  if (dilrCheckpointState.activeMs < 8 * 60 * 1000) return null;
+  dilrCheckpointState.fired = true;
+  var answered = (timedTestAnswers || []).filter(function(answer) { return answer != null; }).length;
+  var text = answered
+    ? 'You\'ve spent eight minutes on this DILR set without a correct submission. This is a time checkpoint, not a sunk-cost diagnosis. Reassess the structure you have. If it still does not support the next question, take the strategic drop and protect the remaining time. If the structure is workable, use it on the next question instead of restarting.'
+    : 'You\'ve spent eight minutes without a correct submission. Pause and reassess: have you established a workable structure, and is this set still worth pursuing? If not, take the strategic drop and protect your remaining time.';
+  dilrCheckpointState.text = text;
+  try {
+    if (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory)) {
+      conversationHistory.push({ role:'assistant', content:text, kind:'dilr_strategic_checkpoint', attemptId:dilrCheckpointState.attemptId });
+    }
+  } catch (error) {}
+  try { if (typeof addMargMessage === 'function') addMargMessage(text); } catch (error) {}
+  try {
+    var contentEl = document.getElementById('tt-content');
+    if (contentEl && contentEl.nodeType === 1) {
+      var note = document.createElement('div');
+      note.className = 'dilr-strategic-checkpoint';
+      note.textContent = text;
+      if (contentEl.firstChild) contentEl.insertBefore(note, contentEl.firstChild);
+      else contentEl.appendChild(note);
+    }
+  } catch (error) {}
+  return text;
+}
+
+function getDilrCheckpointContext() {
+  if (!dilrCheckpointState || !dilrCheckpointState.text) return '';
+  if (dilrCheckpointState.attemptId !== timedTestGenerationSequence || timedTestSection !== 'dilr') return '';
+  var remaining = Number(timedTestSecondsLeft);
+  var remainingLine = Number.isFinite(remaining) && remaining >= 0 ? ' Remaining time on this set: ' + formatTimedTestClock(remaining) + '.' : '';
+  return '\n\nACTIVE DILR TIMED SET CHECKPOINT:\n' + dilrCheckpointState.text + '\nAttempt: ' + dilrCheckpointState.attemptId + '. Topic: ' + (dilrCheckpointState.topic || 'unspecified') + '. Questions: ' + dilrCheckpointState.questionCount + '.' + remainingLine + ' This is a time checkpoint for the active set. Do not call it a sunk-cost fallacy unless a separate repeated-pattern candidate says so. Use the set structure, progress so far, and remaining time before recommending continue or abandon.';
+}
+
 function startTimedTestTimer() {
   if (timedTestTimerHandle) clearInterval(timedTestTimerHandle);
   var timerEl = document.getElementById('tt-timer');
   timerEl.textContent = formatTimedTestClock(timedTestSecondsLeft);
+  beginDilrCheckpoint();
   timedTestTimerHandle = setInterval(function() {
+    maybeFireDilrStrategicCheckpoint();
     timedTestSecondsLeft--;
     if (timedTestSecondsLeft <= 0) {
       timedTestSecondsLeft = 0;
@@ -30992,6 +31319,7 @@ function confirmExitTimedTest() {
 
 function closeTimedTest() {
   timedTestGenerationSequence++;
+  resetDilrCheckpoint();
   if (timedTestGenerationController) { timedTestGenerationController.abort(); timedTestGenerationController = null; }
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
   document.getElementById('timed-test-overlay').classList.remove('visible');
@@ -31009,6 +31337,7 @@ function submitTimedTest(isAutoSubmit) {
   if (timedTestSubmitted) return;
   timedTestSubmitted = true;
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+  resetDilrCheckpoint();
 
   var correct = 0, wrong = 0, skipped = 0, marks = 0;
   timedTestQuestions.forEach(function(q, i) {
@@ -32482,3 +32811,196 @@ async function submitFeedback() {
 
 // Leaving the page is not consent to open a modal over the next question.
 // Feedback remains available through More and each response's Report action.
+
+async function runDishaQuestionIntelligenceTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  var saved = {
+    behavioral:behavioralMemory,
+    diagnostic:diagnosticMemory,
+    topic:topicProgression,
+    history:conversationHistory,
+    exercise:activeGeneratedExercise,
+    section:timedTestSection,
+    topicName:timedTestTopic,
+    questions:timedTestQuestions,
+    answers:timedTestAnswers,
+    submitted:timedTestSubmitted,
+    sequence:timedTestGenerationSequence,
+    seconds:timedTestSecondsLeft,
+    checkpoint:dilrCheckpointState,
+    hidden:dilrCheckpointPageHiddenOverride,
+    thread:typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId,
+    activeQuestion:typeof margActiveQuestionContext === 'undefined' ? undefined : margActiveQuestionContext,
+    extract:typeof extractQuestionImageContext === 'function' ? extractQuestionImageContext : null,
+    library:typeof fetchQuestionLibraryData === 'function' ? fetchQuestionLibraryData : null,
+    download:typeof downloadQuestionImage === 'function' ? downloadQuestionImage : null
+  };
+  try {
+    check('generic cheer is removed and the explanation stays', reduceAssistantStyleLanguage('Great job! The factor count is 49 because (6 + 1) × (6 + 1) = 49.') === 'The factor count is 49 because (6 + 1) × (6 + 1) = 49.' && reduceAssistantStyleLanguage('I understand your frustration. The next step is to check the sign.') === 'The next step is to check the sign.');
+    check('scope distortion and sunk-cost fallacy keep their own ids', normalizeBehaviorPattern('varc', 'scope_distortion').key === 'scope_distortion' && normalizeBehaviorPattern('dilr', 'sunken_cost_fallacy').key === 'sunken_cost_fallacy' && normalizeBehaviorPattern('rc', 'too broad').key === 'scope_shift' && normalizeBehaviorPattern('dilr', 'sunk cost').key === 'set_selection');
+
+    diagnosticMemory = {};
+    behavioralMemory = { patterns:[] };
+    margActiveThreadId = 'thread-disha';
+    check('an unexamined history claim is not presented as analysis', guardUnexaminedHistoryClaim('I analyzed your history and the issue is scope.', { intent:'general_mentor', submittedAnswerText:'hello' }).indexOf('I do not have history') !== -1);
+    recordBehaviorPattern('varc', 'scope_distortion', 'passage A widened the claim', 'practice');
+    var once = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('one observation does not raise a repeated-pattern candidate', once.indexOf('REPEATED PATTERN CANDIDATE') === -1 && once.indexOf('one observation') !== -1);
+    recordBehaviorPattern('varc', 'scope_distortion', 'passage A widened the claim', 'practice');
+    var duplicated = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('a duplicate event does not inflate the distinct count', duplicated.indexOf('REPEATED PATTERN CANDIDATE') === -1 && distinctPatternCount(behavioralMemory.patterns.filter(function(pattern) { return pattern.key === 'scope_distortion'; })[0]) === 1);
+    recordBehaviorPattern('varc', 'scope_distortion', 'passage B dropped a limiter', 'practice');
+    var repeated = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('two distinct observations can flag a candidate without a diagnosis', repeated.indexOf('REPEATED PATTERN CANDIDATE') !== -1 && repeated.indexOf('scope_distortion') !== -1 && repeated.indexOf('VARC') !== -1 && repeated.indexOf('two distinct relevant attempts') !== -1 && repeated.indexOf('not a confirmed psychological diagnosis') !== -1);
+    var unrelated = getBehavioralMemoryContext('How should I approach QA?', { intent:'qa_diagnosis', requestedSection:'qa' });
+    check('a VARC candidate is not injected into a QA turn', unrelated.indexOf('REPEATED PATTERN CANDIDATE') === -1 && unrelated.indexOf('scope_distortion') === -1);
+    behavioralMemory.patterns.forEach(function(pattern) { if (pattern.key === 'scope_distortion') pattern.counterEvidence = 'a later passage kept the limiter'; });
+    var countered = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('counter-evidence stays visible on a candidate', countered.indexOf('Counter-evidence:') !== -1 && countered.indexOf('kept the limiter') !== -1);
+    behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:3, eventIds:['a','b','c'], lastSeen:'2024-01-01', lastEvidence:'old passage', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
+    var stale = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('a stale pattern is not injected as a repeated candidate', stale.indexOf('REPEATED PATTERN CANDIDATE') === -1);
+    behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:2, eventIds:['a','b'], lastSeen:getTodayDate(), lastEvidence:'fresh passage', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
+    var examined = guardUnexaminedHistoryClaim('I analyzed your performance. The limiter was dropped.', { intent:'varc_diagnosis', requestedSection:'varc', submittedAnswerText:'My VARC accuracy dropped' });
+    check('a history claim stays when performance context was actually selected', examined.indexOf('I analyzed your performance') !== -1);
+
+    topicProgression = {};
+    var insufficient = buildQaDiagnosisHypothesisContext('How should I approach QA?', { intent:'qa_diagnosis', requestedSection:'qa' });
+    check('QA diagnosis names both hypotheses and does not invent performance', insufficient.indexOf('Multi-topic crossover blindspot') !== -1 && insufficient.indexOf('Easy-question comfort bubble') !== -1 && insufficient.indexOf('No QA attempt history') !== -1 && insufficient.indexOf('Do not invent') !== -1 && insufficient.indexOf('%') === -1 && buildQaDiagnosisHypothesisContext('How should I approach VARC?', { intent:'varc_diagnosis' }) === '');
+    topicProgression = {
+      algebra:{ section:'qa', topic:'Algebra', lastAccuracy:80, conceptQuestionsCompleted:4, timedSectionalsCompleted:1, updatedAt:'2026-10-01' },
+      arithmetic:{ section:'qa', topic:'Arithmetic', lastAccuracy:70, conceptQuestionsCompleted:3, timedSectionalsCompleted:0, updatedAt:'2026-10-02' }
+    };
+    var competing = buildQaDiagnosisHypothesisContext('I can do algebra and arithmetic separately but mixed questions fail, and easy ones feel fine while hard ones stall.', { intent:'qa_diagnosis', requestedSection:'qa' });
+    check('sufficient and contradictory QA evidence stays competing', competing.indexOf('Algebra') !== -1 && competing.indexOf('Arithmetic') !== -1 && competing.indexOf('80%') !== -1 && competing.indexOf('Do not collapse') !== -1 && competing.indexOf('not diagnoses') !== -1 && competing.indexOf('you have a crossover') === -1);
+    var qaTurn = buildMentorTurnContext('How should I approach QA?', { diagnosis:{ intent:'qa_diagnosis', requestedSection:'qa', submittedAnswerText:'How should I approach QA?' }, directive:'QA TURN' }, { surface:'chat' });
+    check('the QA hypotheses reach the mentor turn context', qaTurn.indexOf('QA DIAGNOSTIC HYPOTHESES') !== -1 && qaTurn.indexOf('QA TURN') !== -1);
+
+    conversationHistory = [];
+    timedTestSection = 'dilr';
+    timedTestTopic = 'Seating';
+    timedTestQuestions = [{ q:'Who sits at the end?', options:['A','B','C','D'], correct:2 }];
+    timedTestAnswers = [null];
+    timedTestSubmitted = false;
+    timedTestSecondsLeft = 900;
+    timedTestGenerationSequence = 4;
+    dilrCheckpointPageHiddenOverride = null;
+    resetDilrCheckpoint();
+    check('opening a set does not start the checkpoint before the timer', maybeFireDilrStrategicCheckpoint(Date.now() + 10 * 60 * 1000) === null && !dilrCheckpointState);
+    beginDilrCheckpoint();
+    var started = dilrCheckpointState.startedAt;
+    check('under eight minutes does not fire', maybeFireDilrStrategicCheckpoint(started + 7 * 60 * 1000) === null);
+    var fired = maybeFireDilrStrategicCheckpoint(started + 8 * 60 * 1000);
+    check('eight minutes without a correct submission fires once into the chat path', !!fired && fired.indexOf("You've spent eight minutes without a correct submission") !== -1 && conversationHistory.some(function(item) { return item && item.kind === 'dilr_strategic_checkpoint' && item.content === fired; }) && maybeFireDilrStrategicCheckpoint(started + 9 * 60 * 1000) === null);
+    var checkpointContext = getDilrCheckpointContext();
+    var mentorCheckpoint = buildMentorTurnContext('Should I continue this set?', { diagnosis:{ intent:'dilr_diagnosis', requestedSection:'dilr' }, directive:'' }, { surface:'chat' });
+    check('the chat intervention carries the active set', checkpointContext.indexOf('Seating') !== -1 && checkpointContext.indexOf('Questions: 1') !== -1 && checkpointContext.indexOf('sunk-cost fallacy') !== -1 && mentorCheckpoint.indexOf('ACTIVE DILR TIMED SET CHECKPOINT') !== -1 && mentorCheckpoint.indexOf(fired) !== -1);
+    resetDilrCheckpoint();
+    timedTestGenerationSequence = 5;
+    beginDilrCheckpoint();
+    noteDilrCheckpointAnswer(0, 2);
+    check('a correct submission blocks the checkpoint', maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 8 * 60 * 1000) === null);
+    resetDilrCheckpoint();
+    timedTestAnswers = [0];
+    timedTestGenerationSequence = 6;
+    beginDilrCheckpoint();
+    var wrong = maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 8 * 60 * 1000);
+    check('wrong answers reassess without a sunk-cost diagnosis', !!wrong && wrong.indexOf('not a sunk-cost diagnosis') !== -1 && wrong.indexOf('strategic drop') !== -1);
+    resetDilrCheckpoint();
+    timedTestSection = 'qa';
+    timedTestGenerationSequence = 7;
+    beginDilrCheckpoint();
+    check('a QA timed round does not use the DILR checkpoint', !dilrCheckpointState && maybeFireDilrStrategicCheckpoint(Date.now() + 8 * 60 * 1000) === null);
+    timedTestSection = 'dilr';
+    timedTestAnswers = [null];
+    timedTestGenerationSequence = 8;
+    beginDilrCheckpoint();
+    dilrCheckpointPageHiddenOverride = true;
+    check('hidden time is not counted', maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 10 * 60 * 1000) === null && dilrCheckpointState.activeMs === 0);
+    dilrCheckpointPageHiddenOverride = false;
+    maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 10 * 60 * 1000);
+    check('visible time after a hide can still reach eight minutes once', maybeFireDilrStrategicCheckpoint(dilrCheckpointState.lastTickAt + 8 * 60 * 1000) !== null);
+    var previousAttempt = dilrCheckpointState && dilrCheckpointState.attemptId;
+    timedTestGenerationSequence = 9;
+    resetDilrCheckpoint();
+    beginDilrCheckpoint();
+    check('switching sets clears the previous checkpoint', !dilrCheckpointState.text && dilrCheckpointState.attemptId !== previousAttempt && getDilrCheckpointContext() === '');
+
+    var extracted = {
+      status:'ready',
+      extraction:{ readable:true, summary:'one page' },
+      questions:[{ id:'local-0-1', question_number:'8', section:'qa', stem:'If log2(2x) = 6, how many factors does x^4 have?', options:['A. 7','B. 49','C. 63','D. 12'], short_label:'factors', topic:'Logarithms', confidence:0.92 }]
+    };
+    extractQuestionImageContext = function(attachments) {
+      attachments.forEach(function(item) { item.extractionSeen = true; });
+      return Promise.resolve(extracted);
+    };
+    var imageTurn = await prepareQuestionContextForTurn('Solve this', [{ data:'image-bytes', mimeType:'image/jpeg', name:'q.jpg' }]);
+    var imageContext = buildMentorTurnContext('Solve this', { diagnosis:{ intent:'image_question', hasImage:true }, directive:imageTurn.directive }, { surface:'chat' });
+    check('a confident extraction reaches the prompt with the original image', imageTurn.blocked === false && imageTurn.attachments.length === 1 && imageTurn.attachments[0].data === 'image-bytes' && imageTurn.directive.indexOf('CURRENT IMAGE DIRECT MODE') !== -1 && imageTurn.directive.indexOf('Identity:') !== -1 && imageTurn.directive.indexOf('Section: QA') !== -1 && imageTurn.directive.indexOf('Stem:') !== -1 && imageTurn.directive.indexOf('B. 49') !== -1 && imageTurn.directive.indexOf('Question number: 8') !== -1 && imageTurn.directive.indexOf('Logarithms') !== -1 && imageTurn.directive.indexOf('not verified') !== -1 && imageTurn.directive.indexOf('image-bytes') === -1 && imageContext.indexOf('EXTRACTED QUESTION') !== -1 && imageContext.indexOf('If log2(2x) = 6') !== -1);
+    extractQuestionImageContext = function() {
+      return Promise.resolve({ status:'ready', extraction:{ readable:true }, questions:[{ section:'qa', stem:'Value of x is +3 or -3?', options:['A. +2','B. -2'], confidence:0.42 }] });
+    };
+    var uncertain = await prepareQuestionContextForTurn('What is the sign?', [{ data:'image-bytes', mimeType:'image/jpeg' }]);
+    check('uncertain numbers and signs stay visible and unverified', uncertain.directive.indexOf('uncertain') !== -1 && uncertain.directive.indexOf('+3') !== -1 && uncertain.directive.indexOf('-2') !== -1 && uncertain.directive.indexOf('not verified') !== -1 && uncertain.directive.indexOf('VERIFIED ACTIVE') === -1 && uncertain.attachments.length === 1);
+
+    var activeQuestion = { id:'q8', question_number:'8', stem:'Active log stem', section:'qa', options:['A one','B two','C three','D four'], image_id:'img-8', short_label:'Logarithms', topic:'Logarithms' };
+    margActiveThreadId = 'thread-disha';
+    margActiveQuestionContext = { question_id:'q8', image_id:'img-8', conversation_id:'thread-disha', question:activeQuestion };
+    fetchQuestionLibraryData = function() { return Promise.resolve({ images:[{ id:'img-8', storage_path:'pages/q8.jpg', conversation_id:'thread-disha' }], questions:[activeQuestion] }); };
+    downloadQuestionImage = function() { return Promise.resolve({ data:'page-bytes', mimeType:'image/jpeg', name:'q8.jpg' }); };
+    var discussed = await prepareQuestionContextForTurn('Explain the question we were discussing.', []);
+    var optionTurn = await prepareQuestionContextForTurn('What about option C in that question?', []);
+    var again = await prepareQuestionContextForTurn('Can you solve that one again?', []);
+    check('clear references resolve to the active question', discussed.blocked === false && discussed.directive.indexOf('Active log stem') !== -1 && discussed.attachments[0].data === 'page-bytes' && optionTurn.directive.indexOf('Active log stem') !== -1 && parseQuestionReference('What about option C in that question?').option === 'C' && again.directive.indexOf('Active log stem') !== -1);
+    var quadratic = { id:'q8a', question_number:'8', stem:'FIRST CHAPTER STEM', section:'qa', image_id:'img-a', short_label:'Quadratic Equations', topic:'Quadratic Equations' };
+    var logs = { id:'q8b', question_number:'8', stem:'SECOND CHAPTER STEM', section:'qa', image_id:'img-b', short_label:'Logarithms', topic:'Logarithms' };
+    margActiveQuestionContext = null;
+    fetchQuestionLibraryData = function() { return Promise.resolve({ images:[{ id:'img-a' }, { id:'img-b' }], questions:[quadratic, logs] }); };
+    var ambiguous = await prepareQuestionContextForTurn('What about option C in that question?', []);
+    var repeatedNumber = await prepareQuestionContextForTurn('Solve Q8', []);
+    check('repeated question numbers and multiple images ask instead of guessing', ambiguous.blocked === true && /which one/i.test(ambiguous.reply) && ambiguous.reply.indexOf('Quadratic Equations') !== -1 && ambiguous.reply.indexOf('Logarithms') !== -1 && ambiguous.reply.indexOf('FIRST CHAPTER STEM') === -1 && repeatedNumber.blocked === true && repeatedNumber.reply.indexOf('SECOND CHAPTER STEM') === -1);
+    var previous = await prepareQuestionContextForTurn('Continue from the previous image.', []);
+    check('multiple recent images do not silently continue one page', previous.blocked === true && /more than one recent image/i.test(previous.reply) && previous.reply.indexOf('FIRST CHAPTER STEM') === -1);
+    fetchQuestionLibraryData = function() { return Promise.resolve({ images:[{ id:'img-8', storage_path:'pages/q8.jpg' }], questions:[activeQuestion] }); };
+    margActiveQuestionContext = { question_id:'old', image_id:'old', conversation_id:'other-thread', question:{ id:'old', question_number:'1', stem:'DO NOT RECONSTRUCT THIS STEM', image_id:'old' } };
+    var previousOne = await prepareQuestionContextForTurn('Continue from the previous image.', []);
+    check('the previous image stays on this chat and not an older thread', previousOne.blocked === false && previousOne.directive.indexOf('Active log stem') !== -1 && previousOne.directive.indexOf('DO NOT RECONSTRUCT THIS STEM') === -1);
+    fetchQuestionLibraryData = function() { return Promise.resolve({ images:[], questions:[] }); };
+    margActiveQuestionContext = { question_id:'old', conversation_id:'other-thread', question:{ id:'old', question_number:'3', stem:'DO NOT RECONSTRUCT THIS STEM', image_id:'gone' } };
+    var missing = await prepareQuestionContextForTurn('Explain the question we were discussing.', []);
+    var otherNumber = await prepareQuestionContextForTurn('Can you solve Q8?', []);
+    check('missing and mismatched questions ask for a reupload', missing.blocked === true && /re-upload/i.test(missing.reply) && missing.reply.indexOf('DO NOT RECONSTRUCT THIS STEM') === -1 && otherNumber.blocked === true && otherNumber.reply.indexOf('DO NOT RECONSTRUCT THIS STEM') === -1);
+
+    activeGeneratedExercise = { id:'ex-key', type:'qa', validationVerdict:{ status:'verified_local' }, content:{ questions:[{ number:'1', q:'Stem one', options:['A','B','C','D'], correct:1 }] } };
+    var sameKey = getGeneratedExerciseMemoryContext('Why is Q1 wrong?', { intent:'question_reference', libraryOwnsQuestionContext:true, libraryQuestionDirective:'\nIdentity: Q1\nStem: Stem one\nQ1 answer key: B\n' });
+    var conflict = getGeneratedExerciseMemoryContext('Why is Q1 wrong?', { intent:'question_reference', libraryOwnsQuestionContext:true, libraryQuestionDirective:'\nIdentity: Q1\nQ1 answer key: C\n' });
+    var preserved = getGeneratedExerciseMemoryContext('Solve this image', { intent:'image_question', libraryOwnsQuestionContext:true, libraryQuestionDirective:'\nIdentity: Q4\nStem: other image\n' });
+    check('library ownership keeps one matching key and does not dump the exercise', sameKey.indexOf('ACTIVE GENERATED EXERCISE MEMORY') === -1 && sameKey.indexOf('CONFLICT') === -1 && (sameKey.match(/Q1: B/g) || []).length === 1 && sameKey.indexOf('locally checked') !== -1);
+    check('conflicting answer keys stay side by side', conflict.indexOf('CONFLICT Q1') !== -1 && conflict.indexOf('question context says "C"') !== -1 && conflict.indexOf('saved exercise says "B"') !== -1 && conflict.indexOf('Do not choose one') !== -1);
+    check('a key absent from the library directive is preserved', preserved.indexOf('Q1: B') !== -1 && preserved.indexOf('ACTIVE GENERATED EXERCISE MEMORY') === -1 && preserved.indexOf('[locally checked]') !== -1);
+  } finally {
+    behavioralMemory = saved.behavioral;
+    diagnosticMemory = saved.diagnostic;
+    topicProgression = saved.topic;
+    conversationHistory = saved.history;
+    activeGeneratedExercise = saved.exercise;
+    timedTestSection = saved.section;
+    timedTestTopic = saved.topicName;
+    timedTestQuestions = saved.questions;
+    timedTestAnswers = saved.answers;
+    timedTestSubmitted = saved.submitted;
+    timedTestGenerationSequence = saved.sequence;
+    timedTestSecondsLeft = saved.seconds;
+    dilrCheckpointState = saved.checkpoint;
+    dilrCheckpointPageHiddenOverride = saved.hidden;
+    margActiveThreadId = saved.thread;
+    margActiveQuestionContext = saved.activeQuestion;
+    if (saved.extract) extractQuestionImageContext = saved.extract;
+    if (saved.library) fetchQuestionLibraryData = saved.library;
+    if (saved.download) downloadQuestionImage = saved.download;
+  }
+  return results;
+}
+window.runDishaQuestionIntelligenceTests = runDishaQuestionIntelligenceTests;
