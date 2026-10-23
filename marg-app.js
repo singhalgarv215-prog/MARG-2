@@ -10817,9 +10817,11 @@ function patternSectionLabel(section) {
 }
 
 function distinctPatternCount(pattern) {
-  var occurrences = Number(pattern && pattern.occurrences || 0);
-  if (pattern && Array.isArray(pattern.eventIds) && pattern.eventIds.length) return Math.max(pattern.eventIds.length, occurrences);
-  return occurrences;
+  // Only event ids prove separate observations. A pre-migration occurrences
+  // counter can include duplicate logs, so it must not be reported as a
+  // distinct-attempt count.
+  if (pattern && Array.isArray(pattern.eventIds)) return pattern.eventIds.length;
+  return 0;
 }
 
 function repeatedPatternIsStale(pattern) {
@@ -10878,7 +10880,16 @@ function getBehavioralMemoryContext(message, diagnosis) {
     return String(b.lastSeen || '').localeCompare(String(a.lastSeen || ''));
   }).slice(0, 6);
   if (!patterns.length) return '';
-  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student. If a current error matches a pattern seen 2+ times and no belief is linked, call it the same recurring error, still not a confirmed diagnosis.' + buildRepeatedPatternCandidateBlock(patterns);
+  var hasUnverifiedCount = patterns.some(function(pattern) { return patternCountOutrunsEventIds(pattern); });
+  var unverifiedCaution = hasUnverifiedCount ? ' A stored count that is not backed by separate event ids is pre-migration data. Do not treat that count as distinct attempts or as a behavioral diagnosis.' : '';
+  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student. If a current error matches a pattern seen 2+ times and no belief is linked, call it the same recurring error, still not a confirmed diagnosis.' + unverifiedCaution + buildRepeatedPatternCandidateBlock(patterns);
+}
+
+function patternCountOutrunsEventIds(pattern) {
+  var stored = Number(pattern && pattern.occurrences || 0);
+  if (stored < 2) return false;
+  if (!pattern || !Array.isArray(pattern.eventIds)) return true;
+  return pattern.eventIds.length < stored;
 }
 
 function describeBehavioralPatternLine(pattern) {
@@ -10892,6 +10903,11 @@ function describeBehavioralPatternLine(pattern) {
   }
   if (Number(pattern.occurrences || 0) < 2) {
     return '- ' + String(pattern.section || 'general').toUpperCase() + ': ' + pattern.label + '; one observation, not a characteristic of the student; latest: ' + pattern.lastSeen + '.';
+  }
+  if (patternCountOutrunsEventIds(pattern)) {
+    var distinct = Array.isArray(pattern.eventIds) ? pattern.eventIds.length : 0;
+    var idNote = distinct ? '; ' + distinct + ' separate event id' + (distinct === 1 ? ' is' : 's are') + ' on record' : '';
+    return '- ' + String(pattern.section || 'general').toUpperCase() + ': ' + pattern.label + '; stored count ' + pattern.occurrences + ' is not a count of distinct attempts' + idNote + '. Do not turn this row into a behavioral diagnosis; latest: ' + pattern.lastSeen + '; latest evidence: ' + pattern.lastEvidence + '.';
   }
   return '- ' + String(pattern.section || 'general').toUpperCase() + ': ' + pattern.label + '; seen ' + pattern.occurrences + ' times' + (pattern.previousSeen ? '; previous occurrence: ' + pattern.previousSeen : '') + '; latest: ' + pattern.lastSeen + '; latest evidence: ' + pattern.lastEvidence + '.';
 }
@@ -31190,8 +31206,8 @@ function watchDilrCheckpointVisibility() {
       var now = Date.now();
       if (document.hidden === true) {
         if (!dilrCheckpointState.hiddenSince) {
-          var delta = now - (dilrCheckpointState.lastTickAt || now);
-          if (delta > 0 && delta < 120000) dilrCheckpointState.activeMs += delta;
+          var delta = now - (dilrCheckpointState.lastTickAt || dilrCheckpointState.startedAt || now);
+          if (delta > 0) dilrCheckpointState.activeMs += delta;
           dilrCheckpointState.hiddenSince = now;
           dilrCheckpointState.lastTickAt = now;
         }
@@ -31244,8 +31260,10 @@ function advanceDilrCheckpointClock(nowMs) {
     dilrCheckpointState.hiddenSince = null;
     return;
   }
-  var delta = now - (dilrCheckpointState.lastTickAt || now);
-  if (delta > 0 && delta <= 15 * 60 * 1000) dilrCheckpointState.activeMs += delta;
+  var delta = now - (dilrCheckpointState.lastTickAt || dilrCheckpointState.startedAt || now);
+  // A delayed tick while the page stayed visible is elapsed active time.
+  // Hidden gaps are excluded above, so this delta is not capped.
+  if (delta > 0) dilrCheckpointState.activeMs += delta;
   dilrCheckpointState.lastTickAt = now;
 }
 
@@ -32861,6 +32879,18 @@ async function runDishaQuestionIntelligenceTests() {
     behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:3, eventIds:['a','b','c'], lastSeen:'2024-01-01', lastEvidence:'old passage', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
     var stale = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
     check('a stale pattern is not injected as a repeated candidate', stale.indexOf('REPEATED PATTERN CANDIDATE') === -1);
+    behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:4, lastSeen:getTodayDate(), lastEvidence:'legacy passage', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
+    var legacy = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('a pre-migration counter is not a distinct-attempt diagnosis', legacy.indexOf('stored count 4') !== -1 && legacy.indexOf('not a count of distinct attempts') !== -1 && legacy.indexOf('pre-migration data') !== -1 && legacy.indexOf('seen 4 times') === -1 && legacy.indexOf('REPEATED PATTERN CANDIDATE') === -1 && legacy.indexOf('distinct relevant attempts') === -1);
+    behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:4, eventIds:['only-one'], lastSeen:getTodayDate(), lastEvidence:'one id', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
+    var oneId = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('one event id does not inherit an older counter as distinct attempts', oneId.indexOf('REPEATED PATTERN CANDIDATE') === -1 && oneId.indexOf('1 separate event id is on record') !== -1 && oneId.indexOf('seen 4 times') === -1);
+    behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:4, eventIds:['e1','e2'], lastSeen:getTodayDate(), lastEvidence:'two ids', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
+    var surplus = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('a candidate uses event ids when the stored counter is higher', surplus.indexOf('two distinct relevant attempts') !== -1 && surplus.indexOf('4 distinct') === -1 && surplus.indexOf('seen 4 times') === -1 && surplus.indexOf('not a confirmed psychological diagnosis') !== -1);
+    behavioralMemory = { patterns:[{ section:'qa', key:'calculation_slip', label:'arithmetic', occurrences:2, eventIds:['q1','q2'], lastSeen:getTodayDate(), lastEvidence:'second slip', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
+    var otherSection = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
+    check('a QA pattern is not diagnosed on a VARC turn', otherSection.indexOf('REPEATED PATTERN CANDIDATE') === -1 && otherSection.indexOf('calculation_slip') === -1);
     behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:2, eventIds:['a','b'], lastSeen:getTodayDate(), lastEvidence:'fresh passage', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
     var examined = guardUnexaminedHistoryClaim('I analyzed your performance. The limiter was dropped.', { intent:'varc_diagnosis', requestedSection:'varc', submittedAnswerText:'My VARC accuracy dropped' });
     check('a history claim stays when performance context was actually selected', examined.indexOf('I analyzed your performance') !== -1);
@@ -32926,6 +32956,21 @@ async function runDishaQuestionIntelligenceTests() {
     resetDilrCheckpoint();
     beginDilrCheckpoint();
     check('switching sets clears the previous checkpoint', !dilrCheckpointState.text && dilrCheckpointState.attemptId !== previousAttempt && getDilrCheckpointContext() === '');
+    resetDilrCheckpoint();
+    timedTestSection = 'dilr';
+    timedTestAnswers = [null];
+    timedTestSubmitted = false;
+    timedTestGenerationSequence = 11;
+    beginDilrCheckpoint();
+    var stallStart = dilrCheckpointState.startedAt;
+    var stalled = maybeFireDilrStrategicCheckpoint(stallStart + 20 * 60 * 1000);
+    check('a delayed visible tick counts the full elapsed time and fires once', !!stalled && dilrCheckpointState.activeMs === 20 * 60 * 1000 && stalled.indexOf("You've spent eight minutes without a correct submission") !== -1 && stalled.indexOf('sunk-cost') === -1 && maybeFireDilrStrategicCheckpoint(stallStart + 28 * 60 * 1000) === null);
+    resetDilrCheckpoint();
+    timedTestAnswers = [1];
+    timedTestGenerationSequence = 12;
+    beginDilrCheckpoint();
+    var stalledWrong = maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 20 * 60 * 1000);
+    check('a delayed tick with wrong answers stays a time checkpoint', !!stalledWrong && stalledWrong.indexOf('not a sunk-cost diagnosis') !== -1 && dilrCheckpointState.activeMs === 20 * 60 * 1000 && maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 40 * 60 * 1000) === null);
 
     var extracted = {
       status:'ready',
@@ -32939,11 +32984,23 @@ async function runDishaQuestionIntelligenceTests() {
     var imageTurn = await prepareQuestionContextForTurn('Solve this', [{ data:'image-bytes', mimeType:'image/jpeg', name:'q.jpg' }]);
     var imageContext = buildMentorTurnContext('Solve this', { diagnosis:{ intent:'image_question', hasImage:true }, directive:imageTurn.directive }, { surface:'chat' });
     check('a confident extraction reaches the prompt with the original image', imageTurn.blocked === false && imageTurn.attachments.length === 1 && imageTurn.attachments[0].data === 'image-bytes' && imageTurn.directive.indexOf('CURRENT IMAGE DIRECT MODE') !== -1 && imageTurn.directive.indexOf('Identity:') !== -1 && imageTurn.directive.indexOf('Section: QA') !== -1 && imageTurn.directive.indexOf('Stem:') !== -1 && imageTurn.directive.indexOf('B. 49') !== -1 && imageTurn.directive.indexOf('Question number: 8') !== -1 && imageTurn.directive.indexOf('Logarithms') !== -1 && imageTurn.directive.indexOf('not verified') !== -1 && imageTurn.directive.indexOf('image-bytes') === -1 && imageContext.indexOf('EXTRACTED QUESTION') !== -1 && imageContext.indexOf('If log2(2x) = 6') !== -1);
+    var assembledHistory = buildHistoryWithImageAttachment([{ role:'user', content:'Solve this' }], imageTurn.attachments, 'Solve this', { intent:'image_question', hasImage:true }, { surface:'chat', hasImage:true });
+    var assembled = buildGeminiRequest(imageContext, assembledHistory, 2048);
+    var assembledImage = null;
+    (assembled.contents || []).forEach(function(content) {
+      (content.parts || []).forEach(function(part) {
+        if (part && part.inlineData && part.inlineData.data === 'image-bytes') assembledImage = part;
+      });
+    });
+    check('the request builder keeps the original image and the extracted stem', !!assembledImage && assembledImage.inlineData.mimeType === 'image/jpeg' && assembled.systemInstruction.parts[0].text.indexOf('If log2(2x) = 6') !== -1 && assembled.systemInstruction.parts[0].text.indexOf('EXTRACTED QUESTION') !== -1 && assembled.systemInstruction.parts[0].text.indexOf('B. 49') !== -1 && assembled.systemInstruction.parts[0].text.indexOf('image-bytes') === -1);
     extractQuestionImageContext = function() {
       return Promise.resolve({ status:'ready', extraction:{ readable:true }, questions:[{ section:'qa', stem:'Value of x is +3 or -3?', options:['A. +2','B. -2'], confidence:0.42 }] });
     };
     var uncertain = await prepareQuestionContextForTurn('What is the sign?', [{ data:'image-bytes', mimeType:'image/jpeg' }]);
     check('uncertain numbers and signs stay visible and unverified', uncertain.directive.indexOf('uncertain') !== -1 && uncertain.directive.indexOf('+3') !== -1 && uncertain.directive.indexOf('-2') !== -1 && uncertain.directive.indexOf('not verified') !== -1 && uncertain.directive.indexOf('VERIFIED ACTIVE') === -1 && uncertain.attachments.length === 1);
+    var inventedNumber = parseQuestionExtractionPayload(JSON.stringify({ readable:true, summary:'table', pages:[{ page_index:1, text:'Sales table\nYear Sales\n2022 120\n2023 150\n2024 90\nWhat is the change from 2022 to 2024?\nA. -30\nB. 30\nC. -20\nD. 20', section:'qa', topic:'Data Interpretation', confidence:0.9 }], questions:[{ page_index:1, question_number:'1', ordinal:1, short_label:'sales change', stem:'What is the change from 2022 to 2024?', options:['A. -30','B. 30','C. -20','D. 20'], section:'qa', topic:'Data Interpretation', confidence:0.95 }] }));
+    var printedNumber = parseQuestionExtractionPayload(JSON.stringify({ readable:true, summary:'math', pages:[{ page_index:1, text:'Q4. If (3/4)x - (-2)^3 = 5/2, find x.', section:'qa', topic:'Linear Equations', confidence:1 }], questions:[{ page_index:1, question_number:'4', stem:'If (3/4)x - (-2)^3 = 5/2, find x.', options:['A. 17/2','B. -17/2'], section:'qa', topic:'Linear Equations', confidence:1 }] }));
+    check('a question number is kept only when the page prints it', inventedNumber.questions[0].question_number === '' && inventedNumber.questions[0].options.length === 4 && printedNumber.questions[0].question_number === '4');
 
     var activeQuestion = { id:'q8', question_number:'8', stem:'Active log stem', section:'qa', options:['A one','B two','C three','D four'], image_id:'img-8', short_label:'Logarithms', topic:'Logarithms' };
     margActiveThreadId = 'thread-disha';
@@ -32972,6 +33029,48 @@ async function runDishaQuestionIntelligenceTests() {
     var missing = await prepareQuestionContextForTurn('Explain the question we were discussing.', []);
     var otherNumber = await prepareQuestionContextForTurn('Can you solve Q8?', []);
     check('missing and mismatched questions ask for a reupload', missing.blocked === true && /re-upload/i.test(missing.reply) && missing.reply.indexOf('DO NOT RECONSTRUCT THIS STEM') === -1 && otherNumber.blocked === true && otherNumber.reply.indexOf('DO NOT RECONSTRUCT THIS STEM') === -1);
+    var questionA = { id:'qA', question_number:'3', stem:'QUADRATIC SOURCE STEM', section:'qa', image_id:'img-a', short_label:'Quadratic Equations', topic:'Quadratic Equations', options:['A. 2 and 3','B. 1 and 6','C. -2 and -3','D. 0 and 6'] };
+    var questionB = { id:'qB', question_number:'11', stem:'LOG SOURCE STEM', section:'qa', image_id:'img-b', short_label:'Logarithms', topic:'Logarithms', options:['A. 2','B. 4','C. 1/2','D. 8'] };
+    margActiveThreadId = 'thread-disha';
+    margActiveQuestionContext = { question_id:'qB', image_id:'img-b', conversation_id:'thread-disha', question:questionB };
+    fetchQuestionLibraryData = function() {
+      return Promise.resolve({
+        images:[
+          { id:'img-a', storage_path:'pages/a.jpg', conversation_id:'thread-disha' },
+          { id:'img-b', storage_path:'pages/b.jpg', conversation_id:'thread-disha' }
+        ],
+        questions:[questionA, questionB]
+      });
+    };
+    downloadQuestionImage = function(image) { return Promise.resolve({ data:'bytes-' + image.id, mimeType:'image/jpeg', name:image.id + '.jpg' }); };
+    var discussedB = await prepareQuestionContextForTurn('Explain the question we were discussing.', []);
+    var optionB = await prepareQuestionContextForTurn('What about option C in that question?', []);
+    var backToA = await prepareQuestionContextForTurn('Explain the Quadratic Equations question.', []);
+    var conceptOnly = await prepareQuestionContextForTurn('explain quadratic equations', []);
+    var twoImages = await prepareQuestionContextForTurn('Continue from the previous image.', []);
+    check('the latest question stays current until the student names the earlier one', discussedB.blocked === false && discussedB.directive.indexOf('LOG SOURCE STEM') !== -1 && discussedB.directive.indexOf('QUADRATIC SOURCE STEM') === -1 && discussedB.attachments[0].data === 'bytes-img-b' && optionB.directive.indexOf('LOG SOURCE STEM') !== -1 && optionB.directive.indexOf('QUADRATIC SOURCE STEM') === -1 && parseQuestionReference('What about option C in that question?').option === 'C');
+    check('naming the earlier chapter returns that question', backToA.blocked === false && backToA.directive.indexOf('QUADRATIC SOURCE STEM') !== -1 && backToA.directive.indexOf('LOG SOURCE STEM') === -1 && backToA.attachments[0].data === 'bytes-img-a' && conceptOnly.blocked === false && conceptOnly.directive === '' && !isSavedQuestionResolutionRequest('explain quadratic equations'));
+    check('two recent images ask instead of choosing one', twoImages.blocked === true && /more than one recent image/i.test(twoImages.reply) && twoImages.reply.indexOf('LOG SOURCE STEM') === -1 && twoImages.reply.indexOf('QUADRATIC SOURCE STEM') === -1);
+    var questionATwin = { id:'qA2', question_number:'4', stem:'OTHER QUADRATIC STEM', section:'qa', image_id:'img-a2', short_label:'Quadratic Equations', topic:'Quadratic Equations' };
+    fetchQuestionLibraryData = function() {
+      return Promise.resolve({
+        images:[
+          { id:'img-a', storage_path:'pages/a.jpg', conversation_id:'thread-disha' },
+          { id:'img-a2', storage_path:'pages/a2.jpg', conversation_id:'thread-disha' },
+          { id:'img-b', storage_path:'pages/b.jpg', conversation_id:'thread-disha' }
+        ],
+        questions:[questionA, questionATwin, questionB]
+      });
+    };
+    var namedAmbiguous = await prepareQuestionContextForTurn('Explain the Quadratic Equations question.', []);
+    fetchQuestionLibraryData = function() {
+      return Promise.resolve({
+        images:[{ id:'img-b', storage_path:'pages/b.jpg', conversation_id:'thread-disha' }],
+        questions:[questionA, questionB]
+      });
+    };
+    var unavailableA = await prepareQuestionContextForTurn('Explain the Quadratic Equations question.', []);
+    check('an ambiguous name or a missing image does not borrow another question', namedAmbiguous.blocked === true && /which one/i.test(namedAmbiguous.reply) && namedAmbiguous.reply.indexOf('QUADRATIC SOURCE STEM') === -1 && namedAmbiguous.reply.indexOf('OTHER QUADRATIC STEM') === -1 && namedAmbiguous.reply.indexOf('LOG SOURCE STEM') === -1 && unavailableA.blocked === true && /re-upload/i.test(unavailableA.reply) && unavailableA.reply.indexOf('LOG SOURCE STEM') === -1 && unavailableA.reply.indexOf('QUADRATIC SOURCE STEM') === -1);
 
     activeGeneratedExercise = { id:'ex-key', type:'qa', validationVerdict:{ status:'verified_local' }, content:{ questions:[{ number:'1', q:'Stem one', options:['A','B','C','D'], correct:1 }] } };
     var sameKey = getGeneratedExerciseMemoryContext('Why is Q1 wrong?', { intent:'question_reference', libraryOwnsQuestionContext:true, libraryQuestionDirective:'\nIdentity: Q1\nStem: Stem one\nQ1 answer key: B\n' });
