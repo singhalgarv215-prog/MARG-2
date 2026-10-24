@@ -10874,15 +10874,21 @@ function getBehavioralMemoryContext(message, diagnosis) {
     if (selection.mode !== 'all' && !scopedMentorMemoryAllowed(pattern, message)) return false;
     return !topics || topics.some(function(topic) { return memorySectionMatchesTopic(pattern.section, topic); });
   }).sort(function(a, b) {
-    var aStrong = Number(a.occurrences || 0) >= 2 ? 1 : 0;
-    var bStrong = Number(b.occurrences || 0) >= 2 ? 1 : 0;
+    var aStrong = patternHasVerifiedRepeat(a) ? 1 : 0;
+    var bStrong = patternHasVerifiedRepeat(b) ? 1 : 0;
     if (aStrong !== bStrong) return bStrong - aStrong;
     return String(b.lastSeen || '').localeCompare(String(a.lastSeen || ''));
   }).slice(0, 6);
   if (!patterns.length) return '';
   var hasUnverifiedCount = patterns.some(function(pattern) { return patternCountOutrunsEventIds(pattern); });
-  var unverifiedCaution = hasUnverifiedCount ? ' A stored count that is not backed by separate event ids is pre-migration data. Do not treat that count as distinct attempts or as a behavioral diagnosis.' : '';
-  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student. If a current error matches a pattern seen 2+ times and no belief is linked, call it the same recurring error, still not a confirmed diagnosis.' + unverifiedCaution + buildRepeatedPatternCandidateBlock(patterns);
+  var hasVerifiedRepeat = patterns.some(patternHasVerifiedRepeat);
+  var repeatLine = hasVerifiedRepeat ? ' If a current error matches a pattern whose separate event ids confirm it was seen 2+ times, and no belief is linked, call it the same recurring error, still not a confirmed diagnosis. A stored count without those event ids is not verified recurring behavior.' : '';
+  var unverifiedCaution = hasUnverifiedCount ? ' A stored count that is not backed by separate event ids is pre-migration data. Do not treat that count as distinct attempts, as verified recurring behavior, or as a behavioral diagnosis.' : '';
+  return '\n\nBEHAVIOURAL MEMORY — connect today to previous sessions only when relevant:\n' + patterns.map(describeBehavioralPatternLine).join('\n') + '\nA belief linked to accumulated evidence is Marg\'s current understanding of the student and can be revised by later evidence. One observation that is not linked to a belief is not a characteristic of the student.' + repeatLine + unverifiedCaution + buildRepeatedPatternCandidateBlock(patterns);
+}
+
+function patternHasVerifiedRepeat(pattern) {
+  return !!(pattern && Array.isArray(pattern.eventIds) && pattern.eventIds.length >= 2 && !patternCountOutrunsEventIds(pattern));
 }
 
 function patternCountOutrunsEventIds(pattern) {
@@ -31202,8 +31208,9 @@ function watchDilrCheckpointVisibility() {
   watchDilrCheckpointVisibility.bound = true;
   try {
     document.addEventListener('visibilitychange', function() {
-      if (!dilrCheckpointState || dilrCheckpointState.fired) return;
       var now = Date.now();
+      syncTimedTestClockVisibility(now);
+      if (!dilrCheckpointState || dilrCheckpointState.fired) return;
       if (document.hidden === true) {
         if (!dilrCheckpointState.hiddenSince) {
           var delta = now - (dilrCheckpointState.lastTickAt || dilrCheckpointState.startedAt || now);
@@ -31307,24 +31314,83 @@ function getDilrCheckpointContext() {
   return '\n\nACTIVE DILR TIMED SET CHECKPOINT:\n' + dilrCheckpointState.text + '\nAttempt: ' + dilrCheckpointState.attemptId + '. Topic: ' + (dilrCheckpointState.topic || 'unspecified') + '. Questions: ' + dilrCheckpointState.questionCount + '.' + remainingLine + ' This is a time checkpoint for the active set. Do not call it a sunk-cost fallacy unless a separate repeated-pattern candidate says so. Use the set structure, progress so far, and remaining time before recommending continue or abandon.';
 }
 
+var timedTestClockAnchorMs = 0;
+var timedTestClockHidden = false;
+
+function stopTimedTestClock() {
+  timedTestClockAnchorMs = 0;
+  timedTestClockHidden = false;
+}
+
+function consumeTimedTestVisibleSeconds(now) {
+  if (!timedTestClockAnchorMs || timedTestSubmitted) return;
+  var elapsedSeconds = Math.floor((now - timedTestClockAnchorMs) / 1000);
+  if (elapsedSeconds > 0) {
+    timedTestSecondsLeft = Math.max(0, Number(timedTestSecondsLeft) - elapsedSeconds);
+    timedTestClockAnchorMs += elapsedSeconds * 1000;
+  }
+}
+
+// Visible stalls catch up to the wall clock. Hidden gaps do not. A reload
+// still drops the clock because the attempt lives only in memory.
+function advanceTimedTestClock(nowMs) {
+  if (timedTestSubmitted) return timedTestSecondsLeft;
+  var now = Number(nowMs) || Date.now();
+  if (!timedTestClockAnchorMs) timedTestClockAnchorMs = now;
+  if (timedTestClockHidden || dilrCheckpointHidden()) {
+    timedTestClockHidden = true;
+    timedTestClockAnchorMs = now;
+    return timedTestSecondsLeft;
+  }
+  consumeTimedTestVisibleSeconds(now);
+  return timedTestSecondsLeft;
+}
+
+function syncTimedTestClockVisibility(nowMs) {
+  if (timedTestSubmitted || !timedTestClockAnchorMs) return timedTestSecondsLeft;
+  var now = Number(nowMs) || Date.now();
+  if (dilrCheckpointHidden()) {
+    if (!timedTestClockHidden) {
+      consumeTimedTestVisibleSeconds(now);
+      timedTestClockHidden = true;
+      timedTestClockAnchorMs = now;
+    }
+    return timedTestSecondsLeft;
+  }
+  if (timedTestClockHidden) {
+    timedTestClockAnchorMs = now;
+    timedTestClockHidden = false;
+  }
+  return timedTestSecondsLeft;
+}
+
+function tickTimedTestClock(nowMs) {
+  maybeFireDilrStrategicCheckpoint(nowMs);
+  advanceTimedTestClock(nowMs);
+  var timerEl = document.getElementById('tt-timer');
+  if (timedTestSecondsLeft <= 0) {
+    timedTestSecondsLeft = 0;
+    if (timerEl) timerEl.textContent = '00:00';
+    if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+    submitTimedTest(true);
+    return timedTestSecondsLeft;
+  }
+  if (timerEl) {
+    timerEl.textContent = formatTimedTestClock(timedTestSecondsLeft);
+    if (timedTestSecondsLeft <= 120) timerEl.classList.add('tt-timer-warning');
+  }
+  return timedTestSecondsLeft;
+}
+
 function startTimedTestTimer() {
   if (timedTestTimerHandle) clearInterval(timedTestTimerHandle);
   var timerEl = document.getElementById('tt-timer');
   timerEl.textContent = formatTimedTestClock(timedTestSecondsLeft);
+  timedTestClockAnchorMs = Date.now();
+  timedTestClockHidden = dilrCheckpointHidden();
   beginDilrCheckpoint();
   timedTestTimerHandle = setInterval(function() {
-    maybeFireDilrStrategicCheckpoint();
-    timedTestSecondsLeft--;
-    if (timedTestSecondsLeft <= 0) {
-      timedTestSecondsLeft = 0;
-      timerEl.textContent = '00:00';
-      clearInterval(timedTestTimerHandle);
-      timedTestTimerHandle = null;
-      submitTimedTest(true);
-      return;
-    }
-    timerEl.textContent = formatTimedTestClock(timedTestSecondsLeft);
-    if (timedTestSecondsLeft <= 120) timerEl.classList.add('tt-timer-warning');
+    tickTimedTestClock();
   }, 1000);
 }
 
@@ -31340,6 +31406,7 @@ function closeTimedTest() {
   resetDilrCheckpoint();
   if (timedTestGenerationController) { timedTestGenerationController.abort(); timedTestGenerationController = null; }
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+  stopTimedTestClock();
   document.getElementById('timed-test-overlay').classList.remove('visible');
 }
 
@@ -31355,6 +31422,7 @@ function submitTimedTest(isAutoSubmit) {
   if (timedTestSubmitted) return;
   timedTestSubmitted = true;
   if (timedTestTimerHandle) { clearInterval(timedTestTimerHandle); timedTestTimerHandle = null; }
+  stopTimedTestClock();
   resetDilrCheckpoint();
 
   var correct = 0, wrong = 0, skipped = 0, marks = 0;
@@ -32846,6 +32914,8 @@ async function runDishaQuestionIntelligenceTests() {
     submitted:timedTestSubmitted,
     sequence:timedTestGenerationSequence,
     seconds:timedTestSecondsLeft,
+    clockAnchor:timedTestClockAnchorMs,
+    clockHidden:timedTestClockHidden,
     checkpoint:dilrCheckpointState,
     hidden:dilrCheckpointPageHiddenOverride,
     thread:typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId,
@@ -32870,7 +32940,7 @@ async function runDishaQuestionIntelligenceTests() {
     check('a duplicate event does not inflate the distinct count', duplicated.indexOf('REPEATED PATTERN CANDIDATE') === -1 && distinctPatternCount(behavioralMemory.patterns.filter(function(pattern) { return pattern.key === 'scope_distortion'; })[0]) === 1);
     recordBehaviorPattern('varc', 'scope_distortion', 'passage B dropped a limiter', 'practice');
     var repeated = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
-    check('two distinct observations can flag a candidate without a diagnosis', repeated.indexOf('REPEATED PATTERN CANDIDATE') !== -1 && repeated.indexOf('scope_distortion') !== -1 && repeated.indexOf('VARC') !== -1 && repeated.indexOf('two distinct relevant attempts') !== -1 && repeated.indexOf('not a confirmed psychological diagnosis') !== -1);
+    check('two distinct observations can flag a candidate without a diagnosis', repeated.indexOf('REPEATED PATTERN CANDIDATE') !== -1 && repeated.indexOf('scope_distortion') !== -1 && repeated.indexOf('VARC') !== -1 && repeated.indexOf('two distinct relevant attempts') !== -1 && repeated.indexOf('not a confirmed psychological diagnosis') !== -1 && repeated.indexOf('call it the same recurring error') !== -1);
     var unrelated = getBehavioralMemoryContext('How should I approach QA?', { intent:'qa_diagnosis', requestedSection:'qa' });
     check('a VARC candidate is not injected into a QA turn', unrelated.indexOf('REPEATED PATTERN CANDIDATE') === -1 && unrelated.indexOf('scope_distortion') === -1);
     behavioralMemory.patterns.forEach(function(pattern) { if (pattern.key === 'scope_distortion') pattern.counterEvidence = 'a later passage kept the limiter'; });
@@ -32881,10 +32951,10 @@ async function runDishaQuestionIntelligenceTests() {
     check('a stale pattern is not injected as a repeated candidate', stale.indexOf('REPEATED PATTERN CANDIDATE') === -1);
     behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:4, lastSeen:getTodayDate(), lastEvidence:'legacy passage', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
     var legacy = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
-    check('a pre-migration counter is not a distinct-attempt diagnosis', legacy.indexOf('stored count 4') !== -1 && legacy.indexOf('not a count of distinct attempts') !== -1 && legacy.indexOf('pre-migration data') !== -1 && legacy.indexOf('seen 4 times') === -1 && legacy.indexOf('REPEATED PATTERN CANDIDATE') === -1 && legacy.indexOf('distinct relevant attempts') === -1);
+    check('a pre-migration counter is not a distinct-attempt diagnosis', legacy.indexOf('stored count 4') !== -1 && legacy.indexOf('not a count of distinct attempts') !== -1 && legacy.indexOf('pre-migration data') !== -1 && legacy.indexOf('verified recurring behavior') !== -1 && legacy.indexOf('seen 4 times') === -1 && legacy.indexOf('seen 2+ times') === -1 && legacy.indexOf('call it the same recurring error') === -1 && legacy.indexOf('REPEATED PATTERN CANDIDATE') === -1 && legacy.indexOf('distinct relevant attempts') === -1);
     behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:4, eventIds:['only-one'], lastSeen:getTodayDate(), lastEvidence:'one id', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
     var oneId = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
-    check('one event id does not inherit an older counter as distinct attempts', oneId.indexOf('REPEATED PATTERN CANDIDATE') === -1 && oneId.indexOf('1 separate event id is on record') !== -1 && oneId.indexOf('seen 4 times') === -1);
+    check('one event id does not inherit an older counter as distinct attempts', oneId.indexOf('REPEATED PATTERN CANDIDATE') === -1 && oneId.indexOf('1 separate event id is on record') !== -1 && oneId.indexOf('seen 4 times') === -1 && oneId.indexOf('call it the same recurring error') === -1);
     behavioralMemory = { patterns:[{ section:'rc', key:'scope_distortion', label:'scope', occurrences:4, eventIds:['e1','e2'], lastSeen:getTodayDate(), lastEvidence:'two ids', source:'practice', sourceThreadId:'thread-disha', status:'hypothesis' }] };
     var surplus = getBehavioralMemoryContext('My VARC accuracy dropped', { intent:'varc_diagnosis', requestedSection:'varc' });
     check('a candidate uses event ids when the stored counter is higher', surplus.indexOf('two distinct relevant attempts') !== -1 && surplus.indexOf('4 distinct') === -1 && surplus.indexOf('seen 4 times') === -1 && surplus.indexOf('not a confirmed psychological diagnosis') !== -1);
@@ -32971,6 +33041,64 @@ async function runDishaQuestionIntelligenceTests() {
     beginDilrCheckpoint();
     var stalledWrong = maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 20 * 60 * 1000);
     check('a delayed tick with wrong answers stays a time checkpoint', !!stalledWrong && stalledWrong.indexOf('not a sunk-cost diagnosis') !== -1 && dilrCheckpointState.activeMs === 20 * 60 * 1000 && maybeFireDilrStrategicCheckpoint(dilrCheckpointState.startedAt + 40 * 60 * 1000) === null);
+    timedTestSubmitted = false;
+    timedTestSecondsLeft = 2400;
+    timedTestClockAnchorMs = 1000000;
+    timedTestClockHidden = false;
+    dilrCheckpointPageHiddenOverride = false;
+    advanceTimedTestClock(1000000 + 20 * 60 * 1000);
+    check('a delayed visible exam tick catches up by the elapsed seconds', timedTestSecondsLeft === 1200);
+    dilrCheckpointPageHiddenOverride = true;
+    syncTimedTestClockVisibility(timedTestClockAnchorMs + 30 * 1000);
+    var hiddenRemaining = timedTestSecondsLeft;
+    advanceTimedTestClock(timedTestClockAnchorMs + 10 * 60 * 1000);
+    check('hidden time does not run down the exam clock', timedTestSecondsLeft === hiddenRemaining && timedTestClockHidden === true);
+    var shownAt = timedTestClockAnchorMs + 10 * 60 * 1000;
+    dilrCheckpointPageHiddenOverride = false;
+    syncTimedTestClockVisibility(shownAt);
+    advanceTimedTestClock(shownAt + 8 * 60 * 1000);
+    check('visible time after a hide reduces only the visible minutes', timedTestSecondsLeft === hiddenRemaining - 8 * 60);
+    var sequenceBeforeClose = timedTestGenerationSequence;
+    closeTimedTest();
+    timedTestSubmitted = false;
+    timedTestSecondsLeft = 2400;
+    timedTestClockAnchorMs = 9000000;
+    timedTestClockHidden = false;
+    advanceTimedTestClock(9000000 + 5 * 1000);
+    check('switching sets starts a fresh exam clock', timedTestGenerationSequence === sequenceBeforeClose + 1 && !dilrCheckpointState && timedTestSecondsLeft === 2395 && timedTestClockHidden === false);
+    timedTestSecondsLeft = 30;
+    timedTestClockAnchorMs = 8000000;
+    timedTestClockHidden = false;
+    timedTestSubmitted = false;
+    var originalSubmit = submitTimedTest;
+    var autoSubmitted = false;
+    submitTimedTest = function(auto) { autoSubmitted = auto === true; timedTestSubmitted = true; stopTimedTestClock(); };
+    tickTimedTestClock(8000000 + 60 * 1000);
+    submitTimedTest = originalSubmit;
+    check('a delayed tick that passes zero auto-submits once', autoSubmitted === true && timedTestSecondsLeft === 0 && timedTestSubmitted === true);
+    timedTestSubmitted = false;
+    var guestWas = typeof isGuestMode === 'undefined' ? undefined : isGuestMode;
+    var userWas = typeof currentUser === 'undefined' ? undefined : currentUser;
+    var guestKey = guestSessionStorageKey();
+    var guestRaw = null;
+    try { guestRaw = sessionStorage.getItem(guestKey); } catch (error) {}
+    isGuestMode = true;
+    currentUser = null;
+    margActiveThreadId = 'thread-disha';
+    conversationHistory = [{ role:'user', content:'Clock should stay out of the reload snapshot.', threadId:'thread-disha' }];
+    timedTestSecondsLeft = 1234;
+    timedTestClockAnchorMs = 4321;
+    persistGuestBrowserSession();
+    var guestSnap = '';
+    try { guestSnap = sessionStorage.getItem(guestKey) || ''; } catch (error) {}
+    check('a reload snapshot does not store the exam clock', guestSnap.indexOf('1234') === -1 && guestSnap.indexOf('4321') === -1 && guestSnap.indexOf('timedTest') === -1);
+    isGuestMode = guestWas;
+    currentUser = userWas;
+    conversationHistory = [];
+    try {
+      if (guestRaw === null) sessionStorage.removeItem(guestKey);
+      else sessionStorage.setItem(guestKey, guestRaw);
+    } catch (error) {}
 
     var extracted = {
       status:'ready',
@@ -33092,6 +33220,8 @@ async function runDishaQuestionIntelligenceTests() {
     timedTestSubmitted = saved.submitted;
     timedTestGenerationSequence = saved.sequence;
     timedTestSecondsLeft = saved.seconds;
+    timedTestClockAnchorMs = saved.clockAnchor;
+    timedTestClockHidden = saved.clockHidden;
     dilrCheckpointState = saved.checkpoint;
     dilrCheckpointPageHiddenOverride = saved.hidden;
     margActiveThreadId = saved.thread;
