@@ -613,7 +613,7 @@ function resolvePreviousImageTurn(reference, threadData) {
   if (reference && reference.number) onlyQuestions = onlyQuestions.filter(function(question) { return String(question.question_number || '') === String(reference.number); });
   if (onlyQuestions.length > 1) {
     var threadId = typeof margActiveThreadId !== 'undefined' && margActiveThreadId ? margActiveThreadId : 'legacy';
-    var activeMatch = margActiveQuestionContext && (!margActiveQuestionContext.conversation_id || margActiveQuestionContext.conversation_id === threadId)
+    var activeMatch = margActiveQuestionContext && margActiveQuestionContext.conversation_id === threadId
       ? onlyQuestions.find(function(question) { return question.id === margActiveQuestionContext.question_id; })
       : null;
     if (activeMatch && !(reference && reference.number)) return { blocked:false, question:activeMatch };
