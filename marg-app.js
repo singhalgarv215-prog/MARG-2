@@ -1331,6 +1331,41 @@ function stripMentorDisplayControlTags(text) {
     .replace(/\[HYPOTHESIS_VERDICT:[^\]]*\]/gi, '');
 }
 
+function stripUnclosedMentorMarkers(text) {
+  var value = String(text || '');
+  ['MORE', 'NEXT'].forEach(function(kind) {
+    var openToken = '[[MARG_' + kind + ']]';
+    var closeToken = '[[/MARG_' + kind + ']]';
+    var cursor = 0;
+    var out = '';
+    var lower = value.toLowerCase();
+    var openKey = openToken.toLowerCase();
+    var closeKey = closeToken.toLowerCase();
+    while (cursor < value.length) {
+      var start = lower.indexOf(openKey, cursor);
+      if (start < 0) { out += value.slice(cursor); break; }
+      out += value.slice(cursor, start);
+      var end = lower.indexOf(closeKey, start + openKey.length);
+      if (end < 0) { cursor = value.length; break; }
+      out += value.slice(start, end + closeKey.length);
+      cursor = end + closeKey.length;
+    }
+    value = out;
+    lower = value.toLowerCase();
+  });
+  return value;
+}
+
+function hasUnclosedMentorMarker(text) {
+  var value = String(text || '');
+  function unbalanced(kind) {
+    var opens = value.match(new RegExp('\\[\\[MARG_' + kind + '\\]\\]', 'gi')) || [];
+    var closes = value.match(new RegExp('\\[\\[/MARG_' + kind + '\\]\\]', 'gi')) || [];
+    return opens.length > closes.length;
+  }
+  return unbalanced('MORE') || unbalanced('NEXT');
+}
+
 function mentorTextIsCatExercise(value) {
   if (typeof MargStudy === 'undefined' || !MargStudy.hasCatStructure(value)) return false;
   var withoutTables = String(value || '').split('\n').filter(function(line) { return !isMentorTableLine(line) && !isMentorTableRule(line); }).join('\n');
@@ -1348,7 +1383,7 @@ function renderMentorStructuredText(text) {
     visualBlocks.push(rendered);
     return '\n\n' + token + '\n\n';
   }
-  var sourceText = String(text || '').replace(/\[\[MARG_VISUAL\]\]([\s\S]*?)\[\[?\/MARG_VISUAL\]\]?/gi, function(_, json) {
+  var sourceText = stripUnclosedMentorMarkers(String(text || '')).replace(/\[\[MARG_VISUAL\]\]([\s\S]*?)\[\[?\/MARG_VISUAL\]\]?/gi, function(_, json) {
     var rendered = '';
     try { rendered = renderTrustedMentorVisual(JSON.parse(json.trim())); } catch(e) { rendered = ''; }
     return hold(rendered);
@@ -1500,9 +1535,18 @@ function renderMentorStructuredText(text) {
     } else if (bullet) {
       flushParagraph();
       blocks.push('<div class="mentor-list-item"><span class="mentor-list-mark">•</span><span>' + inline(bullet[1]) + '</span></div>');
+    } else if (/^(?:\*\*)?\d{1,2}[.)](?:\*\*)?\s*$/.test(line)) {
+      flushParagraph();
     } else if (numbered) {
       flushParagraph();
-      blocks.push('<div class="mentor-list-item"><span class="mentor-list-mark">' + numbered[1] + '.</span><span>' + inline(numbered[2]) + '</span></div>');
+      var stepBody = String(numbered[2] || '').trim();
+      var stepHtml = inline(stepBody);
+      if (looksLikeMentorEquation(stepBody)) {
+        stepHtml = equationNeedsOwnLine(stepBody)
+          ? renderMentorEquationBlock(stepBody)
+          : '<code class="mentor-inline-eq">' + escapeChatHtml(stepBody.replace(/`/g, '').trim()) + '</code>';
+      }
+      blocks.push('<div class="mentor-list-item"><span class="mentor-list-mark">' + numbered[1] + '.</span><span>' + stepHtml + '</span></div>');
     } else paragraph.push(line);
   }
   flushParagraph();
@@ -1609,10 +1653,22 @@ function evaluateDeterministicArithmetic(expression) {
   return stack.length === 1 && Number.isFinite(stack[0]) ? stack[0] : null;
 }
 
+function deterministicNumberParts(value) {
+  if (!Number.isFinite(value)) return null;
+  if (Math.abs(value - Math.round(value)) < 1e-8) return { text:String(Math.round(value)), approximate:false };
+  var text = String(Number(value.toFixed(6)));
+  return { text:text, approximate:Math.abs(value - Number(text)) > 1e-8 };
+}
+
 function formatDeterministicNumber(value) {
-  if (!Number.isFinite(value)) return '';
-  if (Math.abs(value - Math.round(value)) < 1e-8) return String(Math.round(value));
-  return String(Number(value.toFixed(6)));
+  var parts = deterministicNumberParts(value);
+  return parts ? parts.text : '';
+}
+
+function formatCheckedEquality(expression, value) {
+  var parts = deterministicNumberParts(value);
+  if (!parts) return String(expression || '').trim() + ' = ';
+  return String(expression || '').trim() + (parts.approximate ? ' ≈ ' : ' = ') + parts.text;
 }
 
 function deterministicExpressionValue(part) {
@@ -1655,7 +1711,6 @@ function statedSolutionAnswer(text) {
 }
 
 function repairInconsistentEqualityChains(text) {
-  var stated = statedSolutionAnswer(text);
   var operand = '(?:\\([^()]+\\)|\\d+(?:\\.\\d+)?)';
   var expression = operand + '(?:\\s*[×÷+\\-−–—*/^]\\s*' + operand + ')+';
   var chainPattern = new RegExp(expression + '(?:\\s*=\\s*' + expression + ')*(?:\\s*=\\s*' + operand + ')+', 'g');
@@ -1669,13 +1724,8 @@ function repairInconsistentEqualityChains(text) {
       var tolerance = Math.max(0.002, Math.abs(values[0]) * 0.01);
       var consistent = values.every(function(value) { return Math.abs(value - values[0]) <= tolerance; });
       if (consistent) return chain;
-      // The shown result is the answer already given. Replacing it with the
-      // left-hand product would publish a different number beside that answer.
-      if (typeof stated === 'number' && Number.isFinite(stated)) {
-        var answerTolerance = Math.max(0.002, Math.abs(stated) * 0.01);
-        if (Math.abs(values[values.length - 1] - stated) <= answerTolerance && Math.abs(values[0] - stated) > answerTolerance) return chain;
-      }
-      return parts[0] + ' = ' + formatDeterministicNumber(values[0]);
+      // A labelled answer must not keep a product that does not equal it.
+      return formatCheckedEquality(parts[0], values[0]);
     });
   }).join('\n');
 }
@@ -1692,31 +1742,94 @@ function guardDeterministicArithmeticEqualities(text) {
     return '\u0000(' + a + ' × ' + b + ') ' + firstOperator.replace('−', '-') + ' (' + c + ' × ' + d + ') = ' + first + ' ' + firstOperator.replace('−', '-') + ' ' + second + ' = ' + net;
   });
   value = repairInconsistentEqualityChains(repairPercentFractionClaims(value));
-  var statedAnswer = statedSolutionAnswer(value);
   // Recompute only self-contained numeric equalities. Algebraic equations are
   // left alone; they need symbolic reasoning rather than a brittle parser.
   var equalityPattern = /(^|\n|[:;=]\s*)([₹\s\d,.()+\-−–—×·÷*/^√%]+)=\s*((?:₹|Rs\.?\s*)?-?[\d,]+(?:\.\d+)?)/gim;
-  return value.split('\n').map(function(line) {
+  value = value.split('\n').map(function(line) {
     // Multi-equality score expansions were normalised as a whole above. A
     // second local rewrite would compare the total expression with the first
     // displayed product and corrupt a now-valid chain.
     if (line.indexOf('\u0000') !== -1) return line.replace(/\u0000/g, '');
     return line.replace(equalityPattern, function(match, boundary, expression, shown, offset, source) {
-    if (/^\s*[\/×÷*+]/.test(String(source || '').slice(offset + match.length))) return match;
+    if (/^\s*[\/×÷*+^A-Za-z]/.test(String(source || '').slice(offset + match.length))) return match;
     var computed;
     try { computed = evaluateDeterministicArithmetic(expression); } catch(e) { return match; }
     var shownNumber = Number(String(shown).replace(/(?:₹|Rs\.?)/gi, '').replace(/,/g, '').trim());
     if (computed === null || !Number.isFinite(shownNumber)) return match;
-    if (typeof statedAnswer === 'number' && Number.isFinite(statedAnswer) && Math.abs(shownNumber - statedAnswer) <= Math.max(1e-9, Math.abs(statedAnswer) * 1e-8) && Math.abs(computed - shownNumber) > Math.max(1e-9, Math.abs(computed) * 1e-8)) return match;
     var tolerance = Math.max(1e-9, Math.abs(computed) * 1e-8);
-    if (Math.abs(computed - shownNumber) <= tolerance) return match;
-    var corrected = Math.abs(computed - Math.round(computed)) < 1e-10
-      ? String(Math.round(computed))
-      : String(Number(computed.toFixed(6)));
+    var parts = deterministicNumberParts(computed);
+    if (!parts) return match;
+    if (!parts.approximate && Math.abs(computed - shownNumber) <= tolerance) return match;
+    if (parts.approximate && Math.abs(computed - shownNumber) <= tolerance && /≈/.test(match)) return match;
     var prefix = /₹/.test(shown) ? '₹' : /Rs\.?/i.test(shown) ? 'Rs. ' : '';
-    return boundary + expression + '= ' + prefix + corrected;
+    return boundary + String(expression || '').trim() + (parts.approximate ? ' ≈ ' : ' = ') + prefix + parts.text;
     });
   }).join('\n');
+  value = noteLabelledAnswerDisagreement(text, value);
+  return guardPrimePowerFactorCount(value);
+}
+
+function noteLabelledAnswerDisagreement(original, repaired) {
+  var stated = statedSolutionAnswer(original);
+  if (typeof stated !== 'number' || !Number.isFinite(stated)) return repaired;
+  if (String(original || '') === String(repaired || '')) return repaired;
+  if (/does not equal the checked value/i.test(repaired)) return repaired;
+  var oldShown = [];
+  var newShown = [];
+  String(original || '').replace(/=\s*(?:₹|Rs\.?\s*)?(-?\d+(?:\.\d+)?)/g, function(_match, number) {
+    oldShown.push(Number(number));
+    return _match;
+  });
+  String(repaired || '').replace(/(?:=|≈)\s*(?:₹|Rs\.?\s*)?(-?\d+(?:\.\d+)?)/g, function(_match, number) {
+    newShown.push(Number(number));
+    return _match;
+  });
+  var checked = null;
+  for (var i = 0; i < oldShown.length && i < newShown.length; i++) {
+    if (!Number.isFinite(oldShown[i]) || !Number.isFinite(newShown[i])) continue;
+    var matchedLabel = Math.abs(oldShown[i] - stated) <= Math.max(1e-6, Math.abs(stated) * 1e-6);
+    var changed = Math.abs(newShown[i] - oldShown[i]) > Math.max(1e-6, Math.abs(newShown[i]) * 1e-6);
+    if (matchedLabel && changed) checked = newShown[i];
+  }
+  if (checked === null) return repaired;
+  return String(repaired).replace(/\s+$/, '') + '\nThe labelled answer ' + formatDeterministicNumber(stated) + ' does not equal the checked value ' + formatDeterministicNumber(checked) + '.';
+}
+
+function primePowerExponents(line) {
+  var text = String(line || '');
+  if (!/=/.test(text) || /\blog\b/i.test(text)) return null;
+  var rhs = text.split('=').pop().trim().replace(/[.,]$/, '');
+  var pieces = rhs.split(/\s*[×*]\s*/).map(function(part) { return part.trim(); }).filter(Boolean);
+  if (!pieces.length) return null;
+  var exponents = [];
+  for (var i = 0; i < pieces.length; i++) {
+    var power = pieces[i].match(/^(\d+)\s*\^\s*(\d+)$/);
+    if (!power || Number(power[1]) < 2) return null;
+    exponents.push(Number(power[2]));
+  }
+  return exponents;
+}
+
+function positiveFactorCount(exponents) {
+  return exponents.reduce(function(product, exponent) { return product * (exponent + 1); }, 1);
+}
+
+function guardPrimePowerFactorCount(text) {
+  var value = String(text || '');
+  if (/does not match that factorization/i.test(value)) return value;
+  var lines = value.split('\n');
+  var exponents = null;
+  lines.forEach(function(line) {
+    var found = primePowerExponents(line);
+    if (found) exponents = found;
+  });
+  if (!exponents) return value;
+  var expected = positiveFactorCount(exponents);
+  var labelled = statedSolutionAnswer(value);
+  if (typeof labelled !== 'number' || !Number.isFinite(labelled)) return value;
+  if (Math.abs(labelled - expected) <= Math.max(1e-6, Math.abs(expected) * 1e-6)) return value;
+  var powers = exponents.map(function(exponent) { return exponent; }).join(', ');
+  return value.replace(/\s+$/, '') + '\nThe factorization uses prime exponents ' + powers + '. Its positive factor count is ' + expected + '. The labelled count ' + formatDeterministicNumber(labelled) + ' does not match that factorization.';
 }
 
 function addMargMessage(text, isHtml) {
@@ -6380,7 +6493,7 @@ function hypothesisContextEvidence(topic) {
   if (mock && (topic === 'varc' || topic === 'dilr' || topic === 'qa' || topic === 'mock')) {
     var score = topic === 'mock' ? 'VARC ' + mock.varc + ', DILR ' + mock.dilr + ', QA ' + mock.qa + ', total ' + mock.total : topic.toUpperCase() + ' ' + mock[topic];
     rows.push({
-      type:'practice_attempt', kind:'mock_data', supports:null, strength:0.5, clientRef:'mock-' + String(mock.date || mocks.length),
+      type:'practice_attempt', kind:'mock_data', supports:null, strength:0.5, clientRef:'mock-' + String(mock.clientRef || mock.client_ref || mock.id || ((mock.date || '') + ':' + mock.varc + ':' + mock.dilr + ':' + mock.qa)),
       claim:'Latest recorded mock' + (mock.date ? ' (' + mock.date + ')' : '') + ': ' + score + '. An outcome, not a cause.'
     });
   }
@@ -12410,7 +12523,7 @@ async function runStudyExperienceTests() {
     var cleanedPile = await resolveStudyReply({ candidates:[{ finishReason:'STOP', content:{ parts:[{ text:piled }] } }] }, { contents:[], generationConfig:{} }, 1000);
     check('duplicate solution closers are removed from one reply', cleanedPile.indexOf('log_2(2x) = 6') !== -1 && cleanedPile.indexOf('(6 + 1) × (6 + 1) = 49') !== -1 && cleanedPile.indexOf('selected batch') === -1 && cleanedPile.indexOf('fully batched') === -1 && cleanedPile.indexOf('Move to Q9') === -1 && cleanedPile.indexOf('Using the other option') === -1 && !/could not finish/.test(cleanedPile));
     var keptFactor = guardDeterministicArithmeticEqualities('Answer is 49.\n(8 + 1) × (6 + 1) = 49');
-    check('a stated answer is not replaced by a conflicting factor product', keptFactor.indexOf('= 49') !== -1 && keptFactor.indexOf('= 63') === -1 && keptFactor.indexOf('63') === -1);
+    check('a labelled answer does not keep a product that disagrees with it', keptFactor.indexOf('(8 + 1) × (6 + 1) = 49') === -1 && keptFactor.indexOf('63') !== -1 && /does not equal the checked value/.test(keptFactor));
     var keptLog = guardDeterministicArithmeticEqualities('Q8 — factors of x^4 from logarithms system: 49\n2 + log_2(2x) = 8\nlog_2(2x) = 6');
     check('a logarithm line is not rewritten as arithmetic', keptLog.indexOf('log_2(2x) = 8') !== -1 && keptLog.indexOf('log_2(2x) = 6') !== -1);
     var keptAnswer = guardCleanSolvedQuestionResponse('Answer is 49.\nlog_2(2x) = 8\nlog_2(2x) = 6\nx = 2', { hasImage:true, intent:'image_question', submittedAnswerText:'Solve Q8 from the uploaded pictures' });
@@ -17852,8 +17965,26 @@ function getProgressiveProfileMemoryContext(message, diagnosis) {
   return context + '\n\nNATURAL PROFILE OPENING — ' + profilePrompt.replace('[Name]', firstName || 'One thing') + ' Ask only this one optional question after delivering value. Ask it only at a genuine conversational pause, never in the middle of analysis, a live exercise, an emotional moment, or an action being executed now. A self-study task the student will do after this chat is a natural pause, not a reason to suppress the question. Do not call it profile-building or continue into a second profile question.';
 }
 
+function profileQuestionExcerpt(response) {
+  var text = stripUnclosedMentorMarkers(String(response || ''))
+    .replace(/\[\[[^\]]+\]\][\s\S]*?\[\[\/[^\]]+\]\]/g, ' ')
+    .replace(/\s*\[(?:OPTIONS|CONTEXT|START_TEST):[^\]]*\]/gi, ' ');
+  var questions = text.split(/\n+/).map(function(line) { return line.trim(); }).filter(function(line) { return /\?/.test(line); });
+  var question = questions.length ? questions[questions.length - 1] : '';
+  return question.replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+function replyMayEnterProfileState(response) {
+  var text = String(response || '');
+  if (!text.trim() || hasUnclosedMentorMarker(text)) return false;
+  if (/could not finish the rest of this answer/i.test(text)) return false;
+  if (typeof MargStudy !== 'undefined' && MargStudy.looksCutOff && MargStudy.looksCutOff(text)) return false;
+  return true;
+}
+
 function markProgressiveProfileFollowUpIfAsked(response) {
   var value = String(response || '');
+  if (!replyMayEnterProfileState(value)) return;
   var field = '';
   if (/\[CONTEXT:\s*profile_topic_familiarity\]/i.test(value)) field = 'topicFamiliarity';
   else if (/first CAT attempt|first attempt.{0,25}second|second.{0,25}third.{0,15}later|\[CONTEXT:\s*profile_attempt\]/i.test(value)) field = 'attemptNumber';
@@ -17868,18 +17999,22 @@ function markProgressiveProfileFollowUpIfAsked(response) {
     var topic = detectCatTopicForProfile(value);
     var topicKey = topicProfileKey(topic);
     if (!topic || memory.topicFamiliarity[topicKey]) return;
+    var topicPrompt = profileQuestionExcerpt(value);
+    if (!topicPrompt) return;
     memory.followUps['topicFamiliarity:' + topicKey] = new Date().toISOString();
     memory.awaitingField = 'topicFamiliarity';
     memory.awaitingTopic = topic;
-    memory.awaitingPrompt = value.substring(0, 800);
+    memory.awaitingPrompt = topicPrompt;
     memory.lastFollowUpUserTurn = (conversationHistory || []).filter(function(item) { return item && item.role === 'user' && !isInternalMemoryMessage(item); }).length;
     saveProgressiveProfileMemory(memory);
     return;
   }
   if ((field === 'attemptNumber' && memory.attemptNumber) || (field === 'mockSeries' && memory.mockSeries.length) || (field === 'dreamCollege' && memory.dreamCollege) || (field === 'attemptStrategy' && memory.attemptStrategy) || (field === 'studyHours' && memory.studyHours) || (field === 'prepResources' && memory.prepResources.length)) return;
+  var prompt = profileQuestionExcerpt(value);
+  if (!prompt) return;
   memory.followUps[field] = new Date().toISOString();
   memory.awaitingField = field;
-  memory.awaitingPrompt = value.substring(0, 800);
+  memory.awaitingPrompt = prompt;
   memory.lastFollowUpUserTurn = (conversationHistory || []).filter(function(item) { return item && item.role === 'user' && !isInternalMemoryMessage(item); }).length;
   saveProgressiveProfileMemory(memory);
 }
@@ -18945,7 +19080,7 @@ function cleanMentorOpeningPunctuation(text) {
 }
 
 function stripInternalMentorTags(text) {
-  var value = String(text || '');
+  var value = stripUnclosedMentorMarkers(String(text || ''));
   // Internal memory is persisted as an assistant row for transport, but it is
   // never student-facing content. If a malformed model response echoes the
   // marker, discard the leaked tail rather than attempting to prettify it.
@@ -19247,6 +19382,54 @@ function guardMockScoreArithmeticOverclaim(text, diagnosis) {
     value = 'Use both series as separate pieces of evidence, not as permanently “realistic” and “artificial” categories. Compare percentile, attempts, accuracy and the complete disputed questions before deciding what the score difference means.' + (value.trim() ? '\n\n' + value.trim() : '');
   }
   return value.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function scoreOnlyMessage(text) {
+  var supplied = String(text || '');
+  var hasScore = /\b(?:mock|scorecard|sectional|scored|score|marks?|VARC|DILR|QA)\b/i.test(supplied) && /\b(?:VARC|DILR|QA|total|score|marks?)\b/i.test(supplied) && /\d/.test(supplied);
+  if (!hasScore || /\b(?:solve|calculate|find the|equation|passage|option)\b/i.test(supplied)) return false;
+  return true;
+}
+
+function guardScoreOnlyUnsupportedClaims(text, diagnosis) {
+  var supplied = String(diagnosis && diagnosis.submittedAnswerText || '');
+  if (!scoreOnlyMessage(supplied)) return String(text || '');
+  var suppliesAttempts = /\b(?:attempt(?:ed|s)?|questions?\s+solved|solved\s+\d+)\b/i.test(supplied);
+  var suppliesAccuracy = /\baccuracy\b|\d+\s*%/i.test(supplied);
+  var suppliesTime = /\b\d+(?:\.\d+)?\s*(?:seconds?|minutes?|mins?|hours?)\b/i.test(supplied);
+  var suppliesPercentile = /\b(?:percentile|%ile)\b/i.test(supplied);
+  var value = String(text || '');
+  var removed = false;
+  function drop(pattern) {
+    value = value.replace(pattern, function() { removed = true; return ''; });
+  }
+  if (!suppliesPercentile) drop(/[^.!?\n]*\b(?:percentile|%ile)\b[^.!?\n]*[.!?]?/gi);
+  if (!suppliesAttempts) drop(/[^.!?\n]*\b(?:you\s+(?:attempted|solved)|attempted\s+\d+|questions?\s+solved|\d+\s+questions?\s+solved)\b[^.!?\n]*[.!?]?/gi);
+  if (!suppliesAccuracy) drop(/[^.!?\n]*\baccuracy\b[^.!?\n]*[.!?]?/gi);
+  if (!suppliesTime) drop(/[^.!?\n]*\b(?:spent|took|used)\s+\d+[^.!?\n]*\b(?:minutes?|mins?|seconds?|hours?)\b[^.!?\n]*[.!?]?/gi);
+  value = value.replace(/\n{3,}/g, '\n\n').trim();
+  if (!removed) return value;
+  if (/^Observed:/m.test(value)) return value;
+  var boundary = 'Observed: the message gives scores only.\nHypothesis: none yet. A score does not name the cause.\nUnknown: attempts, accuracy, time, and percentile were not in the message.\nNext check: send the attempted, correct, and time split for one section before any percentile or accuracy claim.';
+  return (boundary + (value ? '\n\n' + value : '')).trim();
+}
+
+function guardDilrClueDeductions(text, diagnosis) {
+  var user = String(diagnosis && diagnosis.submittedAnswerText || '');
+  if (!/\b(?:DILR|LRDI|clues?|seated|arrangement)\b/i.test(user)) return String(text || '');
+  var clues = user.split('\n').map(function(line) { return line.trim(); }).filter(function(line) {
+    return /^(?:\d+[.)]|clue\s+\d+\b)/i.test(line) && line.length > 8;
+  });
+  if (clues.length < 2) return String(text || '');
+  var value = String(text || '');
+  if (/\bskipped at least one source clue\b/i.test(value)) return value;
+  var cites = 0;
+  clues.forEach(function(_clue, index) {
+    if (new RegExp('\\b(?:clue|condition|point)\\s*' + (index + 1) + '\\b', 'i').test(value)) cites++;
+  });
+  if (cites >= clues.length) return value;
+  if (!/\b(?:therefore|so the|final arrangement|the answer|must sit|sits in|order is)\b/i.test(value)) return value;
+  return value.trim() + '\n\nThis reply skipped at least one source clue. Each deduction has to name the clue it uses, in order, before the arrangement is treated as shown.';
 }
 
 function guardUnusableExerciseEvidence(text, diagnosis) {
@@ -20131,6 +20314,8 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardPromptInstructionLeak(text, diagnosis);
   text = guardSectionalEvidenceOverclaim(text, diagnosis);
   text = guardMockScoreArithmeticOverclaim(text, diagnosis);
+  text = guardScoreOnlyUnsupportedClaims(text, diagnosis);
+  text = guardDilrClueDeductions(text, diagnosis);
   text = guardExplicitEvidenceFirstRequest(text, diagnosis);
   text = guardUnusableExerciseEvidence(text, diagnosis);
   text = guardVagueMentorAdvice(text, diagnosis);
@@ -24681,6 +24866,7 @@ function redundantSolutionCloserLine(line) {
   if (/\bcompleted the full answer\b/i.test(value)) return true;
   if (/^by\s+q\s*\d+\b/i.test(value) && /\b(?:batch|unclear|above|next)\b/i.test(value)) return true;
   if (/^using the other option\b/i.test(value)) return true;
+  if (/\bsay continue\b/i.test(value)) return true;
   return false;
 }
 
@@ -24693,29 +24879,46 @@ function closerLinesNearlySame(a, b) {
   return left === right || left.indexOf(right) !== -1 || right.indexOf(left) !== -1;
 }
 
+function stripRepeatedSolutionBlocks(text) {
+  var blocks = String(text || '').split(/\n{2,}/);
+  var seen = {};
+  var kept = [];
+  blocks.forEach(function(block) {
+    var key = block.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (key.length >= 40 && seen[key]) return;
+    if (key.length >= 40) seen[key] = true;
+    kept.push(block);
+  });
+  return kept.join('\n\n');
+}
+
 function stripRedundantSolutionClosers(text) {
   var value = String(text || '').replace(/\s+$/, '');
   if (!value) return value;
   var lines = value.split('\n');
-  var end = lines.length;
-  var removed = '';
-  while (end > 0) {
-    var line = lines[end - 1].trim();
-    if (!line || redundantSolutionCloserLine(line) || (removed && closerLinesNearlySame(line, removed))) {
-      if (line) removed = line;
-      end--;
-      continue;
+  var keptLines = [];
+  var previousCloser = '';
+  lines.forEach(function(line) {
+    var trimmed = line.trim();
+    if (redundantSolutionCloserLine(trimmed)) {
+      previousCloser = trimmed;
+      return;
     }
-    break;
-  }
-  var kept = lines.slice(0, end).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (previousCloser && closerLinesNearlySame(trimmed, previousCloser)) return;
+    if (trimmed) previousCloser = '';
+    keptLines.push(line);
+  });
+  var kept = stripRepeatedSolutionBlocks(keptLines.join('\n').replace(/\n{3,}/g, '\n\n').trim());
   if (!kept) return String(text || '').trim();
   if (statedSolutionAnswer(value) !== null && statedSolutionAnswer(kept) === null) return String(text || '').trim();
   return kept;
 }
 
 function mentorSolutionAlreadyComplete(text) {
-  var value = stripRedundantSolutionClosers(text);
+  var raw = String(text || '');
+  if (hasUnclosedMentorMarker(raw)) return false;
+  if (/could not finish the rest of this answer/i.test(raw)) return false;
+  var value = stripRedundantSolutionClosers(raw);
   if (!value || typeof MargStudy === 'undefined' || MargStudy.looksCutOff(value)) return false;
   if (statedSolutionAnswer(value) === null) return false;
   var equations = value.split('\n').filter(function(line) { return /=/.test(line) && /\d/.test(line); });
@@ -26863,7 +27066,9 @@ function restoreGuestTabSession() {
   if (typeof margThreadOwner !== 'undefined') margThreadOwner = 'guest';
   if (typeof margActiveThreadId !== 'undefined') margActiveThreadId = saved.active || 'legacy';
   conversationHistory = saved.history.filter(function(item) { return !item.threadId || item.threadId === margActiveThreadId; });
-  if (!conversationHistory.length) conversationHistory = saved.history.slice();
+  // Untagged legacy snapshots have no thread to separate. A tagged history
+  // from another chat must not become this thread's transcript.
+  if (!conversationHistory.length && !saved.history.some(function(item) { return item && item.threadId; })) conversationHistory = saved.history.slice();
   if (saved.profile) progressiveProfileMemory = saved.profile;
   if (saved.goal) personalGoalMemory = saved.goal;
   if (saved.studentProfile) studentProfile = saved.studentProfile;
@@ -28798,13 +29003,23 @@ function buildPreviousMockAnalyses() {
       }
     }
     var ref = simpleStableHash(message.content);
-    var identity = scores
-      ? [message.createdAt || '', scores.varc, scores.dilr, scores.qa].join(':')
-      : [message.createdAt || '', 'scorecard', ref].join(':');
-    if (seen[identity]) return;
+    var contentKey = simpleStableHash(String(message.threadId || 'legacy') + '\n' + String(message.content || '').trim());
+    var stamp = Date.parse(message.createdAt || '') || 0;
+    var identity = message.id
+      ? 'id:' + message.id
+      : [contentKey, stamp ? String(Math.round(stamp / 1000)) : '', scores ? [scores.varc, scores.dilr, scores.qa].join(':') : ref].join(':');
+    var duplicateEvent = analyses.some(function(item) {
+      if (!item || item.contentKey !== contentKey) return false;
+      if (item.scores && scores && (item.scores.varc !== scores.varc || item.scores.dilr !== scores.dilr || item.scores.qa !== scores.qa)) return false;
+      var other = Date.parse(item.createdAt || '') || 0;
+      if (!stamp || !other) return true;
+      return Math.abs(stamp - other) <= 2000;
+    });
+    if (seen[identity] || duplicateEvent) return;
     seen[identity] = true;
     analyses.push({
       ref:ref,
+      contentKey:contentKey,
       threadId:message.threadId||'legacy',
       createdAt:message.createdAt || null,
       scores:scores,
@@ -28814,17 +29029,31 @@ function buildPreviousMockAnalyses() {
 
   (studentProfile.mockHistory || []).forEach(function(mock) {
     if (!mock) return;
-    var identity = [mock.date || '', Number(mock.varc || 0), Number(mock.dilr || 0), Number(mock.qa || 0)].join(':');
+    var mockStamp = Date.parse(mock.date || mock.createdAt || '') || 0;
+    var mockRef = mock.clientRef || mock.client_ref || mock.id || '';
+    var identity = mockRef
+      ? 'ref:' + mockRef
+      : [(mockStamp ? String(Math.round(mockStamp / 1000)) : String(mock.date || '')), Number(mock.varc || 0), Number(mock.dilr || 0), Number(mock.qa || 0)].join(':');
+    var duplicateRecord = analyses.some(function(item) {
+      if (!item || !item.scores) return false;
+      if (mockRef && item.recordRef && item.recordRef !== mockRef) return false;
+      if (Number(item.scores.varc) !== Number(mock.varc || 0) || Number(item.scores.dilr) !== Number(mock.dilr || 0) || Number(item.scores.qa) !== Number(mock.qa || 0)) return false;
+      var other = Date.parse(item.createdAt || '') || 0;
+      if (!mockStamp || !other) return String(item.createdAt || '').slice(0, 10) === String(mock.date || '').slice(0, 10);
+      return Math.abs(mockStamp - other) <= 2000;
+    });
     var alreadyRepresented = analyses.some(function(item) {
+      if (mockRef && item.recordRef && item.recordRef !== mockRef) return false;
       return item.scores && Number(item.scores.varc) === Number(mock.varc || 0)
         && Number(item.scores.dilr) === Number(mock.dilr || 0)
         && Number(item.scores.qa) === Number(mock.qa || 0)
         && (!item.createdAt || !mock.date || String(item.createdAt).slice(0, 10) === String(mock.date).slice(0, 10));
     });
-    if (seen[identity] || alreadyRepresented) return;
+    if (seen[identity] || alreadyRepresented || (!mockRef && duplicateRecord)) return;
     seen[identity] = true;
     analyses.push({
       ref:null,
+      recordRef:mockRef || null,
       createdAt:mock.date || null,
       scores:{ varc:Number(mock.varc || 0), dilr:Number(mock.dilr || 0), qa:Number(mock.qa || 0), total:Number(mock.total || (Number(mock.varc || 0) + Number(mock.dilr || 0) + Number(mock.qa || 0))) },
       preview:'The score is saved. Its detailed discussion remains in your Marg chat history.'
@@ -33233,3 +33462,133 @@ async function runDishaQuestionIntelligenceTests() {
   return results;
 }
 window.runDishaQuestionIntelligenceTests = runDishaQuestionIntelligenceTests;
+
+async function runConversationDefectTests() {
+  var results = [];
+  function check(name, passed) { results.push({ name:name, passed:!!passed }); }
+  var savedHistory = conversationHistory;
+  var savedProfile = studentProfile;
+  var savedMemory = progressiveProfileMemory;
+  var savedThread = typeof margActiveThreadId === 'undefined' ? undefined : margActiveThreadId;
+  var savedQuestion = typeof margActiveQuestionContext === 'undefined' ? undefined : margActiveQuestionContext;
+  var savedLibrary = typeof fetchQuestionLibraryData === 'function' ? fetchQuestionLibraryData : null;
+  var profileKey = progressiveProfileStorageKey();
+  var profileRaw = null;
+  var guestKey = guestSessionStorageKey();
+  var guestRaw = null;
+  try { profileRaw = localStorage.getItem(profileKey); } catch (error) {}
+  try { guestRaw = sessionStorage.getItem(guestKey); } catch (error) {}
+  try {
+    var closed = renderMentorStructuredText('The answer is 21.\n[[MARG_MORE]]label: Why the other options fail\n49 counts the wrong exponents.\n[[/MARG_MORE]]\n[[MARG_NEXT]]{"kind":"resolved","line":"Try one fresh item.","options":["Send a question"]}[[/MARG_NEXT]]\n[OPTIONS: VARC|DILR|QA][CONTEXT: section]');
+    check('closed markers stay interactive controls', closed.indexOf('[[MARG_MORE]]') === -1 && closed.indexOf('mentor-more') !== -1 && closed.indexOf('mentor-next-option') !== -1 && closed.indexOf('[OPTIONS') === -1 && closed.indexOf('marg-choice') !== -1);
+    var opened = renderMentorStructuredText('The answer is 21.\n[[MARG_MORE]]label: Why\nthis was cut off\n[[MARG_NEXT]]{"kind":"resolved"');
+    check('an unclosed marker is not shown as raw text', opened.indexOf('[[MARG_MORE]]') === -1 && opened.indexOf('[[MARG_NEXT]]') === -1 && opened.indexOf('The answer is 21') !== -1 && opened.indexOf('mentor-more') === -1);
+    var steps = renderMentorStructuredText('1. 2 × 40 × 60 ÷ (40 + 60) = 48\n2. The harmonic mean is the equal-distance average.\n3.');
+    check('a numbered equation keeps its step and an empty marker is not a finished step', steps.indexOf('mentor-list-mark') !== -1 && steps.indexOf('>1.<') !== -1 && steps.indexOf('mentor-equation') !== -1 && steps.indexOf('harmonic mean') !== -1 && steps.indexOf('>3.<') === -1);
+
+    var walk = guardDeterministicArithmeticEqualities('Answer is 48.\n(40 + 60) / 2 = 48');
+    var harmonic = guardDeterministicArithmeticEqualities('Answer is 48.\n2 × 40 × 60 / (40 + 60) = 48');
+    var train = guardDeterministicArithmeticEqualities('Answer is 72.\n(150 + 250) / 20 × 18 / 5 = 20');
+    var rounded = guardDeterministicArithmeticEqualities('22 / 7 = 3.14');
+    var exact = guardDeterministicArithmeticEqualities('2 × 3 = 6');
+    check('an arithmetic-mean step cannot wear a harmonic answer', walk.indexOf('(40 + 60) / 2 = 48') === -1 && walk.indexOf('50') !== -1 && /does not equal the checked value/.test(walk));
+    check('a valid equal-distance average stays exact', harmonic.indexOf('= 48') !== -1 && harmonic.indexOf('≈') === -1 && !/does not equal the checked value/.test(harmonic));
+    check('a distance-time conversion is recomputed', train.indexOf('= 72') !== -1 && train.indexOf('= 20') === -1);
+    check('a rounded quotient is not printed as an exact equality', rounded.indexOf('≈') !== -1 && rounded.indexOf('= 3.14') === -1 && exact.indexOf('2 × 3 = 6') !== -1 && exact.indexOf('≈') === -1);
+    var factorCount = (20 + 1);
+    var logFactors = guardDeterministicArithmeticEqualities('Total factors: 49\n2x = 64\nx = 32 = 2^5\nx^4 = 2^20\n(6 + 1) × (6 + 1) = 49');
+    var validFactors = guardDeterministicArithmeticEqualities('Total factors: ' + factorCount + '\nx^4 = 2^20\n20 + 1 = ' + factorCount);
+    check('a factor count has to match the prime exponents in the working', logFactors.indexOf('2^20') !== -1 && logFactors.indexOf(String(factorCount)) !== -1 && /does not match that factorization/.test(logFactors) && !/does not match that factorization/.test(validFactors));
+
+    var midClosers = 'Total factors: 21\nx^4 = 2^20\nThe solution for Q8 is completely covered above.\n20 + 1 = 21\nBy Q8 next from your selected batch.\nSay continue.\nThe solution for Q8 is completely covered above.';
+    var cleanedClosers = stripRedundantSolutionClosers(midClosers);
+    check('repeated solution closers are removed even between steps', cleanedClosers.indexOf('2^20') !== -1 && cleanedClosers.indexOf('20 + 1 = 21') !== -1 && cleanedClosers.indexOf('completely covered') === -1 && cleanedClosers.indexOf('selected batch') === -1 && cleanedClosers.indexOf('Say continue') === -1);
+    var duplicated = stripRedundantSolutionClosers('Step-by-step solution for the factor count.\n\nTotal factors: 21\n\nStep-by-step solution for the factor count.');
+    check('a repeated completed answer is kept once', (duplicated.match(/Step-by-step solution for the factor count/g) || []).length === 1 && duplicated.indexOf('Total factors: 21') !== -1);
+    var truncated = 'Total factors: 49\n1. 2x = 64\n2.';
+    var cutMarker = 'Total factors: 21\n1. 2x = 64\n[[MARG_MORE]]why 49 fails';
+    check('a truncated derivation is not treated as a finished answer', MargStudy.looksCutOff(truncated) && mentorSolutionAlreadyComplete(truncated) === false && mentorSolutionAlreadyComplete(cutMarker) === false && !MargStudy.looksCutOff('Total factors = (8 + 1) × (6 + 1) = 49'));
+
+    progressiveProfileMemory = null;
+    try { localStorage.removeItem(profileKey); } catch (error) {}
+    conversationHistory = [];
+    markProgressiveProfileFollowUpIfAsked('2x = 64\nWhich mock series are you using right now—TIME, IMS, or mixing more than one?\n3.');
+    var blockedMemory = loadProgressiveProfileMemory();
+    check('a truncated reply does not become a pending profile prompt', !blockedMemory.awaitingField && !blockedMemory.awaitingPrompt);
+    progressiveProfileMemory = null;
+    try { localStorage.removeItem(profileKey); } catch (error) {}
+    markProgressiveProfileFollowUpIfAsked('The section scores are recorded.\nWhich mock series are you using right now—TIME, IMS, or mixing more than one?');
+    var askedMemory = loadProgressiveProfileMemory();
+    check('a finished profile question stores only that question', askedMemory.awaitingField === 'mockSeries' && askedMemory.awaitingPrompt.indexOf('Which mock series') !== -1 && askedMemory.awaitingPrompt.indexOf('section scores') === -1 && askedMemory.awaitingPrompt.indexOf('[[') === -1);
+
+    conversationHistory = [
+      { role:'user', content:'My mock scores were VARC 24 DILR 18 QA 15.', createdAt:'2026-10-23T10:00:00.000Z', threadId:'t1' },
+      { role:'assistant', content:'Scores noted.', createdAt:'2026-10-23T10:00:01.000Z', threadId:'t1' },
+      { role:'user', content:'My mock scores were VARC 24 DILR 18 QA 15.', createdAt:'2026-10-23T10:00:00.400Z', threadId:'t1' },
+      { role:'assistant', content:'Scores noted again.', createdAt:'2026-10-23T10:00:01.200Z', threadId:'t1' },
+      { role:'user', content:'Second mock scores were VARC 30 DILR 20 QA 22 today.', createdAt:'2026-10-23T18:00:00.000Z', threadId:'t1' },
+      { role:'assistant', content:'Different paper.', createdAt:'2026-10-23T18:00:01.000Z', threadId:'t1' }
+    ];
+    studentProfile = { mockHistory:[
+      { date:'2026-10-24T10:00:00.000Z', varc:11, dilr:12, qa:13, total:36 },
+      { date:'2026-10-24T10:00:00.500Z', varc:11, dilr:12, qa:13, total:36 },
+      { date:'2026-10-24T10:00:00.200Z', varc:21, dilr:12, qa:13, total:46, clientRef:'attempt-b' }
+    ] };
+    var analyses = buildPreviousMockAnalyses();
+    check('the same mock event is stored once and a different attempt remains', analyses.filter(function(item) { return item.scores && item.scores.varc === 24; }).length === 1 && analyses.some(function(item) { return item.scores && item.scores.varc === 30; }) && analyses.filter(function(item) { return item.scores && item.scores.varc === 11; }).length === 1 && analyses.some(function(item) { return item.scores && item.scores.varc === 21 && item.recordRef === 'attempt-b'; }));
+
+    var scoreReply = guardScoreOnlyUnsupportedClaims('This looks like an 85 percentile. You solved 14 questions at 70% accuracy and spent 40 minutes in VARC.', { submittedAnswerText:'My mock scores were VARC 24, DILR 18 and QA 15.', intent:'mock_diagnosis' });
+    check('a score-only message does not gain percentile, attempts, accuracy, or time', /^Observed:/.test(scoreReply) && scoreReply.indexOf('Hypothesis:') !== -1 && scoreReply.indexOf('Unknown:') !== -1 && scoreReply.indexOf('Next check:') !== -1 && scoreReply.indexOf('85') === -1 && scoreReply.indexOf('solved 14') === -1 && scoreReply.indexOf('70%') === -1 && scoreReply.indexOf('40 minutes') === -1);
+    var clueText = 'DILR arrangement\n1. A sits immediately left of B.\n2. C is at an end.\n3. D is not next to A.';
+    var jumped = guardDilrClueDeductions('Therefore the order is A B C D.', { submittedAnswerText:clueText });
+    var cited = guardDilrClueDeductions('From clue 1, A is left of B. From clue 2, C is at an end. From clue 3, D is away from A. Therefore the order is C A B D.', { submittedAnswerText:clueText });
+    check('a DILR conclusion has to cite every source clue', /skipped at least one source clue/.test(jumped) && !/skipped at least one source clue/.test(cited));
+
+    try {
+      sessionStorage.setItem(guestKey, JSON.stringify({
+        history:[
+          { role:'user', content:'OTHER THREAD FACT', threadId:'other-thread', createdAt:'2026-10-23T10:00:00.000Z' },
+          { role:'assistant', content:'OTHER THREAD REPLY', threadId:'other-thread', createdAt:'2026-10-23T10:00:01.000Z' }
+        ],
+        active:'this-thread',
+        guestMessageCount:1
+      }));
+    } catch (error) {}
+    var restoredForeign = restoreGuestTabSession();
+    var foreignText = (conversationHistory || []).map(function(item) { return item.content || ''; }).join('\n');
+    check('another thread is not restored into the active chat', restoredForeign === true && foreignText.indexOf('OTHER THREAD') === -1);
+
+    margActiveThreadId = 'thread-now';
+    margActiveQuestionContext = { question_id:'q8a', question:{ id:'q8a', question_number:'8', stem:'UNSCOPED STEM', image_id:'img-a' } };
+    fetchQuestionLibraryData = function() {
+      return Promise.resolve({
+        images:[{ id:'img-a', conversation_id:'thread-now' }, { id:'img-b', conversation_id:'thread-now' }],
+        questions:[
+          { id:'q8a', question_number:'8', stem:'THIS A', image_id:'img-a', section:'qa' },
+          { id:'q8b', question_number:'8', stem:'THIS B', image_id:'img-b', section:'qa' }
+        ]
+      });
+    };
+    var unscoped = await prepareQuestionContextForTurn('Continue from the previous image.', []);
+    margActiveQuestionContext = { question_id:'q-other', conversation_id:'thread-old', question:{ id:'q-other', question_number:'8', stem:'OTHER THREAD STEM', image_id:'img-other' } };
+    var otherThread = await prepareQuestionContextForTurn('Continue from the previous image.', []);
+    check('a question number from another thread does not choose the image', unscoped.blocked === true && /more than one recent image/i.test(unscoped.reply) && unscoped.reply.indexOf('UNSCOPED STEM') === -1 && otherThread.blocked === true && otherThread.reply.indexOf('OTHER THREAD STEM') === -1);
+  } finally {
+    conversationHistory = savedHistory;
+    studentProfile = savedProfile;
+    progressiveProfileMemory = savedMemory;
+    if (savedThread !== undefined) margActiveThreadId = savedThread;
+    if (savedQuestion !== undefined) margActiveQuestionContext = savedQuestion;
+    if (savedLibrary) fetchQuestionLibraryData = savedLibrary;
+    try {
+      if (profileRaw === null) localStorage.removeItem(profileKey);
+      else localStorage.setItem(profileKey, profileRaw);
+    } catch (error) {}
+    try {
+      if (guestRaw === null) sessionStorage.removeItem(guestKey);
+      else sessionStorage.setItem(guestKey, guestRaw);
+    } catch (error) {}
+  }
+  return results;
+}
+window.runConversationDefectTests = runConversationDefectTests;

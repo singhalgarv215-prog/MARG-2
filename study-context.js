@@ -914,11 +914,26 @@
     return !!rhs && rhs.length <= 80 && /[\dA-Za-z]/.test(rhs);
   }
 
+  function mentorMarkerUnclosed(text) {
+    var value = str(text);
+    function unbalanced(kind) {
+      var opens = value.match(new RegExp('\\[\\[MARG_' + kind + '\\]\\]', 'gi')) || [];
+      var closes = value.match(new RegExp('\\[\\[/MARG_' + kind + '\\]\\]', 'gi')) || [];
+      return opens.length > closes.length;
+    }
+    return unbalanced('MORE') || unbalanced('NEXT');
+  }
+
   function looksCutOff(text) {
+    var raw = str(text);
+    if (mentorMarkerUnclosed(raw)) return true;
     var value = withoutTrailingMentorControls(text);
     if (!value) return false;
     var lines = value.split('\n');
     var last = lines[lines.length - 1].trim();
+    // A bare step marker after earlier lines is an unfinished list, not a completed sentence.
+    // A one-line numeric answer such as "49." stays complete.
+    if (lines.length > 1 && /^(?:\*\*)?\d{1,2}[.)](?:\*\*)?\s*$/.test(last)) return true;
     // A finished markdown table is a complete comparison, not a sentence that stopped early.
     var finishedTableRow = /^\|.*\|\s*$/.test(last) && (last.match(/\|/g) || []).length >= 2;
     var hasTableRule = lines.some(function (line) { return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line.trim()); });
