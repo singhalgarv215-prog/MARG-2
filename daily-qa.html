@@ -133,7 +133,7 @@ var isGenerating = false;
 
 var VERIFIED_QA_FALLBACK = {
   difficulty:'Medium to Hard',
-  recoveryNote:'Today’s generated draft did not pass Marg’s checks, so two independently verified questions opened instead.',
+  recoveryNote:'Today’s generated draft did not pass Marg’s checks, so two hand-checked questions opened instead.',
   questions:[
     { q:'A two-digit number is four times the sum of its digits. Reversing its digits increases the number by 18. What is the number?', topics:['Number Systems'], options:['A. 24','B. 36','C. 42','D. 48'], correct:0, solution:'Let the digits be a and b. Then 10a + b = 4(a + b), so b = 2a. Also, 9(b − a) = 18, giving a = 2 and b = 4. The number is 24.', common_mistake:'Using the reversal condition without the digit-sum condition.', concept_check:'Digit equations' },
     { q:'A rectangle has positive integer side lengths and perimeter 34. Its area is at least 60 but less than 72. How many distinct unordered pairs of side lengths are possible?', topics:['Geometry','Number Systems'], options:['A. 2','B. 3','C. 4','D. 5'], correct:1, solution:'For sides a ≤ b, a + b = 17. The condition 60 ≤ a(17 − a) < 72 holds for a = 5, 6 and 7 only. Hence there are 3 pairs.', common_mistake:'Including 8 × 9 even though the upper bound is strict.', concept_check:'Integer cases and inequalities' }

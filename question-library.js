@@ -58,6 +58,20 @@ function isActiveQuestionDiscussion(message) {
     /^(?:the|that|this)\s+question[?.!\s]*$/i.test(text);
 }
 
+function isConversationalQuestionReference(message) {
+  var text = String(message || '').trim();
+  if (/\b(?:explain|solve|reopen|continue)\b[\s\S]{0,80}\b(?:the|that|this)\s+question\s+we\s+(?:were|are)\s+discussing\b/i.test(text)) return true;
+  if (/\boption\s+[A-H]\b[\s\S]{0,48}\b(?:that|this|the)\s+question\b/i.test(text)) return true;
+  if (/\b(?:solve|explain|do)\b[\s\S]{0,40}\b(?:that|this)\s+one\b[\s\S]{0,24}\bagain\b/i.test(text)) return true;
+  if (/\b(?:continue|pick up)\b[\s\S]{0,40}\b(?:from\s+)?(?:the\s+)?(?:previous|last)\s+image\b/i.test(text)) return true;
+  return false;
+}
+
+function isPreviousImageReference(message) {
+  var text = String(message || '');
+  return /\b(?:continue|pick up)\b[\s\S]{0,40}\b(?:from\s+)?(?:the\s+)?(?:previous|last)\s+image\b/i.test(text);
+}
+
 function isStrategyHabitRequest(message) {
   var text = String(message || '');
   var strategyFrame = /\b(?:how should i|what should i|what(?:'s| is) a better|better\b[\s\S]{0,24}\bstrategy|strategy|approach|should i leave|time management|in general|habit|under time pressure|my strategy)\b/i.test(text);
@@ -67,13 +81,43 @@ function isStrategyHabitRequest(message) {
   return !directQuestionSolve;
 }
 
+// Material the student pasted or generated in this conversation is the active
+// source. The saved-question library only answers when the student is really
+// asking for something they saved earlier.
+function studyContextOwnsTurn(message) {
+  if (typeof MargStudy === 'undefined' || !MargStudy || typeof MargStudy.shouldBypassSavedRetrieval !== 'function') return false;
+  try {
+    var exerciseAt = 0;
+    if (typeof activeGeneratedExercise !== 'undefined' && activeGeneratedExercise && !activeGeneratedExercise.cancelledAt) {
+      exerciseAt = Date.parse(activeGeneratedExercise.deliveredAt || activeGeneratedExercise.generatedAt || '') || 0;
+    }
+    return MargStudy.shouldBypassSavedRetrieval(message, {
+      savedSetAt: margActiveQuestionContext && margActiveQuestionContext.setAt || 0,
+      activeExerciseAt: exerciseAt
+    });
+  } catch (error) { return false; }
+}
+
+function looksLikeNamedSavedQuestionRequest(message) {
+  var text = String(message || '').trim();
+  if (!/\bquestion\b/i.test(text)) return false;
+  if (!/\b(?:explain|solve|reopen|what about|go back to|back to)\b/i.test(text)) return false;
+  if (isConversationalQuestionReference(text) || isPreviousImageReference(text)) return false;
+  if (/\bq(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text)) return false;
+  if (/\b(?:first|second|third|fourth|fifth|last|next)\s+(?:one|question)\b/i.test(text)) return false;
+  return true;
+}
+
 function isSavedQuestionResolutionRequest(message) {
   var text = String(message || '').trim();
   if (!text || isStrategyHabitRequest(text)) return false;
+  if (typeof wantsBookQuestionSelection === 'function' && wantsBookQuestionSelection(text)) return false;
+  if (studyContextOwnsTurn(text)) return false;
   if (typeof isBareQuestionReference === 'function' && isBareQuestionReference(text)) return true;
   if (/^(?:please\s+)?(?:solve|explain|answer|check)\s+(?:this|that)(?:\s+question)?[?.!\s]*$/i.test(text)) return true;
   if (/^(?:please\s+)?(?:walk me through|explain|solve|answer|check)\s+q(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text)) return true;
-  if (isExplicitSavedPageReference(text)) return true;
+  if (isExplicitSavedPageReference(text) || isConversationalQuestionReference(text)) return true;
+  if (looksLikeNamedSavedQuestionRequest(text)) return true;
   if (hasActiveSavedQuestion() && (isShortSavedQuestionFollowup(text) || isActiveQuestionDiscussion(text))) return true;
   var numbered = /\bq(?:uestion)?\s*[-:#.]?\s*\d{1,3}\b/i.test(text) || /\b(?:first|second|third|fourth|fifth|last)\s+question\b/i.test(text);
   var resolution = /\b(?:solve|explain|answer|why|wrong|incorrect|solution|walk me through|check|reopen|show me)\b/i.test(text) ||
@@ -88,21 +132,42 @@ function parseQuestionReference(message) {
   var ordinalMatch = text.match(/\b(first|second|third|fourth|fifth|last|next)\s+(?:one|question)\b/i);
   var bareNext = /^next[?.!\s]*$/i.test(text);
   var shortFollowup = isShortSavedQuestionFollowup(text);
-  var optionFollowup = (shortFollowup || numberMatch) ? /\boption\s+([A-H])\b/i.exec(text) : null;
+  var conversational = isConversationalQuestionReference(text);
+  var previousImage = isPreviousImageReference(text);
+  var namedQuestion = looksLikeNamedSavedQuestionRequest(text);
+  var optionFollowup = (shortFollowup || numberMatch || conversational || namedQuestion) ? /\boption\s+([A-H])\b/i.exec(text) : null;
   var earlierLibraryReference = isExplicitSavedPageReference(text);
-  var continuation = shortFollowup || !!optionFollowup || isActiveQuestionDiscussion(text);
-  if (!numberMatch && !ordinalMatch && !continuation && !earlierLibraryReference) return null;
+  var continuation = !previousImage && (shortFollowup || !!optionFollowup || isActiveQuestionDiscussion(text) || (conversational && !earlierLibraryReference));
+  if (!numberMatch && !ordinalMatch && !continuation && !earlierLibraryReference && !previousImage && !namedQuestion) return null;
   var sectionMatch = text.match(/\b(VARC|RC|DILR|LRDI|QA|quant|quants)\b/i);
   return {
     number:numberMatch ? numberMatch[1] : '',
     ordinal:ordinalMatch ? ordinalMatch[1].toLowerCase() : (bareNext ? 'next' : ''),
     option:optionFollowup ? optionFollowup[1].toUpperCase() : '',
     continuation:continuation,
-    libraryQuery:earlierLibraryReference,
+    previousImage:previousImage,
+    libraryQuery:earlierLibraryReference && !previousImage,
     section:sectionMatch ? normaliseQuestionSection(sectionMatch[1]) : '',
     yesterday:/\byesterday/i.test(text),
+    namedQuestion:namedQuestion && !numberMatch,
     depth:getRequestedAnswerDepth(text)
   };
+}
+
+function questionLabelInText(label, text) {
+  var escaped = String(label || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!escaped) return false;
+  return new RegExp('(?:^|[^a-z0-9])' + escaped + '(?:[^a-z0-9]|$)').test(text);
+}
+
+function questionsNamedInMessage(message, questions) {
+  var text = String(message || '').toLowerCase();
+  if (!looksLikeNamedSavedQuestionRequest(text)) return [];
+  var list = Array.isArray(questions) ? questions.filter(Boolean) : [];
+  return list.filter(function(question) {
+    var labels = [question.topic, question.short_label].map(function(value) { return String(value || '').trim().toLowerCase(); }).filter(function(value) { return value.length >= 4; });
+    return labels.some(function(label) { return questionLabelInText(label, text); });
+  });
 }
 
 function questionCandidateLabel(question) {
@@ -138,6 +203,9 @@ function resolveQuestionCandidates(reference, questions, activeContext) {
     if (list.length === 1) return { status:'resolved', question:list[0], candidates:[list[0]] };
     if (list.length > 1) return { status:'ambiguous', candidates:list };
     if (activeContext && activeContext.question) {
+      var threadId = typeof margActiveThreadId !== 'undefined' && margActiveThreadId ? margActiveThreadId : 'legacy';
+      if (activeContext.conversation_id && activeContext.conversation_id !== threadId) return { status:'missing', candidates:[] };
+      if (reference.number && String(activeContext.question.question_number || '') !== String(reference.number)) return { status:'missing', candidates:[] };
       return { status:'resolved', question:activeContext.question, candidates:[activeContext.question] };
     }
   }
@@ -178,6 +246,14 @@ function parseQuestionExtractionPayload(raw) {
         topic:String(page && page.topic || '').trim().slice(0, 160),
         confidence:Math.max(0, Math.min(1, Number(page && page.confidence) || 0))
       };
+    });
+    value.questions.forEach(function(question) {
+      var number = String(question.question_number || '');
+      if (!number) return;
+      var page = value.pages.find(function(item) { return item.page_index === question.page_index; });
+      var haystack = String(page && page.text || '') + '\n' + String(question.stem || '');
+      var marker = new RegExp('\\b(?:question|q)\\s*[-:#.]?\\s*' + number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+      if (!marker.test(haystack)) question.question_number = '';
     });
     return value;
   } catch(error) { return null; }
@@ -450,14 +526,14 @@ async function loadConversationQuestionState() {
   var state = result.data[0];
   var data = await fetchQuestionLibraryData(false, true);
   var question = data.questions.find(function(item) { return item.id === state.active_question_id; }) || null;
-  margActiveQuestionContext = question ? { question_id:question.id, image_id:question.image_id, question:question, conversation_id:threadId } : null;
+  margActiveQuestionContext = question ? { question_id:question.id, image_id:question.image_id, question:question, conversation_id:threadId, setAt:Date.parse(state.updated_at || '') || Date.now() } : null;
   return margActiveQuestionContext;
 }
 
 async function saveConversationQuestionState(question) {
   if (!question) return;
   var threadId = typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy';
-  margActiveQuestionContext = { question_id:question.id, image_id:question.image_id, question:question, conversation_id:threadId };
+  margActiveQuestionContext = { question_id:question.id, image_id:question.image_id, question:question, conversation_id:threadId, setAt:Date.now() };
   if (!currentUser || !SUPABASE_TOKEN || /^local-/.test(String(question.id || ''))) return;
   await authenticatedSupabaseFetch(SUPABASE_URL + '/rest/v1/conversation_question_state?on_conflict=user_id,conversation_id', {
     method:'POST',
@@ -477,6 +553,76 @@ async function downloadQuestionImage(image) {
   return blobToPreparedAttachment(await response.blob(), image.original_filename, image);
 }
 
+function extractedQuestionIdentity(question) {
+  if (question && question.question_number) return 'Q' + question.question_number + (question.short_label ? ' — ' + question.short_label : '');
+  if (question && question.short_label) return question.short_label;
+  return 'Unnumbered extracted question';
+}
+
+function formatExtractedQuestionDirective(extracted) {
+  if (!extracted || extracted.status === 'none') {
+    return '\n\nEXTRACTION UNCERTAIN: No question text was extracted from this image. This is not verified metadata. Use the original attachment. Do not invent a stem, an answer choice, or a source.';
+  }
+  if (extracted.status === 'unreadable' || (extracted.extraction && extracted.extraction.readable === false)) {
+    return '\n\nEXTRACTION UNCERTAIN: The image was not readable enough to structure a question. This is not verified metadata. Use the original attachment and ask for a clearer crop. Do not invent text, choices, or a source.';
+  }
+  var questions = Array.isArray(extracted.questions) ? extracted.questions.filter(function(question) { return question && question.stem; }) : [];
+  if (!questions.length) {
+    return '\n\nEXTRACTION UNCERTAIN: No question text was extracted from this image. This is not verified metadata. Use the original attachment. Do not invent a stem, an answer choice, or a source.';
+  }
+  var lowConfidence = questions.some(function(question) { return Number(question.confidence || 0) < 0.6; });
+  var header = lowConfidence ? 'EXTRACTED QUESTION (uncertain, not verified metadata)' : 'EXTRACTED QUESTION (not verified metadata)';
+  var blocks = questions.map(function(question) {
+    var options = Array.isArray(question.options) && question.options.length ? question.options.join('\n') : 'none extracted — do not invent choices';
+    var lines = [
+      'Identity: ' + extractedQuestionIdentity(question),
+      'Section: ' + normaliseQuestionSection(question.section).toUpperCase(),
+      'Stem: ' + question.stem,
+      'Options:\n' + options,
+      'Provenance: model extraction from the attached image; not independently verified metadata',
+      'Confidence: ' + (question.confidence == null ? 'not provided' : String(question.confidence))
+    ];
+    if (question.question_number) lines.push('Question number: ' + question.question_number);
+    if (question.topic) lines.push('Topic: ' + question.topic);
+    return lines.join('\n');
+  });
+  var caution = lowConfidence
+    ? '\nA number, sign, unit, or answer choice may be uncertain. The original image wins. Ask for a clearer crop instead of inventing the missing part.'
+    : '\nKeep every number, sign, unit, and negation as extracted. If this text conflicts with the image, trust the image.';
+  return '\n\n' + header + '\n' + blocks.join('\n\n') + caution;
+}
+
+function resolvePreviousImageTurn(reference, threadData) {
+  var threadQuestions = (threadData && threadData.questions || []).filter(Boolean);
+  var imageIds = [];
+  threadQuestions.forEach(function(question) {
+    var id = question.image_id || '';
+    if (id && imageIds.indexOf(id) === -1) imageIds.push(id);
+  });
+  if (imageIds.length > 1) {
+    var labels = imageIds.slice(0, 4).map(function(id) {
+      var first = threadQuestions.find(function(question) { return question.image_id === id; });
+      return first ? questionCandidateLabel(first) : 'a saved page';
+    });
+    return { blocked:true, reply:'I found more than one recent image in this chat: ' + labels.join('; ') + '. Which one should I continue?' };
+  }
+  if (!imageIds.length) {
+    return { blocked:true, reply:'I cannot reliably access the previous image in this conversation. Please re-upload that page; I won’t reconstruct it from memory.' };
+  }
+  var onlyQuestions = threadQuestions.filter(function(question) { return question.image_id === imageIds[0]; });
+  if (reference && reference.number) onlyQuestions = onlyQuestions.filter(function(question) { return String(question.question_number || '') === String(reference.number); });
+  if (onlyQuestions.length > 1) {
+    var threadId = typeof margActiveThreadId !== 'undefined' && margActiveThreadId ? margActiveThreadId : 'legacy';
+    var activeMatch = margActiveQuestionContext && margActiveQuestionContext.conversation_id === threadId
+      ? onlyQuestions.find(function(question) { return question.id === margActiveQuestionContext.question_id; })
+      : null;
+    if (activeMatch && !(reference && reference.number)) return { blocked:false, question:activeMatch };
+    return { blocked:true, reply:'I found multiple matches: ' + onlyQuestions.map(questionCandidateLabel).join('; ') + '. Which one do you mean?' };
+  }
+  if (onlyQuestions.length === 1) return { blocked:false, question:onlyQuestions[0] };
+  return { blocked:true, reply:'I cannot reliably access the previous image in this conversation. Please re-upload that page; I won’t reconstruct it from memory.' };
+}
+
 function buildQuestionContextDirective(question, reference) {
   var options = Array.isArray(question.options) && question.options.length ? '\nOPTIONS:\n' + question.options.join('\n') : '';
   var depth = reference && reference.depth || 'standard';
@@ -485,10 +631,10 @@ function buildQuestionContextDirective(question, reference) {
     : depth === 'deep'
       ? 'Give the best complete explanation: final answer, clean derivation, useful shortcut or trap, and for an MCQ explain why the other options fail.'
       : 'Give the answer first, then a clear derivation and one useful CAT shortcut or trap. For an MCQ, explain briefly why each wrong option fails.';
-  return '\n\nVERIFIED ACTIVE QUESTION CONTEXT:\nIdentity: ' + questionCandidateLabel(question) +
+  return '\n\nACTIVE QUESTION CONTEXT (extracted from the saved image; not an official answer key and not independently verified metadata):\nIdentity: ' + questionCandidateLabel(question) +
     '\nSection: ' + normaliseQuestionSection(question.section).toUpperCase() +
     '\nStem: ' + question.stem + options +
-    '\nAnswer this exact question only. Begin with “' + questionCandidateLabel(question) + ':”. Do not substitute another question with the same number. ' + depthRule;
+    '\nProvenance: saved question index from an earlier image extraction. Extraction is not verified metadata.\nAnswer this exact question only. Begin with “' + questionCandidateLabel(question) + ':”. Do not substitute another question with the same number. Copy every number from the stem. Do not replace an intermediate value with a different number, and do not add a closing about the next question or say the solution is already covered. ' + depthRule;
 }
 
 function buildImageConfirmation(extraction) {
@@ -502,26 +648,39 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
   var attachments = Array.isArray(currentAttachments) ? currentAttachments.filter(function(item) { return item && item.data; }) : [];
   var reference = parseQuestionReference(message);
   if (attachments.length) {
-    // The current image is already included in the mentor request. Do not put
-    // a second vision/indexing request in front of the student's answer.
-    // Index in the background for later “explain Q4” references and Library
-    // search; its success or failure must not change this turn's latency.
-    Promise.resolve().then(function() {
-      return extractQuestionImageContext(attachments, message);
-    }).then(function(extracted) {
-      if (!extracted || extracted.status !== 'ready') return;
-      var questions = extracted.questions.length ? extracted.questions : extracted.extraction.questions;
-      var resolution = reference
-        ? resolveQuestionCandidates(reference, questions, margActiveQuestionContext)
-        : { status:questions.length === 1 ? 'resolved' : 'none', question:questions.length === 1 ? questions[0] : null };
-      if (resolution.question) return saveConversationQuestionState(resolution.question);
-    }).catch(function(error) {
-      attachments.forEach(function(item) {
-        item.status = item.libraryId ? 'attached' : 'local_ready';
-        item.error = error && error.message || 'Question indexing will retry later.';
+    var bookFast = typeof wantsBookQuestionSelection === 'function' && wantsBookQuestionSelection(message);
+    var extractionNote = '';
+    if (bookFast) {
+      // A book-list turn already reads the pages in its own path. Keep indexing
+      // behind the answer so that path does not pay a second vision call.
+      Promise.resolve().then(function() {
+        return extractQuestionImageContext(attachments, message);
+      }).then(function(extracted) {
+        if (!extracted || extracted.status !== 'ready') return;
+        var questions = extracted.questions.length ? extracted.questions : extracted.extraction.questions;
+        var resolution = reference
+          ? resolveQuestionCandidates(reference, questions, margActiveQuestionContext)
+          : { status:questions.length === 1 ? 'resolved' : 'none', question:questions.length === 1 ? questions[0] : null };
+        if (resolution.question) return saveConversationQuestionState(resolution.question);
+      }).catch(function(error) {
+        attachments.forEach(function(item) {
+          item.status = item.libraryId ? 'attached' : 'local_ready';
+          item.error = error && error.message || 'Question indexing will retry later.';
+        });
+        console.warn('Background question indexing failed without delaying chat:', error);
       });
-      console.warn('Background question indexing failed without delaying chat:', error);
-    });
+    } else {
+      try {
+        var extractedNow = await extractQuestionImageContext(attachments, message);
+        extractionNote = formatExtractedQuestionDirective(extractedNow);
+        var extractedQuestions = extractedNow && extractedNow.questions || [];
+        if (extractedNow && extractedNow.status === 'ready' && extractedQuestions.length === 1 && Number(extractedQuestions[0].confidence || 0) >= 0.6) {
+          saveConversationQuestionState(extractedQuestions[0]).catch(function() {});
+        }
+      } catch (error) {
+        extractionNote = '\n\nEXTRACTION UNCERTAIN: The image could not be read into text. This is not verified metadata. Use the original attachment. If a number, sign, unit, or answer choice is unclear, ask for a clearer crop. Do not invent missing text, choices, or a source.';
+      }
+    }
     var imageNumber = String(message || '').match(/\bq(?:uestion)?\s*[-:#.]?\s*(\d{1,3})\b/i);
     var requestedIdentity = reference && reference.number ? ' The user refers to Q' + reference.number + ' on this current image; locate that visible question number before answering.' : (imageNumber ? ' The user refers to Q' + imageNumber[1] + ' on this current image; locate that visible question number before answering.' : '');
     return {
@@ -530,8 +689,8 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
       reference:reference,
       question:null,
       extraction:null,
-      indexStatus:'background',
-      directive:'\n\nCURRENT IMAGE DIRECT MODE: Inspect the original current-turn image and answer the user’s actual request now; do not wait for or mention Question Library indexing.' + requestedIdentity + ' If an exact symbol, condition, diagram label or option is genuinely illegible, identify only that part and ask for a closer crop.'
+      indexStatus:bookFast ? 'background' : 'current-turn',
+      directive:'\n\nCURRENT IMAGE DIRECT MODE: Inspect the original current-turn image and answer the user’s actual request now; do not wait for or mention Question Library indexing.' + requestedIdentity + ' If an exact symbol, condition, diagram label or option is genuinely illegible, identify only that part and ask for a closer crop. Do not duplicate the image or invent a source.' + extractionNote
     };
   }
   if (!isSavedQuestionResolutionRequest(message)) return { blocked:false, attachments:[], directive:'' };
@@ -542,7 +701,18 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
   catch(error) { threadData = { images:[], questions:[] }; }
   if (!margActiveQuestionContext) await loadConversationQuestionState().catch(function() {});
   var resolved = resolveQuestionCandidates(reference, threadData.questions, margActiveQuestionContext);
-  if (reference.libraryQuery && resolved.status !== 'resolved') {
+  if (reference.previousImage) {
+    var previousTurn = resolvePreviousImageTurn(reference, threadData);
+    if (previousTurn.blocked) return { blocked:true, reply:previousTurn.reply };
+    resolved = { status:'resolved', question:previousTurn.question, candidates:[previousTurn.question] };
+  }
+  if (reference.namedQuestion && !reference.number && !reference.previousImage) {
+    var namedQuestions = questionsNamedInMessage(message, threadData.questions);
+    if (namedQuestions.length === 1) resolved = { status:'resolved', question:namedQuestions[0], candidates:namedQuestions };
+    else if (namedQuestions.length > 1) resolved = { status:'ambiguous', candidates:namedQuestions };
+    else return { blocked:false, attachments:[], directive:'' };
+  }
+  if (reference.libraryQuery && !reference.previousImage && resolved.status !== 'resolved') {
     var allData;
     try { allData = await fetchQuestionLibraryData(false, false); }
     catch(error) { allData = { images:[], questions:[] }; }
@@ -562,7 +732,7 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
     } else if (imageCandidates.length > 1) {
       var candidateLabels = imageCandidates.slice(0, 4).map(function(image) {
         var firstQuestion = allData.questions.find(function(question) { return question.image_id === image.id; });
-        return firstQuestion ? questionCandidateLabel(firstQuestion) : String(image.detected_topic || 'saved ' + String(image.detected_section || 'question').toUpperCase() + ' page');
+        return firstQuestion ? questionCandidateLabel(firstQuestion) : (String(image.detected_topic || '').trim() || 'a saved page');
       });
       return { blocked:true, reply:'I found multiple saved sources that fit: ' + candidateLabels.join('; ') + '. Which one should I reopen?' };
     }
@@ -587,7 +757,7 @@ async function prepareQuestionContextForTurn(message, currentAttachments) {
 async function verifyQuestionResponseDraft(draft, userMessage, attachments, resolution) {
   if (!resolution || !resolution.question || !String(draft || '').trim()) return String(draft || '');
   var question = resolution.question;
-  var verifierPrompt = 'Independently solve the exact question below and audit the draft line by line. Check every equation, intermediate calculation, option, and final result. Never approve a claim that a book or official key is wrong unless the complete visible stem proves it. Return JSON only: {"valid":true,"verified_section":"qa|dilr|varc|unknown","verified_question_number":"","issues":[],"corrected_answer":""}. If any step or conclusion is wrong, valid=false and corrected_answer must contain a complete clean replacement answer at the depth requested by the user. If the source is insufficient, valid=false and corrected_answer must ask for the missing crop rather than guess.\n\nQUESTION: ' + question.stem + '\nOPTIONS: ' + JSON.stringify(question.options || []) + '\nUSER REQUEST: ' + userMessage + '\nDRAFT: ' + draft;
+  var verifierPrompt = 'Independently solve the exact question below and audit the draft line by line. Check every equation, intermediate calculation, option, and final result. A step is wrong when its number does not follow from the previous line or from a number in the stem. Never approve a claim that a book or official key is wrong unless the complete visible stem proves it. Return JSON only: {"valid":true,"verified_section":"qa|dilr|varc|unknown","verified_question_number":"","issues":[],"corrected_answer":""}. If any step or conclusion is wrong, valid=false and corrected_answer must contain one clean replacement derivation at the depth requested by the user, with no second solution and no closing invitation. If the source is insufficient, valid=false and corrected_answer must ask for the missing crop rather than guess.\n\nQUESTION: ' + question.stem + '\nOPTIONS: ' + JSON.stringify(question.options || []) + '\nUSER REQUEST: ' + userMessage + '\nDRAFT: ' + draft;
   try {
     var requestHistory = [{ role:'user', content:verifierPrompt }];
     if (attachments && attachments.length) requestHistory = buildHistoryWithImageAttachment(requestHistory, attachments, verifierPrompt);
@@ -598,8 +768,9 @@ async function verifyQuestionResponseDraft(draft, userMessage, attachments, reso
     var first = raw.indexOf('{'), last = raw.lastIndexOf('}');
     if (first < 0 || last <= first) return String(draft || '');
     var audit = JSON.parse(raw.slice(first, last + 1));
-    if (audit.valid === true) return String(draft || '');
+    if (audit.valid === true) return typeof stripRedundantSolutionClosers === 'function' ? stripRedundantSolutionClosers(String(draft || '')) : String(draft || '');
     var corrected = String(audit.corrected_answer || '').trim();
+    if (corrected && typeof stripRedundantSolutionClosers === 'function') corrected = stripRedundantSolutionClosers(corrected);
     return corrected || 'I could not independently verify this result from the available source, so I won’t present it as correct. Please send a closer crop of the complete question and options.';
   } catch(error) {
     return String(draft || '');

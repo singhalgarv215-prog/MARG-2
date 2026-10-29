@@ -92,8 +92,16 @@ const DAILY_ARTICLE_FEEDS = {
   economy:{ url:'https://www.thehindu.com/business/feeder/default.rss', source:'The Hindu' },
   environment:{ url:'https://www.thehindu.com/sci-tech/feeder/default.rss', source:'The Hindu' },
   politics:{ url:'https://www.thehindu.com/opinion/editorial/feeder/default.rss', source:'The Hindu Editorial' },
-  technology:{ url:'https://www.thehindu.com/sci-tech/technology/feeder/default.rss', source:'The Hindu' },
-  philosophy:{ url:'https://aeon.co/feed.rss', source:'Aeon' }
+  technology:{ url:'https://www.thehindu.com/sci-tech/technology/feeder/default.rss', source:'The Hindu' }
+};
+
+const AEON_TOPIC_FEEDS = {
+  ideas:{ url:'https://aeon.co/philosophy/feed.rss', source:'Aeon' },
+  science:{ url:'https://aeon.co/science/feed.rss', source:'Aeon' },
+  economics:{ url:'https://aeon.co/society/feed.rss', source:'Aeon' },
+  history:{ url:'https://aeon.co/culture/feed.rss', source:'Aeon' },
+  surprise:{ url:'https://aeon.co/essays/feed.rss', source:'Aeon' },
+  philosophy:{ url:'https://aeon.co/philosophy/feed.rss', source:'Aeon' }
 };
 
 function jsonResponse(body, status, extraHeaders) {
@@ -198,13 +206,15 @@ function extractArticleBody(html) {
 function isAllowedArticleUrl(url, topic) {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return topic === 'philosophy' ? host === 'aeon.co' || host.endsWith('.aeon.co') : host === 'thehindu.com' || host.endsWith('.thehindu.com');
+    if (Object.hasOwn(AEON_TOPIC_FEEDS, topic)) return host === 'aeon.co' || host.endsWith('.aeon.co');
+    return host === 'thehindu.com' || host.endsWith('.thehindu.com');
   } catch (_error) { return false; }
 }
 
 async function getDailyArticleSource(topic, offset) {
-  const selectedTopic = Object.hasOwn(DAILY_ARTICLE_FEEDS, topic) ? topic : 'economy';
-  const feed = DAILY_ARTICLE_FEEDS[selectedTopic];
+  const aeonTopic = Object.hasOwn(AEON_TOPIC_FEEDS, topic);
+  const selectedTopic = aeonTopic ? topic : (Object.hasOwn(DAILY_ARTICLE_FEEDS, topic) ? topic : 'economy');
+  const feed = aeonTopic ? AEON_TOPIC_FEEDS[selectedTopic] : DAILY_ARTICLE_FEEDS[selectedTopic];
   const feedResponse = await fetchWithWorkerTimeout(feed.url, {
     headers:{ 'Accept':'application/rss+xml, application/atom+xml, text/xml;q=0.9, */*;q=0.5', 'User-Agent':'Marg-CAT-Reading/1.0 (+https://trymarg.com)' }
   }, 9000);
@@ -215,6 +225,10 @@ async function getDailyArticleSource(topic, offset) {
     return bTime - aTime;
   });
   if (!items.length) throw new Error('Publisher feed contained no usable articles');
+  if (aeonTopic) {
+    const essays = items.filter((item) => /\/essays\//i.test(item.url));
+    if (essays.length) items.splice(0, items.length, ...essays);
+  }
   // Offset zero is always the newest publisher item. Mixing the calendar day
   // into a moving RSS array caused yesterday's item to reappear after the feed
   // changed. The browser now owns the per-day selection and uses this offset
@@ -298,6 +312,18 @@ function contentsContainImages(contents) {
   return (contents || []).some((message) => (message.parts || []).some((part) => part && part.inlineData));
 }
 
+function currentUserMessage(contents) {
+  const list = contents || [];
+  for (let index = list.length - 1; index >= 0; index--) {
+    if (list[index] && list[index].role === 'user') return list[index];
+  }
+  return null;
+}
+
+function messageContainsImages(message) {
+  return !!(message && (message.parts || []).some((part) => part && part.inlineData));
+}
+
 function requestText(payload, contents) {
   return (contents || []).flatMap((message) => message.parts || []).map((part) => part && part.text || '').join('\n').toLowerCase();
 }
@@ -357,20 +383,39 @@ function normalizeGenerationConfig(generationConfig) {
   return config;
 }
 
+function isPracticeGenerationRequest(payload, contents) {
+  const systemText = systemRequestText(payload);
+  if (systemText.includes('[marg_task: compact_decision_lab]')) return false;
+  const current = currentUserMessage(contents);
+  const currentText = current ? (current.parts || []).map((part) => part && part.text || '').join('\n').toLowerCase() : '';
+  // JSON mode and an explicit generator instruction are practice generation.
+  // Incidental wording in the mentor system instruction, including "DILR set",
+  // is not a request to generate practice material.
+  if (payload && hasJsonResponseFormat(payload.generationConfig)) return true;
+  if (/\b(?:return only valid json|generate only valid json)\b/.test(systemText) ||
+      /\b(?:return only valid json|generate only valid json)\b/.test(currentText)) return true;
+  if (/\bquestion generator\b/.test(systemText) || /\bquestion generator\b/.test(currentText)) return true;
+  return /\b(?:generate|write|create)\b[\s\S]{0,180}\b(?:sectional test|cat-style rc|cat style rc|dilr set|qa set|practice set|passage)\b/.test(currentText);
+}
+
 function resolveMaxOutputTokens(payload, contents, requestedTokens) {
   const requested = Number(requestedTokens) || 0;
   const text = requestText(payload, contents);
-  const systemText = systemRequestText(payload);
-  const compactDecisionLab = systemText.includes('[marg_task: compact_decision_lab]');
-  let floor = MIN_OUTPUT_TOKENS;
-  if (contentsContainImages(contents)) floor = VISION_OUTPUT_TOKENS;
-  if (/\b(?:complete roadmap|study plan|mock analysis|answer review|multi-step|full solution)\b/.test(text)) floor = Math.max(floor, LONG_OUTPUT_TOKENS);
-  if (!compactDecisionLab && ((payload && hasJsonResponseFormat(payload.generationConfig)) ||
-      /\b(?:return only valid json|generate only valid json)\b/.test(systemText) ||
-      /\b(?:return only valid json|generate only valid json|question generator|sectional test|cat-style rc|cat style rc|dilr set|qa set|practice set|passage generation)\b/.test(text))) {
+  // Practice and JSON generation keep their own floors. Those requests are not
+  // mentor-chat shape ceilings.
+  if (isPracticeGenerationRequest(payload, contents)) {
+    let floor = MIN_OUTPUT_TOKENS;
+    if (contentsContainImages(contents)) floor = VISION_OUTPUT_TOKENS;
+    if (/\b(?:complete roadmap|study plan|mock analysis|answer review|multi-step|full solution)\b/.test(text)) floor = Math.max(floor, LONG_OUTPUT_TOKENS);
     floor = Math.max(floor, GENERATION_OUTPUT_TOKENS);
+    return Math.min(MAX_OUTPUT_TOKENS, Math.max(floor, requested));
   }
-  return Math.min(MAX_OUTPUT_TOKENS, Math.max(floor, requested));
+  // Mentor chat: the client shape budget is the ceiling. Older history cannot
+  // raise it through keywords or images. An image on the current user turn
+  // still uses the vision floor.
+  let ceiling = Math.max(MIN_OUTPUT_TOKENS, requested);
+  if (messageContainsImages(currentUserMessage(contents))) ceiling = Math.max(ceiling, VISION_OUTPUT_TOKENS);
+  return Math.min(MAX_OUTPUT_TOKENS, ceiling);
 }
 
 function normalizeRequest(payload) {
@@ -551,6 +596,8 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
     };
   }
 }
+
+export { resolveMaxOutputTokens };
 
 export default {
   async fetch(request, env) {

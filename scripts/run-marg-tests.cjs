@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const root = path.join(__dirname, '..');
+const root = path.resolve(__dirname, '..');
 const byId = Object.create(null);
 const created = [];
 
@@ -16,8 +16,13 @@ function makeElement(tag) {
     value: '',
     disabled: false,
     dataset: {},
-    style: {},
+    style: {
+      setProperty() {},
+      removeProperty() {},
+      getPropertyValue() { return ''; }
+    },
     children: [],
+    childNodes: [],
     attributes: [],
     parentNode: null,
     scrollHeight: 40,
@@ -36,13 +41,15 @@ function makeElement(tag) {
       }
     },
     appendChild(child) {
-      child.parentNode = el;
+      if (child) child.parentNode = el;
       el.children.push(child);
+      el.childNodes.push(child);
       return child;
     },
     remove() {
       if (this.parentNode && this.parentNode.children) {
         this.parentNode.children = this.parentNode.children.filter(function(child) { return child !== el; });
+        this.parentNode.childNodes = this.parentNode.childNodes.filter(function(child) { return child !== el; });
       }
     },
     querySelector() { return null; },
@@ -54,7 +61,8 @@ function makeElement(tag) {
     removeAttribute() {},
     focus() {},
     click() { if (typeof this.onclick === 'function') this.onclick(); },
-    dispatchEvent() {}
+    dispatchEvent() {},
+    getBoundingClientRect() { return { top:0, left:0, width:0, height:0 }; }
   };
   el.content = el;
   Object.defineProperty(el, 'id', {
@@ -76,12 +84,18 @@ function storage() {
     getItem(key) { return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; },
     setItem(key, value) { data[key] = String(value); },
     removeItem(key) { delete data[key]; },
-    clear() { Object.keys(data).forEach(function(key) { delete data[key]; }); }
+    clear() { Object.keys(data).forEach(function(key) { delete data[key]; }); },
+    key() { return null; },
+    get length() { return Object.keys(data).length; }
   };
 }
 
+function unrefTimer(timer) {
+  if (timer && typeof timer.unref === 'function') timer.unref();
+  return timer;
+}
+
 const documentElement = makeElement('html');
-documentElement.style.setProperty = function() {};
 const head = makeElement('head');
 const body = makeElement('body');
 const messages = makeElement('div');
@@ -90,13 +104,20 @@ const userInput = makeElement('textarea');
 userInput.id = 'user-input';
 const sendButton = makeElement('button');
 sendButton.id = 'send-btn';
+['loading-screen', 'landing-page', 'chat-app', 'guest-limit-banner', 'user-info', 'timed-test-overlay', 'messages-container', 'chat-panel'].forEach(function(id) {
+  const node = makeElement('div');
+  node.id = id;
+});
+body.appendChild(messages);
 
-const document = {
+const documentTarget = {
   hidden: false,
   visibilityState: 'visible',
+  readyState: 'complete',
   documentElement: documentElement,
   head: head,
   body: body,
+  cookie: '',
   getElementById(id) { return byId[id] || null; },
   createElement: makeElement,
   querySelector() { return null; },
@@ -110,11 +131,25 @@ const document = {
   removeEventListener() {}
 };
 
+const document = new Proxy(documentTarget, {
+  get(target, prop) {
+    if (prop in target) return target[prop];
+    if (typeof prop === 'string') return makeElement(prop);
+    return undefined;
+  }
+});
+
 const sandbox = {
   console: console,
-  setTimeout: setTimeout,
+  setTimeout(fn, ms) {
+    const args = Array.prototype.slice.call(arguments, 2);
+    return unrefTimer(setTimeout(function() { if (typeof fn === 'function') fn.apply(null, args); }, ms || 0));
+  },
   clearTimeout: clearTimeout,
-  setInterval: setInterval,
+  setInterval(fn, ms) {
+    const args = Array.prototype.slice.call(arguments, 2);
+    return unrefTimer(setInterval(function() { if (typeof fn === 'function') fn.apply(null, args); }, ms || 0));
+  },
   clearInterval: clearInterval,
   Intl: Intl,
   Date: Date,
@@ -123,24 +158,62 @@ const sandbox = {
   Promise: Promise,
   URL: URL,
   URLSearchParams: URLSearchParams,
+  AbortController: AbortController,
+  TextEncoder: TextEncoder,
+  TextDecoder: TextDecoder,
   crypto: require('crypto'),
-  navigator: { onLine: true, userAgent: 'MargTest' },
-  location: { href: 'http://127.0.0.1:8877/', origin: 'http://127.0.0.1:8877' },
+  navigator: { onLine: true, userAgent: 'MargTest', language: 'en' },
+  location: { href: 'http://127.0.0.1:8877/', origin: 'http://127.0.0.1:8877', pathname: '/', search: '', hash: '', hostname: '127.0.0.1' },
   document: document,
   localStorage: storage(),
   sessionStorage: storage(),
   fetch: function() { return Promise.reject(new Error('network disabled in local tests')); },
+  requestAnimationFrame() { return 0; },
+  cancelAnimationFrame() {},
+  matchMedia() { return { matches: false, addEventListener() {}, removeEventListener() {}, addListener() {} }; },
+  getComputedStyle() { return {}; },
+  performance: { now: function() { return Date.now(); } },
+  atob: function(value) { return Buffer.from(String(value), 'base64').toString('binary'); },
+  btoa: function(value) { return Buffer.from(String(value), 'binary').toString('base64'); },
   addEventListener() {},
   removeEventListener() {}
 };
 sandbox.window = sandbox;
+sandbox.self = sandbox;
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 
-['chat-topics.js', 'question-library.js', 'marg-app.js'].forEach(function(file) {
-  const code = fs.readFileSync(path.join(root, file), 'utf8');
-  vm.runInContext(code, sandbox, { filename: file });
-});
+const files = (process.env.MARG_FILES || [
+  'chat-topics.js',
+  'study-context.js',
+  'question-library.js',
+  'marg-training.js',
+  'slash-tools.js',
+  'time-mock-blueprints.js',
+  'cloudflare-worker.js',
+  'qa-engine.js',
+  'dilr-engine.js',
+  'cat-bank-verification.js',
+  'marg-vision.js',
+  'marg-app.js'
+].join(',')).split(',');
+
+for (const file of files) {
+  const full = path.join(root, file);
+  if (!fs.existsSync(full)) continue;
+  try {
+    let source = fs.readFileSync(full, 'utf8');
+    if (file === 'cloudflare-worker.js') {
+      source = 'globalThis.resolveMaxOutputTokens=(function(){' +
+        source.replace(/export\s*\{[^}]*\};?/g, '').replace(/export default/g, 'var __workerDefault =') +
+        ';return resolveMaxOutputTokens;})();';
+    }
+    vm.runInContext(source, sandbox, { filename: file });
+  } catch (error) {
+    console.log('LOAD ERR', file, error && error.stack || error);
+    process.exit(1);
+  }
+}
 
 function report(name, results) {
   const list = Array.isArray(results) ? results : [];
@@ -150,7 +223,8 @@ function report(name, results) {
     const label = result && (result.name || result.input) || 'unnamed';
     if (!passed) {
       failed += 1;
-      console.log('FAIL — ' + name + ' — ' + label + (result && result.detail ? '\n  ' + String(result.detail).slice(0, 500) : ''));
+      const detail = result && result.detail ? '\n  ' + String(result.detail).slice(0, 500) : '';
+      console.log('FAIL — ' + name + ' — ' + label + detail);
     }
   });
   console.log((list.length - failed) + '/' + list.length + ' ' + name);
@@ -159,34 +233,32 @@ function report(name, results) {
 
 (async function main() {
   let failed = 0;
-  const suites = [
-    ['conversation endings', sandbox.runConversationEndingTests],
-    ['mentor behavior', sandbox.runMentorBehaviorTests],
-    ['conversation memory', sandbox.runConversationMemoryTests],
-    ['India time', sandbox.runIndiaTimeTests],
-    ['diagnostic flow', sandbox.runDiagnosticFlowTests],
-    ['product experience', sandbox.runProductExperienceTests],
-    ['submission state', sandbox.runMargSubmissionStateTests]
+  const preferred = [
+    'runConversationEndingTests',
+    'runMentorBehaviorTests',
+    'runConversationMemoryTests',
+    'runIndiaTimeTests',
+    'runDiagnosticFlowTests',
+    'runProductExperienceTests',
+    'runMargSubmissionStateTests',
+    'runContextRoutingTests'
   ];
-  for (const pair of suites) {
-    if (typeof pair[1] !== 'function') {
+  const discovered = Object.keys(sandbox).filter(function(name) {
+    return (/^run.*Tests$/.test(name) || /^runMarg.*Tests$/.test(name)) && typeof sandbox[name] === 'function';
+  });
+  const selected = process.argv.slice(2);
+  const names = selected.length ? selected : preferred.concat(discovered.filter(function(name) { return preferred.indexOf(name) === -1; }));
+  for (const name of names) {
+    if (typeof sandbox[name] !== 'function') {
       failed += 1;
-      console.log('FAIL — ' + pair[0] + ' — suite missing');
+      console.log('FAIL — ' + name + ' — suite missing');
       continue;
     }
     try {
-      failed += report(pair[0], await pair[1]());
+      failed += report(name, await sandbox[name]());
     } catch (error) {
       failed += 1;
-      console.log('FAIL — ' + pair[0] + ' — ' + (error && error.stack || error));
-    }
-  }
-  if (typeof sandbox.runContextRoutingTests === 'function') {
-    try {
-      failed += report('context routing', await sandbox.runContextRoutingTests());
-    } catch (error) {
-      failed += 1;
-      console.log('FAIL — context routing — ' + (error && error.stack || error));
+      console.log('FAIL — ' + name + ' — ' + (error && error.stack || error));
     }
   }
   console.log(failed ? failed + ' failing test(s)' : 'all selected suites passed');
