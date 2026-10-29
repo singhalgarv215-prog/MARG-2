@@ -3491,6 +3491,9 @@ Do not force a Today's Mission block. A task must test the diagnosed mechanism, 
 Never infer a specific percentile from one mock. For full reviews give one evidence-linked priority per section and one checkpoint across two mocks.
 Keep saved missions out of unrelated chat; Home carries them. Leave a light thread, not a forced question. Sleep or exhaustion should end cleanly.
 
+CONVERSATION ENDINGS
+A bare okay, thanks, got it, or other acknowledgement ends the turn. Do not add a lesson, practice question, derivation, or options. If the student says an explanation was not requested, stop and do not replace it with another activity. If the student corrects an image reading, name that mistake, separate the question givens from the earlier reading, recheck the arithmetic, and stop. Do not claim the source is resolved when it is ambiguous. Offer a similar question only when one was requested or the student is still learning that problem. Never append Send that question or Try a new situation.
+
 TECHNICAL TAGS
 When the student must choose a follow-up, diagnostic description, question, section, priority or next action, end with [OPTIONS: first|second|third][CONTEXT: short_name]. Do not use [OPTIONS] for a selected book-question list. Do not use Explain this more simply, Show me an example, or Help me apply it. One group per message. Reported completed QA/DILR: [PRACTICE_LOG: section|Stable Topic Name|new count]. Do not use [START_TEST] to answer a request for questions. Never explain tags.
 
@@ -4690,6 +4693,13 @@ function anchorMentorAnalysisToImageContext(mentorAnalysis, userMessage, imageAt
   var analysis = mentorAnalysis || { diagnosis:{}, directive:'' };
   var diagnosis = analysis.diagnosis || (analysis.diagnosis = {});
   var hasCurrentImages = Array.isArray(imageAttachments) && imageAttachments.length > 0;
+  if (hasCurrentImages && (diagnosis.intent === 'image_correction' || diagnosis.studentAgency === 'image_correction')) {
+    diagnosis.hasImage = true;
+    diagnosis.intent = 'image_correction';
+    diagnosis.studentAgency = 'image_correction';
+    analysis.directive += '\n\nIMAGE CORRECTION WITH SOURCE: The attached image is the source. Separate its givens from the earlier interpretation before correcting anything. Do not continue into a new lesson.';
+    return analysis;
+  }
   var shortQuestionReference = isBareQuestionReference(userMessage) || /^(?:solve|explain|answer|check)\s+(?:this|that)(?:\s+question)?[?.!]*$/i.test(String(userMessage || '').trim());
   if (hasCurrentImages) {
     diagnosis.hasImage = true;
@@ -18235,8 +18245,66 @@ function getUnansweredUserMessageBeforeGreeting(message) {
   return '';
 }
 
+function normalizeAgencyText(message) {
+  return String(message || '').toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+}
+
+function isAnswerAcknowledgement(message) {
+  var text = normalizeAgencyText(message).replace(/[.!]+$/g, '').trim();
+  return /^(?:ok|okay|k|thanks|thank you|ty|got it|cool|alright|all right|fine|nice|great|perfect|understood|makes sense|sounds good|that helps|helpful|cheers|noted)$/.test(text);
+}
+
+function isUnsolicitedExplanationStop(message) {
+  var text = normalizeAgencyText(message);
+  return /\b(?:didn't|did not|never|not)\s+ask(?:\s+\w+){0,6}\s+(?:for\s+)?(?:an?\s+)?(?:explanation|lesson|lecture|derivation|walkthrough)\b/.test(text) ||
+    /\b(?:didn't|did not)\s+(?:want|request|need)(?:\s+\w+){0,5}\s+(?:an?\s+)?(?:explanation|lesson|lecture)\b/.test(text) ||
+    /\b(?:stop|don't|do not)\s+explain(?:ing)?\b/.test(text) ||
+    /\bno explanation\b/.test(text) ||
+    /\bi (?:only|just) (?:wanted|asked for) the answer\b/.test(text);
+}
+
+function isConversationFinished(message) {
+  var text = normalizeAgencyText(message).replace(/[.!]+$/g, '').trim();
+  return /^(?:that's all|thats all|i'm done|im done|we're done|were done|leave it(?: here)?|stop here|that's enough|thats enough|nothing else|i'm good|im good|all good|no more)$/.test(text);
+}
+
+function isExplicitSimilarPracticeRequest(message) {
+  var text = normalizeAgencyText(message);
+  if (/\b(?:don't|do not|stop)\b/.test(text) && /\b(?:similar|practice|question)\b/.test(text)) return false;
+  if (/\b(?:similar question|question like this|one like this|another like (?:this|that)|same type of question|try one similar)\b/.test(text)) return true;
+  return /\b(?:give|send|show|try|want|need)\b[\s\S]{0,40}\b(?:a|one|another)\b[\s\S]{0,24}\b(?:similar|practice)\b[\s\S]{0,16}\bquestion\b/.test(text);
+}
+
+function isContinuedLearningRequest(message) {
+  var text = normalizeAgencyText(message);
+  if (isUnsolicitedExplanationStop(text) || isAnswerAcknowledgement(text) || isConversationFinished(text)) return false;
+  // "Walk me through Q12" is a request for that question, not a generic request to keep learning.
+  if (/\b(?:walk me through|explain|solve|answer|check)\s+q(?:uestion)?\s*\d+\b/.test(text)) return false;
+  if (/\bq(?:uestion)?\s*\d+\b/.test(text) && /\b(?:walk me through|explain|solve|why|answer)\b/.test(text)) return false;
+  return /\b(?:keep (?:going|working)|keep working on this|continue (?:with|on) this|i want to (?:keep|understand|learn)|different (?:method|approach|way)|another way to solve|show me (?:another|a different) (?:method|way)|walk me through it again)\b/.test(text);
+}
+
+function isImageInterpretationCorrection(message) {
+  var text = normalizeAgencyText(message);
+  var aboutSource = /\b(?:image|screenshot|photo|picture|diagram|figure)\b/.test(text) || /\b(?:the question|the stem)\s+(?:says|shows|gives|has)\b/.test(text);
+  var correctsReading = /\b(?:misread|misinterpreted|mis-read|you read|you interpreted|you used|not what|instead of|wrong reading|wrong interpretation)\b/.test(text);
+  return aboutSource && correctsReading;
+}
+
+function classifyStudentAgency(message) {
+  if (isUnsolicitedExplanationStop(message)) return 'stop_unsolicited';
+  if (isImageInterpretationCorrection(message)) return 'image_correction';
+  if (isExplicitSimilarPracticeRequest(message)) return 'similar_practice';
+  if (isContinuedLearningRequest(message)) return 'continued_learning';
+  if (isConversationFinished(message)) return 'finished';
+  if (isAnswerAcknowledgement(message)) return 'acknowledgement';
+  return '';
+}
+
 function detectRequestedSpeechAct(message) {
   var text = String(message || '').toLowerCase().replace(/[’]/g, "'").trim();
+  var agency = classifyStudentAgency(message);
+  if (agency) return agency;
   if (/\b(?:correction|corrected|update only|recalculate|recompute|check (?:the )?(?:sum|total|arithmetic)|so the total|total .* correct)\b/.test(text) && /\b(?:score|marks?|total|varc|dilr|qa|quant|\d+)\b/.test(text)) return 'score_correction';
   if (/\b(?:start|open|launch|generate|create|give me|take|run|begin)\b[\s\S]{0,60}\b(?:practice|test|sectional|questions?|rc|passage|dilr set|qa set|baseline)\b/.test(text)) return 'practice_launch';
   if (/\b(?:why|what|how|when|where|which|calculate|compute|explain|tell me|answer)\b/.test(text) && !/\b(?:diagnos|find (?:my|the) (?:problem|weakness|leak)|what is holding me back)\b/.test(text)) return 'direct_question';
@@ -18315,6 +18383,12 @@ function detectMentorIntent(message) {
   if (isSimpleGreeting(message)) return 'greeting';
   if (getStudyTurn(message).owns) return 'study_activity';
   if (typeof isBareQuestionReference === 'function' && isBareQuestionReference(message)) return 'question_reference';
+  if (speechAct === 'image_correction') return 'image_correction';
+  if (speechAct === 'stop_unsolicited') return 'stop_unsolicited';
+  if (speechAct === 'similar_practice') return 'similar_practice';
+  if (speechAct === 'continued_learning' && !(typeof isSavedQuestionResolutionRequest === 'function' && isSavedQuestionResolutionRequest(message))) return 'continued_learning';
+  if (speechAct === 'finished') return 'finished';
+  if (speechAct === 'acknowledgement') return 'acknowledgement';
   if (isDILRValidityChallenge(message)) return 'dilr_validity_review';
   if (/^(?:please\s+)?(?:continue|go on|carry on|finish it|complete it|continue from there)[.!\s]*$/.test(text)) return 'seamless_continuation';
   if (isAnswerReviewRequest(message)) return 'answer_review';
@@ -18376,6 +18450,12 @@ function getLikelyHiddenProblem(intent, message) {
   var text = String(message || '').toLowerCase();
   var evidence = collectExplicitMentorEvidence(message);
   if (intent === 'privacy_request') return 'This is a factual privacy request, not a mentoring diagnosis. State the real retention model and deletion path without minimizing what is stored.';
+  if (intent === 'acknowledgement') return 'The student is acknowledging a completed answer. Stop. Do not add an explanation, practice question, lesson, or options.';
+  if (intent === 'stop_unsolicited') return 'The student said the explanation was not requested. Stop. Do not replace it with another activity or call to action.';
+  if (intent === 'finished') return 'The student is finished. End cleanly. Do not add a question, lesson, or call to action.';
+  if (intent === 'image_correction') return 'The student is correcting an image interpretation. Name the specific mistake, separate the question givens from the earlier reading, verify the calculation, and stop. Do not claim the source is resolved when it is still ambiguous.';
+  if (intent === 'similar_practice') return 'The student asked for a similar practice question. Offer one question that uses the same relationship as the current problem, or say the original problem is missing.';
+  if (intent === 'continued_learning') return 'The student wants to keep learning the current problem. Offer one next step that stays on that problem.';
   if (intent === 'question_reference') return 'The student is referring to a numbered question from earlier material. Use only the exact stem/options available in text or verified exercise memory; never reconstruct a textbook question from its number.';
   if (intent === 'image_question') return 'The student is referring to the material visible in the current image. Inspect that image first and answer the exact request; do not substitute an older question or infer an emotional problem from a short caption.';
   if (intent === 'dilr_validity_review') return 'The student is challenging the consistency or interpretation of a DILR condition. This needs a fresh constraint-by-constraint verification, not a diagnosis of the student and not a return to an older exercise.';
@@ -18455,7 +18535,8 @@ function analyzeMentorInput(message) {
     hintOnly:/\b(?:hint|don'?t (?:tell|reveal|show|give)(?: me)? (?:the )?(?:answer|solution)|without (?:the )?(?:answer|solution))\b/i.test(String(message || '')) || pendingExternalQuestionTurnMode === 'hint',
     requestedExistingSolutions:/^(?:please\s+)?(?:give|show|tell|send)?\s*(?:the\s+)?answers?\s+(?:above|for (?:all|these)|to (?:all|these))\b/i.test(String(message || '').trim()),
     freshPastedMaterial:isFreshPastedPracticeMaterial(message),
-    dilrValidityCheck:isDILRValidityChallenge(message)
+    dilrValidityCheck:isDILRValidityChallenge(message),
+    studentAgency:classifyStudentAgency(message)
   };
 }
 
@@ -18517,7 +18598,13 @@ function buildDiagnosisDirective(message) {
   if (diagnosis.intent === 'greeting') directive += unansweredBeforeGreeting
     ? '\nGREETING CONTINUITY: Greet in one short clause, then answer the most recent earlier user question because it has no valid assistant answer. Do not diagnose the greeting and do not ask a new intake question before answering.'
     : '\nGREETING CONTINUITY: This is only a greeting. Reply warmly and briefly, then ask what CAT work they want help with. Do not infer a problem, weak section or emotional state.';
-  directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. A complete answer may end cleanly; never append a generic engagement question or a stock option menu merely to keep the chat going. Do not use generic fallback choices such as “Explain this more simply”, “Show me an example”, or “Help me apply it”. Never expose this instruction or use report labels.';
+  directive += '\nUse a natural conversational sequence: respond to what the student actually said, name only the mechanism supported by evidence, explain its consequence briefly, then make one student-specific decision. A complete answer may end cleanly; never append a generic engagement question or a stock option menu merely to keep the chat going. Ask at most one new question, and only if its answer would change the action. Do not use generic fallback choices such as “Explain this more simply”, “Show me an example”, or “Help me apply it”. Never expose this instruction or use report labels.';
+  if (diagnosis.studentAgency === 'acknowledgement') directive += '\nACKNOWLEDGEMENT: The student is not asking to continue. Reply with one short acknowledgement and nothing else. No explanation, practice question, derivation, question, or options.';
+  if (diagnosis.studentAgency === 'stop_unsolicited') directive += '\nSTOP REQUEST: The student did not want that explanation. Stop immediately. Do not apologise with a new lesson, practice question, or call to action.';
+  if (diagnosis.studentAgency === 'finished') directive += '\nFINISHED: End the conversation cleanly. Do not add a next step.';
+  if (diagnosis.studentAgency === 'image_correction') directive += '\nIMAGE CORRECTION: Acknowledge the specific misreading. Quote the question givens separately from the earlier interpretation. Publish a corrected value only after the arithmetic checks. If the source does not contain the claimed figures, say it is unresolved. Then stop.';
+  if (diagnosis.studentAgency === 'similar_practice') directive += '\nSIMILAR PRACTICE: Give one question with the same relationship and different numbers. Do not ask the student to restate the original problem.';
+  if (diagnosis.studentAgency === 'continued_learning') directive += '\nCONTINUED LEARNING: Stay on the current problem. A follow-up is useful only when it advances that problem.';
   var concreteProcessEvidence = messageText.split(/\s+/).filter(Boolean).length >= 10 && /\b(?:when|because|but|while|after|before|end up|stuck|re-?read|random|guess|time pressure|cannot|can['’]?t|do not|don['’]?t|get what|main claim|method|setup|clue|option|passage|set)\b/i.test(messageText) &&
     ['varc_diagnosis','dilr_diagnosis','qa_diagnosis','mock_diagnosis','pacing_diagnosis'].indexOf(diagnosis.intent) !== -1;
   diagnosis.concreteProcessEvidence = concreteProcessEvidence;
@@ -20005,6 +20092,8 @@ function decideConversationClose(message, diagnosis, budget) {
   if (!diagnosis) return { kind:'none', pattern:'', line:'', options:[] };
   var intent = diagnosis.intent || '';
   var text = String(message || diagnosis.submittedAnswerText || '');
+  var agency = typeof agencyOf === 'function' ? agencyOf(diagnosis) : '';
+  if (agency === 'acknowledgement' || agency === 'stop_unsolicited' || agency === 'finished' || agency === 'image_correction' || agency === 'similar_practice') return { kind:'none', pattern:'', line:'', options:[] };
   if (diagnosis.bookQuestionList || wantsBookQuestionSelection(text) || diagnosis.responseShape === 'study' || intent === 'greeting' || intent === 'privacy_request' || intent === 'score_correction') return { kind:'none', pattern:'', line:'', options:[] };
   if (explicitResponseConstraint(text)) return { kind:'none', pattern:'', line:'', options:[] };
   var topic = closeTopicLabel(text, diagnosis);
@@ -20158,6 +20247,304 @@ function applyExplicitResponseLimit(text, diagnosis) {
   }
   if (/\b(?:in|as|use|give|answer in)\s+(?:one|a single|1)\s+line\b/i.test(request)) visible = visible.replace(/\s*\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
   return (visible + (tags.length ? '\n' + tags.join('\n') : '')).trim();
+}
+
+function formatAgencyNumber(value) {
+  var number = Number(value);
+  if (!Number.isFinite(number)) return String(value || '');
+  if (Math.abs(number - Math.round(number)) < 1e-9) return String(Math.round(number));
+  return String(Math.round(number * 100) / 100);
+}
+
+function agencyOf(diagnosis) {
+  if (!diagnosis) return '';
+  if (diagnosis.studentAgency) return diagnosis.studentAgency;
+  return classifyStudentAgency(diagnosis.submittedAnswerText || '');
+}
+
+function isTerminalStudentAgency(diagnosis) {
+  var agency = agencyOf(diagnosis);
+  return agency === 'acknowledgement' || agency === 'stop_unsolicited' || agency === 'finished' || agency === 'image_correction';
+}
+
+function acknowledgementReply(message) {
+  return /\b(?:thanks|thank you|\bty\b)/i.test(String(message || '')) ? "You're welcome." : 'Got it.';
+}
+
+function latestStudentTurnText() {
+  var items = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
+  for (var i = items.length - 1; i >= 0; i--) {
+    if (items[i] && items[i].role === 'user' && !(typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(items[i]))) return String(items[i].content || '');
+  }
+  return '';
+}
+
+function questionSourceText(currentMessage) {
+  var parts = [];
+  var question = typeof margActiveQuestionContext !== 'undefined' && margActiveQuestionContext && margActiveQuestionContext.question;
+  if (question) {
+    if (question.stem) parts.push(String(question.stem));
+    if (question.prompt) parts.push(String(question.prompt));
+    if (question.given) parts.push(String(question.given));
+  }
+  var current = normalizeAgencyText(currentMessage);
+  var items = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
+  items.forEach(function(item) {
+    if (!item || item.role !== 'user' || (typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item))) return;
+    var content = String(item.content || '');
+    if (current && normalizeAgencyText(content) === current) return;
+    parts.push(content);
+  });
+  return parts.join('\n');
+}
+
+function priorAssistantInterpretation() {
+  var items = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
+  for (var i = items.length - 1; i >= 0; i--) {
+    var item = items[i];
+    if (item && item.role === 'assistant' && !(typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item))) return String(item.content || '');
+  }
+  return '';
+}
+
+function extractProfitOnCost(text) {
+  var source = String(text || '');
+  var cost = source.match(/\bcost\s*(?:is|was|=|:)?\s*(?:₹|rs\.?\s*)?(\d+(?:\.\d+)?)/i);
+  var percent = source.match(/\bprofit\s*(?:is|was|=|:)?\s*(\d+(?:\.\d+)?)\s*%\s*of\s+(?:the\s+)?cost/i) ||
+    source.match(/(\d+(?:\.\d+)?)\s*%\s*(?:profit\s+)?of\s+(?:the\s+)?cost/i);
+  if (!cost || !percent) return null;
+  return { cost:Number(cost[1]), percent:Number(percent[1]) };
+}
+
+function buildProfitOnCostCorrection(message, source, prior) {
+  if (!/\b(?:misread|misinterpreted|not the selling price|of the cost)\b/i.test(String(message || ''))) return '';
+  var sourceGiven = extractProfitOnCost(source);
+  if (!/\bprofit\b/i.test(String(message || '')) && !sourceGiven) return '';
+  if (!sourceGiven) return "You're right. I shouldn't treat the profit percentage as a share of the selling price unless the question says that. The original cost and percentage are not both available, so I won't invent a selling price or call it resolved.";
+  var messageGiven = extractProfitOnCost(message);
+  if (messageGiven && (messageGiven.cost !== sourceGiven.cost || messageGiven.percent !== sourceGiven.percent)) {
+    return 'The question gives cost ' + formatAgencyNumber(sourceGiven.cost) + ' and profit ' + formatAgencyNumber(sourceGiven.percent) + '% of cost. The correction names different figures, so I won\'t silently switch readings or call it resolved.';
+  }
+  var correct = sourceGiven.cost * (100 + sourceGiven.percent) / 100;
+  var factor = (100 + sourceGiven.percent) / 100;
+  var mistaken = sourceGiven.percent < 100 ? sourceGiven.cost * 100 / (100 - sourceGiven.percent) : null;
+  var usedSellingPrice = mistaken != null && (String(prior || '').indexOf(formatAgencyNumber(mistaken)) !== -1 || /selling price/i.test(String(prior || '')));
+  var mistake = usedSellingPrice
+    ? 'I treated the ' + formatAgencyNumber(sourceGiven.percent) + '% profit as a share of the selling price and got ' + formatAgencyNumber(mistaken) + '. '
+    : 'I used a different reading from the question. ';
+  return "You're right. " + mistake + 'The question gives cost ' + formatAgencyNumber(sourceGiven.cost) + ' and profit as ' + formatAgencyNumber(sourceGiven.percent) + '% of cost. Rechecked: selling price = ' + formatAgencyNumber(sourceGiven.cost) + ' × ' + formatAgencyNumber(factor) + ' = ' + formatAgencyNumber(correct) + '.';
+}
+
+function buildImageInterpretationCorrection(message) {
+  var source = questionSourceText(message);
+  var prior = priorAssistantInterpretation();
+  var profit = buildProfitOnCostCorrection(message, source, prior);
+  if (profit) return profit;
+  var stated = String(message || '').match(/\b(?:image|screenshot|question|stem)\s+(?:says|shows|gives|has)\s+(-?\d+(?:\.\d+)?)\s*,?\s+not\s+(-?\d+(?:\.\d+)?)/i);
+  if (stated) {
+    var claimed = stated[1];
+    var rejected = stated[2];
+    if (!source.trim()) return "You're right to flag that. I had used " + rejected + ". The original question is not in this thread, so I won't substitute " + claimed + " or call the reading resolved.";
+    if (source.indexOf(claimed) === -1) return "You're right to flag the reading. I had used " + rejected + ". The question I can see does not give " + claimed + ", so I won't treat the correction as resolved.";
+    var priorClause = prior.indexOf(rejected) !== -1 ? 'I had used ' + rejected + '. ' : 'My earlier reading does not match the question. ';
+    return "You're right. The question gives " + claimed + '. ' + priorClause + "I won't add another derivation.";
+  }
+  if (!source.trim()) return "You're right to stop that reading. The original question values are not in this thread, so I won't invent a replacement or call it resolved.";
+  var sourceClip = source.replace(/\s+/g, ' ').trim().slice(0, 180);
+  var priorClip = prior.replace(/\s+/g, ' ').trim().slice(0, 160);
+  return "You're right to correct that reading. The question gives: " + sourceClip + '. I previously used: ' + (priorClip || 'a reading that is not the question') + ". I won't replace the question with a new interpretation.";
+}
+
+function buildSimilarPracticeReply(message) {
+  var givens = extractProfitOnCost(questionSourceText(message || ''));
+  if (!givens) return '';
+  var nextCost = givens.cost === 650 ? 480 : givens.cost + 150;
+  return 'Same relationship, new numbers. Cost is ' + formatAgencyNumber(nextCost) + ' and profit is ' + formatAgencyNumber(givens.percent) + '% of the cost. What is the selling price?';
+}
+
+function buildDifferentMethodReply() {
+  var givens = extractProfitOnCost(questionSourceText(latestStudentTurnText()));
+  if (!givens) return '';
+  var profitAmount = givens.cost * givens.percent / 100;
+  var total = givens.cost + profitAmount;
+  return 'Same question, different method. Cost is ' + formatAgencyNumber(givens.cost) + '. Profit is ' + formatAgencyNumber(givens.percent) + '% of ' + formatAgencyNumber(givens.cost) + ', which is ' + formatAgencyNumber(profitAmount) + '. Selling price = ' + formatAgencyNumber(givens.cost) + ' + ' + formatAgencyNumber(profitAmount) + ' = ' + formatAgencyNumber(total) + '.';
+}
+
+function buildOriginalQuestionRecheck() {
+  var source = questionSourceText(latestStudentTurnText());
+  var prior = priorAssistantInterpretation();
+  var givens = extractProfitOnCost(source);
+  var priorClip = prior.replace(/\s+/g, ' ').trim().slice(0, 160);
+  if (givens) {
+    var correct = givens.cost * (100 + givens.percent) / 100;
+    var factor = (100 + givens.percent) / 100;
+    return 'Rechecking the original question. It gives cost ' + formatAgencyNumber(givens.cost) + ' and profit ' + formatAgencyNumber(givens.percent) + '% of cost. My earlier reading was: ' + (priorClip || 'not the question as written') + '. Checked again: selling price = ' + formatAgencyNumber(givens.cost) + ' × ' + formatAgencyNumber(factor) + ' = ' + formatAgencyNumber(correct) + '.';
+  }
+  var clip = source.replace(/\s+/g, ' ').trim();
+  if (!clip) return '';
+  return 'Rechecking the original question. It gives: ' + clip.slice(0, 180) + '. My earlier reading was: ' + (priorClip || 'not the question as written') + '. I will not replace those givens with a new interpretation.';
+}
+
+function recentLearningBlob(visible, diagnosis) {
+  var current = diagnosis && diagnosis.submittedAnswerText || latestStudentTurnText();
+  var parts = [String(visible || ''), current, priorAssistantInterpretation()];
+  var items = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
+  var users = items.filter(function(item) {
+    return item && item.role === 'user' && !(typeof isInternalMemoryMessage === 'function' && isInternalMemoryMessage(item)) && normalizeAgencyText(item.content) !== normalizeAgencyText(current);
+  });
+  if (users.length) parts.push(String(users[users.length - 1].content || ''));
+  return parts.join('\n');
+}
+
+function findDilrFollowUpSubject(blob) {
+  var text = String(blob || '');
+  if (!/\b(?:dilr|lrdi|seating|scheduling|clue|constraint|immediately\s+(?:left|right))\b/i.test(text)) return null;
+  if (!/\b(?:clue|constraint|immediately\s+(?:left|right)|deduction)\b/i.test(text)) return null;
+  var clue = text.match(/\bclue\s*(\d+)\s*(?:says|[:\-])\s*([^.!\n]+)/i);
+  var immediate = text.match(/[^.!\n]*\bimmediately\s+(?:left|right)\b[^.!\n]*/i);
+  var deduction = clue ? ('clue ' + clue[1] + ': ' + clue[2].trim()) : (immediate ? immediate[0].trim() : '');
+  if (!deduction) return null;
+  return {
+    arrangement:/seating/i.test(text) ? 'seating arrangement' : /schedul/i.test(text) ? 'scheduling arrangement' : 'arrangement',
+    deduction:deduction,
+    topic:/seating/i.test(text) ? 'Seating and Ranking' : /schedul/i.test(text) ? 'Scheduling' : 'Mixed CAT DILR'
+  };
+}
+
+function buildStudentAgencyReply(message, diagnosis) {
+  var agency = diagnosis && diagnosis.studentAgency || classifyStudentAgency(message);
+  if (agency === 'acknowledgement') return acknowledgementReply(message);
+  if (agency === 'stop_unsolicited') return "Understood. I'll stop the explanation there.";
+  if (agency === 'finished') return "We'll leave it here.";
+  if (agency === 'image_correction') return buildImageInterpretationCorrection(message);
+  if (agency === 'similar_practice') return buildSimilarPracticeReply(message) || "I can offer a similar question only from the problem already in this chat. I won't invent a different one.";
+  return '';
+}
+
+function shouldAnswerAgencyLocally(diagnosis, imageAttachments) {
+  var agency = agencyOf(diagnosis);
+  if (agency === 'acknowledgement' || agency === 'stop_unsolicited' || agency === 'finished') return true;
+  if (agency === 'similar_practice') return !!buildSimilarPracticeReply(diagnosis && diagnosis.submittedAnswerText || '');
+  if (agency !== 'image_correction') return false;
+  var hasImage = !!(diagnosis && diagnosis.hasImage) || (Array.isArray(imageAttachments) && imageAttachments.length > 0);
+  if (!hasImage) return true;
+  return /Rechecked:/.test(buildImageInterpretationCorrection(diagnosis && diagnosis.submittedAnswerText || ''));
+}
+
+function responseHasStockOptions(text) {
+  var found = false;
+  String(text || '').replace(/\[OPTIONS:\s*([^\]]*)\]/gi, function(_match, labels) {
+    String(labels || '').split('|').forEach(function(option) {
+      if (typeof isGenericConversationalOptionLabel === 'function' && isGenericConversationalOptionLabel(option)) found = true;
+    });
+    return _match;
+  });
+  return found;
+}
+
+function trailingConversationOptions(text) {
+  var match = String(text || '').match(/\[OPTIONS:\s*([^\]]*)\]\s*\[CONTEXT:\s*([^\]]+)\]\s*$/i);
+  if (!match) return null;
+  return {
+    options:match[1].split('|').map(function(option) { return option.trim(); }).filter(Boolean),
+    context:match[2].trim()
+  };
+}
+
+function responseHasHandledOptions(text) {
+  var parsed = trailingConversationOptions(text);
+  return !!(parsed && typeof conversationOptionContextIsHandled === 'function' && conversationOptionContextIsHandled(parsed.context) &&
+    parsed.options.some(function(option) { return typeof isGenericConversationalOptionLabel !== 'function' || !isGenericConversationalOptionLabel(option); }));
+}
+
+function removeDuplicateConversationClosers(text) {
+  var value = String(text || '').trim();
+  var tags = value.match(/(\s*\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]\s*)+$/i);
+  var suffix = tags ? tags[0] : '';
+  var visible = tags ? value.slice(0, tags.index).trim() : value;
+  var seen = {};
+  var kept = [];
+  visible.split(/\n\s*\n/).forEach(function(paragraph) {
+    var clean = String(paragraph || '').trim();
+    if (!clean) return;
+    var key = clean.toLowerCase().replace(/\s+/g, ' ');
+    if (seen[key]) return;
+    seen[key] = true;
+    kept.push(clean);
+  });
+  var stock = /^(?:let me know if you (?:need|want) anything else[.!]?|want me to explain(?: this| it)?(?: more)?\??|send that question[.!]?|try a new situation[.!]?|does that help\??)$/i;
+  while (kept.length > 1 && stock.test(kept[kept.length - 1])) kept.pop();
+  var visibleText = kept.join('\n\n');
+  var stockTail = /(?:^|\s+)(?:let me know if you (?:need|want) anything else[.!]?|want me to explain(?: this| it)?(?: more)?\??|send that question[.!]?|try a new situation[.!?]?)\s*$/i;
+  while (stockTail.test(visibleText) && visibleText.replace(stockTail, '').trim()) visibleText = visibleText.replace(stockTail, '').trim();
+  return (visibleText + (suffix ? '\n' + suffix.trim() : '')).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function stripUnsolicitedContinuation(text) {
+  var value = removeDuplicateConversationClosers(stripGenericConversationalOptionTags(text));
+  var tags = value.match(/(\s*\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]\s*)+$/i);
+  var suffix = tags ? tags[0] : '';
+  var visible = tags ? value.slice(0, tags.index).trim() : value;
+  var paragraphs = visible.split(/\n\s*\n/).map(function(paragraph) { return paragraph.trim(); }).filter(Boolean);
+  while (paragraphs.length > 1 && /\?/.test(paragraphs[paragraphs.length - 1])) paragraphs.pop();
+  return (paragraphs.join('\n\n') + (suffix ? '\n' + suffix.trim() : '')).trim();
+}
+
+function contextualReplacementOptions(visible, diagnosis) {
+  var current = diagnosis && diagnosis.submittedAnswerText || '';
+  var dilr = findDilrFollowUpSubject(recentLearningBlob(visible, diagnosis));
+  if (dilr) {
+    return {
+      lead:'If you want to stay with this ' + dilr.arrangement + ', the open point is ' + dilr.deduction + '.',
+      options:['Review the deduction where I got stuck', 'Try another set'],
+      context:'dilr_set_followup'
+    };
+  }
+  if (extractProfitOnCost(questionSourceText(current)) && buildSimilarPracticeReply(current) && buildDifferentMethodReply()) {
+    return { lead:'', options:['Try one similar question', 'Show me a different solving method'], context:'concept_followup' };
+  }
+  if (/\b(?:misread|incorrect (?:image|reading)|wrong reading)\b/i.test(String(visible || '')) && buildOriginalQuestionRecheck()) {
+    return { lead:'', options:['Recheck the original question', 'Leave it here for now'], context:'image_recheck' };
+  }
+  return null;
+}
+
+function formatConversationOptions(spec) {
+  if (!spec || !spec.options || !spec.options.length) return '';
+  return ((spec.lead ? spec.lead + '\n' : '') + '[OPTIONS: ' + spec.options.join('|') + '][CONTEXT: ' + spec.context + ']').trim();
+}
+
+function applyConversationAgencyPolicy(text, diagnosis) {
+  var original = String(text || '');
+  var agency = agencyOf(diagnosis);
+  if (agency === 'acknowledgement') return acknowledgementReply(diagnosis && diagnosis.submittedAnswerText);
+  if (agency === 'stop_unsolicited') return "Understood. I'll stop the explanation there.";
+  if (agency === 'finished') return "We'll leave it here.";
+  if (agency === 'image_correction') {
+    var localCorrection = buildImageInterpretationCorrection(diagnosis && diagnosis.submittedAnswerText || '');
+    if (/Rechecked:/.test(localCorrection) || !(diagnosis && diagnosis.hasImage)) return localCorrection;
+    var kept = stripUnsolicitedContinuation(original);
+    if (!/you'?re right|i (?:misread|had used|treated)/i.test(kept)) kept = "You're right. I had the earlier reading wrong.\n\n" + kept;
+    return kept.trim();
+  }
+  if (agency === 'similar_practice') {
+    var similar = buildSimilarPracticeReply(diagnosis && diagnosis.submittedAnswerText || '');
+    if (similar) return similar;
+    var keptSimilar = stripGenericConversationalOptionTags(removeDuplicateConversationClosers(original));
+    var visibleSimilar = keptSimilar.replace(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g, '').trim();
+    if (visibleSimilar && /\?/.test(visibleSimilar) && !/try a new situation|send that question/i.test(visibleSimilar)) return keptSimilar;
+    return "I can offer a similar question only from the problem already in this chat. I won't invent a different one.";
+  }
+  var hadStock = responseHasStockOptions(original);
+  var value = stripGenericConversationalOptionTags(removeDuplicateConversationClosers(original));
+  if (!responseHasHandledOptions(value) && (hadStock || agency === 'continued_learning')) {
+    var follow = contextualReplacementOptions(value, diagnosis);
+    if (follow) {
+      value = value.replace(/\s*\[\[MARG_NEXT\]\][\s\S]*?\[\[\/MARG_NEXT\]\]/gi, '').trim();
+      value = (value + '\n\n' + formatConversationOptions(follow)).trim();
+    }
+  }
+  return value.trim();
 }
 
 // Study replies are the material and its working. The mentor-conversation
@@ -20341,7 +20728,7 @@ function applyMentorResponseGuard(response, diagnosis) {
   }
   var visibleValue = text.replace(/\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG):[^\]]*\]/g, '').trim();
   var valueWithoutQuestions = visibleValue.replace(/[^.!?\n]*\?/g, '').trim();
-  if (valueWithoutQuestions.length < 18 && diagnosis && diagnosis.likelyHiddenProblem) {
+  if (!isTerminalStudentAgency(diagnosis) && agencyOf(diagnosis) !== 'similar_practice' && valueWithoutQuestions.length < 18 && diagnosis && diagnosis.likelyHiddenProblem) {
     text = text || buildMentorFallbackReply(diagnosis);
   }
   text = formatMultiAnswerReview(text, diagnosis);
@@ -20369,7 +20756,6 @@ function applyMentorResponseGuard(response, diagnosis) {
   text = guardCleanSolvedQuestionResponse(text, diagnosis);
   text = stripRedundantSolutionClosers(text);
   text = guardRecommendedQuestionCount(text);
-  text = stripGenericConversationalOptionTags(text);
   text = ensureSolverFirstResponse(text, diagnosis);
   text = ensureConversationMomentumClose(text, diagnosis);
   text = guardDuplicateMessageAwareness(text, diagnosis);
@@ -20387,7 +20773,8 @@ function applyMentorResponseGuard(response, diagnosis) {
   // contains an unmatched quotation mark. The old quote-count heuristic
   // falsely removed valid RC exercises and appended an internal-sounding note.
   if (text) text = applyConversationClose(text, diagnosis);
-  if (!text) text = buildMentorFallbackReply(diagnosis);
+  text = applyConversationAgencyPolicy(text, diagnosis);
+  if (!text) text = isTerminalStudentAgency(diagnosis) || agencyOf(diagnosis) === 'similar_practice' ? applyConversationAgencyPolicy(' ', diagnosis) : buildMentorFallbackReply(diagnosis);
   return finalizeMentorSavedText(applyExplicitResponseLimit(text, diagnosis), diagnosis);
 }
 
@@ -20738,6 +21125,150 @@ function runMentorBehaviorTests() {
   });
 }
 
+function visibleConversationOptions(container) {
+  var buttons = [];
+  function walk(node) {
+    if (!node) return;
+    var children = node.children || [];
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i];
+      if (child && String(child.tagName || '').toUpperCase() === 'BUTTON') buttons.push(String(child.textContent || ''));
+      walk(child);
+    }
+  }
+  walk(container);
+  return buttons;
+}
+
+async function runConversationEndingTests() {
+  var originalHistory = conversationHistory;
+  var originalQuestion = typeof margActiveQuestionContext === 'undefined' ? undefined : margActiveQuestionContext;
+  var results = [];
+  function check(name, passed, detail) {
+    results.push({ name:name, passed:!!passed, detail:detail || '' });
+  }
+  var profitStem = 'Cost is 500. Profit is 20% of the cost. Find the selling price.';
+  var profitQuestion = { question_id:'profit-q', question:{ id:'profit-q', stem:profitStem } };
+  try {
+    conversationHistory = [];
+    margActiveQuestionContext = null;
+    check('okay is an acknowledgement, not a request to continue', detectMentorIntent('okay') === 'acknowledgement' && detectMentorIntent('ok') === 'acknowledgement' && detectRequestedSpeechAct('okay') === 'acknowledgement');
+    check('an explanation refusal is not treated as a request to explain', detectRequestedSpeechAct("I didn't ask for an explanation") === 'stop_unsolicited');
+    check('a sectional launch is still a practice launch', detectRequestedSpeechAct('start a QA sectional') === 'practice_launch');
+
+    conversationHistory = [
+      { role:'user', content:profitStem },
+      { role:'assistant', content:'Selling price = 500 × 1.2 = 600.' }
+    ];
+    var okayDiagnosis = analyzeMentorInput('okay');
+    var okayReply = applyMentorResponseGuard('Let us derive the whole percentage chapter again and then try a new question.\n[OPTIONS: Send that question|Try a new situation][CONTEXT: general]', okayDiagnosis);
+    check('okay does not add a derivation, question, or options', okayReply === 'Got it.' && !/\?|\[OPTIONS:|deriv|question|practice/i.test(okayReply), okayReply);
+    var thanksReply = applyMentorResponseGuard('Here is another lesson.', analyzeMentorInput('thanks'));
+    check('thanks stays a short acknowledgement', thanksReply === "You're welcome." && !/\[OPTIONS:|\?/.test(thanksReply), thanksReply);
+
+    conversationHistory = [
+      { role:'user', content:'[image] ' + profitStem },
+      { role:'assistant', content:'I read the profit as 20% of the selling price, so 500 = 0.8 × SP and SP = 625.' }
+    ];
+    var correction = 'You misread the image. Profit is 20% of the cost, not the selling price.';
+    var correctionReply = applyMentorResponseGuard('Let me derive a different model and then give you a practice question.\n[OPTIONS: Try a new situation|Send that question][CONTEXT: general]', analyzeMentorInput(correction));
+    check('image correction names the mistake, rechecks, and stops', /You're right/.test(correctionReply) && /625/.test(correctionReply) && /cost 500/.test(correctionReply) && /20% of cost/.test(correctionReply) && /=\s*600/.test(correctionReply) && !/\?|\[OPTIONS:|practice question|similar question/i.test(correctionReply), correctionReply);
+
+    var stopReply = applyMentorResponseGuard('I will explain it from the beginning and then you can try a new situation. Want a practice question?', analyzeMentorInput("I didn't ask for an explanation"));
+    check('an unwanted explanation stops without a replacement activity', stopReply === "Understood. I'll stop the explanation there." && !/\?|\[OPTIONS:|practice/i.test(stopReply), stopReply);
+
+    conversationHistory = [
+      { role:'user', content:profitStem },
+      { role:'assistant', content:'Selling price = 500 × 1.2 = 600.' },
+      { role:'user', content:'Give me a similar question' }
+    ];
+    margActiveQuestionContext = profitQuestion;
+    var similarReply = applyMentorResponseGuard('Try a new situation instead.\n[OPTIONS: Send that question|Try a new situation][CONTEXT: general]', analyzeMentorInput('Give me a similar question'));
+    check('a similar-question request produces one related practice question', /650/.test(similarReply) && /20% of the cost/.test(similarReply) && /selling price\?/i.test(similarReply) && !/500/.test(similarReply) && !/\[OPTIONS:/.test(similarReply), similarReply);
+    conversationHistory = [
+      { role:'user', content:'A number is increased by 15 and then doubled. The result is 70.' },
+      { role:'assistant', content:'The number is 20.' },
+      { role:'user', content:'Give me a similar question' }
+    ];
+    margActiveQuestionContext = null;
+    var invented = applyMentorResponseGuard('Try a new situation instead.\n[OPTIONS: Send that question|Try a new situation][CONTEXT: general]', analyzeMentorInput('Give me a similar question'));
+    var keptQuestion = applyMentorResponseGuard('A number is increased by 8 and then tripled. The result is 42. What is the number?', analyzeMentorInput('Give me a similar question'));
+    check('an unverified similar request is not replaced by an invented question', /won't invent/.test(invented) && !/\d{3}|\[OPTIONS:/.test(invented) && /What is the number\?/.test(keptQuestion) && !/won't invent|\[OPTIONS:/.test(keptQuestion), invented + ' || ' + keptQuestion);
+
+    conversationHistory = [
+      { role:'user', content:'Explain this DILR seating arrangement. Clue 3 says A sits immediately left of B. I got stuck there.' }
+    ];
+    var dilrReply = applyMentorResponseGuard('A has to sit immediately left of B, so that pair is fixed before the remaining seats.\n\n[OPTIONS: Send that question|Try a new situation][CONTEXT: general]', analyzeMentorInput(conversationHistory[0].content));
+    check('a completed DILR explanation offers only that arrangement and its deduction', /seating arrangement/i.test(dilrReply) && /clue 3/i.test(dilrReply) && /immediately left/i.test(dilrReply) && /Review the deduction where I got stuck/.test(dilrReply) && /Try another set/.test(dilrReply) && !/Send that question|Try a new situation/i.test(dilrReply), dilrReply);
+
+    conversationHistory = [];
+    margActiveQuestionContext = null;
+    var duplicated = applyMentorResponseGuard('The selling price is 600.\n\nLet me know if you need anything else.\n\nLet me know if you need anything else.\n[OPTIONS: Explain this more simply|Show me an example|Help me apply it][CONTEXT: general]', analyzeMentorInput('What is the selling price?'));
+    var clean = applyMentorResponseGuard('The selling price is 600.', analyzeMentorInput('What is the selling price?'));
+    check('a completed answer does not keep duplicate closers or generic options', duplicated === 'The selling price is 600.' && clean === 'The selling price is 600.' && !/\[OPTIONS:|Let me know|Send that question|Try a new situation/i.test(duplicated + '\n' + clean), duplicated + ' || ' + clean);
+
+    conversationHistory = [
+      { role:'user', content:profitStem },
+      { role:'assistant', content:'Selling price = 500 × 1.2 = 600.' },
+      { role:'user', content:'I want to keep working on this.' }
+    ];
+    margActiveQuestionContext = profitQuestion;
+    var learningReply = applyMentorResponseGuard('The multiplier method gives 600.', analyzeMentorInput('I want to keep working on this.'));
+    check('continued learning still offers a useful follow-up', /\[OPTIONS:\s*Try one similar question\|Show me a different solving method\]\s*\[CONTEXT:\s*concept_followup\]/.test(learningReply), learningReply);
+    var rcKept = applyConversationAgencyPolicy('You can make the move when we isolate it.\n[OPTIONS: Yes, one more|Move to a full RC|Later][CONTEXT: rc_progression_timing]', analyzeMentorInput('I want to keep working on this.'));
+    check('an in-progress RC follow-up is not replaced', /rc_progression_timing/.test(rcKept) && /Yes, one more/.test(rcKept), rcKept);
+
+    if (typeof document !== 'undefined' && document.getElementById) {
+      var messages = document.getElementById('messages');
+      if (messages && messages.children) messages.children.length = 0;
+      removeConversationalOptions();
+      var directGeneric = showConversationalOptions(['Explain this more simply', 'Show me an example', 'Help me apply it'], 'general');
+      var directStock = showConversationalOptions(['Send that question', 'Try a new situation'], 'general');
+      check('frontend rendering drops generic option sets', !directGeneric && !directStock && visibleConversationOptions(messages).length === 0, visibleConversationOptions(messages).join('|'));
+
+      conversationHistory = [{ role:'user', content:'Does that match the mock?' }];
+      var confirmation = checkAndRenderMargOptions('Does that match what happened?\n[OPTIONS: Send that question|Try a new situation][CONTEXT: general]');
+      var confirmationLabels = visibleConversationOptions(confirmation || messages);
+      check('frontend confirmation buttons replace stock options', confirmation && confirmation.id === 'conv-options-diagnosis_confirmation_lead' && confirmationLabels.indexOf('Yes, that matches') !== -1 && confirmationLabels.indexOf('Send that question') === -1 && confirmationLabels.indexOf('Try a new situation') === -1, confirmationLabels.join('|'));
+
+      removeConversationalOptions();
+      if (messages && messages.children) messages.children.length = 0;
+      conversationHistory = [{ role:'user', content:'okay' }];
+      var acknowledged = checkAndRenderMargOptions('Got it.\n[OPTIONS: Send that question|Try a new situation][CONTEXT: general]');
+      check('frontend rendering adds no buttons after okay', !acknowledged && visibleConversationOptions(messages).length === 0);
+
+      conversationHistory = [
+        { role:'user', content:profitStem },
+        { role:'assistant', content:'Selling price = 500 × 1.2 = 600.' },
+        { role:'user', content:'I want to keep working on this.' }
+      ];
+      margActiveQuestionContext = profitQuestion;
+      removeConversationalOptions();
+      if (messages && messages.children) messages.children.length = 0;
+      var learningButtons = checkAndRenderMargOptions(learningReply);
+      var beforeId = margActiveQuestionContext.question_id;
+      await dispatchConversationalQuickReply('Try one similar question', 'concept_followup', learningButtons);
+      var lastAssistant = conversationHistory.slice().reverse().find(function(item) { return item && item.role === 'assistant'; });
+      check('a suggested button keeps the question and does the labelled action', beforeId === 'profit-q' && margActiveQuestionContext.question_id === 'profit-q' && lastAssistant && /650/.test(lastAssistant.content) && /selling price\?/i.test(lastAssistant.content), lastAssistant && lastAssistant.content);
+      var method = resolveConversationOptionAction('Show me a different solving method', 'concept_followup');
+      check('the other learning button uses the same question', method && method.questionId === 'profit-q' && method.kind === 'different_method' && /500 \+ 100 = 600/.test(method.text), method && method.text);
+
+      conversationHistory = [
+        { role:'user', content:'Explain this DILR seating arrangement. Clue 3 says A sits immediately left of B. I got stuck there.' },
+        { role:'assistant', content:dilrReply }
+      ];
+      var review = resolveConversationOptionAction('Review the deduction where I got stuck', 'dilr_set_followup');
+      var another = resolveConversationOptionAction('Try another set', 'dilr_set_followup');
+      check('DILR buttons review that deduction or open the same kind of practice', review && review.kind === 'review_deduction' && /clue 3/i.test(review.text) && /immediately left/i.test(review.text) && !/\?/.test(review.text) && another && another.kind === 'another_dilr' && /\[START_TEST: dilr\|Seating and Ranking\|4\]/.test(another.text) && another.questionId === 'profit-q', (review && review.text) + '\n' + (another && another.text));
+    }
+  } finally {
+    conversationHistory = originalHistory;
+    margActiveQuestionContext = originalQuestion;
+  }
+  return results;
+}
+window.runConversationEndingTests = runConversationEndingTests;
+
 function runMentorVoiceTests() {
   var close = buildDiagnosisDirective('Bhai I got x = 2 but the options want integers. Am I close?');
   var solve = buildDiagnosisDirective("Let's solve question 5 step by step");
@@ -21015,7 +21546,7 @@ function runConversationCloseTests() {
     { name:'an unresolved explanation asks one narrow question', passed:unresolved.close.kind === 'unresolved' && unresolved.close.pattern === 'diagnostic' && (unresolved.guarded.match(/\?/g) || []).length === 1 && unresolved.guarded.indexOf('The setup') !== -1 },
     { name:'a goodbye closes in one line without a new question', passed:goodbye.close.kind === 'stop' && goodbye.guarded.indexOf('leave it here') !== -1 && goodbye.guarded.indexOf('Please stop') === -1 && goodbye.guarded.indexOf('?') === -1 && goodbye.guarded.indexOf('Anything else') === -1 && /"options":\[\]/.test(goodbye.guarded) },
     { name:'a frustrated student gets direct help and no question', passed:frustrated.close.kind === 'unresolved' && frustrated.close.pattern !== 'diagnostic' && frustrated.guarded.indexOf('?') === -1 && frustrated.guarded.indexOf('Does that help') === -1 && frustrated.guarded.indexOf('[[MARG_NEXT]]') !== -1 },
-    { name:'got it is a micro-check, not a resolved proof', passed:gotIt.close.kind === 'uncertain' && gotIt.close.pattern === 'micro_check' && gotIt.guarded.indexOf('no hint') !== -1 },
+    { name:'got it ends the turn without a new question', passed:gotIt.close.kind === 'none' && gotIt.guarded === 'Got it.' && gotIt.guarded.indexOf('MARG_NEXT') === -1 && gotIt.guarded.indexOf('?') === -1 },
     { name:'just the answer strips the next step', passed:answerOnly.close.kind === 'none' && answerOnly.guarded.indexOf('MARG_NEXT') === -1 && answerOnly.guarded.indexOf('f(x) = 2x') !== -1 },
     { name:'an offered next step survives a zero question budget', passed:budgetKept.indexOf('MARG_NEXT') !== -1 && budgetKept.indexOf('similar question') !== -1 && budgetKept.indexOf('Does that help') === -1 },
     { name:'an equation is a scrollable block and a table has stacked rows', passed:equation.indexOf('mentor-equation') !== -1 && equation.indexOf('f(x)+f(y)=2f((x+y)/2)f((x-y)/2)') !== -1 && equation.indexOf('`') === -1 && table.indexOf('mentor-table-cards') !== -1 && table.indexOf('mentor-table-label') !== -1 && table.indexOf('<table') !== -1 },
@@ -21406,7 +21937,36 @@ function isGenericConversationalOptionLabel(option) {
   var normalized = normalizeConversationalOptionLabel(option);
   return normalized === 'explain this more simply' || normalized === 'explain it more simply' ||
     normalized === 'show me an example' || normalized === 'show an example' ||
-    normalized === 'help me apply it' || normalized === 'help me apply this';
+    normalized === 'help me apply it' || normalized === 'help me apply this' ||
+    normalized === 'send that question' || normalized === 'try a new situation' ||
+    normalized === 'try something new' || normalized === 'ask another question';
+}
+
+function isActionableAgencyOptionLabel(option) {
+  var normalized = normalizeConversationalOptionLabel(option);
+  return normalized === 'recheck the original question' || normalized === 'leave it here for now' ||
+    normalized === 'try one similar question' || normalized === 'show me a different solving method' ||
+    normalized === 'review the deduction where i got stuck' || normalized === 'try another set';
+}
+
+function conversationOptionContextIsHandled(context) {
+  var value = String(context || '');
+  // A named product context already has a click path. Only an unlabeled
+  // general menu is dropped, because that click would just resend the label.
+  return !!value && value !== 'general';
+}
+
+function optionIsExecutable(option, context) {
+  var normalized = normalizeConversationalOptionLabel(option);
+  if (isGenericConversationalOptionLabel(option)) return false;
+  if (normalized === 'recheck the original question') return !!buildOriginalQuestionRecheck();
+  if (normalized === 'try one similar question') return !!buildSimilarPracticeReply(latestStudentTurnText());
+  if (normalized === 'show me a different solving method') return !!buildDifferentMethodReply();
+  if (normalized === 'review the deduction where i got stuck' || normalized === 'try another set') {
+    return !!findDilrFollowUpSubject(recentLearningBlob('', { submittedAnswerText:latestStudentTurnText() }));
+  }
+  if (normalized === 'leave it here for now') return true;
+  return conversationOptionContextIsHandled(context);
 }
 
 function isGenericConversationalOptionSet(options) {
@@ -21415,9 +21975,12 @@ function isGenericConversationalOptionSet(options) {
 }
 
 function stripGenericConversationalOptionTags(text) {
-  return String(text || '').replace(/\s*\[OPTIONS:\s*([^\n\]]*)\]\s*\[CONTEXT:\s*[^\]]+\]\s*/gi, function(match, labels) {
+  return String(text || '').replace(/\[OPTIONS:\s*([^\]]*)\](\s*\[CONTEXT:\s*([^\]]+)\])?/gi, function(match, labels, contextTag, context) {
     var options = String(labels || '').split('|').map(function(option) { return option.trim(); }).filter(Boolean);
-    return isGenericConversationalOptionSet(options) ? '\n' : match;
+    var kept = options.filter(function(option) { return !isGenericConversationalOptionLabel(option); });
+    if (!kept.length) return '\n';
+    if (kept.length === options.length) return match;
+    return '[OPTIONS: ' + kept.join('|') + '][CONTEXT: ' + (context ? String(context).trim() : 'general') + ']';
   }).replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -21471,6 +22034,8 @@ function showConversationalOptions(options, context, config) {
   }
   requestedOptions = requestedOptions.filter(function(option) {
     return typeof isGenericConversationalOptionLabel !== 'function' || !isGenericConversationalOptionLabel(option);
+  }).filter(function(option) {
+    return typeof optionIsExecutable !== 'function' || optionIsExecutable(option, context);
   });
   if (!requestedOptions.length) {
     removeConversationalOptions();
@@ -21585,6 +22150,53 @@ function restorePendingConversationalOptions() {
   if (!state || !Array.isArray(state.options) || !state.options.length || !state.context) return false;
   if (document.getElementById('conv-options-' + state.context)) return true;
   return !!showConversationalOptions(state.options, state.context, state.config || null);
+}
+
+function resolveConversationOptionAction(answer, context) {
+  var label = normalizeConversationalOptionLabel(answer);
+  var ctx = String(context || '');
+  var named = label === 'try one similar question' || label === 'show me a different solving method' ||
+    label === 'review the deduction where i got stuck' || label === 'try another set' ||
+    label === 'recheck the original question' || label === 'leave it here for now';
+  var localContext = ctx === 'concept_followup' || ctx === 'dilr_set_followup' || ctx === 'image_recheck' || ctx === 'conversation_close';
+  if (!named && !localContext) return null;
+  var question = typeof margActiveQuestionContext !== 'undefined' ? margActiveQuestionContext : null;
+  var questionId = question && (question.question_id || (question.question && question.question.id)) || '';
+  var base = { questionId:questionId, contextPreserved:true };
+  if (label === 'leave it here for now' || (ctx === 'conversation_close' && !named)) return Object.assign(base, { kind:'close', text:"We'll leave it here." });
+  if (label === 'recheck the original question') {
+    var recheck = buildOriginalQuestionRecheck();
+    return recheck ? Object.assign(base, { kind:'recheck', text:recheck }) : Object.assign(base, { kind:'unavailable', text:'' });
+  }
+  if (label === 'try one similar question') {
+    var similar = buildSimilarPracticeReply(latestStudentTurnText());
+    return similar ? Object.assign(base, { kind:'similar_question', text:similar }) : Object.assign(base, { kind:'unavailable', text:'' });
+  }
+  if (label === 'show me a different solving method') {
+    var method = buildDifferentMethodReply();
+    return method ? Object.assign(base, { kind:'different_method', text:method }) : Object.assign(base, { kind:'unavailable', text:'' });
+  }
+  if (label === 'review the deduction where i got stuck') {
+    var subject = findDilrFollowUpSubject(recentLearningBlob('', { submittedAnswerText:latestStudentTurnText() }));
+    if (!subject) return Object.assign(base, { kind:'unavailable', text:'' });
+    return Object.assign(base, { kind:'review_deduction', text:'On this ' + subject.arrangement + ', the deduction to revisit is ' + subject.deduction + '. That clue stays as given. I am not replacing it with a new reading.' });
+  }
+  if (label === 'try another set') {
+    var another = findDilrFollowUpSubject(recentLearningBlob('', { submittedAnswerText:latestStudentTurnText() }));
+    if (!another) return Object.assign(base, { kind:'unavailable', text:'' });
+    return Object.assign(base, { kind:'another_dilr', text:buildVerifiedDILRBoundaryReply(another.topic) });
+  }
+  return null;
+}
+
+function performConversationOption(answer, context) {
+  var result = resolveConversationOptionAction(answer, context);
+  if (!result || result.kind === 'unavailable' || !result.text) return false;
+  conversationHistory.push({ role:'user', content:answer });
+  if (!isGuestMode) saveChatMessage('user', answer);
+  addMentorLeadMessage(result.text);
+  if (result.kind === 'another_dilr') checkAndRenderTestPrompt(result.text);
+  return true;
 }
 
 function pendingOptionsFromAssistantText(text) {
@@ -21815,6 +22427,9 @@ async function handleConversationalResponse(answer, context) {
       await sendPatternFallbackQuestion();
     }
 
+  } else if (performConversationOption(answer, context)) {
+    // The button named a local action. It keeps the current question context.
+
   } else {
 
     await sendConversationalMessage(answer, context);
@@ -21907,6 +22522,16 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     mentorAnalysis.directive += getPendingExternalQuestionContext();
   } else if (pendingExternalQuestionTurnMode === 'solution' || pendingExternalQuestionTurnMode === 'hint') {
     mentorAnalysis.directive += getPendingExternalQuestionContext();
+  }
+  if (shouldAnswerAgencyLocally(mentorAnalysis.diagnosis, imageAttachments)) {
+    var agencyReply = applyConversationAgencyPolicy(buildStudentAgencyReply(userMessage, mentorAnalysis.diagnosis), mentorAnalysis.diagnosis);
+    if (agencyReply) {
+      addMentorLeadMessage(agencyReply);
+      checkAndRenderMargOptions(agencyReply);
+      checkAndRenderTestPrompt(agencyReply);
+      completePendingExternalQuestionTurn();
+      return true;
+    }
   }
   if (mentorAnalysis.diagnosis.intent === 'greeting') {
     var greetingReply = buildMentorFallbackReply(mentorAnalysis.diagnosis);
@@ -22130,6 +22755,34 @@ async function sendPatternFallbackQuestion() {
   focusComposer();
 }
 
+function prepareConversationOptionDisplay(response) {
+  var agency = classifyStudentAgency(latestStudentTurnText());
+  if (agency === 'acknowledgement' || agency === 'stop_unsolicited' || agency === 'finished' || agency === 'image_correction') return null;
+  var optMatch = String(response || '').match(/\[OPTIONS:\s*([\s\S]*?)\]\s*\[CONTEXT:/i) || String(response || '').match(/\[OPTIONS:\s*([^\n]*)\]\s*$/im);
+  if (!optMatch) return null;
+  var options = optMatch[1].split('|').map(function(option) { return option.trim(); }).filter(Boolean);
+  var contextMatch = String(response || '').match(/\[CONTEXT:\s*([^\]]+)\]/);
+  var context = contextMatch ? contextMatch[1].trim() : 'general';
+  var visibleQuestion = String(response || '').replace(/\[OPTIONS:[^\n]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').trim();
+  var asksForConfirmation = /(?:does|did) (?:that|this|it) (?:match|fit|sound|feel)|is (?:that|this) (?:accurate|right|close)/i.test(visibleQuestion);
+  var hasConfirmationChoice = options.some(function(option) { return /^(?:yes|exactly|mostly|partly|no|not)/i.test(option); });
+  var hasSpecificAction = options.some(isActionableAgencyOptionLabel);
+  if (asksForConfirmation && !hasConfirmationChoice && !hasSpecificAction) {
+    options = ['Yes, that matches', 'Partly', 'No, that is different'];
+    if (!conversationOptionContextIsHandled(context)) context = 'diagnosis_confirmation_lead';
+  }
+  options = options.filter(function(option) { return !isGenericConversationalOptionLabel(option); });
+  if (!conversationOptionContextIsHandled(context)) {
+    if (!options.length || !options.every(isActionableAgencyOptionLabel)) return null;
+    if (options.some(function(option) { return /similar question|different solving method/i.test(option); })) context = 'concept_followup';
+    else if (options.some(function(option) { return /deduction|another set/i.test(option); })) context = 'dilr_set_followup';
+    else context = 'image_recheck';
+  }
+  options = options.filter(function(option) { return optionIsExecutable(option, context); });
+  if (!options.length) return null;
+  return { options:options, context:context };
+}
+
 function checkAndRenderMargOptions(response) {
   if (looksLikeBookQuestionSelection(response)) return;
   if (assistantBubbleAlreadyHasInlineChoices()) return;
@@ -22137,18 +22790,9 @@ function checkAndRenderMargOptions(response) {
   // The alternatives themselves can legitimately contain brackets, e.g.
   // sentence-placement choices [1], [2], [3], [4]. Stop at the control tag,
   // not at the first closing bracket inside an option.
-  var optMatch = response.match(/\[OPTIONS:\s*([\s\S]*?)\]\s*\[CONTEXT:/i) || response.match(/\[OPTIONS:\s*([^\n]*)\]\s*$/im);
-  if (optMatch) {
-    var options = optMatch[1].split('|').map(function(o) { return o.trim(); });
-    var visibleQuestion = String(response || '').replace(/\[OPTIONS:[^\n]*\]/g, '').replace(/\[CONTEXT:[^\]]*\]/g, '').trim();
-    if (/(?:does|did) (?:that|this|it) (?:match|fit|sound|feel)|is (?:that|this) (?:accurate|right|close)/i.test(visibleQuestion) &&
-        !options.some(function(option) { return /^(?:yes|exactly|mostly|partly|no|not)/i.test(option); })) {
-      options = ['Yes, that matches', 'Partly', 'No, that is different'];
-    }
-    var contextMatch = response.match(/\[CONTEXT:\s*([^\]]+)\]/);
-    var ctx = contextMatch ? contextMatch[1].trim() : 'general';
-    showConversationalOptions(options, ctx);
-  }
+  var prepared = prepareConversationOptionDisplay(response);
+  if (!prepared) return null;
+  return showConversationalOptions(prepared.options, prepared.context);
 }
 
 function checkAndRenderTestPrompt(response) {
