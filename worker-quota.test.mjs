@@ -2,14 +2,21 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const ROOT = '/workspace';
+const ROOT = dirname(fileURLToPath(import.meta.url));
 const B3 = 'e39509ba5f92c144cc77746a9d7f204cfbd11e7a';
 const SALT = 'test-salt';
 const SOURCE = readFileSync(join(ROOT, 'cloudflare-worker.js'), 'utf8');
-const BASELINE = execFileSync('git', ['show', B3 + ':cloudflare-worker.js'], { cwd: ROOT, encoding: 'utf8' });
+let BASELINE;
+try {
+  BASELINE = execFileSync('git', ['show', B3 + ':cloudflare-worker.js'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+} catch (error) {
+  const detail = error && error.stderr ? String(error.stderr).trim() : (error && error.message || error);
+  console.log('FAIL git show ' + B3 + ':cloudflare-worker.js failed: ' + detail);
+  process.exit(1);
+}
 const MARGIN = Number((SOURCE.match(/const RESERVATION_SETTLE_MARGIN_MS = (\d+);/) || [])[1]);
 const IN_FLIGHT_RETRY = Number((SOURCE.match(/const IN_FLIGHT_RETRY_AFTER_SECONDS = (\d+);/) || [])[1]);
 
@@ -383,12 +390,12 @@ await check('Q2 per-user daily call quota rejects the request after the cap', as
     first.status !== 200 && 'first ' + first.status,
     second.status !== 200 && 'second ' + second.status,
     third.status !== 429 && 'third ' + third.status,
-    error.status !== 'USER_DAILY_QUOTA' && error.status,
-    error.scope !== 'user' && error.scope,
+    error.status !== 'USER_DAILY_QUOTA' && (error.status || 'missing USER_DAILY_QUOTA'),
+    error.scope !== 'user' && (error.scope || 'missing scope'),
     error.retryable !== false && 'retryable',
     error.code !== 429 && 'code',
     third.retryAfter !== String(Math.ceil((reset - now) / 1000)) && 'retry-after ' + third.retryAfter,
-    error.reset_at !== new Date(reset).toISOString() && error.reset_at,
+    error.reset_at !== new Date(reset).toISOString() && (error.reset_at || 'missing reset_at'),
     geminiBodies.length !== before && 'gemini was called',
     Object.keys(error).sort().join(',') !== 'code,request_id,reset_at,retryable,scope,status' && 'shape'
   ]);
@@ -442,13 +449,13 @@ await check('Q4 guests share an IP bucket and the guest token pool', async () =>
     first.status !== 200 && 'first guest',
     second.status !== 200 && 'same /64',
     third.status !== 429 && 'rotating client id reset the bucket ' + third.status,
-    third.body && third.body.error && third.body.error.status !== 'GUEST_DAILY_QUOTA' && third.body.error.status,
-    third.body && third.body.error && third.body.error.scope !== 'guest' && 'guest scope',
+    (!third.body || !third.body.error || third.body.error.status !== 'GUEST_DAILY_QUOTA') && ((third.body && third.body.error && third.body.error.status) || 'missing GUEST_DAILY_QUOTA'),
+    (!third.body || !third.body.error || third.body.error.scope !== 'guest') && 'guest scope',
     other.status !== 200 && 'different /64 should be a new bucket',
     guestOne.status !== 200 && 'pool guest',
     guestTwo.status !== 429 && 'guest pool ' + guestTwo.status,
-    guestTwo.body && guestTwo.body.error && guestTwo.body.error.status !== 'GUEST_DAILY_QUOTA' && 'pool status',
-    guestTwo.body && guestTwo.body.error && guestTwo.body.error.scope !== 'global' && 'pool scope',
+    (!guestTwo.body || !guestTwo.body.error || guestTwo.body.error.status !== 'GUEST_DAILY_QUOTA') && 'pool status',
+    (!guestTwo.body || !guestTwo.body.error || guestTwo.body.error.scope !== 'global') && 'pool scope',
     student.status !== 200 && 'student blocked by guest pool'
   ]);
 });
@@ -486,16 +493,18 @@ await check('Q5 global daily and monthly budgets roll on the configured offset',
   return problems([
     userOne.status !== 200 && 'global first',
     userTwo.status !== 429 && 'global user',
-    userTwo.body && userTwo.body.error && userTwo.body.error.status !== 'GLOBAL_DAILY_BUDGET' && userTwo.body.error.status,
+    (!userTwo.body || !userTwo.body.error || userTwo.body.error.status !== 'GLOBAL_DAILY_BUDGET') && ((userTwo.body && userTwo.body.error && userTwo.body.error.status) || 'missing GLOBAL_DAILY_BUDGET'),
     guest.status !== 429 && 'global guest',
-    guest.body && guest.body.error && guest.body.error.status !== 'GLOBAL_DAILY_BUDGET' && 'guest global',
-    guest.body && guest.body.error && guest.body.error.scope !== 'global' && 'scope',
+    (!guest.body || !guest.body.error || guest.body.error.status !== 'GLOBAL_DAILY_BUDGET') && 'guest global',
+    (!guest.body || !guest.body.error || guest.body.error.scope !== 'global') && 'scope',
     oldDay.status !== 200 && 'before boundary',
     oldDenied.status !== 429 && 'same day',
     newDay.status !== 200 && 'exact reset instant',
     monthOne.status !== 200 && 'month first',
-    monthDenied.body && monthDenied.body.error && monthDenied.body.error.status !== 'GLOBAL_MONTHLY_BUDGET' && monthDenied.body.error.status,
-    nextDayStill.body && nextDayStill.body.error && nextDayStill.body.error.status !== 'GLOBAL_MONTHLY_BUDGET' && 'day rollover cleared the month',
+    monthDenied.status !== 429 && ('month denied ' + monthDenied.status),
+    (!monthDenied.body || !monthDenied.body.error || monthDenied.body.error.status !== 'GLOBAL_MONTHLY_BUDGET') && ((monthDenied.body && monthDenied.body.error && monthDenied.body.error.status) || 'missing GLOBAL_MONTHLY_BUDGET'),
+    nextDayStill.status !== 429 && ('next day still allowed ' + nextDayStill.status),
+    (!nextDayStill.body || !nextDayStill.body.error || nextDayStill.body.error.status !== 'GLOBAL_MONTHLY_BUDGET') && 'day rollover cleared the month',
     newMonth.status !== 200 && 'month boundary'
   ]);
 });
@@ -597,17 +606,19 @@ await check('Q7 upstream failure, durable object failure, expiry, and global rol
     limited,
     timed,
     closedUser.status !== 503 && 'closed user',
-    closedUser.body && closedUser.body.error && closedUser.body.error.status !== 'QUOTA_UNAVAILABLE' && closedUser.body.error.status,
+    (!closedUser.body || !closedUser.body.error || closedUser.body.error.status !== 'QUOTA_UNAVAILABLE') && ((closedUser.body && closedUser.body.error && closedUser.body.error.status) || 'missing QUOTA_UNAVAILABLE'),
     closedGuest.status !== 503 && 'closed guest',
     closedGemini !== beforeClosed && 'closed called gemini',
     openUser.status !== 200 && 'open user ' + openUser.status,
     openGuest.status !== 503 && 'open guest',
-    openGuest.body && openGuest.body.error && openGuest.body.error.status !== 'QUOTA_UNAVAILABLE' && 'open guest status',
+    (!openGuest.body || !openGuest.body.error || openGuest.body.error.status !== 'QUOTA_UNAVAILABLE') && 'open guest status',
     !sawStuck && 'stuck reservation did not start',
     freed.status !== 200 && 'expired reservation was not freed ' + freed.status,
     expiryMemory && Object.keys(expiryMemory.reservations).length !== 0 && 'expiry leak',
-    firstGlobal.body && firstGlobal.body.error && firstGlobal.body.error.status !== 'GLOBAL_DAILY_BUDGET' && firstGlobal.body.error.status,
-    secondGlobal.body && secondGlobal.body.error && secondGlobal.body.error.status !== 'GLOBAL_DAILY_BUDGET' && 'rollback burned the user call',
+    firstGlobal.status !== 429 && ('global reserve ' + firstGlobal.status),
+    (!firstGlobal.body || !firstGlobal.body.error || firstGlobal.body.error.status !== 'GLOBAL_DAILY_BUDGET') && ((firstGlobal.body && firstGlobal.body.error && firstGlobal.body.error.status) || 'missing GLOBAL_DAILY_BUDGET'),
+    secondGlobal.status !== 429 && ('rollback status ' + secondGlobal.status),
+    (!secondGlobal.body || !secondGlobal.body.error || secondGlobal.body.error.status !== 'GLOBAL_DAILY_BUDGET') && 'rollback burned the user call',
     rolledDay && rolledDay.calls !== 0 && 'rolled calls ' + (rolledDay && rolledDay.calls),
     rolled && Object.keys(rolled.reservations).length !== 0 && 'rolled reservation'
   ]);
@@ -660,7 +671,7 @@ await check('Q9 pause switches work without a durable object binding', async () 
   const pausedOff = await read(await post(worker, chatPayload(), baseEnv({ MARG_QUOTA: throwingBinding, MARG_QUOTA_MODE: 'off', MARG_GEMINI_PAUSED: '1' }), userHeaders('user-q9c')));
   return problems([
     paused.status !== 503 && 'paused ' + paused.status,
-    paused.body && paused.body.error && paused.body.error.status !== 'SERVICE_PAUSED' && paused.body.error.status,
+    (!paused.body || !paused.body.error || paused.body.error.status !== 'SERVICE_PAUSED') && ((paused.body && paused.body.error && paused.body.error.status) || 'missing SERVICE_PAUSED'),
     pausedGemini !== before && 'paused called gemini',
     guestPaused.status !== 503 && 'guest paused',
     userOpen.status !== 200 && 'student was paused with guests',
@@ -699,9 +710,10 @@ await check('Q10 exempt users skip user caps, stay metered, and still hit rate l
     String(line || '').indexOf('user-q10') !== -1 && 'raw id logged',
     rateOne.status !== 200 && 'rate first',
     rateTwo.status !== 429 && 'rate second',
-    rateTwo.body && rateTwo.body.error && rateTwo.body.error.status !== 'RATE_LIMITED' && rateTwo.body.error.status,
+    (!rateTwo.body || !rateTwo.body.error || rateTwo.body.error.status !== 'RATE_LIMITED') && ((rateTwo.body && rateTwo.body.error && rateTwo.body.error.status) || 'missing RATE_LIMITED'),
     globalOne.status !== 200 && 'global first',
-    globalTwo.body && globalTwo.body.error && globalTwo.body.error.status !== 'GLOBAL_DAILY_BUDGET' && 'exempt skipped global'
+    globalTwo.status !== 429 && ('exempt global ' + globalTwo.status),
+    (!globalTwo.body || !globalTwo.body.error || globalTwo.body.error.status !== 'GLOBAL_DAILY_BUDGET') && 'exempt skipped global'
   ]);
 });
 
@@ -772,7 +784,7 @@ await check('Q13 a student under the limits matches B3 and the per-minute limite
     limitedBefore.status !== 429 && 'baseline limiter',
     limitedAfter.status !== 429 && 'limiter',
     limitedBefore.text !== limitedAfter.text && 'limiter body',
-    limitedAfter.body && limitedAfter.body.error && limitedAfter.body.error.status !== 'RATE_LIMITED' && limitedAfter.body.error.status,
+    (!limitedAfter.body || !limitedAfter.body.error || limitedAfter.body.error.status !== 'RATE_LIMITED') && ((limitedAfter.body && limitedAfter.body.error && limitedAfter.body.error.status) || 'missing RATE_LIMITED'),
     limitedAfter.retryAfter !== '60' && 'retry-after'
   ]);
 });
