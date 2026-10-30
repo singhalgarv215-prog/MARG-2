@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CAT 2026 IIM Profile & Percentile Predictor — Free Tool | Marg</title>
-<meta name="description" content="Free CAT 2026 IIM Profile & Percentile Predictor. Enter your scores AND academic profile to see your exact IIM shortlist chances, required percentile, and personalized improvement plan.">
+<meta name="description" content="Free CAT IIM profile and percentile estimator. Enter your scores and academic profile for a rough, unvalidated estimate of where you stand against indicative past cut-offs.">
 <meta name="keywords" content="CAT percentile predictor, CAT score calculator, CAT 2026 percentile, CAT mock score percentile, IIM eligibility checker, CAT expected percentile">
 <meta property="og:title" content="CAT Percentile Predictor 2026 — Free Score Calculator">
-<meta property="og:description" content="Enter your CAT mock scores and instantly know your predicted percentile and which IIMs you can target.">
+<meta property="og:description" content="Enter your CAT mock scores for a rough percentile estimate and a comparison with indicative past IIM cut-offs. Not validated; actual results differ.">
 <meta property="og:url" content="https://trymarg.com/cat-percentile-predictor">
 <meta property="og:type" content="website">
 <meta name="google-site-verification" content="GGfQeNtbQtiZDjxQA4eVgwDwKmHIz_YlehOFCWYnkKU">
@@ -21,7 +21,7 @@
   "@context": "https://schema.org",
   "@type": "WebApplication",
   "name": "CAT Percentile Predictor 2026",
-  "description": "Free tool to predict your CAT 2026 percentile based on mock test scores",
+  "description": "Free tool that gives a rough, unvalidated percentile estimate from mock test scores",
   "url": "https://trymarg.com/cat-percentile-predictor",
   "applicationCategory": "EducationalApplication",
   "offers": {
@@ -599,12 +599,12 @@ footer a { color: var(--gold); text-decoration: none; }
   <section class="hero">
     <div class="hero-badge">🎯 Free Tool · No Signup Required</div>
     <h1>CAT 2026 <span>IIM Profile & Percentile</span> Predictor</h1>
-    <p class="hero-sub">Enter your scores AND academic profile to see your exact IIM shortlist chances, required percentile for each IIM, and what to improve.</p>
+    <p class="hero-sub">Enter your scores and academic profile to see a rough, unvalidated estimate and how it compares with indicative past cut-offs for each IIM.</p>
   </section>
 
   <div class="tool-card" id="tool">
     <div class="mock-toggle">
-      <div class="mock-toggle-label">Have you given a CAT mock yet? <span>(Helps us give accurate results)</span></div>
+      <div class="mock-toggle-label">Have you given a CAT mock yet?</div>
       <button class="toggle-btn active" id="btn-yes" onclick="setMockStatus(true)">Yes</button>
       <button class="toggle-btn inactive" id="btn-no" onclick="setMockStatus(false)">No, first attempt</button>
     </div>
@@ -703,9 +703,9 @@ footer a { color: var(--gold); text-decoration: none; }
   <div id="results">
     <div class="result-hero">
       <div class="result-percentile" id="overall-percentile">—</div>
-      <div class="result-label">Predicted Overall Percentile</div>
+      <div class="result-label">Rough estimate (not validated)</div>
       <div class="result-range" id="percentile-range">—</div>
-      <div style="font-size:11px;color:var(--text-dim);margin-top:12px;line-height:1.6;">⚠️ Estimated based on CAT 2024-2025 trends. Actual percentile may vary ±5-8 points depending on paper difficulty and normalization across slots.</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:12px;line-height:1.6;">⚠️ This estimate comes from a table compiled by Marg that has not been validated against official results. The error is unknown and may be large. Mock scores are not CAT scores, and your slot's paper and normalisation change the real result.</div>
     </div>
 
     <div class="section-results">
@@ -738,11 +738,12 @@ footer a { color: var(--gold); text-decoration: none; }
 
     <div class="colleges-card" id="iim-shortlist" style="display:none;">
       <div class="colleges-title">🏛️ Your IIM Shortlist Analysis</div>
+      <p style="font-size:11px;color:var(--text-dim);line-height:1.6;margin:0 0 12px;">Based on indicative, unsourced cut-offs and adjustments. This is not a prediction of any shortlist.</p>
       <div id="iim-shortlist-content"></div>
     </div>
     <div class="marg-cta">
-      <div class="marg-cta-title" id="cta-title">Want a personalised plan to hit your target?</div>
-      <div class="marg-cta-sub" id="cta-sub">Marg diagnoses exactly where you're losing marks and builds a specific plan around your situation — not generic advice.</div>
+      <div class="marg-cta-title" id="cta-title">Want a personalised plan for your preparation?</div>
+      <div class="marg-cta-sub" id="cta-sub">Marg can look at where you're losing marks and suggest a plan around your situation. It can't promise a result.</div>
       <a href="https://trymarg.com" class="marg-cta-btn" id="cta-btn">Get Your Free Plan on Marg →</a>
     </div>
   </div>
@@ -751,7 +752,7 @@ footer a { color: var(--gold); text-decoration: none; }
   <div class="seo-content">
     <h2>How CAT Percentile is Calculated</h2>
     <p>CAT percentile is not your raw score — it's your relative performance compared to all test takers. A 99 percentile means you scored better than 99% of all candidates who appeared for CAT that year.</p>
-    <p>The official CAT percentile is calculated using a normalization process across different slots and sessions. This predictor uses historical score-to-percentile data from CAT 2019-2024 to give you an accurate estimate based on your mock performance.</p>
+    <p>The official CAT percentile is calculated using a normalization process across different slots and sessions. This tool applies a score-to-percentile table compiled by Marg (its source is not yet documented) to the marks you enter, so treat the result as a rough guide only.</p>
 
     <h2>CAT 2026 Score vs Percentile — Reference Table</h2>
     <table class="percentile-table">
@@ -773,8 +774,8 @@ footer a { color: var(--gold); text-decoration: none; }
       </tbody>
     </table>
 
-    <h2>IIM Cutoffs by Category — CAT 2026</h2>
-    <p>Category plays a significant role in IIM shortlisting. Here are the approximate CAT percentile cutoffs for major IIMs across categories:</p>
+    <h2>Indicative IIM cut-offs by category (not official; source and year not documented)</h2>
+    <p>These figures are indicative only and are not published by the institutes for CAT 2026. Check each institute's own admissions page.</p>
     <table class="percentile-table">
       <thead>
         <tr>
@@ -799,8 +800,8 @@ footer a { color: var(--gold); text-decoration: none; }
     <h2>Frequently Asked Questions</h2>
 
     <div class="faq-item">
-      <div class="faq-q">How accurate is this CAT percentile predictor?</div>
-      <div class="faq-a">This predictor is based on historical CAT score-to-percentile data from 2019-2024. It gives you a reliable estimate within ±2 percentile points for most score ranges. Actual CAT percentile depends on the difficulty of your specific slot and the performance of all candidates in that year.</div>
+      <div class="faq-q">How accurate is this tool?</div>
+      <div class="faq-a">We have not measured its accuracy, so treat the result as a rough guide only. Actual CAT percentile depends on the difficulty of your specific slot and the performance of all candidates in that year.</div>
     </div>
 
     <div class="faq-item">
@@ -810,7 +811,7 @@ footer a { color: var(--gold); text-decoration: none; }
 
     <div class="faq-item">
       <div class="faq-q">What percentile do I need for IIM ABC?</div>
-      <div class="faq-a">For IIM Ahmedabad, Bangalore, and Calcutta you typically need 99+ percentile in the general category. Each IIM also has sectional cutoffs — usually 85-90 percentile in each section individually. Academics and work experience also play a role in the shortlisting process.</div>
+      <div class="faq-a">Indicative only, not official; check each institute's admissions page: For IIM Ahmedabad, Bangalore, and Calcutta you typically need 99+ percentile in the general category. Each IIM also has sectional cutoffs — usually 85-90 percentile in each section individually. Academics and work experience also play a role in the shortlisting process.</div>
     </div>
 
     <div class="faq-item">
@@ -827,7 +828,7 @@ footer a { color: var(--gold); text-decoration: none; }
 
 <footer>
   <p>© 2026 Marg · <a href="https://trymarg.com">trymarg.com</a> · <a href="https://trymarg.com/privacy">Privacy Policy</a></p>
-  <p style="margin-top:6px">This predictor uses historical CAT data for estimation. Actual percentiles may vary.</p>
+  <p style="margin-top:6px">This tool applies an unvalidated table compiled by Marg. Actual percentiles may differ.</p>
 </footer>
 
 <script>
@@ -955,12 +956,12 @@ function getImprovements(varc, dilr, qa, varcP, dilrP, qaP) {
     if (s.percentile < 70) {
       improvements.push({
         color: '#E05C5C',
-        text: `<strong>${s.name} needs urgent attention</strong> — ${s.percentile.toFixed(0)}th percentile. This section is your biggest score leak. Focus 50% of your prep time here.`
+        text: `<strong>${s.name} needs urgent attention</strong> — ${s.percentile.toFixed(0)}th percentile. This section is your biggest score leak in this estimate. Consider giving it more of your prep time.`
       });
     } else if (s.percentile < 85) {
       improvements.push({
         color: '#C9A84C',
-        text: `<strong>${s.name} can be improved</strong> — ${s.percentile.toFixed(0)}th percentile. 10-15 marks improvement here could add 3-4 percentile points overall.`
+        text: `<strong>${s.name} can be improved</strong> — ${s.percentile.toFixed(0)}th percentile. Improving it would help your overall score; this tool cannot say by how much.`
       });
     } else {
       improvements.push({
@@ -1117,7 +1118,7 @@ function predictPercentile() {
   if (window._hasMock === false) {
     document.getElementById('results').innerHTML = `
       <div style="background:#1A1A1A;border:1px solid rgba(201,168,76,0.2);border-radius:12px;padding:24px;margin-top:20px;text-align:center;">
-        <div style="font-size:12px;color:#C9A84C;letter-spacing:0.08em;margin-bottom:12px;">YOUR TARGET PERCENTILE</div>
+        <div style="font-size:12px;color:#C9A84C;letter-spacing:0.08em;margin-bottom:12px;">NEXT STEP</div>
         <div style="font-size:15px;color:#F0EDE6;line-height:1.8;">
           Since you haven't given a mock yet — give one this week to see your starting point.<br/><br/>
           Come back after your first mock and enter your scores here to see your current percentile and which colleges you can target.<br/><br/>
@@ -1159,20 +1160,20 @@ function predictPercentile() {
   const ctaBtn = document.getElementById('cta-btn');
   
   if (overall < 90) {
-    ctaTitle.textContent = 'You need ' + targetPercentile + '%ile to reach your target colleges. Here is your path.';
-    ctaSub.textContent = 'Marg will diagnose exactly where you are losing marks and build a week by week plan to close that gap — specific to your situation, not generic advice.';
-    ctaBtn.textContent = 'Build my plan to hit ' + targetPercentile + '%ile — free →';
+    ctaTitle.textContent = 'Your rough estimate is ' + targetPercentile + '%ile (not validated).';
+    ctaSub.textContent = 'Marg can look at where you are losing marks and suggest a plan. It cannot promise a result.';
+    ctaBtn.textContent = 'Build my plan on Marg — free →';
   } else if (overall < 97) {
-    ctaTitle.textContent = 'You are at ' + targetPercentile + '%ile. The top colleges need 2-4 more points.';
-    ctaSub.textContent = 'That gap is closable in 8-10 weeks with the right focus. Marg will tell you exactly which section to fix first and how.';
+    ctaTitle.textContent = 'Your rough estimate is ' + targetPercentile + '%ile (not validated).';
+    ctaSub.textContent = 'Marg can help you work out which section to look at first.';
     ctaBtn.textContent = 'Get my personalised plan on Marg — free →';
   } else if (overall < 99) {
-    ctaTitle.textContent = 'You are at ' + targetPercentile + '%ile. IIM ABC needs 99+.';
-    ctaSub.textContent = 'The final 1-2 percentile points are the hardest. Marg diagnoses exactly where you are leaking marks at this level.';
+    ctaTitle.textContent = 'Your rough estimate is ' + targetPercentile + '%ile (not validated).';
+    ctaSub.textContent = 'At this level small errors matter. Marg can help you find where marks are leaking.';
     ctaBtn.textContent = 'Find my score leaks on Marg — free →';
   } else {
-    ctaTitle.textContent = 'Excellent — ' + targetPercentile + '%ile puts you in BLACKI territory.';
-    ctaSub.textContent = 'Now the battle moves to PI and WAT. Marg can help you prepare your interview story and profile specifically.';
+    ctaTitle.textContent = 'Your rough estimate is ' + targetPercentile + '%ile (not validated).';
+    ctaSub.textContent = 'Marg can help you prepare for the interview stage.';
     ctaBtn.textContent = 'Prepare my PI strategy on Marg — free →';
   }
 
@@ -1181,8 +1182,7 @@ function predictPercentile() {
   overallEl.textContent = overall.toFixed(1) + '%ile';
   overallEl.style.color = overall >= 99 ? '#4CAF7D' : overall >= 95 ? '#E8C96A' : overall >= 85 ? '#C9A84C' : '#E05C5C';
 
-  document.getElementById('percentile-range').textContent =
-    `Range: ${Math.max(1, overall-2).toFixed(1)} — ${Math.min(99.99, overall+2).toFixed(1)} percentile`;
+  document.getElementById('percentile-range').textContent = 'Accuracy not measured, so no range is shown';
 
   // Section percentiles
   document.getElementById('varc-percentile').textContent = varcP.toFixed(1) + '%ile';
