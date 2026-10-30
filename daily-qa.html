@@ -120,6 +120,7 @@
   <p>Built by <a href="https://trymarg.com">Marg</a> — AI mentor for CAT aspirants · <a href="/daily-rc">Daily RC</a> · <a href="/daily-dilr">Daily DILR</a></p>
 </footer>
 
+<script src="/marg-session.js?v=20261030-1"></script>
 <script>
 const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
 const today = new Date();
@@ -130,6 +131,7 @@ document.getElementById('qa-number').textContent = 'QA #' + dayNum;
 
 var answered = {};
 var isGenerating = false;
+var dailyRetryKind = '';
 
 var VERIFIED_QA_FALLBACK = {
   difficulty:'Medium to Hard',
@@ -169,37 +171,120 @@ function verifiedQAFallback() {
   return JSON.parse(JSON.stringify(VERIFIED_QA_FALLBACK));
 }
 
+function showDailyPanel(title, body, label, mode) {
+  var container = document.getElementById('practice-container');
+  var action = '';
+  if (mode === 'home') action = '<a class="cta-btn" href="/">' + dailyEscapeHtml(label) + '</a>';
+  else if (mode === 'reload') action = '<button type="button" class="cta-btn" style="border:none;cursor:pointer;font-family:inherit;" onclick="location.reload()">' + dailyEscapeHtml(label) + '</button>';
+  else action = '<button type="button" class="cta-btn" style="border:none;cursor:pointer;font-family:inherit;" onclick="generateQA()">' + dailyEscapeHtml(label) + '</button>';
+  container.innerHTML = '<div class="loading"><div style="font-size:16px;color:var(--text);font-weight:500;margin-bottom:8px;">' + dailyEscapeHtml(title) + '</div><div style="margin-bottom:18px;line-height:1.6;">' + dailyEscapeHtml(body) + '</div>' + action + '</div>';
+}
+
+function qaRetryRemaining() {
+  try {
+    var raw = sessionStorage.getItem('marg_daily_qa_retry_after');
+    var until = Number(raw);
+    if (!raw || !Number.isFinite(until)) return 0;
+    var remaining = until - Date.now();
+    return remaining > 0 ? remaining : 0;
+  } catch (error) { return 0; }
+}
+
+function qaRememberRetry(kind, delayMs) {
+  dailyRetryKind = kind;
+  try { sessionStorage.setItem('marg_daily_qa_retry_after', String(Date.now() + delayMs)); } catch (error) {}
+}
+
+function qaClearRetry() {
+  dailyRetryKind = '';
+  try { sessionStorage.removeItem('marg_daily_qa_retry_after'); } catch (error) {}
+}
+
+function qaRetrySeconds(raw) {
+  if (raw == null || String(raw).trim() === '') return 60;
+  var parsed = Number(String(raw).trim());
+  if (!Number.isFinite(parsed)) return 60;
+  return Math.min(120, Math.max(1, parsed));
+}
+
+function qaFail(kind, message) {
+  var error = new Error(message || kind);
+  error.kind = kind;
+  return error;
+}
+
 async function generateQA() {
   if (isGenerating) return;
   isGenerating = true;
-  const container = document.getElementById('practice-container');
-  const cacheKey = 'marg_daily_qa_' + today.toISOString().split('T')[0];
-  const cached = localStorage.getItem(cacheKey);
-  if (cached) { try { var cachedData = JSON.parse(cached); if (hasCleanQASolutions(cachedData)) { renderQA(cachedData); isGenerating = false; return; } localStorage.removeItem(cacheKey); } catch(e) { localStorage.removeItem(cacheKey); } }
-  
-  const prompt = 'Generate 2 genuine CAT-level Quantitative Aptitude questions: Q1 medium and Q2 hard. Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics; never force a pairing merely to look difficult. The central difficulty must be inferring the setup, not executing a visible formula chain. Each question must contain a hidden relationship, invariant, feasibility restriction or case split and require at least 2 linked reasoning decisions before routine arithmetic. Use only necessary data. Reject repeated percentage-change questions and markup-discount-profit questions with an artificial alternate-discount condition. Solve every draft, verify exactly one option is correct, and make distractors believable mid-solution errors. Do all scratch work privately. Every solution field must contain only the clean final derivation—never false starts, abandoned calculations, self-corrections, repeated variable definitions, or phrases such as wait, let\'s recheck, let\'s fix, actually, or ignore that. If working changes, discard it and rewrite the solution from the first valid step. Return ONLY valid JSON no markdown: {"difficulty":"Medium to Hard","questions":[{"q":"complete concise question","topics":["Topic1","Topic2 if genuinely used"],"options":["A. value","B. value","C. value","D. value"],"correct":0,"solution":"concise step-by-step working","common_mistake":"most likely reasoning error","concept_check":"specific concept or insight tested"}]}';
-  
+  const cacheKey = 'marg_daily_qa_v2_' + today.toISOString().split('T')[0];
   try {
-    const res = await fetchWithDeadline(WORKER_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ max_tokens: 8192,
-        system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown.',
-        messages: [{ role: 'user', content: prompt }] })
-    }, 30000);
-    if (!res.ok) throw new Error('Practice service returned ' + res.status);
-    const data = await res.json();
+    if (!window.MargSession || typeof window.MargSession.getMargAccessToken !== 'function') {
+      showDailyPanel('Could not check your sign-in', 'Reload the page. If this keeps happening, open Marg and come back.', 'Reload', 'reload');
+      return;
+    }
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) { try { var cachedData = JSON.parse(cached); if (hasCleanQASolutions(cachedData)) { renderQA(cachedData); return; } localStorage.removeItem(cacheKey); } catch(e) { localStorage.removeItem(cacheKey); } }
+    var waitMs = qaRetryRemaining();
+    if (waitMs > 0) {
+      var waitBody = 'Please wait ' + Math.ceil(waitMs / 1000) + ' more seconds before trying again.';
+      if (dailyRetryKind === 'rate') showDailyPanel('Too many requests', waitBody, 'Try again', 'retry');
+      else showDailyPanel('Could not prepare today\'s practice', waitBody, 'Try again', 'retry');
+      return;
+    }
+    var session = window.MargSession.getMargAccessToken();
+    if (session.reason === 'signed_out') {
+      showDailyPanel('Sign in to use Daily Practice', 'Daily Practice is for registered Marg students.', 'Sign in with Marg', 'home');
+      return;
+    }
+    if (session.reason === 'expired') {
+      showDailyPanel('Your session has timed out', 'Open Marg to renew it, then come back to this page.', 'Open Marg', 'home');
+      return;
+    }
+    const prompt = 'Generate 2 genuine CAT-level Quantitative Aptitude questions: Q1 medium and Q2 hard. Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics; never force a pairing merely to look difficult. The central difficulty must be inferring the setup, not executing a visible formula chain. Each question must contain a hidden relationship, invariant, feasibility restriction or case split and require at least 2 linked reasoning decisions before routine arithmetic. Use only necessary data. Reject repeated percentage-change questions and markup-discount-profit questions with an artificial alternate-discount condition. Solve every draft, verify exactly one option is correct, and make distractors believable mid-solution errors. Do all scratch work privately. Every solution field must contain only the clean final derivation—never false starts, abandoned calculations, self-corrections, repeated variable definitions, or phrases such as wait, let\'s recheck, let\'s fix, actually, or ignore that. If working changes, discard it and rewrite the solution from the first valid step. Return ONLY valid JSON no markdown: {"difficulty":"Medium to Hard","questions":[{"q":"complete concise question","topics":["Topic1","Topic2 if genuinely used"],"options":["A. value","B. value","C. value","D. value"],"correct":0,"solution":"concise step-by-step working","common_mistake":"most likely reasoning error","concept_check":"specific concept or insight tested"}]}';
+    var res;
+    try {
+      res = await fetchWithDeadline(WORKER_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.token },
+        body: JSON.stringify({ max_tokens: 8192,
+          system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown.',
+          messages: [{ role: 'user', content: prompt }] })
+      }, 30000);
+    } catch (networkError) {
+      throw Object.assign(qaFail('transient', 'network'), { cause: networkError });
+    }
+    if (res.status === 401 || res.status === 403) throw qaFail('auth', 'auth');
+    if (res.status === 429) throw Object.assign(qaFail('rate', 'rate'), { retryAfter: res.headers && res.headers.get ? res.headers.get('Retry-After') : null });
+    if (!res.ok) throw qaFail('transient', 'status ' + res.status);
+    var data;
+    try { data = await res.json(); }
+    catch (parseError) { throw Object.assign(qaFail('transient', 'response json'), { cause: parseError }); }
     const text = data.content && data.content[0] ? data.content[0].text : null;
-    if (!text) throw new Error('No response');
-    const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const qaData = JSON.parse(clean);
-    if (!hasCleanQASolutions(qaData)) throw new Error('Generated solution exposed scratchwork');
+    if (!text) throw qaFail('invalid', 'empty');
+    var qaData;
+    try {
+      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      qaData = JSON.parse(clean);
+    } catch (modelError) { throw qaFail('invalid', 'model json'); }
+    if (!hasCleanQASolutions(qaData)) throw qaFail('invalid', 'validator');
+    qaClearRetry();
     localStorage.setItem(cacheKey, JSON.stringify(qaData));
     renderQA(qaData);
   } catch(e) {
-    console.error('Daily QA generation failed; using verified fallback:', e);
-    var fallback = verifiedQAFallback();
-    localStorage.setItem(cacheKey, JSON.stringify(fallback));
-    renderQA(fallback);
+    var kind = e && e.kind;
+    if (kind === 'auth') {
+      showDailyPanel('Your session was not accepted', 'Open Marg to sign in again, then come back to this page.', 'Open Marg', 'home');
+    } else if (kind === 'rate') {
+      qaRememberRetry('rate', qaRetrySeconds(e.retryAfter) * 1000);
+      showDailyPanel('Too many requests', 'Wait a minute and try again.', 'Try again', 'retry');
+    } else if (kind === 'invalid') {
+      var fallback = verifiedQAFallback();
+      localStorage.setItem(cacheKey, JSON.stringify(fallback));
+      renderQA(fallback);
+    } else {
+      console.error(e && e.cause ? e.cause : e);
+      qaRememberRetry('transient', 15000);
+      showDailyPanel('Could not prepare today\'s practice', 'Check your connection and try again.', 'Try again', 'retry');
+    }
   } finally {
     isGenerating = false;
   }
@@ -230,7 +315,7 @@ function selectOption(qIndex, optIndex, correct) {
   if (answered[qIndex]) return;
   answered[qIndex] = true;
   var isCorrect = optIndex === correct;
-  var cached = localStorage.getItem('marg_daily_qa_' + today.toISOString().split('T')[0]);
+  var cached = localStorage.getItem('marg_daily_qa_v2_' + today.toISOString().split('T')[0]);
   var qaData = cached ? JSON.parse(cached) : null;
   var q = qaData ? qaData.questions[qIndex] : null;
   

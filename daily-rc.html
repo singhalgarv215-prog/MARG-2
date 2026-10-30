@@ -338,6 +338,7 @@
   <p style="margin-top:8px;">© 2026 Marg · Free CAT preparation platform</p>
 </footer>
 
+<script src="/marg-session.js?v=20261030-1"></script>
 <script>
 const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
 
@@ -354,6 +355,7 @@ document.getElementById('rc-number').textContent = 'RC #' + dayNum;
 // Track answered questions
 var answered = {};
 var isGenerating = false;
+var dailyRetryKind = '';
 
 var VERIFIED_RC_FALLBACK = {
   passage: 'Public indicators are often treated as passive descriptions of social reality. A ranking of universities, a measure of hospital efficiency, or a national index of innovation appears merely to condense facts that already exist. Yet once an indicator becomes consequential, the institutions being measured reorganise themselves around it. Universities redirect effort toward countable publications; hospitals may prefer cases that protect reported outcomes; governments fund activities that move an index even when those activities are only weakly connected to its stated purpose. The familiar complaint that such behaviour is dishonest misses the deeper problem. Even conscientious actors must decide how to allocate scarce attention, and a public measure quietly tells them which achievements will be recognised and which will remain administratively invisible.\n\nThis does not make measurement useless. Decisions made without common measures can be opaque, inconsistent and vulnerable to private judgment. Nor does it follow that every behavioural response corrupts a measure: a hospital that improves hygiene because infection rates are published may be responding exactly as policymakers hoped. The difficulty is that the same pressure can produce substantive improvement, selective compliance, or merely cosmetic adaptation, and the numerical result alone cannot reliably distinguish among them. Better statistical design can reduce distortions by combining measures or adjusting for obvious incentives, but cannot eliminate them, because every indicator selects a limited representation of a more complex goal. Adding variables can even disguise rather than solve the problem by making the measure appear comprehensive while leaving its governing assumptions unexamined.\n\nThe usual defence of indicators appeals to comparison. Without a common scale, how could citizens judge hospitals, students choose universities, or governments identify ineffective programmes? But comparison is not a neutral operation performed after institutions have acted. It establishes a field in which unlike activities must be rendered commensurable, often by suppressing differences in purpose, population or circumstance. Once the comparison acquires authority, institutions that depart from its categories may look inefficient even when their divergence reflects a legitimate alternative mission. Conversely, organisations can become skilled at the measured activity while the public objective that justified the measure deteriorates. The apparent precision of a ranking therefore may coexist with uncertainty about whether the ranked objects ought to be pursuing the same ends.\n\nThe appropriate response is neither blind trust nor abandonment. Indicators should be treated as institutional interventions whose effects require scrutiny. A useful measure is not merely accurate at the moment of construction; it must remain informative after people begin adapting to it. That requires revising measures, comparing them with qualitative evidence, and asking who bears the cost when organisations optimise what can be counted. It also requires accepting that revision will disrupt historical comparability, the very quality that gives indicators much of their authority. The choice is thus not between a stable objective measure and unstable judgment. It is between acknowledging that judgment already inhabits measurement and allowing yesterday’s judgments to harden into today’s facts.',
@@ -400,57 +402,133 @@ async function fetchWithDeadline(url, options, timeoutMs) {
   finally { clearTimeout(timer); }
 }
 
+function showDailyPanel(title, body, label, mode) {
+  var container = document.getElementById('practice-container');
+  var action = '';
+  if (mode === 'home') action = '<a class="cta-btn" href="/">' + dailyEscapeHtml(label) + '</a>';
+  else if (mode === 'reload') action = '<button type="button" class="cta-btn" style="border:none;cursor:pointer;font-family:inherit;" onclick="location.reload()">' + dailyEscapeHtml(label) + '</button>';
+  else action = '<button type="button" class="cta-btn" style="border:none;cursor:pointer;font-family:inherit;" onclick="generateRC()">' + dailyEscapeHtml(label) + '</button>';
+  container.innerHTML = '<div class="loading"><div style="font-size:16px;color:var(--text);font-weight:500;margin-bottom:8px;">' + dailyEscapeHtml(title) + '</div><div style="margin-bottom:18px;line-height:1.6;">' + dailyEscapeHtml(body) + '</div>' + action + '</div>';
+}
+
+function rcRetryRemaining() {
+  try {
+    var raw = sessionStorage.getItem('marg_daily_rc_retry_after');
+    var until = Number(raw);
+    if (!raw || !Number.isFinite(until)) return 0;
+    var remaining = until - Date.now();
+    return remaining > 0 ? remaining : 0;
+  } catch (error) { return 0; }
+}
+
+function rcRememberRetry(kind, delayMs) {
+  dailyRetryKind = kind;
+  try { sessionStorage.setItem('marg_daily_rc_retry_after', String(Date.now() + delayMs)); } catch (error) {}
+}
+
+function rcClearRetry() {
+  dailyRetryKind = '';
+  try { sessionStorage.removeItem('marg_daily_rc_retry_after'); } catch (error) {}
+}
+
+function rcRetrySeconds(raw) {
+  if (raw == null || String(raw).trim() === '') return 60;
+  var parsed = Number(String(raw).trim());
+  if (!Number.isFinite(parsed)) return 60;
+  return Math.min(120, Math.max(1, parsed));
+}
+
+function rcFail(kind, message) {
+  var error = new Error(message || kind);
+  error.kind = kind;
+  return error;
+}
+
 async function generateRC() {
   if (isGenerating) return;
   isGenerating = true;
-  const container = document.getElementById('practice-container');
-  
-  // Check localStorage for today's RC
-  const cacheKey = 'marg_daily_rc_v2_' + today.toISOString().split('T')[0];
-  const cached = localStorage.getItem(cacheKey);
-  
-  if (cached) {
-    try {
-      const data = JSON.parse(cached);
-      if (isValidRC(data)) { renderRC(data); isGenerating = false; return; }
-      localStorage.removeItem(cacheKey);
-    } catch(e) { localStorage.removeItem(cacheKey); }
-  }
-  
-  const prompt = 'Generate one original CAT-level Reading Comprehension passage with exactly 3 questions. The passage alone must be 480-550 words in 4 distinct paragraphs, argument-driven and dense rather than narrative or explanatory. It must contain a central thesis, a qualification or counter-consideration, and a subtle change in the author’s position. Questions must test primary purpose, attitude/tone, and inference. Each must have 4 distinct options, exactly one defensible answer, and at least 2 plausible traps based on scope, force, ownership, or inference. Independently verify each key using only the passage. Return ONLY valid JSON no markdown: {"passage":"480-550 words with \\n\\n between paragraphs","difficulty":"Hard","topic":"topic name","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based explanation","trap_type":"short trap label"}]}';
-  
+  const cacheKey = 'marg_daily_rc_v3_' + today.toISOString().split('T')[0];
   try {
-    const res = await fetchWithDeadline(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role:'user', parts:[{ text:prompt }] }],
-        systemInstruction: { parts:[{ text:'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.' }] },
-        generationConfig: {
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-          thinkingConfig: { thinkingLevel:'minimal' }
-        }
-      })
-    }, 32000);
-    if (!res.ok) throw new Error('Practice service returned ' + res.status);
-    
-    const data = await res.json();
+    if (!window.MargSession || typeof window.MargSession.getMargAccessToken !== 'function') {
+      showDailyPanel('Could not check your sign-in', 'Reload the page. If this keeps happening, open Marg and come back.', 'Reload', 'reload');
+      return;
+    }
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const data = JSON.parse(cached);
+        if (isValidRC(data)) { renderRC(data); return; }
+        localStorage.removeItem(cacheKey);
+      } catch(e) { localStorage.removeItem(cacheKey); }
+    }
+    var waitMs = rcRetryRemaining();
+    if (waitMs > 0) {
+      var waitBody = 'Please wait ' + Math.ceil(waitMs / 1000) + ' more seconds before trying again.';
+      if (dailyRetryKind === 'rate') showDailyPanel('Too many requests', waitBody, 'Try again', 'retry');
+      else showDailyPanel('Could not prepare today\'s practice', waitBody, 'Try again', 'retry');
+      return;
+    }
+    var session = window.MargSession.getMargAccessToken();
+    if (session.reason === 'signed_out') {
+      showDailyPanel('Sign in to use Daily Practice', 'Daily Practice is for registered Marg students.', 'Sign in with Marg', 'home');
+      return;
+    }
+    if (session.reason === 'expired') {
+      showDailyPanel('Your session has timed out', 'Open Marg to renew it, then come back to this page.', 'Open Marg', 'home');
+      return;
+    }
+    const prompt = 'Generate one original CAT-level Reading Comprehension passage with exactly 3 questions. The passage alone must be 480-550 words in 4 distinct paragraphs, argument-driven and dense rather than narrative or explanatory. It must contain a central thesis, a qualification or counter-consideration, and a subtle change in the author’s position. Questions must test primary purpose, attitude/tone, and inference. Each must have 4 distinct options, exactly one defensible answer, and at least 2 plausible traps based on scope, force, ownership, or inference. Independently verify each key using only the passage. Return ONLY valid JSON no markdown: {"passage":"480-550 words with \\n\\n between paragraphs","difficulty":"Hard","topic":"topic name","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based explanation","trap_type":"short trap label"}]}';
+    var res;
+    try {
+      res = await fetchWithDeadline(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.token },
+        body: JSON.stringify({
+          contents: [{ role:'user', parts:[{ text:prompt }] }],
+          systemInstruction: { parts:[{ text:'You are an expert CAT exam question generator. Generate only valid JSON with no markdown, no backticks, no extra text.' }] },
+          generationConfig: {
+            maxOutputTokens: 8192,
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingLevel:'minimal' }
+          }
+        })
+      }, 32000);
+    } catch (networkError) {
+      throw Object.assign(rcFail('transient', 'network'), { cause: networkError });
+    }
+    if (res.status === 401 || res.status === 403) throw rcFail('auth', 'auth');
+    if (res.status === 429) throw Object.assign(rcFail('rate', 'rate'), { retryAfter: res.headers && res.headers.get ? res.headers.get('Retry-After') : null });
+    if (!res.ok) throw rcFail('transient', 'status ' + res.status);
+    var data;
+    try { data = await res.json(); }
+    catch (parseError) { throw Object.assign(rcFail('transient', 'response json'), { cause: parseError }); }
     const text = getGeminiText(data);
-    if (!text) throw new Error('No response');
-    
-    const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const rcData = JSON.parse(clean);
-    if (!isValidRC(rcData)) throw new Error('Generated RC failed completeness checks');
-    
+    if (!text) throw rcFail('invalid', 'empty');
+    var rcData;
+    try {
+      const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      rcData = JSON.parse(clean);
+    } catch (modelError) { throw rcFail('invalid', 'model json'); }
+    if (!isValidRC(rcData)) throw rcFail('invalid', 'validator');
+    rcClearRetry();
     localStorage.setItem(cacheKey, JSON.stringify(rcData));
     renderRC(rcData);
-    
   } catch(e) {
-    console.error('Daily RC generation failed; using verified fallback:', e);
-    var fallback = cloneVerifiedRC();
-    localStorage.setItem(cacheKey, JSON.stringify(fallback));
-    renderRC(fallback);
+    var kind = e && e.kind;
+    if (kind === 'auth') {
+      showDailyPanel('Your session was not accepted', 'Open Marg to sign in again, then come back to this page.', 'Open Marg', 'home');
+    } else if (kind === 'rate') {
+      rcRememberRetry('rate', rcRetrySeconds(e.retryAfter) * 1000);
+      showDailyPanel('Too many requests', 'Wait a minute and try again.', 'Try again', 'retry');
+    } else if (kind === 'invalid') {
+      var fallback = cloneVerifiedRC();
+      localStorage.setItem(cacheKey, JSON.stringify(fallback));
+      renderRC(fallback);
+    } else {
+      console.error(e && e.cause ? e.cause : e);
+      rcRememberRetry('transient', 15000);
+      showDailyPanel('Could not prepare today\'s practice', 'Check your connection and try again.', 'Try again', 'retry');
+    }
   } finally {
     isGenerating = false;
   }
@@ -485,7 +563,7 @@ function selectOption(qIndex, optIndex, correct, btn) {
   answered[qIndex] = true;
   
   var isCorrect = optIndex === correct;
-  var cached = localStorage.getItem('marg_daily_rc_v2_' + today.toISOString().split('T')[0]);
+  var cached = localStorage.getItem('marg_daily_rc_v3_' + today.toISOString().split('T')[0]);
   var rcData = cached ? JSON.parse(cached) : null;
   var q = rcData ? rcData.questions[qIndex] : null;
   
