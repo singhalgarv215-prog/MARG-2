@@ -2,14 +2,22 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const ROOT = '/workspace';
+const ROOT = dirname(fileURLToPath(import.meta.url));
 const MAX_REQUEST_BYTES = 20 * 1024 * 1024;
 const GOOD_AUTH = 'Bearer good-token';
+const PRE_B3 = '7cb5991';
 const SOURCE = readFileSync(join(ROOT, 'cloudflare-worker.js'), 'utf8');
-const BASELINE_SOURCE = execFileSync('git', ['show', 'main:cloudflare-worker.js'], { cwd: ROOT, encoding: 'utf8' });
+let BASELINE_SOURCE;
+try {
+  BASELINE_SOURCE = execFileSync('git', ['show', PRE_B3 + ':cloudflare-worker.js'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+} catch (error) {
+  const detail = error && error.stderr ? String(error.stderr).trim() : (error && error.message || error);
+  console.log('FAIL git show ' + PRE_B3 + ':cloudflare-worker.js failed: ' + detail);
+  process.exit(1);
+}
 
 let failed = 0;
 let ipCounter = 1;
@@ -246,7 +254,7 @@ async function callBoth(payload, headers) {
 
 await check('source has no import and keeps the allowed export form', async () => {
   const exportLines = SOURCE.split('\n').filter((line) => /^\s*export\b/.test(line));
-  return !/^import\s/m.test(SOURCE) && exportLines.length === 2 && exportLines[0] === 'export { resolveMaxOutputTokens };' && exportLines[1] === 'export default {';
+  return !/^import\s/m.test(SOURCE) && exportLines.length === 2 && exportLines[0] === 'export { resolveMaxOutputTokens, MargQuota };' && exportLines[1] === 'export default {';
 });
 
 await check('W1 baseline still forwards safetySettings tools toolConfig cachedContent candidateCount thinkingBudget includeThoughts responseModalities temperature', async () => {

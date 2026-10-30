@@ -141,6 +141,9 @@ function byteLength(value) {
   return new TextEncoder().encode(String(value || '')).length;
 }
 
+// The B3 seam test replaces these two declarations exactly. Quota checks run
+// at the call sites in fetch, immediately before beforeUpstream and after
+// afterUpstream, so those replacements still observe one call each.
 function beforeUpstream(ctx) {}
 
 function afterUpstream(ctx, result) {}
@@ -923,7 +926,525 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
   }
 }
 
-export { resolveMaxOutputTokens };
+// Mechanical stuck-reservation timeout, not a quota. B3 aborts upstream at the
+// per-request deadline (at most MAX_UPSTREAM_TIME_MS). Settle or release is one
+// Durable Object write after that abort; five seconds covers that write.
+const RESERVATION_SETTLE_MARGIN_MS = 5000;
+// Mechanical Retry-After for a live concurrency slot, not a daily reset.
+// B3's shortest upstream budget is 1000ms, so two seconds is long enough for
+// that shortest call to finish and free the slot.
+const IN_FLIGHT_RETRY_AFTER_SECONDS = 2;
+const QUOTA_METERED_CLASS = { chat:true, structured:true, vision:true, grounded:true };
+let quotaBindingWarned = false;
+
+function quotaLimit(value) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function quotaModeValue(env) {
+  const value = String(env && env.MARG_QUOTA_MODE || '').trim().toLowerCase();
+  if (value === 'log' || value === 'enforce') return value;
+  return 'off';
+}
+
+function quotaNamespace(env) {
+  const binding = env && env.MARG_QUOTA;
+  if (!binding || typeof binding.idFromName !== 'function' || typeof binding.get !== 'function') return null;
+  return binding;
+}
+
+function warnQuotaBindingOnce() {
+  if (quotaBindingWarned) return;
+  quotaBindingWarned = true;
+  console.warn('MARG_QUOTA binding is absent; usage quotas are off');
+}
+
+function quotaRuntime(env) {
+  const binding = quotaNamespace(env);
+  if (!binding) warnQuotaBindingOnce();
+  const mode = binding ? quotaModeValue(env) : 'off';
+  return { binding, mode, active:!!(binding && mode !== 'off') };
+}
+
+function parseQuotaLimits(raw) {
+  const empty = { user:{}, guest:{}, global:{}, estimate:{} };
+  if (raw == null || String(raw).trim() === '') return { ok:true, absent:true, limits:empty };
+  let parsed;
+  try { parsed = JSON.parse(String(raw)); }
+  catch (_error) { return { ok:false, reason:'limits_json' }; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok:false, reason:'limits_json' };
+  const groups = {
+    user:['calls_per_day', 'tokens_per_day', 'max_in_flight'],
+    guest:['calls_per_day', 'tokens_per_day', 'max_in_flight'],
+    global:['tokens_per_day', 'tokens_per_month', 'guest_tokens_per_day'],
+    estimate:['image_tokens']
+  };
+  const limits = { user:{}, guest:{}, global:{}, estimate:{} };
+  const names = Object.keys(groups);
+  for (let index = 0; index < names.length; index++) {
+    const name = names[index];
+    if (!Object.prototype.hasOwnProperty.call(parsed, name) || parsed[name] == null) continue;
+    const source = parsed[name];
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return { ok:false, reason:'limits_value' };
+    const keys = groups[name];
+    for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+      const key = keys[keyIndex];
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+      if (!quotaLimit(source[key])) return { ok:false, reason:'limits_value' };
+      limits[name][key] = source[key];
+    }
+  }
+  return { ok:true, absent:false, limits };
+}
+
+function parseDayOffset(raw) {
+  if (raw == null || String(raw).trim() === '') return { ok:false, missing:true };
+  const text = String(raw).trim();
+  if (!/^-?\d+$/.test(text)) return { ok:false, missing:false };
+  const value = Number(text);
+  if (!Number.isSafeInteger(value)) return { ok:false, missing:false };
+  return { ok:true, value };
+}
+
+function parseFailurePolicy(raw) {
+  const value = String(raw == null ? '' : raw).trim();
+  if (value === 'closed' || value === 'open_registered') return { ok:true, value };
+  return { ok:false, missing:!value };
+}
+
+function quotaExempt(env, caller) {
+  if (!caller || caller.kind !== 'user') return false;
+  const id = String(caller.subject || '').slice(5);
+  const list = String(env && env.MARG_QUOTA_EXEMPT || '').split(',');
+  for (let index = 0; index < list.length; index++) if (list[index].trim() === id && id) return true;
+  return false;
+}
+
+function upstreamTextBytes(payload) {
+  let bytes = 0;
+  (payload && payload.contents || []).forEach((message) => {
+    (message && message.parts || []).forEach((part) => {
+      if (part && typeof part.text === 'string') bytes += byteLength(part.text);
+    });
+  });
+  const instruction = payload && payload.systemInstruction;
+  (instruction && instruction.parts || []).forEach((part) => {
+    if (part && typeof part.text === 'string') bytes += byteLength(part.text);
+  });
+  return bytes;
+}
+
+function upstreamImageCount(payload) {
+  let count = 0;
+  (payload && payload.contents || []).forEach((message) => {
+    (message && message.parts || []).forEach((part) => {
+      if (part && part.inlineData) count += 1;
+    });
+  });
+  return count;
+}
+
+function estimateUpstreamTokens(payload, outputTokens, imageTokens) {
+  return Math.ceil(upstreamTextBytes(payload) / 2) + upstreamImageCount(payload) * imageTokens + (Number(outputTokens) || 0);
+}
+
+function upstreamBudgetMilliseconds(timeoutMs) {
+  const requestedTime = Number(timeoutMs);
+  return Math.min(MAX_UPSTREAM_TIME_MS, Number.isFinite(requestedTime) && requestedTime > 0 ? Math.max(1000, requestedTime) : 55000);
+}
+
+function quotaPeriods(nowMs, offsetMinutes) {
+  const shifted = nowMs + offsetMinutes * 60000;
+  const dayIndex = Math.floor(shifted / 86400000);
+  const date = new Date(shifted);
+  return {
+    day:String(dayIndex),
+    month:date.getUTCFullYear() + '-' + String(date.getUTCMonth() + 1).padStart(2, '0'),
+    dayResetAtMs:(dayIndex + 1) * 86400000 - offsetMinutes * 60000,
+    monthResetAtMs:Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) - offsetMinutes * 60000
+  };
+}
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function quotaObjectName(subject, env) {
+  const salt = env && env.QUOTA_HASH_SALT != null ? String(env.QUOTA_HASH_SALT) : '';
+  return sha256Hex(String(subject || '') + salt);
+}
+
+function mapQuotaDenial(scope, reason) {
+  if (reason === 'in_flight') return { status:'TOO_MANY_IN_FLIGHT', scope:scope === 'guest' ? 'guest' : 'user', retryable:true };
+  if (reason === 'month') return { status:'GLOBAL_MONTHLY_BUDGET', scope:'global', retryable:false };
+  if (reason === 'guest_tokens') return { status:'GUEST_DAILY_QUOTA', scope:'global', retryable:false };
+  if (scope === 'global') return { status:'GLOBAL_DAILY_BUDGET', scope:'global', retryable:false };
+  if (scope === 'guest') return { status:'GUEST_DAILY_QUOTA', scope:'guest', retryable:false };
+  return { status:'USER_DAILY_QUOTA', scope:'user', retryable:false };
+}
+
+function quotaRejectionResponse(requestId, responseHeaders, scope, reason, resetAtMs, nowMs) {
+  const mapped = mapQuotaDenial(scope, reason);
+  const retrySeconds = mapped.retryable ? IN_FLIGHT_RETRY_AFTER_SECONDS : Math.max(1, Math.ceil((Number(resetAtMs) - nowMs) / 1000));
+  const resetAt = mapped.retryable ? new Date(nowMs + IN_FLIGHT_RETRY_AFTER_SECONDS * 1000).toISOString() : new Date(Number(resetAtMs)).toISOString();
+  return jsonResponse({
+    error:{ code:429, status:mapped.status, scope:mapped.scope, retryable:mapped.retryable, reset_at:resetAt, request_id:requestId }
+  }, 429, Object.assign({ 'Retry-After':String(retrySeconds) }, responseHeaders));
+}
+
+function servicePausedResponse(requestId, responseHeaders) {
+  return jsonResponse({
+    error:{ code:503, status:'SERVICE_PAUSED', message:'Marg\'s answer service is paused.', request_id:requestId, retryable:true }
+  }, 503, responseHeaders);
+}
+
+function quotaUnavailableResponse(requestId, responseHeaders) {
+  return jsonResponse({
+    error:{ code:503, status:'QUOTA_UNAVAILABLE', message:'Marg could not check usage for this request.', request_id:requestId, retryable:true }
+  }, 503, responseHeaders);
+}
+
+function stampQuota(record, fields) {
+  record.quotaMode = fields.quotaMode;
+  record.quotaOutcome = fields.quotaOutcome;
+  record.reservedTokens = Object.prototype.hasOwnProperty.call(fields, 'reservedTokens') ? fields.reservedTokens : null;
+  record.settledTokens = Object.prototype.hasOwnProperty.call(fields, 'settledTokens') ? fields.settledTokens : null;
+  record.remainingCalls = Object.prototype.hasOwnProperty.call(fields, 'remainingCalls') ? fields.remainingCalls : null;
+}
+
+function logQuotaConfig(reason) {
+  console.error('MARG_QUOTA configuration invalid: ' + reason + '; enforce mode is running as log');
+}
+
+class MargQuota {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this.memory = { days:{}, months:{}, reservations:{} };
+    const loaded = state && state.blockConcurrencyWhile ? state.blockConcurrencyWhile(async () => {
+      const stored = await state.storage.get('quota');
+      if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return;
+      this.memory = stored;
+      if (!this.memory.days || typeof this.memory.days !== 'object') this.memory.days = {};
+      if (!this.memory.months || typeof this.memory.months !== 'object') this.memory.months = {};
+      if (!this.memory.reservations || typeof this.memory.reservations !== 'object') this.memory.reservations = {};
+    }) : null;
+    this.loaded = loaded && typeof loaded.then === 'function' ? loaded : Promise.resolve();
+  }
+
+  dropExpired(nowMs) {
+    const ids = Object.keys(this.memory.reservations);
+    for (let index = 0; index < ids.length; index++) {
+      const reservation = this.memory.reservations[ids[index]];
+      if (reservation && Number(reservation.expiresAt) <= nowMs) this.removeReservation(ids[index], true);
+    }
+  }
+
+  removeReservation(id, keepCall) {
+    const reservation = this.memory.reservations[id];
+    if (!reservation) return;
+    const dayState = this.memory.days[reservation.day];
+    if (dayState) {
+      dayState.reserved -= reservation.tokens;
+      if (dayState.reserved < 0) dayState.reserved = 0;
+      if (reservation.guestPool) {
+        dayState.guestReserved -= reservation.tokens;
+        if (dayState.guestReserved < 0) dayState.guestReserved = 0;
+      }
+      if (!keepCall) {
+        dayState.calls -= 1;
+        if (dayState.calls < 0) dayState.calls = 0;
+      }
+    }
+    const monthState = reservation.month && this.memory.months[reservation.month];
+    if (monthState) {
+      monthState.reserved -= reservation.tokens;
+      if (monthState.reserved < 0) monthState.reserved = 0;
+    }
+    delete this.memory.reservations[id];
+  }
+
+  prune(day, month) {
+    const keepDays = {};
+    keepDays[day] = true;
+    const keepMonths = {};
+    if (month) keepMonths[month] = true;
+    Object.keys(this.memory.reservations).forEach((id) => {
+      const reservation = this.memory.reservations[id];
+      if (reservation && reservation.day) keepDays[reservation.day] = true;
+      if (reservation && reservation.month) keepMonths[reservation.month] = true;
+    });
+    Object.keys(this.memory.days).forEach((key) => { if (!keepDays[key]) delete this.memory.days[key]; });
+    Object.keys(this.memory.months).forEach((key) => { if (!keepMonths[key]) delete this.memory.months[key]; });
+  }
+
+  async reserve(body) {
+    const nowMs = Number(body.nowMs);
+    this.dropExpired(nowMs);
+    const day = String(body.day || '');
+    const month = body.month ? String(body.month) : '';
+    this.prune(day, month);
+    if (!this.memory.days[day]) this.memory.days[day] = { calls:0, tokens:0, reserved:0, guestTokens:0, guestReserved:0 };
+    const dayState = this.memory.days[day];
+    if (month && !this.memory.months[month]) this.memory.months[month] = { tokens:0, reserved:0 };
+    const monthState = month ? this.memory.months[month] : null;
+    const limits = body.limits && typeof body.limits === 'object' ? body.limits : {};
+    const estimate = Math.max(0, Math.floor(Number(body.estimateTokens) || 0));
+    const enforce = body.enforce === true;
+    const scope = body.scope === 'global' ? 'global' : body.scope === 'guest' ? 'guest' : 'user';
+    const guestPool = scope === 'global' && body.guestPool === true;
+    const inFlight = Object.keys(this.memory.reservations).length;
+    const calls = dayState.calls;
+    const tokens = dayState.tokens;
+    const reserved = dayState.reserved;
+    const guestTokens = dayState.guestTokens || 0;
+    const guestReserved = dayState.guestReserved || 0;
+    const monthTokens = monthState ? monthState.tokens : 0;
+    const monthReserved = monthState ? monthState.reserved : 0;
+    let reason = '';
+    if (scope !== 'global' && enforce && quotaLimit(limits.max_in_flight) && !(inFlight < limits.max_in_flight)) reason = 'in_flight';
+    else if (scope !== 'global' && enforce && quotaLimit(limits.calls_per_day) && !(calls + 1 <= limits.calls_per_day)) reason = 'calls';
+    else if (enforce && quotaLimit(limits.tokens_per_day) && !(tokens + reserved + estimate <= limits.tokens_per_day)) reason = 'tokens';
+    else if (scope === 'global' && enforce && quotaLimit(limits.tokens_per_month) && !(monthTokens + monthReserved + estimate <= limits.tokens_per_month)) reason = 'month';
+    else if (guestPool && enforce && quotaLimit(limits.guest_tokens_per_day) && !(guestTokens + guestReserved + estimate <= limits.guest_tokens_per_day)) reason = 'guest_tokens';
+    const resetAtMs = reason === 'month' ? Number(body.monthResetAtMs) || 0 : Number(body.dayResetAtMs) || 0;
+    const remainingCalls = quotaLimit(limits.calls_per_day) ? limits.calls_per_day - calls : null;
+    if (reason) return { ok:false, reason, resetAtMs, scope, remainingCalls };
+    const reservationId = crypto.randomUUID();
+    dayState.calls = calls + 1;
+    dayState.reserved = reserved + estimate;
+    if (guestPool) dayState.guestReserved = guestReserved + estimate;
+    if (monthState) monthState.reserved = monthReserved + estimate;
+    this.memory.reservations[reservationId] = { tokens:estimate, expiresAt:Number(body.expiresAt) || 0, day, month, guestPool };
+    return {
+      ok:true,
+      reservationId,
+      resetAtMs:Number(body.dayResetAtMs) || 0,
+      scope,
+      remainingCalls:quotaLimit(limits.calls_per_day) ? limits.calls_per_day - (calls + 1) : null,
+      reservedTokens:estimate
+    };
+  }
+
+  async settle(body) {
+    const nowMs = Number(body.nowMs);
+    this.dropExpired(nowMs);
+    const reservationId = String(body.reservationId || '');
+    const reservation = this.memory.reservations[reservationId];
+    if (!reservation) return { ok:false, reason:'missing' };
+    const actual = body.actualTokens == null || !Number.isFinite(Number(body.actualTokens)) ? reservation.tokens : Number(body.actualTokens);
+    const dayState = this.memory.days[reservation.day];
+    if (dayState) {
+      dayState.reserved -= reservation.tokens;
+      if (dayState.reserved < 0) dayState.reserved = 0;
+      dayState.tokens += actual;
+      if (reservation.guestPool) {
+        dayState.guestReserved -= reservation.tokens;
+        if (dayState.guestReserved < 0) dayState.guestReserved = 0;
+        dayState.guestTokens = (dayState.guestTokens || 0) + actual;
+      }
+    }
+    const monthState = reservation.month && this.memory.months[reservation.month];
+    if (monthState) {
+      monthState.reserved -= reservation.tokens;
+      if (monthState.reserved < 0) monthState.reserved = 0;
+      monthState.tokens += actual;
+    }
+    const day = reservation.day;
+    const month = reservation.month;
+    delete this.memory.reservations[reservationId];
+    this.prune(day, month || '');
+    return { ok:true, charged:actual };
+  }
+
+  async release(body) {
+    const nowMs = Number(body.nowMs);
+    this.dropExpired(nowMs);
+    this.removeReservation(String(body.reservationId || ''), body.keepCall === true);
+    return { ok:true };
+  }
+
+  async fetch(request) {
+    await this.loaded;
+    let body;
+    try { body = await request.json(); }
+    catch (_error) { return new Response(JSON.stringify({ ok:false, reason:'bad_body' }), { status:400, headers:{ 'Content-Type':'application/json' } }); }
+    let result;
+    if (body && body.op === 'reserve') result = await this.reserve(body);
+    else if (body && body.op === 'settle') result = await this.settle(body);
+    else if (body && body.op === 'release') result = await this.release(body);
+    else result = { ok:false, reason:'bad_op' };
+    await this.state.storage.put('quota', this.memory);
+    return new Response(JSON.stringify(result), { status:200, headers:{ 'Content-Type':'application/json' } });
+  }
+}
+
+async function quotaPost(binding, name, body) {
+  const stub = binding.get(binding.idFromName(name));
+  const response = await stub.fetch(new Request('https://marg-quota.invalid/', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify(body)
+  }));
+  if (!response || !response.ok) throw new Error('quota unreachable');
+  return response.json();
+}
+
+async function quotaRelease(binding, name, reservationId, nowMs, keepCall) {
+  if (!binding || !reservationId) return;
+  await quotaPost(binding, name, { op:'release', reservationId, nowMs, keepCall:keepCall === true });
+}
+
+function quotaFailureResult(policy, caller, requestId, responseHeaders, record, modeLabel) {
+  if (policy === 'open_registered' && caller && caller.kind === 'user') {
+    stampQuota(record, { quotaMode:modeLabel, quotaOutcome:'failed_open' });
+    return { blocked:false, hold:null };
+  }
+  stampQuota(record, { quotaMode:modeLabel, quotaOutcome:'failed_closed' });
+  return { blocked:true, response:quotaUnavailableResponse(requestId, responseHeaders), hold:null };
+}
+
+async function acquireQuota(env, request, caller, validation, record, requestId, responseHeaders) {
+  try {
+    const runtime = quotaRuntime(env);
+    if (!QUOTA_METERED_CLASS[validation.requestClass]) {
+      if (runtime.active) stampQuota(record, { quotaMode:runtime.mode, quotaOutcome:'skipped' });
+      return { blocked:false, hold:null };
+    }
+    if (String(env && env.MARG_GEMINI_PAUSED || '') === '1' || (caller.kind !== 'user' && String(env && env.MARG_GUESTS_PAUSED || '') === '1')) {
+      if (runtime.active) stampQuota(record, { quotaMode:runtime.mode, quotaOutcome:'rejected_SERVICE_PAUSED' });
+      else stampQuota(record, { quotaMode:'off', quotaOutcome:'rejected_SERVICE_PAUSED' });
+      return { blocked:true, response:servicePausedResponse(requestId, responseHeaders), hold:null };
+    }
+    if (!runtime.active) return { blocked:false, hold:null };
+    const limitsParsed = parseQuotaLimits(env && env.MARG_QUOTA_LIMITS);
+    const offsetParsed = parseDayOffset(env && env.MARG_QUOTA_DAY_OFFSET_MINUTES);
+    const failureParsed = parseFailurePolicy(env && env.MARG_QUOTA_FAILURE);
+    const limits = limitsParsed.ok ? limitsParsed.limits : { user:{}, guest:{}, global:{}, estimate:{} };
+    const images = upstreamImageCount(validation.upstreamPayload);
+    const imageTokens = limits.estimate && limits.estimate.image_tokens;
+    const imageProblem = images > 0 && !quotaLimit(imageTokens);
+    let configError = '';
+    if (!limitsParsed.ok) configError = limitsParsed.reason;
+    else if (runtime.mode === 'enforce' && limitsParsed.absent) configError = 'limits_json';
+    else if (!offsetParsed.ok && (runtime.mode === 'enforce' || !offsetParsed.missing)) configError = 'day_offset';
+    else if (runtime.mode === 'enforce' && !failureParsed.ok) configError = 'failure_policy';
+    else if (imageProblem && runtime.mode === 'enforce') configError = 'image_estimate';
+    if (configError) logQuotaConfig(configError);
+    const enforcing = runtime.mode === 'enforce' && !configError;
+    const modeLabel = enforcing ? 'enforce' : 'log';
+    const estimate = estimateUpstreamTokens(validation.upstreamPayload, validation.outputTokensSent, quotaLimit(imageTokens) ? imageTokens : 0);
+    if (!offsetParsed.ok) {
+      stampQuota(record, { quotaMode:modeLabel, quotaOutcome:'allowed', reservedTokens:estimate, settledTokens:null, remainingCalls:null });
+      return { blocked:false, hold:{ binding:null, reservedTokens:estimate, local:true } };
+    }
+    const nowMs = Date.now();
+    const periods = quotaPeriods(nowMs, offsetParsed.value);
+    const timeoutHeader = request && request.headers && request.headers.get ? request.headers.get('X-Marg-Timeout-Ms') : '';
+    const expiresAt = nowMs + upstreamBudgetMilliseconds(timeoutHeader) + RESERVATION_SETTLE_MARGIN_MS;
+    const subjectScope = caller.kind === 'user' ? 'user' : 'guest';
+    const subjectName = await quotaObjectName(caller.subject, env);
+    const globalName = await quotaObjectName('global', env);
+    const subjectLimits = enforcing || !configError ? (subjectScope === 'user' ? limits.user : limits.guest) : {};
+    const globalLimits = enforcing || !configError ? limits.global : {};
+    let subjectResult;
+    try {
+      subjectResult = await quotaPost(runtime.binding, subjectName, {
+        op:'reserve', day:periods.day, month:'', estimateTokens:estimate, limits:subjectLimits, nowMs,
+        scope:subjectScope, guestPool:false, expiresAt, enforce:enforcing && !quotaExempt(env, caller),
+        dayResetAtMs:periods.dayResetAtMs, monthResetAtMs:periods.monthResetAtMs
+      });
+    } catch (_error) {
+      if (!enforcing) {
+        stampQuota(record, { quotaMode:modeLabel, quotaOutcome:'failed_open', reservedTokens:estimate });
+        return { blocked:false, hold:null };
+      }
+      return quotaFailureResult(failureParsed.value, caller, requestId, responseHeaders, record, modeLabel);
+    }
+    if (!subjectResult || !subjectResult.ok) {
+      const denial = subjectResult || { reason:'calls', scope:subjectScope, resetAtMs:periods.dayResetAtMs, remainingCalls:null };
+      const mapped = mapQuotaDenial(denial.scope || subjectScope, denial.reason || 'calls');
+      stampQuota(record, {
+        quotaMode:modeLabel,
+        quotaOutcome:'rejected_' + mapped.status,
+        remainingCalls:denial.remainingCalls == null ? null : denial.remainingCalls
+      });
+      return { blocked:true, response:quotaRejectionResponse(requestId, responseHeaders, denial.scope || subjectScope, denial.reason || 'calls', denial.resetAtMs, nowMs), hold:null };
+    }
+    let globalResult;
+    try {
+      globalResult = await quotaPost(runtime.binding, globalName, {
+        op:'reserve', day:periods.day, month:periods.month, estimateTokens:estimate, limits:globalLimits, nowMs,
+        scope:'global', guestPool:caller.kind !== 'user', expiresAt, enforce:enforcing,
+        dayResetAtMs:periods.dayResetAtMs, monthResetAtMs:periods.monthResetAtMs
+      });
+    } catch (_error) {
+      try { await quotaRelease(runtime.binding, subjectName, subjectResult.reservationId, nowMs, false); } catch (_releaseError) {}
+      if (!enforcing) {
+        stampQuota(record, { quotaMode:modeLabel, quotaOutcome:'failed_open', reservedTokens:estimate });
+        return { blocked:false, hold:null };
+      }
+      return quotaFailureResult(failureParsed.value, caller, requestId, responseHeaders, record, modeLabel);
+    }
+    if (!globalResult || !globalResult.ok) {
+      try { await quotaRelease(runtime.binding, subjectName, subjectResult.reservationId, nowMs, false); } catch (_releaseError) {}
+      const denial = globalResult || { reason:'tokens', scope:'global', resetAtMs:periods.dayResetAtMs };
+      const mapped = mapQuotaDenial('global', denial.reason || 'tokens');
+      stampQuota(record, { quotaMode:modeLabel, quotaOutcome:'rejected_' + mapped.status, remainingCalls:subjectResult.remainingCalls == null ? null : subjectResult.remainingCalls });
+      return { blocked:true, response:quotaRejectionResponse(requestId, responseHeaders, 'global', denial.reason || 'tokens', denial.resetAtMs, nowMs), hold:null };
+    }
+    stampQuota(record, {
+      quotaMode:modeLabel,
+      quotaOutcome:'allowed',
+      reservedTokens:estimate,
+      settledTokens:null,
+      remainingCalls:subjectResult.remainingCalls == null ? null : subjectResult.remainingCalls
+    });
+    return {
+      blocked:false,
+      hold:{
+        binding:runtime.binding,
+        subjectName,
+        globalName,
+        subjectReservationId:subjectResult.reservationId,
+        globalReservationId:globalResult.reservationId,
+        reservedTokens:estimate
+      }
+    };
+  } catch (_error) {
+    console.error('MARG_QUOTA configuration invalid: unexpected');
+    return { blocked:false, hold:null };
+  }
+}
+
+async function completeQuota(hold, generated, record) {
+  if (!hold || hold.done) return;
+  hold.done = true;
+  const usage = generated && generated.usageMetadata;
+  const actual = usage && Number.isFinite(Number(usage.totalTokenCount)) ? Number(usage.totalTokenCount) : null;
+  if (!hold.binding) {
+    record.settledTokens = generated && generated.ok ? (actual == null ? hold.reservedTokens : actual) : null;
+    return;
+  }
+  const nowMs = Date.now();
+  try {
+    if (generated && generated.ok) {
+      const payload = { op:'settle', actualTokens:actual, nowMs };
+      if (hold.subjectReservationId) await quotaPost(hold.binding, hold.subjectName, Object.assign({ reservationId:hold.subjectReservationId }, payload));
+      if (hold.globalReservationId) await quotaPost(hold.binding, hold.globalName, Object.assign({ reservationId:hold.globalReservationId }, payload));
+      record.settledTokens = actual == null ? hold.reservedTokens : actual;
+    } else {
+      if (hold.subjectReservationId) await quotaRelease(hold.binding, hold.subjectName, hold.subjectReservationId, nowMs, true);
+      if (hold.globalReservationId) await quotaRelease(hold.binding, hold.globalName, hold.globalReservationId, nowMs, true);
+      record.settledTokens = null;
+    }
+  } catch (_error) {
+    record.settledTokens = generated && generated.ok ? (actual == null ? hold.reservedTokens : actual) : null;
+  }
+}
+
+export { resolveMaxOutputTokens, MargQuota };
 
 function usageCounts(usage) {
   if (!usage || typeof usage !== 'object') return null;
@@ -1081,6 +1602,8 @@ export default {
     };
 
     if (payload && payload.margAction === 'daily_article') {
+      const articleRuntime = quotaRuntime(env);
+      if (articleRuntime.active) stampQuota(record, { quotaMode:articleRuntime.mode, quotaOutcome:'skipped' });
       beforeUpstream(seamContext);
       try {
         const article = await getDailyArticleSource(String(payload.topic || 'economy'), payload.offset);
@@ -1101,6 +1624,10 @@ export default {
     }
     if (!env || !env.GEMINI_API_KEY) return finish(jsonResponse({ error:{ code:500, status:'MISSING_API_KEY', message:'GEMINI_API_KEY is not configured', request_id:requestId } }, 500, responseHeaders));
 
+    const quotaGate = await acquireQuota(env, request, caller, validation, record, requestId, responseHeaders);
+    if (quotaGate.blocked) return finish(quotaGate.response);
+    const quotaHold = quotaGate.hold;
+
     beforeUpstream(seamContext);
     try {
       const clientBudget = Number(request.headers && request.headers.get('X-Marg-Timeout-Ms'));
@@ -1113,6 +1640,7 @@ export default {
         ok:!!generated.ok,
         status:generated.status
       });
+      await completeQuota(quotaHold, { ok:!!generated.ok, usageMetadata:record.usageMetadata }, record);
       responseHeaders['X-Marg-Upstream-Calls'] = String(generated.upstreamCalls || 1);
       responseHeaders['X-Marg-Model-Fallback'] = generated.modelFallbackUsed ? '1' : '0';
       if (!generated.ok) {
@@ -1152,6 +1680,7 @@ export default {
       }));
     } catch (_error) {
       afterUpstream(seamContext, { usageMetadata:null, upstreamCalls:record.upstreamCalls || 0, ok:false, status:502 });
+      await completeQuota(quotaHold, { ok:false, usageMetadata:null }, record);
       console.error('Gemini Worker upstream failure', { requestId });
       return finish(jsonResponse({
         error:{ code:502, status:'WORKER_UPSTREAM_FAILURE', message:'Marg could not reach its answer service.', request_id:requestId, retryable:true }
