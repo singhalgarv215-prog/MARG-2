@@ -24,6 +24,19 @@ const CORS_HEADERS = {
 const SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkdXF0cnVtaHZldGV5amt5bHRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNjc0MzMsImV4cCI6MjA5NDc0MzQzM30.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
 const MAX_REQUEST_BYTES = 20 * 1024 * 1024;
+// Caps are above the largest request the app actually builds. See the B3
+// inventory: cleanHistory keeps 24 turns plus at most 4 retrieved (marg-app.js),
+// image attachments stop at 4, and the largest client maxOutputTokens is 16384.
+const MAX_TURNS = 32;
+const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+const MAX_SYSTEM_BYTES = 256 * 1024;
+const MAX_SCHEMA_BYTES = 64 * 1024;
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BASE64_CHARS = 14 * 1024 * 1024;
+const OUTPUT_CLASS_CEILING = 16384;
+const GUEST_OUTPUT_CEILING = 8192;
+const ALLOWED_THINKING_LEVELS = { minimal:true, low:true, medium:true };
+const ALLOWED_IMAGE_MIME = { 'image/jpeg':true, 'image/png':true, 'image/webp':true };
 const localRateWindows = new Map();
 
 function requestCorsHeaders(request) {
@@ -58,19 +71,79 @@ async function workerRateAllowed(env, key, bindingName, fallbackLimit) {
 
 async function authenticateMargUser(request) {
   const authorization = String(request && request.headers && typeof request.headers.get === 'function' ? request.headers.get('Authorization') || '' : '');
-  if (!/^Bearer\s+\S+/i.test(authorization)) return null;
+  if (!/^Bearer\s+\S+/i.test(authorization)) return { user:null, authState:'none' };
   try {
     const response = await fetchWithWorkerTimeout(SUPABASE_URL + '/auth/v1/user', {
       headers:{ apikey:SUPABASE_PUBLISHABLE_KEY, Authorization:authorization },
       cache:'no-store'
     }, 7000);
-    if (!response.ok) return null;
+    // A rejected credential is not an outage. 5xx and network failures are.
+    if (response.status === 401 || response.status === 403) return { user:null, authState:'invalid' };
+    if (!response.ok) return { user:null, authState:'unavailable' };
     const user = await response.json();
-    return user && user.id ? user : null;
+    return user && user.id ? { user, authState:'valid' } : { user:null, authState:'invalid' };
   } catch (_error) {
-    return null;
+    return { user:null, authState:'unavailable' };
   }
 }
+
+function flagMode(env, name, fallback) {
+  const value = String(env && env[name] || '').trim().toLowerCase();
+  if (value === 'off' || value === 'log' || value === 'enforce') return value;
+  return fallback;
+}
+
+function expandIPv6(input) {
+  const value = String(input || '').toLowerCase().split('%')[0];
+  if (!value || value.includes('.')) return null;
+  const halves = value.split('::');
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(':').filter(Boolean) : [];
+  const right = halves.length === 2 ? (halves[1] ? halves[1].split(':').filter(Boolean) : []) : [];
+  if (halves.length === 1) {
+    if (left.length !== 8) return null;
+  } else if (8 - left.length - right.length < 0) return null;
+  const missing = halves.length === 1 ? 0 : 8 - left.length - right.length;
+  const parts = left.concat(Array(missing).fill('0'), right);
+  if (parts.length !== 8 || parts.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return null;
+  return parts.map((part) => parseInt(part, 16).toString(16));
+}
+
+function ipBucket(ip) {
+  const raw = String(ip || '');
+  if (!raw || raw === 'unknown' || raw === 'unit-test') return raw || 'unknown';
+  const mapped = raw.match(/(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (raw.includes('.') && mapped) return mapped[1];
+  const parts = expandIPv6(raw);
+  if (!parts) return raw;
+  return parts.slice(0, 4).join(':');
+}
+
+async function resolveCaller(request, env) {
+  const hasHeaderApi = !!(request && request.headers && typeof request.headers.get === 'function');
+  const clientId = String(hasHeaderApi ? request.headers.get('X-Marg-Client-Id') || '' : 'worker-unit-request').replace(/[^a-zA-Z0-9._:-]/g, '').slice(0, 120);
+  const ip = String(hasHeaderApi ? request.headers.get('CF-Connecting-IP') || 'unknown' : 'unit-test');
+  const bucket = ipBucket(ip);
+  const auth = await authenticateMargUser(request);
+  if (auth.authState === 'valid' && auth.user && auth.user.id) {
+    return { kind:'user', subject:'user:' + auth.user.id, authState:'valid', ip, clientId, bucket };
+  }
+  const kind = auth.authState === 'none' && !clientId ? 'anonymous' : 'guest';
+  return { kind, subject:'guest:' + bucket, authState:auth.authState, ip, clientId, bucket };
+}
+
+async function subjectHash(subject) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(subject || '')));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 12);
+}
+
+function byteLength(value) {
+  return new TextEncoder().encode(String(value || '')).length;
+}
+
+function beforeUpstream(ctx) {}
+
+function afterUpstream(ctx, result) {}
 
 async function fetchWithWorkerTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
@@ -418,49 +491,302 @@ function resolveMaxOutputTokens(payload, contents, requestedTokens) {
   return Math.min(MAX_OUTPUT_TOKENS, ceiling);
 }
 
-function normalizeRequest(payload) {
-  if (payload && Array.isArray(payload.contents)) {
-    const wantsWebGrounding = payload.margWebGrounding === true;
-    const nativePayload = Object.assign({}, payload, {
-      contents:normalizeMessages(payload.contents),
-      generationConfig:normalizeGenerationConfig(payload.generationConfig)
+function listInputMessages(payload) {
+  if (payload && Array.isArray(payload.contents)) return payload.contents;
+  if (payload && Array.isArray(payload.messages)) return payload.messages;
+  return null;
+}
+
+function messageParts(message) {
+  if (!message || typeof message !== 'object') return [];
+  if (Array.isArray(message.parts)) return message.parts;
+  if (Array.isArray(message.content)) return message.content;
+  if (message.content != null) return [message.content];
+  return [];
+}
+
+function partImage(part) {
+  return normalizeInlineImage(part);
+}
+
+function payloadRequestsGrounding(payload, compatibilityMode) {
+  if (!payload) return false;
+  if (payload.margWebGrounding === true) return true;
+  return compatibilityMode && payload.web_search === true;
+}
+
+function allowListedGenerationConfig(generationConfig, dropped) {
+  const normalized = normalizeGenerationConfig(generationConfig);
+  const config = {};
+  const rawLevel = normalized.thinkingConfig && normalized.thinkingConfig.thinkingLevel;
+  if (ALLOWED_THINKING_LEVELS[rawLevel]) config.thinkingConfig = { thinkingLevel:rawLevel };
+  else {
+    config.thinkingConfig = { thinkingLevel:'low' };
+    if (rawLevel != null && String(rawLevel) !== '') dropped.push('thinkingConfig.thinkingLevel');
+  }
+  if (normalized.thinkingConfig && typeof normalized.thinkingConfig === 'object') {
+    Object.keys(normalized.thinkingConfig).forEach((key) => {
+      if (key !== 'thinkingLevel') dropped.push('thinkingConfig.' + key);
     });
-    delete nativePayload.margWebGrounding;
-    if (wantsWebGrounding && !hasJsonResponseFormat(nativePayload.generationConfig)) {
-      const existingTools = Array.isArray(nativePayload.tools) ? nativePayload.tools.slice() : [];
-      if (!existingTools.some((tool) => tool && (tool.google_search || tool.googleSearch))) existingTools.push({ google_search:{} });
-      nativePayload.tools = existingTools;
-    }
-    nativePayload.generationConfig.maxOutputTokens = resolveMaxOutputTokens(
-      nativePayload,
-      nativePayload.contents,
-      nativePayload.generationConfig.maxOutputTokens
-    );
-    if (systemRequestText(nativePayload).includes('[marg_task: compact_decision_lab]') && nativePayload.systemInstruction && Array.isArray(nativePayload.systemInstruction.parts)) {
-      nativePayload.systemInstruction = {
-        parts:nativePayload.systemInstruction.parts.map((part) => part && typeof part.text === 'string'
-          ? Object.assign({}, part, { text:part.text.replace(/\s*\[MARG_TASK:\s*COMPACT_DECISION_LAB\]\s*/ig, '\n') })
-          : part)
-      };
-    }
-    return { payload:nativePayload, compatibilityMode:false };
   }
-  if (!payload || !Array.isArray(payload.messages)) return { payload:null, compatibilityMode:false };
-  const contents = normalizeMessages(payload.messages);
-  const requestedOutputTokens = resolveMaxOutputTokens(payload, contents, payload.max_tokens);
-  const geminiPayload = {
-    contents,
-    generationConfig:{
-      maxOutputTokens:requestedOutputTokens,
-      thinkingConfig:{ thinkingLevel:requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
-    }
+  Object.keys(normalized).forEach((key) => {
+    if (key === 'maxOutputTokens' || key === 'thinkingConfig' || key === 'responseMimeType' || key === 'responseJsonSchema') return;
+    dropped.push('generationConfig.' + key);
+  });
+  if (Object.prototype.hasOwnProperty.call(normalized, 'maxOutputTokens')) config.maxOutputTokens = normalized.maxOutputTokens;
+  const mime = normalized.responseMimeType;
+  if (mime === 'application/json' || mime === 'text/plain') config.responseMimeType = mime;
+  else if (mime) dropped.push('generationConfig.responseMimeType');
+  if (normalized.responseJsonSchema) config.responseJsonSchema = normalized.responseJsonSchema;
+  return config;
+}
+
+function allowListedSystemInstruction(systemInstruction, dropped) {
+  if (!systemInstruction || typeof systemInstruction !== 'object') return null;
+  Object.keys(systemInstruction).forEach((key) => {
+    if (key !== 'parts') dropped.push('systemInstruction.' + key);
+  });
+  const parts = Array.isArray(systemInstruction.parts) ? systemInstruction.parts : [];
+  const textParts = parts.map((part) => {
+    if (!part || typeof part !== 'object') return null;
+    Object.keys(part).forEach((key) => {
+      if (key !== 'text') dropped.push('systemInstruction.part.' + key);
+    });
+    if (typeof part.text !== 'string') return null;
+    return { text:part.text };
+  }).filter(Boolean);
+  if (!textParts.length) return null;
+  const instruction = { parts:textParts };
+  if (textParts.map((part) => part.text).join('\n').toLowerCase().includes('[marg_task: compact_decision_lab]')) {
+    instruction.parts = textParts.map((part) => ({ text:part.text.replace(/\s*\[MARG_TASK:\s*COMPACT_DECISION_LAB\]\s*/ig, '\n') }));
+  }
+  return instruction;
+}
+
+function buildAllowListedPayload(payload) {
+  const dropped = [];
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { payload:null, compatibilityMode:false, droppedFieldNames:dropped, requestedGrounding:false };
+  }
+  const compatibilityMode = !Array.isArray(payload.contents);
+  if (compatibilityMode && !Array.isArray(payload.messages)) {
+    return { payload:null, compatibilityMode:false, droppedFieldNames:dropped, requestedGrounding:false };
+  }
+  const consumed = {
+    contents:true, messages:true, systemInstruction:true, system:true, generationConfig:true,
+    max_tokens:true, margWebGrounding:true, web_search:true, margAction:true, topic:true, offset:true
   };
-  if (payload.margWebGrounding === true || payload.web_search === true) geminiPayload.tools = [{ google_search:{} }];
-  if (/\b(?:return|generate)\s+only\s+valid\s+json\b/i.test(String(payload.system || ''))) {
-    geminiPayload.generationConfig.responseMimeType = 'application/json';
+  Object.keys(payload).forEach((key) => {
+    if (!consumed[key]) dropped.push(key);
+  });
+  const requestedGrounding = payloadRequestsGrounding(payload, compatibilityMode || payload.margWebGrounding === true);
+  let upstream;
+  if (!compatibilityMode) {
+    const contents = normalizeMessages(payload.contents);
+    const generationConfig = allowListedGenerationConfig(payload.generationConfig, dropped);
+    upstream = { contents, generationConfig };
+    const systemInstruction = allowListedSystemInstruction(payload.systemInstruction, dropped);
+    if (systemInstruction) upstream.systemInstruction = systemInstruction;
+    upstream.generationConfig.maxOutputTokens = resolveMaxOutputTokens(upstream, contents, upstream.generationConfig.maxOutputTokens);
+  } else {
+    const contents = normalizeMessages(payload.messages);
+    const requestedOutputTokens = resolveMaxOutputTokens(payload, contents, payload.max_tokens);
+    upstream = {
+      contents,
+      generationConfig:{
+        maxOutputTokens:requestedOutputTokens,
+        thinkingConfig:{ thinkingLevel:requestedOutputTokens > 4096 ? 'medium' : 'minimal' }
+      }
+    };
+    if (/\b(?:return|generate)\s+only\s+valid\s+json\b/i.test(String(payload.system || ''))) {
+      upstream.generationConfig.responseMimeType = 'application/json';
+    }
+    if (payload.system) upstream.systemInstruction = { parts:[{ text:String(payload.system) }] };
   }
-  if (payload.system) geminiPayload.systemInstruction = { parts:[{ text:String(payload.system) }] };
-  return { payload:geminiPayload, compatibilityMode:true };
+  const structured = hasJsonResponseFormat(upstream.generationConfig) || !!(upstream.generationConfig && upstream.generationConfig.responseJsonSchema);
+  if (requestedGrounding && !structured) upstream.tools = [{ google_search:{} }];
+  return { payload:upstream, compatibilityMode, droppedFieldNames:uniqueNames(dropped), requestedGrounding, structured };
+}
+
+function uniqueNames(names) {
+  const seen = {};
+  return names.filter((name) => {
+    if (!name || seen[name]) return false;
+    seen[name] = true;
+    return true;
+  });
+}
+
+function classifyBuiltRequest(payload, built) {
+  if (payload && payload.margAction === 'daily_article') return 'article';
+  const contents = built && built.payload && built.payload.contents;
+  if (contentsContainImages(contents) || rawImageCount(payload) > 0) return 'vision';
+  if (built && built.structured) return 'structured';
+  if (built && built.requestedGrounding) return 'grounded';
+  return 'chat';
+}
+
+function rawImageCount(payload) {
+  const messages = listInputMessages(payload) || [];
+  let count = 0;
+  messages.forEach((message) => {
+    messageParts(message).forEach((part) => {
+      if (partImage(part)) count += 1;
+    });
+  });
+  return count;
+}
+
+function collectText(payload) {
+  const chunks = [];
+  const messages = listInputMessages(payload) || [];
+  messages.forEach((message) => {
+    messageParts(message).forEach((part) => {
+      if (typeof part === 'string') chunks.push(part);
+      else if (part && typeof part.text === 'string') chunks.push(part.text);
+    });
+  });
+  if (payload && payload.systemInstruction && Array.isArray(payload.systemInstruction.parts)) {
+    payload.systemInstruction.parts.forEach((part) => {
+      if (part && typeof part.text === 'string') chunks.push(part.text);
+    });
+  }
+  if (payload && payload.system) chunks.push(String(payload.system));
+  return chunks;
+}
+
+function schemaByteLength(payload) {
+  const config = payload && payload.generationConfig || {};
+  const schema = config.responseJsonSchema || config.responseSchema || (config.responseFormat && config.responseFormat.text && config.responseFormat.text.schema);
+  if (!schema) return 0;
+  try { return byteLength(JSON.stringify(schema)); } catch (_error) { return MAX_SCHEMA_BYTES + 1; }
+}
+
+function systemByteLength(payload) {
+  if (payload && payload.systemInstruction && Array.isArray(payload.systemInstruction.parts)) {
+    return byteLength(payload.systemInstruction.parts.map((part) => part && part.text || '').join('\n'));
+  }
+  return byteLength(payload && payload.system || '');
+}
+
+function validBase64(value) {
+  const text = String(value || '').replace(/\s+/g, '');
+  if (!text || text.length % 4 !== 0) return false;
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(text);
+}
+
+function collectValidationReasons(payload) {
+  const reasons = [];
+  const sizeReasons = [];
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    reasons.push('BODY_NOT_OBJECT');
+    return { reasons, sizeReasons };
+  }
+  if (payload.margAction === 'daily_article') return { reasons, sizeReasons };
+  const messages = listInputMessages(payload);
+  if (!messages) {
+    reasons.push('CONTENTS_NOT_ARRAY');
+    return { reasons, sizeReasons };
+  }
+  if (messages.length > MAX_TURNS) reasons.push('TOO_MANY_TURNS');
+  messages.forEach((message) => {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      reasons.push('MESSAGE_NOT_OBJECT');
+      return;
+    }
+    const role = message.role;
+    if (role !== 'user' && role !== 'model' && role !== 'assistant') reasons.push('ROLE_INVALID');
+    messageParts(message).forEach((part) => {
+      if (typeof part === 'string') return;
+      if (!part || typeof part !== 'object' || Array.isArray(part)) {
+        reasons.push('PART_INVALID');
+        return;
+      }
+      const image = partImage(part);
+      const hasText = typeof part.text === 'string';
+      if (!hasText && !image) reasons.push('PART_INVALID');
+      if (image) {
+        const mime = String(image.inlineData.mimeType || '').toLowerCase();
+        if (!ALLOWED_IMAGE_MIME[mime]) reasons.push('IMAGE_MIME');
+        if (String(image.inlineData.data || '').length > MAX_IMAGE_BASE64_CHARS) sizeReasons.push('IMAGE_TOO_LARGE');
+        if (!validBase64(image.inlineData.data)) reasons.push('IMAGE_ENCODING');
+      }
+      Object.keys(part).forEach((key) => {
+        if (key === 'text' || key === 'inlineData' || key === 'inline_data' || key === 'image' || key === 'type' || key === 'source' || key === 'mimeType' || key === 'mime_type' || key === 'media_type' || key === 'data') return;
+        reasons.push('PART_INVALID');
+      });
+    });
+  });
+  if (rawImageCount(payload) > MAX_IMAGES) reasons.push('IMAGE_COUNT');
+  const textBytes = collectText(payload).reduce((total, chunk) => total + byteLength(chunk), 0);
+  if (textBytes > MAX_TEXT_BYTES) sizeReasons.push('TEXT_TOO_LARGE');
+  if (systemByteLength(payload) > MAX_SYSTEM_BYTES) sizeReasons.push('SYSTEM_TOO_LARGE');
+  if (schemaByteLength(payload) > MAX_SCHEMA_BYTES) sizeReasons.push('SCHEMA_TOO_LARGE');
+  if (!messages.length) reasons.push('EMPTY_CONTENTS');
+  return { reasons:uniqueNames(reasons), sizeReasons:uniqueNames(sizeReasons) };
+}
+
+function validateRequest(payload, caller, mode) {
+  const validationMode = mode || 'log';
+  const built = buildAllowListedPayload(payload);
+  const requestClass = classifyBuiltRequest(payload, built);
+  const collected = collectValidationReasons(payload);
+  const reasons = collected.reasons.concat(collected.sizeReasons);
+  const ceiling = requestClass === 'article' ? 0 : OUTPUT_CLASS_CEILING;
+  const resolvedTokens = built.payload && built.payload.generationConfig ? Number(built.payload.generationConfig.maxOutputTokens) || 0 : 0;
+  const clamps = [];
+  if (requestClass !== 'article' && resolvedTokens > ceiling) {
+    clamps.push({ field:'maxOutputTokens', from:resolvedTokens, to:ceiling, applied:validationMode === 'enforce' });
+    if (validationMode === 'enforce' && built.payload && built.payload.generationConfig) built.payload.generationConfig.maxOutputTokens = ceiling;
+  }
+  let upstreamPayload = built.payload;
+  if (upstreamPayload && built.requestedGrounding && requestClass === 'structured') {
+    delete upstreamPayload.tools;
+  }
+  if (validationMode === 'enforce' && caller && caller.kind !== 'user' && upstreamPayload && upstreamPayload.tools) {
+    delete upstreamPayload.tools;
+  }
+  const outputTokensSent = upstreamPayload && upstreamPayload.generationConfig ? Number(upstreamPayload.generationConfig.maxOutputTokens) || 0 : 0;
+  const requested = payload && (Array.isArray(payload.contents) ? payload.generationConfig && payload.generationConfig.maxOutputTokens : payload.max_tokens);
+  const limits = {
+    maxTurns:MAX_TURNS,
+    maxTextBytes:MAX_TEXT_BYTES,
+    maxSystemBytes:MAX_SYSTEM_BYTES,
+    maxSchemaBytes:MAX_SCHEMA_BYTES,
+    maxImages:MAX_IMAGES,
+    maxImageBase64Chars:MAX_IMAGE_BASE64_CHARS,
+    maxOutputTokens:ceiling,
+    guestOutputTokens:GUEST_OUTPUT_CEILING
+  };
+  const activeReasons = validationMode === 'off' ? [] : reasons;
+  const ok = validationMode !== 'enforce' || (collected.reasons.length === 0 && collected.sizeReasons.length === 0);
+  return {
+    ok,
+    reasons:activeReasons,
+    sizeReasons:validationMode === 'off' ? [] : collected.sizeReasons,
+    structuralReasons:validationMode === 'off' ? [] : collected.reasons,
+    requestClass,
+    limits,
+    upstreamPayload,
+    compatibilityMode:built.compatibilityMode,
+    droppedFieldNames:built.droppedFieldNames,
+    clamps:validationMode === 'off' ? [] : clamps,
+    requestedGrounding:!!built.requestedGrounding,
+    outputTokensRequested:Number(requested) || 0,
+    outputTokensSent,
+    hasImages:requestClass === 'vision'
+  };
+}
+
+function guestCapabilityViolations(payload, caller, validation) {
+  if (!caller || caller.kind === 'user') return [];
+  const violations = [];
+  if (payload && payload.margAction === 'daily_article') violations.push('daily_article');
+  if (validation.hasImages || rawImageCount(payload) > 0) violations.push('image');
+  if (validation.requestedGrounding) violations.push('web_grounding');
+  if (validation.requestClass === 'structured') violations.push('structured');
+  if (validation.requestClass !== 'article' && validation.outputTokensSent > GUEST_OUTPUT_CEILING) violations.push('output_tokens');
+  return violations;
 }
 
 function extractText(payload) {
@@ -599,6 +925,48 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
 
 export { resolveMaxOutputTokens };
 
+function usageCounts(usage) {
+  if (!usage || typeof usage !== 'object') return null;
+  const counts = {};
+  ['promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount', 'totalTokenCount', 'cachedContentTokenCount'].forEach((key) => {
+    if (Number.isFinite(Number(usage[key]))) counts[key] = Number(usage[key]);
+  });
+  return Object.keys(counts).length ? counts : null;
+}
+
+async function readBoundedBody(request) {
+  if (request && request.body && typeof request.body.getReader === 'function') {
+    const reader = request.body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      const value = next.value;
+      total += value ? value.byteLength : 0;
+      if (total > MAX_REQUEST_BYTES) {
+        try { await reader.cancel(); } catch (_error) {}
+        return { tooLarge:true };
+      }
+      if (value) chunks.push(value);
+    }
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    chunks.forEach((chunk) => {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    });
+    return { text:new TextDecoder().decode(merged) };
+  }
+  if (request && typeof request.text === 'function') {
+    const rawBody = await request.text();
+    const bodyBytes = typeof TextEncoder === 'function' ? new TextEncoder().encode(rawBody).byteLength : rawBody.length;
+    if (bodyBytes > MAX_REQUEST_BYTES) return { tooLarge:true };
+    return { text:rawBody };
+  }
+  return { json:await request.json() };
+}
+
 export default {
   async fetch(request, env) {
     const cors = requestCorsHeaders(request);
@@ -612,66 +980,139 @@ export default {
     // Cloudflare may instead add cf-placement directly to its response.
     // No IP address, student text or credential is exposed.
     if (request.headers && request.headers.get('cf-placement')) responseHeaders['X-Marg-Placement'] = request.headers.get('cf-placement');
-    if (request.method !== 'POST') return jsonResponse({ error:{ code:405, status:'METHOD_NOT_ALLOWED', message:'Method not allowed', request_id:requestId } }, 405, responseHeaders);
+    const validationMode = flagMode(env, 'MARG_WORKER_VALIDATION', 'log');
+    const guestMode = flagMode(env, 'MARG_GUEST_CAPABILITIES', 'log');
+    // MARG_AUTH_STRICT stays off unless the operator sets it. When it is on,
+    // a Worker 401 is SESSION_INVALID. The app shows that as a generic
+    // "could not finish" error, not a sign-in screen.
+    const authStrict = String(env && env.MARG_AUTH_STRICT || '').trim().toLowerCase() === 'on';
+    const record = {
+      event:'marg_worker_request',
+      requestId,
+      callerKind:'anonymous',
+      authState:'none',
+      subjectHash:'',
+      requestClass:'unknown',
+      validationMode,
+      guestCapabilityMode:guestMode,
+      authStrict,
+      clamps:[],
+      droppedFieldNames:[],
+      rejectReasons:[],
+      outputTokensRequested:0,
+      outputTokensSent:0,
+      upstreamCalls:0,
+      usageMetadata:null,
+      httpStatus:0
+    };
+    let logged = false;
+    const finish = async (response, patch) => {
+      if (patch) Object.assign(record, patch);
+      record.httpStatus = response.status;
+      if (!record.subjectHash) record.subjectHash = await subjectHash('guest:unknown');
+      if (!logged) {
+        logged = true;
+        console.log(JSON.stringify(record));
+      }
+      return response;
+    };
+    if (request.method !== 'POST') return finish(jsonResponse({ error:{ code:405, status:'METHOD_NOT_ALLOWED', message:'Method not allowed', request_id:requestId } }, 405, responseHeaders));
 
     const contentLength = Number(request.headers && request.headers.get ? request.headers.get('Content-Length') || 0 : 0);
-    if (contentLength > MAX_REQUEST_BYTES) return jsonResponse({ error:{ code:413, status:'PAYLOAD_TOO_LARGE', message:'This request is too large to process safely.', request_id:requestId } }, 413, responseHeaders);
+    if (contentLength > MAX_REQUEST_BYTES) return finish(jsonResponse({ error:{ code:413, status:'PAYLOAD_TOO_LARGE', message:'This request is too large to process safely.', request_id:requestId } }, 413, responseHeaders));
+
+    const caller = await resolveCaller(request, env);
+    record.callerKind = caller.kind;
+    record.authState = caller.authState;
+    record.subjectHash = await subjectHash(caller.subject);
+    const rateKey = caller.kind === 'user' ? caller.subject : 'guest:' + caller.bucket;
+    const userAllowed = await workerRateAllowed(env, rateKey, 'MARG_RATE_LIMITER', caller.kind === 'user' ? 60 : 20);
+    const ipAllowed = await workerRateAllowed(env, 'ip:' + caller.bucket, 'MARG_IP_LIMITER', 120);
+    if (!userAllowed || !ipAllowed) {
+      return finish(jsonResponse({ error:{ code:429, status:'RATE_LIMITED', message:'Marg is receiving too many requests from this session. Wait a minute and continue.', request_id:requestId, retryable:true } }, 429, Object.assign({ 'Retry-After':'60' }, responseHeaders)));
+    }
+    if (authStrict && caller.authState === 'invalid') {
+      return finish(jsonResponse({ status:'SESSION_INVALID' }, 401, responseHeaders), { rejectReasons:['SESSION_INVALID'] });
+    }
+    if (authStrict && caller.authState === 'unavailable') {
+      return finish(jsonResponse({ status:'AUTH_UNAVAILABLE', retryable:true }, 503, responseHeaders), { rejectReasons:['AUTH_UNAVAILABLE'] });
+    }
+    if (caller.kind !== 'user' && !caller.clientId) {
+      return finish(jsonResponse({ error:{ code:401, status:'CLIENT_ID_REQUIRED', message:'Open Marg in the app and try again.', request_id:requestId } }, 401, responseHeaders), { rejectReasons:['CLIENT_ID_REQUIRED'] });
+    }
 
     let payload;
     try {
-      if (typeof request.text === 'function') {
-        const rawBody = await request.text();
-        const bodyBytes = typeof TextEncoder === 'function'
-          ? new TextEncoder().encode(rawBody).byteLength
-          : typeof Blob === 'function' ? new Blob([rawBody]).size : rawBody.length;
-        if (bodyBytes > MAX_REQUEST_BYTES) {
-          return jsonResponse({ error:{ code:413, status:'PAYLOAD_TOO_LARGE', message:'This request is too large to process safely.', request_id:requestId } }, 413, responseHeaders);
-        }
-        payload = JSON.parse(rawBody);
-      } else payload = await request.json();
-    } catch (error) {
-      return jsonResponse({ error:{ code:400, status:'INVALID_JSON', message:'Request body must be valid JSON', request_id:requestId } }, 400, responseHeaders);
+      const body = await readBoundedBody(request);
+      if (body.tooLarge) {
+        return finish(jsonResponse({ error:{ code:413, status:'PAYLOAD_TOO_LARGE', message:'This request is too large to process safely.', request_id:requestId } }, 413, responseHeaders), { rejectReasons:['PAYLOAD_TOO_LARGE'] });
+      }
+      payload = Object.prototype.hasOwnProperty.call(body, 'json') ? body.json : JSON.parse(body.text);
+    } catch (_error) {
+      return finish(jsonResponse({ error:{ code:400, status:'INVALID_JSON', message:'Request body must be valid JSON', request_id:requestId } }, 400, responseHeaders), { rejectReasons:['INVALID_JSON'] });
     }
 
-    const authenticatedUser = await authenticateMargUser(request);
-    const hasHeaderApi = !!(request.headers && typeof request.headers.get === 'function');
-    const clientId = String(hasHeaderApi ? request.headers.get('X-Marg-Client-Id') || '' : 'worker-unit-request').replace(/[^a-zA-Z0-9._:-]/g, '').slice(0, 120);
-    const cfAddress = String(hasHeaderApi ? request.headers.get('CF-Connecting-IP') || 'unknown' : 'unit-test');
-    const rateKey = authenticatedUser && authenticatedUser.id ? 'user:' + authenticatedUser.id : clientId ? 'guest:' + clientId : 'guest-ip:' + cfAddress;
-    const userAllowed = await workerRateAllowed(env, rateKey, 'MARG_RATE_LIMITER', authenticatedUser ? 60 : 20);
-    const ipAllowed = await workerRateAllowed(env, 'ip:' + cfAddress, 'MARG_IP_LIMITER', 120);
-    if (!userAllowed || !ipAllowed) {
-      return jsonResponse({ error:{ code:429, status:'RATE_LIMITED', message:'Marg is receiving too many requests from this session. Wait a minute and continue.', request_id:requestId, retryable:true } }, 429, Object.assign({ 'Retry-After':'60' }, responseHeaders));
+    const validation = validateRequest(payload, caller, validationMode);
+    record.requestClass = validation.requestClass;
+    record.droppedFieldNames = validation.droppedFieldNames;
+    record.clamps = validation.clamps;
+    record.outputTokensRequested = validation.outputTokensRequested;
+    record.outputTokensSent = validation.outputTokensSent;
+    record.rejectReasons = validation.reasons.slice();
+    const guestViolations = guestCapabilityViolations(payload, caller, validation);
+    if (guestMode !== 'off' && guestViolations.length) record.rejectReasons = record.rejectReasons.concat(guestViolations.map((name) => 'CAPABILITY_NOT_AVAILABLE:' + name));
+    if (validationMode === 'enforce' && validation.sizeReasons.length) {
+      return finish(jsonResponse({ status:'PAYLOAD_TOO_LARGE', reasons:validation.sizeReasons }, 413, responseHeaders));
     }
-    if (!authenticatedUser && !clientId) {
-      return jsonResponse({ error:{ code:401, status:'CLIENT_ID_REQUIRED', message:'Open Marg in the app and try again.', request_id:requestId } }, 401, responseHeaders);
+    if (validationMode === 'enforce' && validation.structuralReasons.length) {
+      return finish(jsonResponse({ status:'INVALID_REQUEST', reasons:validation.structuralReasons }, 400, responseHeaders));
+    }
+    if (guestMode === 'enforce' && guestViolations.length) {
+      return finish(jsonResponse({ status:'CAPABILITY_NOT_AVAILABLE', capability:guestViolations[0] }, 403, responseHeaders));
     }
 
-    // Daily VARC source retrieval is deterministic and server-side. It avoids
-    // browser CORS/rate-limit failures from the old rss2json dependency and
-    // returns the exact publisher URL plus the best available article body.
+    const seamContext = {
+      requestId,
+      caller:{ kind:caller.kind, subject:caller.subject, authState:caller.authState, ip:caller.ip },
+      requestClass:validation.requestClass,
+      limits:validation.limits,
+      upstreamPayload:validation.upstreamPayload,
+      estimatedInputBytes:validation.upstreamPayload ? byteLength(JSON.stringify(validation.upstreamPayload)) : byteLength(JSON.stringify(payload || {}))
+    };
+
     if (payload && payload.margAction === 'daily_article') {
+      beforeUpstream(seamContext);
       try {
         const article = await getDailyArticleSource(String(payload.topic || 'economy'), payload.offset);
-        return jsonResponse({ article, marg_request:{ request_id:requestId } }, 200, responseHeaders);
-      } catch (error) {
-        console.error('Daily article retrieval failed', { requestId, topic:String(payload.topic || ''), message:String(error && error.message || error || '') });
-        return jsonResponse({
+        afterUpstream(seamContext, { usageMetadata:null, upstreamCalls:1, ok:true, status:200 });
+        record.upstreamCalls = 1;
+        return finish(jsonResponse({ article, marg_request:{ request_id:requestId } }, 200, responseHeaders));
+      } catch (_error) {
+        afterUpstream(seamContext, { usageMetadata:null, upstreamCalls:0, ok:false, status:502 });
+        console.error('Daily article retrieval failed', { requestId });
+        return finish(jsonResponse({
           error:{ code:502, status:'ARTICLE_SOURCE_FAILURE', message:'The publisher article could not be retrieved just now.', request_id:requestId, retryable:true }
-        }, 502, responseHeaders);
+        }, 502, responseHeaders));
       }
     }
 
-    if (!env.GEMINI_API_KEY) return jsonResponse({ error:{ code:500, status:'MISSING_API_KEY', message:'GEMINI_API_KEY is not configured', request_id:requestId } }, 500, responseHeaders);
-
-    const normalized = normalizeRequest(payload);
-    if (!normalized.payload || !Array.isArray(normalized.payload.contents) || normalized.payload.contents.length === 0) {
-      return jsonResponse({ error:{ code:400, status:'MISSING_CONTENTS', message:'Gemini contents are required', request_id:requestId } }, 400, responseHeaders);
+    if (!validation.upstreamPayload || !Array.isArray(validation.upstreamPayload.contents) || validation.upstreamPayload.contents.length === 0) {
+      return finish(jsonResponse({ error:{ code:400, status:'MISSING_CONTENTS', message:'Gemini contents are required', request_id:requestId } }, 400, responseHeaders), { rejectReasons:record.rejectReasons.concat(['MISSING_CONTENTS']) });
     }
+    if (!env || !env.GEMINI_API_KEY) return finish(jsonResponse({ error:{ code:500, status:'MISSING_API_KEY', message:'GEMINI_API_KEY is not configured', request_id:requestId } }, 500, responseHeaders));
 
+    beforeUpstream(seamContext);
     try {
       const clientBudget = Number(request.headers && request.headers.get('X-Marg-Timeout-Ms'));
-      const generated = await generateWithControlledRetry(normalized.payload, env.GEMINI_API_KEY, request.signal, clientBudget);
+      const generated = await generateWithControlledRetry(validation.upstreamPayload, env.GEMINI_API_KEY, request.signal, clientBudget);
+      record.upstreamCalls = generated.upstreamCalls || 1;
+      record.usageMetadata = usageCounts(generated.usageMetadata);
+      afterUpstream(seamContext, {
+        usageMetadata:record.usageMetadata,
+        upstreamCalls:record.upstreamCalls,
+        ok:!!generated.ok,
+        status:generated.status
+      });
       responseHeaders['X-Marg-Upstream-Calls'] = String(generated.upstreamCalls || 1);
       responseHeaders['X-Marg-Model-Fallback'] = generated.modelFallbackUsed ? '1' : '0';
       if (!generated.ok) {
@@ -679,42 +1120,42 @@ export default {
           requestId,
           httpStatus:generated.status,
           code:generated.error && generated.error.status || '',
-          message:generated.error && generated.error.message || '',
           upstreamCalls:generated.upstreamCalls || 1
         });
         if (generated.retryAfter) responseHeaders['Retry-After'] = generated.retryAfter;
-        return jsonResponse({
+        return finish(jsonResponse({
           error:Object.assign({}, generated.error, {
             message:generated.status === 429 ? 'Marg’s answer service is busy. Please wait briefly and retry.' : generated.status === 503 ? 'Marg’s answer service is temporarily unavailable.' : generated.status === 504 ? 'Marg’s answer service took too long on this request.' : 'Marg could not complete this request.',
             request_id:requestId,
             retryable:generated.retryable,
             attempts:generated.upstreamCalls
           })
-        }, generated.status, responseHeaders);
+        }, generated.status, responseHeaders));
       }
-      if (normalized.compatibilityMode) {
+      if (validation.compatibilityMode) {
         const compatibilityGrounding = generated.json && generated.json.candidates && generated.json.candidates[0] && generated.json.candidates[0].groundingMetadata || null;
         responseHeaders['X-Marg-Web-Grounded'] = compatibilityGrounding ? '1' : '0';
-        return jsonResponse({
+        return finish(jsonResponse({
           content:[{ type:'text', text:generated.text }],
           stop_reason:generated.finishReason,
           usage_metadata:generated.usageMetadata,
           grounding_metadata:compatibilityGrounding,
           marg_request:{ request_id:requestId, upstream_calls:generated.upstreamCalls, truncated:generated.finishReason === 'MAX_TOKENS' }
-        }, generated.status, responseHeaders);
+        }, generated.status, responseHeaders));
       }
       const groundingMetadata = generated.json && generated.json.candidates && generated.json.candidates[0] && generated.json.candidates[0].groundingMetadata;
       responseHeaders['X-Marg-Web-Grounded'] = groundingMetadata ? '1' : '0';
       generated.json.margRequest = { requestId, upstreamCalls:generated.upstreamCalls, truncated:generated.finishReason === 'MAX_TOKENS' };
-      return new Response(JSON.stringify(generated.json), {
+      return finish(new Response(JSON.stringify(generated.json), {
         status:generated.status,
         headers:Object.assign({ 'Content-Type':'application/json; charset=utf-8' }, CORS_HEADERS, responseHeaders)
-      });
-    } catch (error) {
-      console.error('Gemini Worker upstream failure', { requestId, message:String(error && error.message || error || '') });
-      return jsonResponse({
+      }));
+    } catch (_error) {
+      afterUpstream(seamContext, { usageMetadata:null, upstreamCalls:record.upstreamCalls || 0, ok:false, status:502 });
+      console.error('Gemini Worker upstream failure', { requestId });
+      return finish(jsonResponse({
         error:{ code:502, status:'WORKER_UPSTREAM_FAILURE', message:'Marg could not reach its answer service.', request_id:requestId, retryable:true }
-      }, 502, responseHeaders);
+      }, 502, responseHeaders));
     }
   }
 };
