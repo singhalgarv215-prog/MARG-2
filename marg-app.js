@@ -21635,6 +21635,50 @@ async function runAuditRepairTests() {
   var stored = null;
   try { currentTopic = 'science'; articleIndex = 1; currentRCSource = 'aeon'; stored = useStoredVarcPassage('The feed did not return an Aeon essay'); } catch (error) { stored = null; }
   check('an Aeon failure can use a stored passage without calling it Aeon', !!stored && stored.storedFallback === true && stored.source === 'Stored passage' && /Aeon/i.test(stored.source) === false && !!(stored.storedPack && stored.storedPack.sets && stored.storedPack.sets[0].passage));
+  var thinEssay = { title:'Thin essay', source:'Aeon', url:'https://aeon.co/essays/thin', content:'Only a few words.', preview:'Only a few words.', unavailable:false };
+  check('a short Aeon excerpt is not treated as a passage', aeonEssayCanSupportPassage(thinEssay) === false && aeonEssayCanSupportPassage({ content:new Array(90).fill('word').join(' '), unavailable:false }) === true);
+  var previousFetchTimeout = fetchWithTimeout;
+  var previousArticle = currentArticle;
+  var previousSource = currentRCSource;
+  var previousGenerating = articleRCGenerating;
+  var previousExerciseForVarc = activeGeneratedExercise;
+  var previousVarcShown = varcShownToday;
+  var varcHistory = conversationHistory.slice();
+  var savedBookMemory = bookMaterialMemory.slice();
+  var savedBookAdopted = bookMaterialAdopted;
+  var exerciseStorageKey = getUserScopedKey('marg_active_exercise');
+  var archiveStorageKey = getUserScopedKey('marg_exercise_archive');
+  var savedExerciseRaw = null;
+  var savedArchiveRaw = null;
+  try { savedExerciseRaw = localStorage.getItem(exerciseStorageKey); } catch (error) {}
+  try { savedArchiveRaw = localStorage.getItem(archiveStorageKey); } catch (error) {}
+  fetchWithTimeout = function() { return Promise.reject(new Error('probe upstream down')); };
+  currentRCSource = 'aeon';
+  articleRCGenerating = false;
+  currentArticle = { title:'Long enough essay', source:'Aeon', url:'https://aeon.co/essays/long', content:new Array(90).fill('word').join(' '), preview:'', unavailable:false, contentVerified:true };
+  conversationHistory = [];
+  await createRCPassage();
+  var deliveredVarc = (conversationHistory || []).map(function(item) { return item.content || ''; }).join('\n');
+  check('Today’s VARC still opens a stored passage when essay generation fails', currentArticle && currentArticle.storedFallback === true && currentArticle.source === 'Stored passage' && countPracticeWords(currentArticle.content) >= 80 && deliveredVarc.indexOf('PASSAGE') !== -1 && deliveredVarc.indexOf('will not send a stored passage') === -1);
+  fetchWithTimeout = previousFetchTimeout;
+  currentArticle = previousArticle;
+  currentRCSource = previousSource;
+  articleRCGenerating = previousGenerating;
+  varcShownToday = previousVarcShown;
+  if (typeof stopArticleRCTimer === 'function') stopArticleRCTimer();
+  activeGeneratedExercise = previousExerciseForVarc;
+  studentProfile.activeGeneratedExercise = previousExerciseForVarc;
+  try {
+    if (savedExerciseRaw === null) localStorage.removeItem(exerciseStorageKey);
+    else localStorage.setItem(exerciseStorageKey, savedExerciseRaw);
+  } catch (error) {}
+  try {
+    if (savedArchiveRaw === null) localStorage.removeItem(archiveStorageKey);
+    else localStorage.setItem(archiveStorageKey, savedArchiveRaw);
+  } catch (error) {}
+  conversationHistory = varcHistory;
+  bookMaterialMemory = savedBookMemory;
+  bookMaterialAdopted = savedBookAdopted;
   var rcSubmit = 'My RC Lab answers are 1-A, 2-B, 3-B, 4-C. The elapsed timer was 12 seconds (it may include pauses). I chose this focus: Stored passage. Check every answer against this passage, then tell me what my choices actually show and what the next RC should test.';
   check('a submitted RC review is not a request for new questions', parseInChatQuestionRequest(rcSubmit) === null && parseInChatQuestionRequest('give me 2 QA percentages questions') !== null);
   var previousExercise = activeGeneratedExercise;
@@ -26345,6 +26389,11 @@ function aeonFeedTopic(topic) {
   return 'surprise';
 }
 
+function aeonEssayCanSupportPassage(article) {
+  if (!article || article.unavailable) return false;
+  return countPracticeWords(article.content || article.preview) >= 80;
+}
+
 function bankStyledPracticeSource(topic) {
   var label = RC_TOPIC_LABELS[topic] || 'Surprise theme';
   return {
@@ -26519,8 +26568,11 @@ function selectVarcTopic(topic, btn) {
 }
 
 function closeVarcCard() {
-  document.getElementById('varc-card').classList.remove('visible');
-  document.getElementById('varc-card').style.display = 'none';
+  var card = document.getElementById('varc-card');
+  if (card) {
+    card.classList.remove('visible');
+    card.style.display = 'none';
+  }
   varcShownToday = true;
   const btn = document.getElementById('varc-toggle-btn');
   if (btn) btn.style.display = 'inline-flex';
@@ -27007,6 +27059,9 @@ async function createRCPassage() {
     else currentArticle = bankStyledPracticeSource(currentTopic);
   }
   if (currentRCSource === 'aeon' && currentArticle && currentArticle.unavailable) useStoredVarcPassage('The Aeon feed did not return an essay');
+  if (currentRCSource === 'aeon' && currentArticle && !currentArticle.storedFallback && !aeonEssayCanSupportPassage(currentArticle)) {
+    useStoredVarcPassage('The Aeon essay did not include a usable passage');
+  }
   if (currentArticle && currentArticle.storedFallback) {
     serveStoredArticlePassage();
     return;
@@ -27215,6 +27270,10 @@ async function createRCPassage() {
   } catch(e) {
     hideTyping();
     recordProductIncident('rc_lab_generation_failed', e, { surface:'today_varc', section:'rc', topic:currentArticle && currentArticle.title || '', stage:articleRCStage, configuration:rcConfig });
+    if (currentRCSource === 'aeon') {
+      var recoveredArticle = useStoredVarcPassage('An original passage could not be finished from the Aeon essay');
+      if (recoveredArticle && recoveredArticle.storedFallback && serveStoredArticlePassage()) return;
+    }
     if (freshReading) {
       console.error('Fresh RC was not replaced with a stored passage:', { stage:articleRCStage, name:e && e.name, status:e && e.status, message:e && e.message });
       var freshFailure = isGeminiLocationError(e) ? 'Marg’s question service has a connection problem right now. Your RC setup is saved; retrying it immediately will not fix the connection.' : (currentRCSource === 'aeon' ? 'I could not finish an original passage from that Aeon essay. I will not send a stored passage instead. Try the same topic again or pick another essay.' : 'I could not finish a new passage in the CAT style. I will not send a stored passage instead. Try the same setup again.');
