@@ -342,6 +342,13 @@ function normalizeInlineImage(part) {
   return { inlineData:{ mimeType:String(mimeType), data:String(inline.data) } };
 }
 
+function textWithoutInternalMemory(text) {
+  const value = String(text || '');
+  const at = value.indexOf('[MARG_INTERNAL:');
+  if (at < 0) return value;
+  return value.slice(0, at).trim();
+}
+
 function normalizeMessageParts(message) {
   const source = Array.isArray(message && message.parts)
     ? message.parts
@@ -350,9 +357,13 @@ function normalizeMessageParts(message) {
       : [message && message.content];
   const parts = [];
   source.forEach((part) => {
-    if (typeof part === 'string' && part.trim()) parts.push({ text:part });
-    else if (part && typeof part.text === 'string' && part.text.trim()) parts.push({ text:part.text });
-    else {
+    if (typeof part === 'string' && part.trim()) {
+      const text = textWithoutInternalMemory(part);
+      if (text) parts.push({ text });
+    } else if (part && typeof part.text === 'string' && part.text.trim()) {
+      const text = textWithoutInternalMemory(part.text);
+      if (text) parts.push({ text });
+    } else {
       const imagePart = normalizeInlineImage(part);
       if (imagePart) parts.push(imagePart);
     }
