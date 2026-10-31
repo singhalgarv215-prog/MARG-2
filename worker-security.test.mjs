@@ -110,6 +110,19 @@ async function check(name, fn) {
   }
 }
 
+function testEnv(module, env) {
+  const next = Object.assign({
+    GEMINI_API_KEY: 'TEST_NOT_REAL',
+    MARG_USER_REQUESTS_PER_MINUTE: '1000',
+    MARG_GUEST_REQUESTS_PER_MINUTE: '1000',
+    MARG_IP_REQUESTS_PER_MINUTE: '1000'
+  }, env || {});
+  if (module && typeof module.createMemoryUsageLedger === 'function' && !Object.prototype.hasOwnProperty.call(env || {}, 'MARG_USAGE_LEDGER_MEMORY') && !next.MARG_USAGE_LEDGER) {
+    next.MARG_USAGE_LEDGER_MEMORY = module.createMemoryUsageLedger();
+  }
+  return next;
+}
+
 function post(module, payload, env, headers, bodyText) {
   const ip = headers && headers['CF-Connecting-IP'] || nextIp();
   const requestHeaders = Object.assign({
@@ -122,7 +135,7 @@ function post(module, payload, env, headers, bodyText) {
     method: 'POST',
     headers: requestHeaders,
     body: bodyText == null ? JSON.stringify(payload) : bodyText
-  }), env || { GEMINI_API_KEY: 'TEST_NOT_REAL' });
+  }), testEnv(module, env));
 }
 
 function dangerousPayload() {
@@ -246,7 +259,7 @@ async function callBoth(payload, headers) {
 
 await check('source has no import and keeps the allowed export form', async () => {
   const exportLines = SOURCE.split('\n').filter((line) => /^\s*export\b/.test(line));
-  return !/^import\s/m.test(SOURCE) && exportLines.length === 2 && exportLines[0] === 'export { resolveMaxOutputTokens };' && exportLines[1] === 'export default {';
+  return !/^import\s/m.test(SOURCE) && exportLines.length === 2 && exportLines[0] === 'export { resolveMaxOutputTokens, UsageLedger, createMemoryUsageLedger };' && exportLines[1] === 'export default {';
 });
 
 await check('W1 baseline still forwards safetySettings tools toolConfig cachedContent candidateCount thinkingBudget includeThoughts responseModalities temperature', async () => {
@@ -366,43 +379,36 @@ await check('W4 guest limiter key is the IP bucket, not the client id; a user is
   const missing = await post(workerModule, chat('no-client', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { 'X-Marg-Client-Id': '', 'CF-Connecting-IP': '198.51.100.30', Authorization: '' });
   const missingBody = await missing.json();
   keys.length = 0;
-  const bare = await workerModule.default.fetch({ method: 'POST', text: async () => JSON.stringify(chat('unit', 1024, 'minimal')) }, env);
+  const bare = await workerModule.default.fetch({ method: 'POST', text: async () => JSON.stringify(chat('unit', 1024, 'minimal')) }, Object.assign({}, env, { MARG_USAGE_LEDGER_MEMORY: workerModule.createMemoryUsageLedger(), MARG_USER_REQUESTS_PER_MINUTE: '1000', MARG_GUEST_REQUESTS_PER_MINUTE: '1000', MARG_IP_REQUESTS_PER_MINUTE: '1000' }));
   return guestOk && userOk && v6a.status === 200 && v6b.status === 429 && v6c.status === 200 && v6Keys[0] === 'guest:2001:db8:1:2' && v6Keys[1] === 'guest:2001:db8:1:2' && v6Keys[2] === 'guest:2001:db8:1:3' && missing.status === 401 && missingBody.error.status === 'CLIENT_ID_REQUIRED' && bare.status === 200 && keys[0] === 'guest:unit-test';
 });
 
-await check('W5 invalid, expired, 5xx, and thrown Supabase results stay guests unless MARG_AUTH_STRICT is on', async () => {
-  const cases = [
-    ['Bearer not-a-student', 'ok'],
-    ['Bearer expired-token', 'ok'],
-    [GOOD_AUTH, '500'],
-    [GOOD_AUTH, 'throw']
-  ];
-  for (const entry of cases) {
+await check('W5 invalid or unavailable sessions never reach Gemini, and a missing bearer stays a guest', async () => {
+  resetNetwork();
+  const guest = await post(workerModule, chat('guest-path', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { 'X-Marg-Client-Id': 'guest-client' });
+  if (guest.status !== 200 || geminiBodies.length !== 1) return false;
+  const invalidCases = ['Bearer not-a-student', 'Bearer expired-token'];
+  for (const authorization of invalidCases) {
     resetNetwork();
-    supabaseMode = entry[1] === 'ok' ? 'ok' : entry[1];
-    if (entry[0] !== GOOD_AUTH) supabaseMode = 'ok';
-    const open = await post(workerModule, chat('guest-path', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { Authorization: entry[0], 'X-Marg-Client-Id': 'guest-client' });
-    if (entry[1] === '500') supabaseMode = '500';
-    if (entry[1] === 'throw') supabaseMode = 'throw';
-    if (entry[0] === GOOD_AUTH && entry[1] !== 'ok') {
-      resetNetwork();
-      supabaseMode = entry[1];
-      const again = await post(workerModule, chat('guest-path', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { Authorization: entry[0], 'X-Marg-Client-Id': 'guest-client' });
-      if (again.status !== 200 || geminiBodies.length !== 1) return false;
-      resetNetwork();
-      supabaseMode = entry[1];
-      const strict = await post(workerModule, chat('guest-path', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_AUTH_STRICT: 'on' }, { Authorization: entry[0], 'X-Marg-Client-Id': 'guest-client' });
-      const strictBody = await strict.json();
-      if (strict.status !== 503 || strictBody.status !== 'AUTH_UNAVAILABLE' || strictBody.retryable !== true || geminiBodies.length !== 0) return false;
-      continue;
-    }
-    if (open.status !== 200 || geminiBodies.length !== 1) return false;
-    resetNetwork();
-    const strict = await post(workerModule, chat('guest-path', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_AUTH_STRICT: 'on' }, { Authorization: entry[0], 'X-Marg-Client-Id': 'guest-client' });
-    const strictBody = await strict.json();
-    if (strict.status !== 401 || strictBody.status !== 'SESSION_INVALID' || geminiBodies.length !== 0) return false;
+    const response = await post(workerModule, chat('guest-path', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { Authorization: authorization, 'X-Marg-Client-Id': 'guest-client' });
+    const body = await response.json();
+    if (response.status !== 401 || body.status !== 'SESSION_INVALID' || geminiBodies.length !== 0) return false;
   }
-  return true;
+  for (const mode of ['500', 'throw']) {
+    resetNetwork();
+    supabaseMode = mode;
+    const response = await post(workerModule, chat('guest-path', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { Authorization: GOOD_AUTH, 'X-Marg-Client-Id': 'guest-client' });
+    const body = await response.json();
+    if (response.status !== 503 || body.status !== 'AUTH_UNAVAILABLE' || body.retryable !== true || geminiBodies.length !== 0) return false;
+  }
+  resetNetwork();
+  const forged = await post(workerModule, Object.assign(chat('ignore-me', 1024, 'minimal'), { userId: 'attacker', user_id: 'attacker' }), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { Authorization: GOOD_AUTH });
+  const started = logs.length;
+  const logged = await post(workerModule, Object.assign(chat('ignore-me', 1024, 'minimal'), { userId: 'attacker' }), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { Authorization: GOOD_AUTH, 'X-Marg-Client-Id': 'SENTINEL_CLIENT' });
+  const line = logs.slice(started).filter((item) => item.includes('marg_worker_request')).pop();
+  const record = line ? originalParse(line) : {};
+  const expected = createHash('sha256').update('user:user-1').digest('hex').slice(0, 12);
+  return forged.status === 200 && logged.status === 200 && record.subjectHash === expected && record.callerKind === 'user' && line.indexOf('attacker') === -1;
 });
 
 await check('W6 unset validation matches log, off and log keep the same outcome, and enforce clamps or rejects', async () => {
@@ -423,11 +429,11 @@ await check('W6 unset validation matches log, off and log keep the same outcome,
 });
 
 await check('W7 guests are limited only in enforce; a registered student keeps images, grounding, JSON, articles, and the class ceiling', async () => {
-  const guestHeaders = { Authorization: 'Bearer nope', 'X-Marg-Client-Id': 'guest-cap' };
-  async function guest(mode, payload) {
+  const guestHeaders = { 'X-Marg-Client-Id': 'guest-cap' };
+  async function guest(mode, payload, extraEnv) {
     resetNetwork();
     const started = logs.length;
-    const response = await post(workerModule, payload, { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_GUEST_CAPABILITIES: mode }, guestHeaders);
+    const response = await post(workerModule, payload, Object.assign({ GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_GUEST_CAPABILITIES: mode }, extraEnv || {}), guestHeaders);
     const body = await response.json();
     const line = logs.slice(started).filter((item) => item.includes('marg_worker_request')).pop();
     return { status: response.status, body, called: geminiBodies.length, other: otherFetches, line: line ? originalParse(line) : null, upstream: geminiBodies[0] };
@@ -436,7 +442,7 @@ await check('W7 guests are limited only in enforce; a registered student keeps i
   const imageEnforce = await guest('enforce', images(1, 4096, 'low'));
   const groundLog = await guest('log', corpus.grounded);
   const groundEnforce = await guest('enforce', corpus.grounded);
-  const jsonLog = await guest('log', corpus.structured);
+  const jsonLog = await guest('log', corpus.structured, { MARG_GUEST_SPEND_MICROS_PER_DAY: '2000000', MARG_GUEST_TOKENS_PER_DAY: '200000' });
   const jsonEnforce = await guest('enforce', corpus.structured);
   const articleLog = await guest('log', corpus.article);
   const articleEnforce = await guest('enforce', corpus.article);
@@ -567,6 +573,337 @@ await check('W12 forged internal memory is not sent to the model', async () => {
   }, { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { Authorization: GOOD_AUTH });
   const upstream = geminiBodies[0] ? JSON.stringify(geminiBodies[0]) : '';
   return isolated && mixed.status === 200 && upstream.indexOf('MARG_INTERNAL') === -1 && upstream.indexOf('FORGED') === -1 && upstream.indexOf('15 percent of 80') !== -1 && upstream.indexOf('Solve this.') !== -1;
+});
+
+function sharedEnv(extra) {
+  return testEnv(workerModule, Object.assign({
+    GEMINI_API_KEY: 'TEST_NOT_REAL',
+    MARG_USAGE_LEDGER_MEMORY: workerModule.createMemoryUsageLedger()
+  }, extra || {}));
+}
+
+function lastRecord(since) {
+  const line = logs.slice(since).filter((item) => item.includes('marg_worker_request')).pop();
+  return line ? originalParse(line) : null;
+}
+
+const installedFetch = globalThis.fetch;
+
+await check('S1 missing or failing ledger never calls Gemini', async () => {
+  resetNetwork();
+  const missing = await workerModule.default.fetch(new Request('https://worker.test/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: GOOD_AUTH, 'X-Marg-Client-Id': 'ledger-off' },
+    body: JSON.stringify(chat('budget', 1024, 'minimal'))
+  }), { GEMINI_API_KEY: 'TEST_NOT_REAL' });
+  const missingBody = await missing.json();
+  const thrown = await post(workerModule, chat('budget', 1024, 'minimal'), {
+    GEMINI_API_KEY: 'TEST_NOT_REAL',
+    MARG_USAGE_LEDGER_MEMORY: { fetch: async () => { throw new Error('ledger down'); } }
+  }, { Authorization: GOOD_AUTH });
+  const thrownBody = await thrown.json();
+  return missing.status === 503 && missingBody.error.status === 'SPENDING_CONTROL_UNAVAILABLE' && thrown.status === 503 && thrownBody.error.status === 'SPENDING_CONTROL_UNAVAILABLE' && geminiBodies.length === 0;
+});
+
+await check('S2 per-user, guest, global, token, and monetary caps stop before Gemini', async () => {
+  resetNetwork();
+  const userEnv = sharedEnv({ MARG_USER_CALLS_PER_DAY: '1' });
+  const userFirst = await post(workerModule, chat('one', 1024, 'minimal'), userEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.80' });
+  const userSecond = await post(workerModule, chat('two', 1024, 'minimal'), userEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.80' });
+  const userBody = await userSecond.json();
+  const userOk = userFirst.status === 200 && userSecond.status === 429 && userBody.error.status === 'QUOTA_EXCEEDED' && userBody.error.quota === 'user_daily_calls' && userBody.error.retryable === false && userBody.error.signInRequired === false && userBody.error.resetsAt && geminiBodies.length === 1;
+  resetNetwork();
+  const guestEnv = sharedEnv({ MARG_GUEST_CALLS_PER_DAY: '1' });
+  const guestFirst = await post(workerModule, chat('g1', 1024, 'minimal'), guestEnv, { 'CF-Connecting-IP': '203.0.113.81', 'X-Marg-Client-Id': 'g-a' });
+  const guestSecond = await post(workerModule, chat('g2', 1024, 'minimal'), guestEnv, { 'CF-Connecting-IP': '203.0.113.81', 'X-Marg-Client-Id': 'g-b' });
+  const guestBody = await guestSecond.json();
+  const guestOk = guestFirst.status === 200 && guestSecond.status === 429 && guestBody.error.quota === 'guest_daily_calls' && guestBody.error.signInRequired === true && /sign in/i.test(guestBody.error.message) && geminiBodies.length === 1;
+  resetNetwork();
+  const globalEnv = sharedEnv({ MARG_GLOBAL_TOKENS_PER_DAY: '11000' });
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      return stubResponse(200, { candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 200, thoughtsTokenCount: 50, totalTokenCount: 10000, cachedContentTokenCount: 0 } });
+    }
+    return installedFetch(url, options);
+  };
+  const globalFirst = await post(workerModule, chat('global', 1024, 'minimal'), globalEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.82' });
+  const globalSecond = await post(workerModule, chat('global-2', 1024, 'minimal'), globalEnv, { Authorization: 'Bearer SENTINEL_BEARER_TOKEN', 'CF-Connecting-IP': '203.0.113.83' });
+  const globalBody = await globalSecond.json();
+  const globalCalls = geminiBodies.length;
+  globalThis.fetch = installedFetch;
+  const spendEnv = sharedEnv({ MARG_USER_SPEND_MICROS_PER_DAY: '1000' });
+  resetNetwork();
+  const spend = await post(workerModule, chat('spend', 1024, 'minimal'), spendEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.84' });
+  const spendBody = await spend.json();
+  const pricedOff = sharedEnv({ MARG_PRICING_ENABLED: 'off', MARG_USER_SPEND_MICROS_PER_DAY: '1', MARG_USER_TOKENS_PER_DAY: '10' });
+  const priced = await post(workerModule, chat('tokens', 1024, 'minimal'), pricedOff, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.85' });
+  const pricedBody = await priced.json();
+  return userOk && guestOk && globalFirst.status === 200 && globalSecond.status === 429 && globalBody.error.quota === 'global_daily_tokens' && globalCalls === 1 && spend.status === 429 && spendBody.error.quota === 'user_daily_spend' && priced.status === 429 && pricedBody.error.quota === 'user_daily_tokens' && geminiBodies.length === 0;
+});
+
+await check('S3 retries, missing usage, and fallback attempts are all charged once', async () => {
+  const baseFetch = globalThis.fetch;
+  let phase = 'retry';
+  globalThis.fetch = async (url, options) => {
+    const target = String(url);
+    if (target.includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      if (phase === 'retry' && geminiBodies.length === 1) return stubResponse(429, { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'busy' } }, { 'Retry-After': '0.001' });
+      if (phase === 'missing') return stubResponse(200, { candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }] });
+      if (phase === 'fallback' && geminiBodies.length === 1) return stubResponse(400, { error: { code: 400, status: 'FAILED_PRECONDITION', message: 'User location is not supported for the API use.' } });
+      return stubResponse(200, { candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, thoughtsTokenCount: 2, totalTokenCount: 17, cachedContentTokenCount: 4 } });
+    }
+    return baseFetch(url, options);
+  };
+  resetNetwork();
+  phase = 'retry';
+  const started = logs.length;
+  const retried = await post(workerModule, chat('retry', 1024, 'minimal'), sharedEnv(), { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.90' });
+  const retryRecord = lastRecord(started);
+  const retryOk = retried.status === 200 && geminiBodies.length === 2 && retryRecord && retryRecord.settledTokens === retryRecord.reservedTokens / 2 + 17 && retryRecord.settledTokens > 17;
+  resetNetwork();
+  phase = 'missing';
+  const missingStart = logs.length;
+  const missing = await post(workerModule, chat('missing', 1024, 'minimal'), sharedEnv(), { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.91' });
+  const missingRecord = lastRecord(missingStart);
+  const missingOk = missing.status === 200 && missingRecord && missingRecord.settledTokens === missingRecord.reservedTokens && missingRecord.settledTokens > 0;
+  resetNetwork();
+  phase = 'fallback';
+  const fallbackStart = logs.length;
+  const fallback = await post(workerModule, chat('fallback', 1024, 'minimal'), sharedEnv(), { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.92' });
+  const fallbackRecord = lastRecord(fallbackStart);
+  const fallbackHeader = fallback.headers.get('X-Marg-Model-Fallback');
+  const fallbackCalls = geminiBodies.length;
+  globalThis.fetch = baseFetch;
+  const blockedEnv = sharedEnv({ MARG_USER_TOKENS_PER_DAY: '2000' });
+  resetNetwork();
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      return stubResponse(429, { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'busy' } }, { 'Retry-After': '0.001' });
+    }
+    return baseFetch(url, options);
+  };
+  const blocked = await post(workerModule, chat('no-second', 1024, 'minimal'), blockedEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.93' });
+  const blockedBody = await blocked.json();
+  globalThis.fetch = baseFetch;
+  return retryOk && missingOk && fallback.status === 200 && fallbackHeader === '1' && fallbackCalls === 2 && fallbackRecord && fallbackRecord.settledTokens > 17 && blocked.status === 429 && blockedBody.error.status === 'QUOTA_EXCEEDED' && geminiBodies.length === 1;
+});
+
+await check('S4 idempotency does not call Gemini twice and does not invent a missing replay', async () => {
+  const baseFetch = globalThis.fetch;
+  let release = () => {};
+  let entered = () => {};
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      entered();
+      await new Promise((resolve) => { release = resolve; });
+      return stubResponse(200, { candidates: [{ content: { parts: [{ text: 'stored-answer' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 4, thoughtsTokenCount: 1, totalTokenCount: 8, cachedContentTokenCount: 0 } });
+    }
+    return baseFetch(url, options);
+  };
+  const env = sharedEnv();
+  const headers = { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.100', 'X-Marg-Idempotency-Key': 'same-key-01' };
+  resetNetwork();
+  let started;
+  const running = new Promise((resolve) => { started = resolve; });
+  entered = started;
+  const first = post(workerModule, chat('same', 1024, 'minimal'), env, headers);
+  await running;
+  const duplicate = await post(workerModule, chat('same', 1024, 'minimal'), env, headers);
+  const duplicateBody = await duplicate.json();
+  const whileRunning = duplicate.status === 409 && duplicateBody.error.status === 'DUPLICATE_IN_PROGRESS' && duplicateBody.error.replayed === false && geminiBodies.length === 1;
+  release();
+  const done = await first;
+  const doneBody = await done.json();
+  resetNetwork();
+  globalThis.fetch = baseFetch;
+  const replay = await post(workerModule, chat('same', 1024, 'minimal'), env, headers);
+  const replayBody = await replay.json();
+  const conflict = await post(workerModule, chat('different', 1024, 'minimal'), env, headers);
+  const conflictBody = await conflict.json();
+  const storedOk = whileRunning && done.status === 200 && doneBody.candidates[0].content.parts[0].text === 'stored-answer' && replay.status === 200 && replay.headers.get('X-Marg-Idempotent-Replay') === '1' && replayBody.candidates[0].content.parts[0].text === 'stored-answer' && conflict.status === 409 && conflictBody.error.status === 'IDEMPOTENCY_CONFLICT' && geminiBodies.length === 0;
+  const smallEnv = sharedEnv({ MARG_IDEMPOTENCY_MAX_BYTES: '20' });
+  const smallHeaders = { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.101', 'X-Marg-Idempotency-Key': 'small-key-1' };
+  const once = await post(workerModule, chat('once', 1024, 'minimal'), smallEnv, smallHeaders);
+  resetNetwork();
+  const again = await post(workerModule, chat('once', 1024, 'minimal'), smallEnv, smallHeaders);
+  const againBody = await again.json();
+  return storedOk && once.status === 200 && again.status === 409 && againBody.error.status === 'ALREADY_COMPLETED' && againBody.error.replayed === false && !againBody.candidates && geminiBodies.length === 0;
+});
+
+await check('S5 disconnect and timeout settle the reservation and do not call Gemini again', async () => {
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      await new Promise((_resolve, reject) => {
+        const signal = options && options.signal;
+        if (signal && signal.aborted) reject(new DOMException('aborted', 'AbortError'));
+        else if (signal) signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+      });
+      return stubResponse(200, { candidates: [{ content: { parts: [{ text: 'late' }] } }] });
+    }
+    return baseFetch(url, options);
+  };
+  const env = sharedEnv({ MARG_USER_CALLS_PER_DAY: '1' });
+  const controller = new AbortController();
+  resetNetwork();
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      entered();
+      await new Promise((_resolve, reject) => {
+        const signal = options && options.signal;
+        if (signal && signal.aborted) reject(new DOMException('aborted', 'AbortError'));
+        else if (signal) signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+      });
+    }
+    return baseFetch(url, options);
+  };
+  const pending = workerModule.default.fetch(new Request('https://worker.test/', {
+    method: 'POST',
+    signal: controller.signal,
+    headers: { 'Content-Type': 'application/json', Authorization: GOOD_AUTH, 'X-Marg-Client-Id': 'abort-client', 'CF-Connecting-IP': '203.0.113.110', 'X-Marg-Idempotency-Key': 'abort-key-1' },
+    body: JSON.stringify(chat('abort', 1024, 'minimal'))
+  }), env);
+  await started;
+  controller.abort();
+  const aborted = await pending;
+  const abortedBody = await aborted.json();
+  resetNetwork();
+  globalThis.fetch = baseFetch;
+  const replay = await post(workerModule, chat('abort', 1024, 'minimal'), env, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.110', 'X-Marg-Idempotency-Key': 'abort-key-1' });
+  const fresh = await post(workerModule, chat('abort-new', 1024, 'minimal'), env, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.110', 'X-Marg-Idempotency-Key': 'abort-key-2' });
+  const freshBody = await fresh.json();
+  const abortOk = aborted.status === 499 && abortedBody.error.status === 'CLIENT_CLOSED' && replay.status === aborted.status && replay.headers.get('X-Marg-Idempotent-Replay') === '1' && fresh.status === 429 && freshBody.error.quota === 'user_daily_calls' && geminiBodies.length === 0;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      await new Promise((_resolve, reject) => {
+        const signal = options && options.signal;
+        if (signal) signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+      });
+    }
+    return baseFetch(url, options);
+  };
+  resetNetwork();
+  const timeoutEnv = sharedEnv({ MARG_USER_CALLS_PER_DAY: '1' });
+  const timed = await post(workerModule, chat('slow', 1024, 'minimal'), timeoutEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.111', 'X-Marg-Timeout-Ms': '1000' });
+  const timedBody = await timed.json();
+  globalThis.fetch = baseFetch;
+  resetNetwork();
+  const afterTimeout = await post(workerModule, chat('slow-2', 1024, 'minimal'), timeoutEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.111' });
+  const afterBody = await afterTimeout.json();
+  return abortOk && timed.status === 504 && timedBody.error.status === 'UPSTREAM_TIMEOUT' && afterTimeout.status === 429 && afterBody.error.quota === 'user_daily_calls' && geminiBodies.length === 0;
+});
+
+await check('S6 concurrent reservations and stale recovery do not double-charge', async () => {
+  const baseFetch = globalThis.fetch;
+  let release = () => {};
+  let entered = () => {};
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      if (geminiBodies.length === 1) {
+        entered();
+        await new Promise((resolve) => { release = resolve; });
+      }
+      return stubResponse(200, { candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 4, thoughtsTokenCount: 1, totalTokenCount: 8, cachedContentTokenCount: 0 } });
+    }
+    return baseFetch(url, options);
+  };
+  const env = sharedEnv({ MARG_USER_CALLS_PER_DAY: '1' });
+  resetNetwork();
+  let started;
+  const running = new Promise((resolve) => { started = resolve; });
+  entered = started;
+  const first = post(workerModule, chat('race-a', 1024, 'minimal'), env, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.120' });
+  await running;
+  const second = await post(workerModule, chat('race-b', 1024, 'minimal'), env, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.121' });
+  const secondBody = await second.json();
+  const raced = second.status === 429 && secondBody.error.quota === 'user_daily_calls' && geminiBodies.length === 1;
+  release();
+  const firstResponse = await first;
+  globalThis.fetch = baseFetch;
+  const staleEnv = sharedEnv({ MARG_USER_CALLS_PER_DAY: '1', MARG_RESERVATION_TTL_MS: '20' });
+  resetNetwork();
+  let staleRelease = () => {};
+  let staleEntered = () => {};
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes(':generateContent')) {
+      geminiBodies.push(originalParse(options.body));
+      staleEntered();
+      await new Promise((resolve) => { staleRelease = resolve; });
+      return stubResponse(200, { candidates: [{ content: { parts: [{ text: 'late' }] }, finishReason: 'STOP' }], usageMetadata: { totalTokenCount: 8, promptTokenCount: 3, candidatesTokenCount: 4, thoughtsTokenCount: 1, cachedContentTokenCount: 0 } });
+    }
+    return baseFetch(url, options);
+  };
+  let mark;
+  const staleRunning = new Promise((resolve) => { mark = resolve; });
+  staleEntered = mark;
+  const hung = post(workerModule, chat('stale', 1024, 'minimal'), staleEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.122' });
+  await staleRunning;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const recovered = await post(workerModule, chat('after-stale', 1024, 'minimal'), staleEnv, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.123' });
+  const recoveredBody = await recovered.json();
+  staleRelease();
+  await hung;
+  globalThis.fetch = baseFetch;
+  return raced && firstResponse.status === 200 && recovered.status === 429 && recoveredBody.error.quota === 'user_daily_calls' && geminiBodies.length === 1;
+});
+
+await check('S7 signed guest identity survives visitor rotation and a shared network is not one person', async () => {
+  resetNetwork();
+  const env = sharedEnv({ MARG_GUEST_SIGNING_KEY: 'test-guest-signing-key', MARG_GUEST_CALLS_PER_DAY: '1', MARG_GUEST_IP_SHARE_FACTOR: '2' });
+  const ip = '198.51.100.200';
+  const first = await post(workerModule, chat('guest-a', 1024, 'minimal'), env, { 'CF-Connecting-IP': ip, 'X-Marg-Client-Id': 'visitor-a' });
+  const token = first.headers.get('X-Marg-Guest-Token');
+  const rotated = await post(workerModule, chat('guest-a-again', 1024, 'minimal'), env, { 'CF-Connecting-IP': ip, 'X-Marg-Client-Id': 'visitor-b', 'X-Marg-Guest-Token': token });
+  const rotatedBody = await rotated.json();
+  const second = await post(workerModule, chat('guest-b', 1024, 'minimal'), env, { 'CF-Connecting-IP': ip, 'X-Marg-Client-Id': 'visitor-c' });
+  const third = await post(workerModule, chat('guest-c', 1024, 'minimal'), env, { 'CF-Connecting-IP': ip, 'X-Marg-Client-Id': 'visitor-d' });
+  const thirdBody = await third.json();
+  const guestCalls = geminiBodies.length;
+  resetNetwork();
+  const invalid = await post(workerModule, chat('bad-token', 1024, 'minimal'), env, { 'CF-Connecting-IP': '198.51.100.201', 'X-Marg-Client-Id': 'visitor-e', 'X-Marg-Guest-Token': 'v1.not-a-real-session.1.abcdef' });
+  const invalidBody = await invalid.json();
+  const invalidCalls = geminiBodies.length;
+  const image = await post(workerModule, images(1, 1024, 'low'), sharedEnv({ MARG_GUEST_SIGNING_KEY: 'test-guest-signing-key' }), { 'CF-Connecting-IP': '198.51.100.202', 'X-Marg-Client-Id': 'visitor-image' });
+  const imageSent = geminiBodies[0] && JSON.stringify(geminiBodies[0]).includes('inlineData');
+  return first.status === 200 && token && token.indexOf('v1.') === 0 && rotated.status === 429 && rotatedBody.error.quota === 'guest_daily_calls' && second.status === 200 && third.status === 429 && thirdBody.error.quota === 'guest_network_calls' && guestCalls === 2 && invalid.status === 401 && invalidBody.error.status === 'GUEST_SESSION_INVALID' && invalidCalls === 0 && image.status === 200 && imageSent;
+});
+
+await check('S8 Durable Object binding name is the production entry and a thrown stub fails closed', async () => {
+  resetNetwork();
+  const memory = workerModule.createMemoryUsageLedger();
+  const bound = await post(workerModule, chat('binding', 1024, 'minimal'), {
+    GEMINI_API_KEY: 'TEST_NOT_REAL',
+    MARG_USAGE_LEDGER: { idFromName(name) { return name; }, get() { return memory; } }
+  }, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.130' });
+  const failing = await post(workerModule, chat('binding-down', 1024, 'minimal'), {
+    GEMINI_API_KEY: 'TEST_NOT_REAL',
+    MARG_USAGE_LEDGER: { idFromName() { return 'marg-usage-ledger'; }, get() { return { fetch: async () => { throw new Error('durable object unavailable'); } }; } }
+  }, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.131' });
+  const failingBody = await failing.json();
+  return bound.status === 200 && geminiBodies.length === 1 && failing.status === 503 && failingBody.error.status === 'SPENDING_CONTROL_UNAVAILABLE' && geminiBodies.length === 1;
+});
+
+await check('S9 the per-minute burst is separate from the daily allowance', async () => {
+  resetNetwork();
+  const allow = { limit: async () => ({ success: true }) };
+  const env = sharedEnv({ MARG_USER_REQUESTS_PER_MINUTE: '2', MARG_RATE_LIMITER: allow, MARG_IP_LIMITER: allow });
+  const headers = { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.140' };
+  const first = await post(workerModule, chat('minute-1', 1024, 'minimal'), env, headers);
+  const second = await post(workerModule, chat('minute-2', 1024, 'minimal'), env, headers);
+  const third = await post(workerModule, chat('minute-3', 1024, 'minimal'), env, headers);
+  const body = await third.json();
+  return first.status === 200 && second.status === 200 && third.status === 429 && body.error.status === 'QUOTA_EXCEEDED' && body.error.quota === 'user_minute' && body.error.retryable === true && /per-minute/.test(body.error.message) && body.error.resetsAt && geminiBodies.length === 2;
 });
 
 originalLog((failed === 0 ? 'PASS' : 'FAIL') + ' ' + (failed === 0 ? 'all checks' : failed + ' failed'));

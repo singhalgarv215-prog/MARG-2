@@ -16,8 +16,8 @@ const MAX_UPSTREAM_TIME_MS = 110000;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Marg-Timeout-Ms, X-Marg-Client-Id',
-  'Access-Control-Expose-Headers': 'Retry-After, X-Marg-Request-Id, X-Marg-Upstream-Calls, X-Marg-Web-Grounded, X-Marg-Model-Fallback, X-Marg-Placement',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Marg-Timeout-Ms, X-Marg-Client-Id, X-Marg-Idempotency-Key, X-Marg-Guest-Token',
+  'Access-Control-Expose-Headers': 'Retry-After, X-Marg-Request-Id, X-Marg-Upstream-Calls, X-Marg-Web-Grounded, X-Marg-Model-Fallback, X-Marg-Placement, X-Marg-Guest-Token, X-Marg-Idempotent-Replay',
   'Cache-Control': 'no-store'
 };
 
@@ -66,7 +66,9 @@ async function workerRateAllowed(env, key, bindingName, fallbackLimit) {
   if (limiter && typeof limiter.limit === 'function') {
     try { return !!(await limiter.limit({ key })).success; } catch (_error) {}
   }
-  return localRateAllowed(bindingName + ':' + key, fallbackLimit);
+  // The limit is part of the key so a test or config change does not inherit
+  // a counter that was filled under a different ceiling.
+  return localRateAllowed(bindingName + ':' + key + ':' + fallbackLimit, fallbackLimit);
 }
 
 async function authenticateMargUser(request) {
@@ -119,17 +121,77 @@ function ipBucket(ip) {
   return parts.slice(0, 4).join(':');
 }
 
+function bytesToHex(bytes) {
+  return Array.from(new Uint8Array(bytes)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function safeEqual(left, right) {
+  const a = String(left || '');
+  const b = String(right || '');
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index++) diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  return diff === 0;
+}
+
+async function hmacHex(secret, payload) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(secret || '')), { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
+  return bytesToHex(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(String(payload || ''))));
+}
+
+function guestTokenTtlSeconds(env) {
+  return configuredInt(env, 'MARG_GUEST_TOKEN_TTL_SECONDS', 30 * 24 * 60 * 60, false);
+}
+
+async function mintGuestToken(secret, env, now) {
+  const sessionId = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+  const exp = Math.floor(Number(now || Date.now()) / 1000) + guestTokenTtlSeconds(env);
+  const payload = 'v1.' + sessionId + '.' + exp;
+  return { sessionId, token:payload + '.' + await hmacHex(secret, payload) };
+}
+
+async function verifyGuestToken(token, secret, now) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 4 || parts[0] !== 'v1' || !/^[0-9a-f]{32}$/.test(parts[1])) return { ok:false };
+  const exp = Number(parts[2]);
+  if (!Number.isFinite(exp) || exp * 1000 <= Number(now || Date.now())) return { ok:false, expired:true };
+  const payload = parts[0] + '.' + parts[1] + '.' + parts[2];
+  const expected = await hmacHex(secret, payload);
+  return safeEqual(expected, parts[3]) ? { ok:true, sessionId:parts[1] } : { ok:false };
+}
+
 async function resolveCaller(request, env) {
   const hasHeaderApi = !!(request && request.headers && typeof request.headers.get === 'function');
   const clientId = String(hasHeaderApi ? request.headers.get('X-Marg-Client-Id') || '' : 'worker-unit-request').replace(/[^a-zA-Z0-9._:-]/g, '').slice(0, 120);
   const ip = String(hasHeaderApi ? request.headers.get('CF-Connecting-IP') || 'unknown' : 'unit-test');
   const bucket = ipBucket(ip);
+  const now = Date.now();
   const auth = await authenticateMargUser(request);
   if (auth.authState === 'valid' && auth.user && auth.user.id) {
-    return { kind:'user', subject:'user:' + auth.user.id, authState:'valid', ip, clientId, bucket };
+    return { kind:'user', subject:'user:' + auth.user.id, authState:'valid', ip, clientId, bucket, guestToken:'', aggregate:'' };
   }
-  const kind = auth.authState === 'none' && !clientId ? 'anonymous' : 'guest';
-  return { kind, subject:'guest:' + bucket, authState:auth.authState, ip, clientId, bucket };
+  if (auth.authState === 'invalid') {
+    return { kind:'anonymous', subject:'invalid', authState:'invalid', ip, clientId, bucket, guestToken:'', aggregate:'' };
+  }
+  if (auth.authState === 'unavailable') {
+    return { kind:'anonymous', subject:'unavailable', authState:'unavailable', ip, clientId, bucket, guestToken:'', aggregate:'' };
+  }
+  const secret = String(env && env.MARG_GUEST_SIGNING_KEY || '');
+  const presented = String(hasHeaderApi ? request.headers.get('X-Marg-Guest-Token') || '' : '');
+  if (secret) {
+    if (presented) {
+      const verified = await verifyGuestToken(presented, secret, now);
+      if (!verified.ok) {
+        return { kind:'guest', subject:'guest:invalid', authState:'guest_token_invalid', ip, clientId, bucket, guestToken:'', aggregate:'' };
+      }
+      return { kind:'guest', subject:'guest:' + verified.sessionId, authState:'none', ip, clientId, bucket, guestToken:presented, aggregate:'guest-ip:' + bucket };
+    }
+    const minted = await mintGuestToken(secret, env, now);
+    return { kind:'guest', subject:'guest:' + minted.sessionId, authState:'none', ip, clientId, bucket, guestToken:minted.token, aggregate:'guest-ip:' + bucket };
+  }
+  // No signing key: one shared-network guest budget. Stricter than a signed
+  // session, and still capped. The visitor id is not this key.
+  return { kind:'guest', subject:'guest-ip:' + bucket, authState:'none', ip, clientId, bucket, guestToken:'', aggregate:'' };
 }
 
 async function subjectHash(subject) {
@@ -832,7 +894,18 @@ function parseUpstreamError(responseBody, status) {
   };
 }
 
-async function generateWithControlledRetry(initialPayload, apiKey, clientSignal, timeoutMs) {
+function modelFromEndpoint(endpoint) {
+  const match = String(endpoint || '').match(/models\/([^:/?]+)/);
+  return match ? match[1] : 'gemini-3.6-flash';
+}
+
+function abortedAttempt(error, upstreamStarted, attempts) {
+  error.upstreamStarted = !!upstreamStarted;
+  error.attempts = attempts || [];
+  return error;
+}
+
+async function generateWithControlledRetry(initialPayload, apiKey, clientSignal, timeoutMs, hooks) {
   const controller = new AbortController();
   const relayAbort = () => controller.abort();
   if (clientSignal) {
@@ -845,13 +918,27 @@ async function generateWithControlledRetry(initialPayload, apiKey, clientSignal,
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, budget);
   try {
-    return await generateWithinDeadline(initialPayload, apiKey, controller.signal, deadline);
+    return await generateWithinDeadline(initialPayload, apiKey, controller.signal, deadline, hooks);
   } catch (error) {
-    if (timedOut) return {
-      ok:false, status:504,
-      error:{ code:504, status:'UPSTREAM_TIMEOUT', message:'Marg’s answer service exceeded this request’s time limit.' },
-      retryable:true, retryAfter:'', upstreamCalls:error.upstreamCalls || 1
-    };
+    const started = !!(error && error.upstreamStarted);
+    const attempts = error && error.attempts || [];
+    if (timedOut || (error && error.name === 'AbortError')) {
+      return {
+        ok:false,
+        status:timedOut ? 504 : 499,
+        error:timedOut
+          ? { code:504, status:'UPSTREAM_TIMEOUT', message:'Marg’s answer service exceeded this request’s time limit.' }
+          : { code:499, status:'CLIENT_CLOSED', message:'The request closed before Marg finished.' },
+        retryable:!!timedOut,
+        retryAfter:'',
+        upstreamCalls:attempts.length || (started ? 1 : 0),
+        attempts,
+        upstreamStarted:started,
+        uncertain:started,
+        usageMetadata:null,
+        modelFallbackUsed:attempts.some((attempt) => attempt && attempt.model === 'gemini-3.5-flash')
+      };
+    }
     throw error;
   } finally {
     clearTimeout(timer);
@@ -859,25 +946,54 @@ async function generateWithControlledRetry(initialPayload, apiKey, clientSignal,
   }
 }
 
-async function generateWithinDeadline(initialPayload, apiKey, clientSignal, deadline) {
+async function generateWithinDeadline(initialPayload, apiKey, clientSignal, deadline, hooks) {
   let upstreamCalls = 0;
   let transientRetries = 0;
   let locationFallbacks = 0;
   let endpoint = GEMINI_ENDPOINT;
+  const attempts = [];
+  let upstreamStarted = false;
   while (true) {
-    if (clientSignal && clientSignal.aborted) throw new DOMException('Client request was aborted', 'AbortError');
-    if (Date.now() >= deadline) throw new DOMException('Upstream deadline exceeded', 'AbortError');
+    if (clientSignal && clientSignal.aborted) throw abortedAttempt(new DOMException('Client request was aborted', 'AbortError'), upstreamStarted, attempts);
+    if (Date.now() >= deadline) throw abortedAttempt(new DOMException('Upstream deadline exceeded', 'AbortError'), upstreamStarted, attempts);
+    const model = modelFromEndpoint(endpoint);
+    if (hooks && typeof hooks.beforeAttempt === 'function' && attempts.length > 0) {
+      const decision = await hooks.beforeAttempt({ index:attempts.length, model });
+      if (decision && decision.stop) {
+        return {
+          ok:false,
+          status:decision.status || 429,
+          contentType:'application/json; charset=utf-8',
+          error:decision.error || { code:429, status:'QUOTA_EXCEEDED', message:'Marg paused the retry because it would pass the usage allowance.' },
+          retryable:false,
+          retryAfter:'',
+          upstreamCalls,
+          modelFallbackUsed:locationFallbacks > 0,
+          attempts,
+          upstreamStarted,
+          usageMetadata:null
+        };
+      }
+    }
     upstreamCalls++;
-    const upstream = await fetch(endpoint, {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'x-goog-api-key':apiKey },
-      body:JSON.stringify(initialPayload),
-      signal:clientSignal,
-      cache:'no-store'
-    });
+    upstreamStarted = true;
+    let upstream;
+    try {
+      upstream = await fetch(endpoint, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'x-goog-api-key':apiKey },
+        body:JSON.stringify(initialPayload),
+        signal:clientSignal,
+        cache:'no-store'
+      });
+    } catch (error) {
+      attempts.push({ model, uncertain:true, usage:null });
+      throw abortedAttempt(error, true, attempts);
+    }
     const responseBody = await upstream.text();
     if (!upstream.ok) {
       const parsedError = parseUpstreamError(responseBody, upstream.status);
+      attempts.push({ model, uncertain:true, usage:null, status:upstream.status });
       const retryable = upstream.status === 429 || upstream.status === 503;
       const locationRejected = upstream.status === 400 &&
         String(parsedError.status || '').toUpperCase() === 'FAILED_PRECONDITION' &&
@@ -902,7 +1018,10 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
         retryable,
         retryAfter:upstream.headers.get('Retry-After') || '',
         upstreamCalls,
-        modelFallbackUsed:locationFallbacks > 0
+        modelFallbackUsed:locationFallbacks > 0,
+        attempts,
+        upstreamStarted:true,
+        usageMetadata:null
       };
     }
 
@@ -910,6 +1029,7 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
     try {
       responseJson = JSON.parse(responseBody);
     } catch (error) {
+      attempts.push({ model, uncertain:true, usage:null });
       return {
         ok:false,
         status:502,
@@ -917,9 +1037,14 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
         error:{ code:502, status:'INVALID_UPSTREAM_RESPONSE', message:'Gemini returned an invalid JSON response' },
         retryable:false,
         retryAfter:'',
-        upstreamCalls
+        upstreamCalls,
+        attempts,
+        upstreamStarted:true,
+        usageMetadata:null
       };
     }
+    const usage = responseJson.usageMetadata && typeof responseJson.usageMetadata === 'object' ? responseJson.usageMetadata : null;
+    attempts.push({ model, uncertain:!usage, usage });
     return {
       ok:true,
       status:upstream.status,
@@ -927,14 +1052,572 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
       json:responseJson,
       text:extractText(responseJson),
       finishReason:getFinishReason(responseJson),
-      usageMetadata:responseJson.usageMetadata || null,
+      usageMetadata:usage,
       upstreamCalls,
-      modelFallbackUsed:locationFallbacks > 0
+      modelFallbackUsed:locationFallbacks > 0,
+      attempts,
+      upstreamStarted:true
     };
   }
 }
 
-export { resolveMaxOutputTokens };
+// Beta spending control. These numbers are initial defaults, not a permanent
+// policy. Every one is overridden by a Worker variable. Monetary checks use
+// integer micro-dollars (1 dollar = 1,000,000). Token caps still apply when
+// pricing is turned off or a price is missing.
+//
+// Prices below are the Gemini Developer API introductory rates published for
+// 31 Oct 2026 and valid through 31 Dec 2026. gemini-3.6-flash: input $0.75 /
+// 1M, output including thinking $3.75 / 1M, cache $0.075 / 1M. gemini-3.5-flash
+// (location fallback): input $1.50 / 1M, output including thinking $9.00 / 1M,
+// cache $0.15 / 1M. From 1 Jan 2027 the 3.6 list price rises to $1.50 / $7.50
+// and stays below 3.5, so the reservation still uses 3.5 unless the variables
+// are changed. Grounding with Google Search is not inside those token rates
+// (5,000 prompts free, then $14 / 1,000). Set MARG_GROUNDING_MICROS_PER_REQUEST
+// to 14000 to hold that amount; the default is 0 until that is configured.
+//
+// One UsageLedger Durable Object is the authority for beta. Every reserve and
+// settle is serialised there so a user, a guest, a shared network, and the
+// global cap move in one transaction. At the beta ceilings (about $10 and 5M
+// tokens a day) that object is not expected to be the throughput limit. It
+// becomes a hotspot only when concurrent model calls queue on the same
+// storage transaction. Scale later by sharding personal counters with
+// idFromName(subject) and keeping one global object. Always lock the subject
+// first and the global object second. Do not add that second object until a
+// measured queue shows this one is the limit.
+const LEDGER_STATE_KEY = 'usage-state';
+const RESERVE_MODEL = 'gemini-3.5-flash';
+const BUILTIN_MODEL_PRICES = {
+  'gemini-3.6-flash':{ input:750000, output:3750000, cached:75000 },
+  'gemini-3.5-flash':{ input:1500000, output:9000000, cached:150000 }
+};
+const IDEMPOTENCY_REPLAY_BYTES = 512 * 1024;
+
+function configuredInt(env, name, fallback, allowZero) {
+  const raw = env && env[name];
+  if (raw == null || String(raw).trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) return fallback;
+  if (value === 0 && !allowZero) return fallback;
+  return value;
+}
+
+function pricingEnabled(env) {
+  return String(env && env.MARG_PRICING_ENABLED || 'on').trim().toLowerCase() !== 'off';
+}
+
+function modelPrices(env, model) {
+  const primary = model === 'gemini-3.6-flash';
+  const builtin = primary ? BUILTIN_MODEL_PRICES['gemini-3.6-flash'] : BUILTIN_MODEL_PRICES['gemini-3.5-flash'];
+  const prefix = primary ? 'MARG_PRICE_36_' : 'MARG_PRICE_35_';
+  return {
+    input:configuredInt(env, prefix + 'INPUT_PER_MILLION', builtin.input, false),
+    output:configuredInt(env, prefix + 'OUTPUT_PER_MILLION', builtin.output, false),
+    cached:configuredInt(env, prefix + 'CACHED_PER_MILLION', builtin.cached, false)
+  };
+}
+
+function microsForTokens(tokens, perMillion) {
+  const count = Math.max(0, Math.round(Number(tokens) || 0));
+  const rate = Math.max(0, Math.round(Number(perMillion) || 0));
+  if (!count || !rate) return 0;
+  return Math.ceil((count * rate) / 1000000);
+}
+
+function spendLimits(env) {
+  const guest = {
+    minute:configuredInt(env, 'MARG_GUEST_REQUESTS_PER_MINUTE', 10, false),
+    calls:configuredInt(env, 'MARG_GUEST_CALLS_PER_DAY', 5, false),
+    tokens:configuredInt(env, 'MARG_GUEST_TOKENS_PER_DAY', 40000, false),
+    micros:configuredInt(env, 'MARG_GUEST_SPEND_MICROS_PER_DAY', 100000, false)
+  };
+  const factor = configuredInt(env, 'MARG_GUEST_IP_SHARE_FACTOR', 8, false);
+  return {
+    pricing:pricingEnabled(env),
+    user:{
+      minute:configuredInt(env, 'MARG_USER_REQUESTS_PER_MINUTE', 30, false),
+      calls:configuredInt(env, 'MARG_USER_CALLS_PER_DAY', 100, false),
+      tokens:configuredInt(env, 'MARG_USER_TOKENS_PER_DAY', 750000, false),
+      micros:configuredInt(env, 'MARG_USER_SPEND_MICROS_PER_DAY', 1500000, false)
+    },
+    guest,
+    guestIp:{ calls:guest.calls * factor, tokens:guest.tokens * factor, micros:guest.micros * factor },
+    ipMinute:configuredInt(env, 'MARG_IP_REQUESTS_PER_MINUTE', 120, false),
+    global:{
+      tokens:configuredInt(env, 'MARG_GLOBAL_TOKENS_PER_DAY', 5000000, false),
+      micros:configuredInt(env, 'MARG_GLOBAL_SPEND_MICROS_PER_DAY', 10000000, false)
+    },
+    ttl:configuredInt(env, 'MARG_RESERVATION_TTL_MS', 180000, false),
+    idemTtl:configuredInt(env, 'MARG_IDEMPOTENCY_TTL_MS', 600000, false),
+    replayMax:configuredInt(env, 'MARG_IDEMPOTENCY_MAX_BYTES', IDEMPOTENCY_REPLAY_BYTES, false),
+    zone:String(env && env.MARG_USAGE_TIMEZONE || 'Asia/Kolkata') || 'Asia/Kolkata'
+  };
+}
+
+function usageDay(now, zone) {
+  const timeZone = zone || 'Asia/Kolkata';
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date(now));
+  } catch (_error) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone:'Asia/Kolkata', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date(now));
+  }
+}
+
+function resetsAtFor(now, zone, minute) {
+  if (minute) return new Date((Math.floor(now / 60000) + 1) * 60000).toISOString();
+  const day = usageDay(now, zone);
+  let lo = now;
+  let hi = now + 36 * 60 * 60 * 1000;
+  while (hi - lo > 1000) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (usageDay(mid, zone) === day) lo = mid;
+    else hi = mid;
+  }
+  return new Date(hi).toISOString();
+}
+
+function estimateAttempt(env, payload, outputTokens, grounded) {
+  const textTokens = Math.ceil(collectText(payload).reduce((total, chunk) => total + byteLength(chunk), 0) / 4);
+  const schemaTokens = Math.ceil(schemaByteLength(payload) / 4);
+  const imageTokens = rawImageCount(payload) * configuredInt(env, 'MARG_IMAGE_INPUT_TOKENS', 1024, false);
+  const inputTokens = textTokens + schemaTokens + imageTokens;
+  const output = Math.max(0, Math.round(Number(outputTokens) || 0));
+  let micros = 0;
+  if (pricingEnabled(env)) {
+    const prices = modelPrices(env, RESERVE_MODEL);
+    micros = microsForTokens(inputTokens, prices.input) + microsForTokens(output, prices.output);
+    if (grounded) micros += configuredInt(env, 'MARG_GROUNDING_MICROS_PER_REQUEST', 0, true);
+  }
+  return { tokens:inputTokens + output, micros, inputTokens, outputTokens:output };
+}
+
+function priceUsage(env, model, usage, grounded) {
+  const prompt = Math.max(0, Math.round(Number(usage && usage.promptTokenCount) || 0));
+  const cached = Math.min(prompt, Math.max(0, Math.round(Number(usage && usage.cachedContentTokenCount) || 0)));
+  const candidates = Math.max(0, Math.round(Number(usage && usage.candidatesTokenCount) || 0));
+  const thoughts = Math.max(0, Math.round(Number(usage && usage.thoughtsTokenCount) || 0));
+  const total = Math.max(0, Math.round(Number(usage && usage.totalTokenCount) || 0));
+  const tokens = total > 0 ? total : prompt + candidates + thoughts;
+  let micros = 0;
+  if (pricingEnabled(env)) {
+    const prices = modelPrices(env, model || RESERVE_MODEL);
+    // thoughtsTokenCount is reported separately from candidates. Google bills
+    // thinking at the output rate, so both are charged and neither is added
+    // into the token total twice when totalTokenCount is present.
+    micros = microsForTokens(prompt - cached, prices.input) + microsForTokens(cached, prices.cached) + microsForTokens(candidates, prices.output) + microsForTokens(thoughts, prices.output);
+    if (grounded) micros += configuredInt(env, 'MARG_GROUNDING_MICROS_PER_REQUEST', 0, true);
+  }
+  return { tokens, micros };
+}
+
+function usageIsKnown(usage) {
+  if (!usage || typeof usage !== 'object') return false;
+  return ['totalTokenCount', 'promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount'].some((key) => Number.isFinite(Number(usage[key])));
+}
+
+function billAttempts(env, attempts, perAttempt, grounded) {
+  if (!attempts || !attempts.length) return { tokens:perAttempt.tokens, micros:perAttempt.micros };
+  let tokens = 0;
+  let micros = 0;
+  attempts.forEach((attempt) => {
+    if (!attempt || attempt.uncertain || !usageIsKnown(attempt.usage)) {
+      tokens += perAttempt.tokens;
+      micros += perAttempt.micros;
+      return;
+    }
+    const priced = priceUsage(env, attempt.model || RESERVE_MODEL, attempt.usage, grounded);
+    tokens += priced.tokens;
+    micros += priced.micros;
+  });
+  return { tokens, micros };
+}
+
+function emptySpend() {
+  return { calls:0, tokens:0, micros:0, heldCalls:0, heldTokens:0, heldMicros:0 };
+}
+
+function emptyLedgerState(day) {
+  return { day:day || '', subjects:{}, minutes:{}, global:{ tokens:0, micros:0, heldTokens:0, heldMicros:0 }, open:{}, idem:{} };
+}
+
+function spendBucket(state, key) {
+  if (!state.subjects[key]) state.subjects[key] = emptySpend();
+  return state.subjects[key];
+}
+
+function minuteSlot(state, key) {
+  if (!state.minutes[key]) state.minutes[key] = { window:0, count:0 };
+  return state.minutes[key];
+}
+
+function bumpMinute(slot, now) {
+  const window = Math.floor(now / 60000);
+  if (slot.window !== window) {
+    slot.window = window;
+    slot.count = 0;
+  }
+  slot.count += 1;
+  return slot.count;
+}
+
+function overCap(spent, held, add, cap) {
+  return cap > 0 && spent + held + add > cap;
+}
+
+function moveHoldToSpent(state, reservation, billedTokens, billedMicros) {
+  const subject = spendBucket(state, reservation.subject);
+  subject.heldCalls = Math.max(0, subject.heldCalls - (reservation.calls || 0));
+  subject.heldTokens = Math.max(0, subject.heldTokens - (reservation.tokens || 0));
+  subject.heldMicros = Math.max(0, subject.heldMicros - (reservation.micros || 0));
+  subject.calls += reservation.calls || 0;
+  subject.tokens += Math.max(0, Math.round(Number(billedTokens) || 0));
+  subject.micros += Math.max(0, Math.round(Number(billedMicros) || 0));
+  if (reservation.aggregate) {
+    const aggregate = spendBucket(state, reservation.aggregate);
+    aggregate.heldCalls = Math.max(0, aggregate.heldCalls - (reservation.calls || 0));
+    aggregate.heldTokens = Math.max(0, aggregate.heldTokens - (reservation.tokens || 0));
+    aggregate.heldMicros = Math.max(0, aggregate.heldMicros - (reservation.micros || 0));
+    aggregate.calls += reservation.calls || 0;
+    aggregate.tokens += Math.max(0, Math.round(Number(billedTokens) || 0));
+    aggregate.micros += Math.max(0, Math.round(Number(billedMicros) || 0));
+  }
+  state.global.heldTokens = Math.max(0, state.global.heldTokens - (reservation.tokens || 0));
+  state.global.heldMicros = Math.max(0, state.global.heldMicros - (reservation.micros || 0));
+  state.global.tokens += Math.max(0, Math.round(Number(billedTokens) || 0));
+  state.global.micros += Math.max(0, Math.round(Number(billedMicros) || 0));
+}
+
+function releaseHold(state, reservation) {
+  const subject = spendBucket(state, reservation.subject);
+  subject.heldCalls = Math.max(0, subject.heldCalls - (reservation.calls || 0));
+  subject.heldTokens = Math.max(0, subject.heldTokens - (reservation.tokens || 0));
+  subject.heldMicros = Math.max(0, subject.heldMicros - (reservation.micros || 0));
+  if (reservation.aggregate) {
+    const aggregate = spendBucket(state, reservation.aggregate);
+    aggregate.heldCalls = Math.max(0, aggregate.heldCalls - (reservation.calls || 0));
+    aggregate.heldTokens = Math.max(0, aggregate.heldTokens - (reservation.tokens || 0));
+    aggregate.heldMicros = Math.max(0, aggregate.heldMicros - (reservation.micros || 0));
+  }
+  state.global.heldTokens = Math.max(0, state.global.heldTokens - (reservation.tokens || 0));
+  state.global.heldMicros = Math.max(0, state.global.heldMicros - (reservation.micros || 0));
+}
+
+function addHold(state, reservation, calls, tokens, micros) {
+  const subject = spendBucket(state, reservation.subject);
+  subject.heldCalls += calls;
+  subject.heldTokens += tokens;
+  subject.heldMicros += micros;
+  if (reservation.aggregate) {
+    const aggregate = spendBucket(state, reservation.aggregate);
+    aggregate.heldCalls += calls;
+    aggregate.heldTokens += tokens;
+    aggregate.heldMicros += micros;
+  }
+  state.global.heldTokens += tokens;
+  state.global.heldMicros += micros;
+  reservation.calls += calls;
+  reservation.tokens += tokens;
+  reservation.micros += micros;
+}
+
+function quotaCode(state, op, addCalls, addTokens, addMicros, checkMinute) {
+  const caps = op.caps || {};
+  const subject = spendBucket(state, op.subject);
+  if (checkMinute) {
+    const subjectMinute = minuteSlot(state, 'subject:' + op.subject);
+    const ipMinute = minuteSlot(state, 'ip:' + op.network);
+    const subjectCaps = caps.subject || {};
+    if (subjectCaps.minute && subjectMinute.count > subjectCaps.minute) return 'subject_minute';
+    if (caps.ipMinute && ipMinute.count > caps.ipMinute) return 'ip_minute';
+  }
+  const subjectCaps = caps.subject || {};
+  if (overCap(subject.calls, subject.heldCalls, addCalls, subjectCaps.calls || 0)) return 'subject_calls';
+  if (overCap(subject.tokens, subject.heldTokens, addTokens, subjectCaps.tokens || 0)) return 'subject_tokens';
+  if (caps.pricing !== false && overCap(subject.micros, subject.heldMicros, addMicros, subjectCaps.micros || 0)) return 'subject_spend';
+  if (op.aggregate && caps.aggregate) {
+    const aggregate = spendBucket(state, op.aggregate);
+    if (overCap(aggregate.calls, aggregate.heldCalls, addCalls, caps.aggregate.calls || 0)) return 'aggregate_calls';
+    if (overCap(aggregate.tokens, aggregate.heldTokens, addTokens, caps.aggregate.tokens || 0)) return 'aggregate_tokens';
+    if (caps.pricing !== false && overCap(aggregate.micros, aggregate.heldMicros, addMicros, caps.aggregate.micros || 0)) return 'aggregate_spend';
+  }
+  const globalCaps = caps.global || {};
+  if (overCap(state.global.tokens, state.global.heldTokens, addTokens, globalCaps.tokens || 0)) return 'global_tokens';
+  if (caps.pricing !== false && overCap(state.global.micros, state.global.heldMicros, addMicros, globalCaps.micros || 0)) return 'global_spend';
+  return '';
+}
+
+function rollLedgerDay(state, day) {
+  if (state.day === day) return state;
+  const previous = state;
+  const next = emptyLedgerState(day);
+  Object.keys(previous.open || {}).forEach((id) => {
+    const reservation = previous.open[id];
+    if (!reservation) return;
+    moveHoldToSpent(next, Object.assign({}, reservation, { calls:reservation.calls || 0, tokens:0, micros:0 }), reservation.tokens || 0, reservation.micros || 0);
+  });
+  return next;
+}
+
+function recoverStaleReservations(state, now, ttl) {
+  Object.keys(state.open || {}).forEach((id) => {
+    const reservation = state.open[id];
+    if (!reservation || now - Number(reservation.createdAt || 0) < ttl) return;
+    moveHoldToSpent(state, reservation, reservation.tokens, reservation.micros);
+    delete state.open[id];
+  });
+}
+
+function pruneIdempotency(state, now) {
+  Object.keys(state.idem || {}).forEach((key) => {
+    if (!state.idem[key] || Number(state.idem[key].expiresAt || 0) <= now) delete state.idem[key];
+  });
+}
+
+async function applyLedgerOp(storage, op) {
+  const now = Number(op && op.now) || Date.now();
+  const day = String(op && op.day || '');
+  const ttl = Number(op && op.ttl) > 0 ? Number(op.ttl) : 180000;
+  const idemTtl = Number(op && op.idemTtl) > 0 ? Number(op.idemTtl) : 600000;
+  const replayMax = Number(op && op.replayMax) > 0 ? Number(op.replayMax) : IDEMPOTENCY_REPLAY_BYTES;
+  let state = await storage.get(LEDGER_STATE_KEY);
+  if (!state || typeof state !== 'object') state = emptyLedgerState(day);
+  state = rollLedgerDay(state, day);
+  recoverStaleReservations(state, now, ttl);
+  pruneIdempotency(state, now);
+  const action = String(op && op.action || '');
+  let result = { ok:false };
+  if (action === 'begin') {
+    const key = String(op.idempotencyKey || '');
+    const existing = key ? state.idem[key] : null;
+    if (existing && Number(existing.expiresAt || 0) > now) {
+      if (existing.bodyHash !== op.bodyHash) result = { ok:false, mode:'conflict' };
+      else if (existing.status === 'running') result = { ok:false, mode:'in_progress' };
+      else if (existing.status === 'completed' && typeof existing.response === 'string') result = { ok:true, mode:'replay', httpStatus:existing.httpStatus || 200, response:existing.response };
+      else if (existing.status === 'completed') result = { ok:false, mode:'completed_unreplayable', httpStatus:existing.httpStatus || 409 };
+      else result = { ok:false, mode:'in_progress' };
+    } else {
+      bumpMinute(minuteSlot(state, 'subject:' + op.subject), now);
+      bumpMinute(minuteSlot(state, 'ip:' + op.network), now);
+      const add = op.add || {};
+      const hit = quotaCode(state, op, add.calls || 0, add.tokens || 0, add.micros || 0, true);
+      if (hit) {
+        if (key) {
+          state.idem[key] = { bodyHash:op.bodyHash, status:'completed', httpStatus:429, response:null, expiresAt:now + idemTtl, reservationId:'' };
+        }
+        result = { ok:false, mode:'quota', quota:hit };
+      } else {
+        const reservation = {
+          id:String(op.reservationId || ''),
+          subject:String(op.subject || ''),
+          aggregate:String(op.aggregate || ''),
+          network:String(op.network || ''),
+          calls:0,
+          tokens:0,
+          micros:0,
+          createdAt:now,
+          visitorHash:String(op.visitorHash || '')
+        };
+        addHold(state, reservation, add.calls || 0, add.tokens || 0, add.micros || 0);
+        state.open[reservation.id] = reservation;
+        if (key) {
+          state.idem[key] = { bodyHash:op.bodyHash, status:'running', httpStatus:0, response:null, expiresAt:now + idemTtl, reservationId:reservation.id };
+        }
+        result = { ok:true, mode:'owner', reservationId:reservation.id, reservedTokens:reservation.tokens, reservedMicros:reservation.micros };
+      }
+    }
+  } else if (action === 'extend') {
+    const reservation = state.open[String(op.reservationId || '')];
+    if (!reservation) result = { ok:false, missing:true };
+    else {
+      const add = op.add || {};
+      const hit = quotaCode(state, {
+        subject:reservation.subject,
+        aggregate:reservation.aggregate,
+        network:reservation.network,
+        caps:op.caps || {}
+      }, 0, add.tokens || 0, add.micros || 0, false);
+      if (hit) result = { ok:false, mode:'quota', quota:hit };
+      else {
+        addHold(state, reservation, 0, add.tokens || 0, add.micros || 0);
+        result = { ok:true, reservedTokens:reservation.tokens, reservedMicros:reservation.micros };
+      }
+    }
+  } else if (action === 'release') {
+    const reservation = state.open[String(op.reservationId || '')];
+    if (reservation) {
+      releaseHold(state, reservation);
+      delete state.open[reservation.id];
+    }
+    result = { ok:true, released:!!reservation };
+  } else if (action === 'settle') {
+    const reservation = state.open[String(op.reservationId || '')];
+    if (!reservation) result = { ok:true, already:true };
+    else {
+      moveHoldToSpent(state, reservation, op.billedTokens, op.billedMicros);
+      delete state.open[reservation.id];
+      result = { ok:true, settledTokens:Math.max(0, Math.round(Number(op.billedTokens) || 0)), settledMicros:Math.max(0, Math.round(Number(op.billedMicros) || 0)) };
+    }
+  } else if (action === 'complete') {
+    const key = String(op.idempotencyKey || '');
+    const row = key ? state.idem[key] : null;
+    if (row) {
+      row.status = 'completed';
+      row.httpStatus = Number(op.httpStatus) || row.httpStatus || 200;
+      row.reservationId = String(op.reservationId || row.reservationId || '');
+      if (typeof op.response === 'string' && byteLength(op.response) <= replayMax) row.response = op.response;
+      else row.response = null;
+      result = { ok:true, stored:typeof row.response === 'string' };
+    } else result = { ok:true, stored:false };
+  } else result = { ok:false, unavailable:true };
+  await storage.put(LEDGER_STATE_KEY, state);
+  return result;
+}
+
+class UsageLedger {
+  constructor(state) {
+    this.storage = state && state.storage;
+  }
+
+  async fetch(request) {
+    let op = {};
+    try { op = await request.json(); } catch (_error) { op = {}; }
+    const storage = this.storage;
+    if (!storage || typeof storage.get !== 'function' || typeof storage.put !== 'function') {
+      return new Response(JSON.stringify({ ok:false, unavailable:true }), { status:500, headers:{ 'Content-Type':'application/json' } });
+    }
+    const run = typeof storage.transaction === 'function' ? (fn) => storage.transaction(fn) : (fn) => fn();
+    try {
+      const result = await run(() => applyLedgerOp(storage, op));
+      return new Response(JSON.stringify(result), { status:200, headers:{ 'Content-Type':'application/json' } });
+    } catch (_error) {
+      return new Response(JSON.stringify({ ok:false, unavailable:true }), { status:500, headers:{ 'Content-Type':'application/json' } });
+    }
+  }
+}
+
+function createMemoryUsageLedger() {
+  const map = new Map();
+  const storage = {
+    async get(key) {
+      if (!map.has(key)) return undefined;
+      return JSON.parse(JSON.stringify(map.get(key)));
+    },
+    async put(key, value) {
+      map.set(key, JSON.parse(JSON.stringify(value)));
+    },
+    async delete(key) { map.delete(key); },
+    async transaction(fn) { return await fn(); }
+  };
+  const ledger = new UsageLedger({ storage });
+  let chain = Promise.resolve();
+  return {
+    fetch(request) {
+      const run = chain.then(() => ledger.fetch(request));
+      chain = run.then(() => undefined, () => undefined);
+      return run;
+    }
+  };
+}
+
+function callerSpendMode(caller) {
+  if (caller && caller.kind === 'user') return 'user';
+  if (caller && caller.aggregate) return 'guest-session';
+  return 'guest-ip';
+}
+
+function ledgerCaps(limits, mode) {
+  const personal = mode === 'user' ? limits.user : limits.guest;
+  return {
+    pricing:limits.pricing,
+    subject:{ minute:personal.minute, calls:personal.calls, tokens:personal.tokens, micros:personal.micros },
+    ipMinute:limits.ipMinute,
+    aggregate:mode === 'guest-session' ? limits.guestIp : null,
+    global:limits.global
+  };
+}
+
+function publicQuota(mode, code) {
+  const guest = mode !== 'user';
+  const names = {
+    subject_minute:guest ? 'guest_minute' : 'user_minute',
+    ip_minute:'ip_minute',
+    subject_calls:guest ? 'guest_daily_calls' : 'user_daily_calls',
+    subject_tokens:guest ? 'guest_daily_tokens' : 'user_daily_tokens',
+    subject_spend:guest ? 'guest_daily_spend' : 'user_daily_spend',
+    aggregate_calls:'guest_network_calls',
+    aggregate_tokens:'guest_network_tokens',
+    aggregate_spend:'guest_network_spend',
+    global_tokens:'global_daily_tokens',
+    global_spend:'global_daily_spend'
+  };
+  return names[code] || 'usage';
+}
+
+function quotaCopy(quota, resetsAt, signInRequired) {
+  const label = {
+    user_minute:'the signed-in per-minute request limit',
+    guest_minute:'the guest per-minute request limit',
+    ip_minute:'the shared-network per-minute request limit',
+    user_daily_calls:'today’s signed-in answer limit',
+    guest_daily_calls:'today’s guest answer limit',
+    user_daily_tokens:'today’s signed-in token limit',
+    guest_daily_tokens:'today’s guest token limit',
+    user_daily_spend:'today’s signed-in model allowance',
+    guest_daily_spend:'today’s guest model allowance',
+    guest_network_calls:'today’s shared-network guest answer limit',
+    guest_network_tokens:'today’s shared-network guest token limit',
+    guest_network_spend:'today’s shared-network guest model allowance',
+    global_daily_tokens:'today’s shared Marg token allowance',
+    global_daily_spend:'today’s shared Marg model allowance'
+  }[quota] || 'today’s usage allowance';
+  return 'Marg paused this request because it would pass ' + label + '.' + (resetsAt ? ' It resets at ' + resetsAt + '.' : '') + (signInRequired ? ' Sign in to continue as a student.' : '');
+}
+
+function idempotencyKeyFrom(request) {
+  const hasHeaderApi = !!(request && request.headers && typeof request.headers.get === 'function');
+  const cleaned = String(hasHeaderApi ? request.headers.get('X-Marg-Idempotency-Key') || '' : '').replace(/[^a-zA-Z0-9._:-]/g, '').slice(0, 80);
+  return cleaned.length >= 8 ? cleaned : '';
+}
+
+async function ledgerFetch(env, op) {
+  const memory = env && env.MARG_USAGE_LEDGER_MEMORY;
+  try {
+    if (memory && typeof memory.fetch === 'function') {
+      const response = await memory.fetch(new Request('https://ledger.internal/', { method:'POST', body:JSON.stringify(op) }));
+      if (!response || !response.ok) return { ok:false, unavailable:true };
+      return await response.json();
+    }
+    const namespace = env && env.MARG_USAGE_LEDGER;
+    if (!namespace || typeof namespace.idFromName !== 'function' || typeof namespace.get !== 'function') return { ok:false, unavailable:true };
+    const stub = namespace.get(namespace.idFromName('marg-usage-ledger'));
+    const response = await stub.fetch(new Request('https://ledger.internal/', { method:'POST', body:JSON.stringify(op) }));
+    if (!response || !response.ok) return { ok:false, unavailable:true };
+    return await response.json();
+  } catch (_error) {
+    return { ok:false, unavailable:true };
+  }
+}
+
+async function rememberIdempotent(env, limits, key, bodyHash, reservationId, response) {
+  if (!key) return { stored:false };
+  let text = '';
+  try { text = await response.clone().text(); } catch (_error) { text = ''; }
+  return ledgerFetch(env, {
+    action:'complete',
+    now:Date.now(),
+    day:usageDay(Date.now(), limits.zone),
+    ttl:limits.ttl,
+    idemTtl:limits.idemTtl,
+    replayMax:limits.replayMax,
+    idempotencyKey:key,
+    bodyHash,
+    reservationId:reservationId || '',
+    httpStatus:response.status,
+    response:text
+  });
+}
+
+export { resolveMaxOutputTokens, UsageLedger, createMemoryUsageLedger };
 
 function usageCounts(usage) {
   if (!usage || typeof usage !== 'object') return null;
@@ -993,10 +1676,10 @@ export default {
     if (request.headers && request.headers.get('cf-placement')) responseHeaders['X-Marg-Placement'] = request.headers.get('cf-placement');
     const validationMode = flagMode(env, 'MARG_WORKER_VALIDATION', 'log');
     const guestMode = flagMode(env, 'MARG_GUEST_CAPABILITIES', 'log');
-    // MARG_AUTH_STRICT stays off unless the operator sets it. When it is on,
-    // a Worker 401 is SESSION_INVALID. The app shows that as a generic
-    // "could not finish" error, not a sign-in screen.
+    // Kept on the log line so older dashboards still have the field. Invalid
+    // and unavailable sessions are rejected above, whether or not this is set.
     const authStrict = String(env && env.MARG_AUTH_STRICT || '').trim().toLowerCase() === 'on';
+    let issuedGuestToken = '';
     const record = {
       event:'marg_worker_request',
       requestId,
@@ -1014,10 +1697,15 @@ export default {
       outputTokensSent:0,
       upstreamCalls:0,
       usageMetadata:null,
+      reservedTokens:0,
+      settledTokens:0,
       httpStatus:0
     };
     let logged = false;
     const finish = async (response, patch) => {
+      if (issuedGuestToken) {
+        try { response.headers.set('X-Marg-Guest-Token', issuedGuestToken); } catch (_error) {}
+      }
       if (patch) Object.assign(record, patch);
       record.httpStatus = response.status;
       if (!record.subjectHash) record.subjectHash = await subjectHash('guest:unknown');
@@ -1033,32 +1721,48 @@ export default {
     if (contentLength > MAX_REQUEST_BYTES) return finish(jsonResponse({ error:{ code:413, status:'PAYLOAD_TOO_LARGE', message:'This request is too large to process safely.', request_id:requestId } }, 413, responseHeaders));
 
     const caller = await resolveCaller(request, env);
+    issuedGuestToken = caller.guestToken || '';
     record.callerKind = caller.kind;
     record.authState = caller.authState;
     record.subjectHash = await subjectHash(caller.subject);
-    const rateKey = caller.kind === 'user' ? caller.subject : 'guest:' + caller.bucket;
-    const userAllowed = await workerRateAllowed(env, rateKey, 'MARG_RATE_LIMITER', caller.kind === 'user' ? 60 : 20);
-    const ipAllowed = await workerRateAllowed(env, 'ip:' + caller.bucket, 'MARG_IP_LIMITER', 120);
-    if (!userAllowed || !ipAllowed) {
-      return finish(jsonResponse({ error:{ code:429, status:'RATE_LIMITED', message:'Marg is receiving too many requests from this session. Wait a minute and continue.', request_id:requestId, retryable:true } }, 429, Object.assign({ 'Retry-After':'60' }, responseHeaders)));
+    if (caller.authState === 'invalid') {
+      return finish(jsonResponse({ status:'SESSION_INVALID', error:{ code:401, status:'SESSION_INVALID', message:'That sign-in is not valid. Sign in again. This request was not sent to the model.', request_id:requestId, retryable:false } }, 401, responseHeaders), { rejectReasons:['SESSION_INVALID'] });
     }
-    if (authStrict && caller.authState === 'invalid') {
-      return finish(jsonResponse({ status:'SESSION_INVALID' }, 401, responseHeaders), { rejectReasons:['SESSION_INVALID'] });
+    if (caller.authState === 'unavailable') {
+      return finish(jsonResponse({ status:'AUTH_UNAVAILABLE', retryable:true, error:{ code:503, status:'AUTH_UNAVAILABLE', message:'Sign-in could not be checked, so this request was not sent to the model.', request_id:requestId, retryable:true } }, 503, responseHeaders), { rejectReasons:['AUTH_UNAVAILABLE'] });
     }
-    if (authStrict && caller.authState === 'unavailable') {
-      return finish(jsonResponse({ status:'AUTH_UNAVAILABLE', retryable:true }, 503, responseHeaders), { rejectReasons:['AUTH_UNAVAILABLE'] });
+    if (caller.authState === 'guest_token_invalid') {
+      return finish(jsonResponse({ error:{ code:401, status:'GUEST_SESSION_INVALID', message:'This guest session is not valid. Open Marg again. The request was not sent to the model.', request_id:requestId, retryable:false } }, 401, responseHeaders), { rejectReasons:['GUEST_SESSION_INVALID'] });
     }
     if (caller.kind !== 'user' && !caller.clientId) {
       return finish(jsonResponse({ error:{ code:401, status:'CLIENT_ID_REQUIRED', message:'Open Marg in the app and try again.', request_id:requestId } }, 401, responseHeaders), { rejectReasons:['CLIENT_ID_REQUIRED'] });
     }
+    const userMinute = configuredInt(env, 'MARG_USER_REQUESTS_PER_MINUTE', 30, false);
+    const ipMinute = configuredInt(env, 'MARG_IP_REQUESTS_PER_MINUTE', 120, false);
+    // Outer guest key stays the IP bucket, at the network ceiling. The 10/min
+    // guest burst is enforced per signed session inside the ledger, so a
+    // hostel does not share one person's minute allowance.
+    const rateKey = caller.kind === 'user' ? caller.subject : 'guest:' + caller.bucket;
+    const userAllowed = await workerRateAllowed(env, rateKey, 'MARG_RATE_LIMITER', caller.kind === 'user' ? userMinute : ipMinute);
+    const ipAllowed = await workerRateAllowed(env, 'ip:' + caller.bucket, 'MARG_IP_LIMITER', ipMinute);
+    if (!userAllowed || !ipAllowed) {
+      return finish(jsonResponse({ error:{ code:429, status:'RATE_LIMITED', message:'Marg is receiving too many requests from this session. Wait a minute and continue.', request_id:requestId, retryable:true } }, 429, Object.assign({ 'Retry-After':'60' }, responseHeaders)));
+    }
 
     let payload;
+    let rawBodyText = '';
     try {
       const body = await readBoundedBody(request);
       if (body.tooLarge) {
         return finish(jsonResponse({ error:{ code:413, status:'PAYLOAD_TOO_LARGE', message:'This request is too large to process safely.', request_id:requestId } }, 413, responseHeaders), { rejectReasons:['PAYLOAD_TOO_LARGE'] });
       }
-      payload = Object.prototype.hasOwnProperty.call(body, 'json') ? body.json : JSON.parse(body.text);
+      if (Object.prototype.hasOwnProperty.call(body, 'json')) {
+        payload = body.json;
+        rawBodyText = JSON.stringify(payload);
+      } else {
+        rawBodyText = String(body.text || '');
+        payload = JSON.parse(rawBodyText);
+      }
     } catch (_error) {
       return finish(jsonResponse({ error:{ code:400, status:'INVALID_JSON', message:'Request body must be valid JSON', request_id:requestId } }, 400, responseHeaders), { rejectReasons:['INVALID_JSON'] });
     }
@@ -1112,11 +1816,112 @@ export default {
     }
     if (!env || !env.GEMINI_API_KEY) return finish(jsonResponse({ error:{ code:500, status:'MISSING_API_KEY', message:'GEMINI_API_KEY is not configured', request_id:requestId } }, 500, responseHeaders));
 
+    const limits = spendLimits(env);
+    const mode = callerSpendMode(caller);
+    const idemKey = idempotencyKeyFrom(request);
+    const bodyHash = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawBodyText)));
+    const grounded = !!validation.requestedGrounding;
+    const perAttempt = estimateAttempt(env, validation.upstreamPayload || payload, validation.outputTokensSent, grounded);
+    const now = Date.now();
+    const began = await ledgerFetch(env, {
+      action:'begin',
+      now,
+      day:usageDay(now, limits.zone),
+      ttl:limits.ttl,
+      idemTtl:limits.idemTtl,
+      replayMax:limits.replayMax,
+      idempotencyKey:idemKey,
+      bodyHash,
+      subject:caller.subject,
+      aggregate:caller.aggregate || '',
+      network:caller.bucket,
+      caps:ledgerCaps(limits, mode),
+      add:{ calls:1, tokens:perAttempt.tokens, micros:perAttempt.micros },
+      reservationId:crypto.randomUUID(),
+      visitorHash:caller.clientId ? await subjectHash('visitor:' + caller.clientId) : ''
+    });
+    record.reservedTokens = began && began.reservedTokens || 0;
+    if (!began || began.unavailable) {
+      return finish(jsonResponse({ error:{ code:503, status:'SPENDING_CONTROL_UNAVAILABLE', message:'Marg could not check the usage allowance, so this request was not sent to the model.', request_id:requestId, retryable:true } }, 503, responseHeaders), { rejectReasons:['SPENDING_CONTROL_UNAVAILABLE'] });
+    }
+    if (began.mode === 'replay') {
+      responseHeaders['X-Marg-Idempotent-Replay'] = '1';
+      return finish(new Response(began.response, {
+        status:began.httpStatus || 200,
+        headers:Object.assign({ 'Content-Type':'application/json; charset=utf-8' }, CORS_HEADERS, responseHeaders)
+      }), { upstreamCalls:0 });
+    }
+    if (began.mode === 'conflict') {
+      return finish(jsonResponse({ error:{ code:409, status:'IDEMPOTENCY_CONFLICT', message:'This idempotency key was already used for a different request.', request_id:requestId, retryable:false, replayed:false } }, 409, responseHeaders), { rejectReasons:['IDEMPOTENCY_CONFLICT'] });
+    }
+    if (began.mode === 'in_progress') {
+      return finish(jsonResponse({ error:{ code:409, status:'DUPLICATE_IN_PROGRESS', message:'This request is already running. It was not sent to the model again.', request_id:requestId, retryable:false, replayed:false } }, 409, responseHeaders), { rejectReasons:['DUPLICATE_IN_PROGRESS'] });
+    }
+    if (began.mode === 'completed_unreplayable') {
+      return finish(jsonResponse({ error:{ code:409, status:'ALREADY_COMPLETED', message:'This request already finished. The original response was not stored, so it cannot be replayed.', request_id:requestId, retryable:false, replayed:false } }, 409, responseHeaders), { rejectReasons:['ALREADY_COMPLETED'] });
+    }
+    if (began.mode === 'quota' || began.quota) {
+      const quota = publicQuota(mode, began.quota);
+      const minute = /minute/.test(quota);
+      const resetsAt = resetsAtFor(now, limits.zone, minute);
+      const signInRequired = quota.indexOf('guest_') === 0;
+      const denied = jsonResponse({ error:{ code:429, status:'QUOTA_EXCEEDED', quota, message:quotaCopy(quota, resetsAt, signInRequired), resetsAt, retryable:minute, signInRequired, request_id:requestId } }, 429, Object.assign(minute ? { 'Retry-After':String(Math.max(1, Math.ceil((new Date(resetsAt).getTime() - now) / 1000))) } : {}, responseHeaders));
+      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, '', denied);
+      return finish(denied, { rejectReasons:[quota] });
+    }
+
+    const reservationId = began.reservationId;
+    record.reservedTokens = began.reservedTokens || perAttempt.tokens;
+    const settleOrRelease = async (generated) => {
+      const started = !!(generated && (generated.upstreamStarted || (generated.attempts && generated.attempts.length)));
+      if (!started) {
+        await ledgerFetch(env, { action:'release', now:Date.now(), day:usageDay(Date.now(), limits.zone), ttl:limits.ttl, reservationId });
+        record.settledTokens = 0;
+        return { tokens:0, micros:0 };
+      }
+      const billed = billAttempts(env, generated.attempts, perAttempt, grounded);
+      await ledgerFetch(env, {
+        action:'settle',
+        now:Date.now(),
+        day:usageDay(Date.now(), limits.zone),
+        ttl:limits.ttl,
+        reservationId,
+        billedTokens:billed.tokens,
+        billedMicros:billed.micros
+      });
+      record.settledTokens = billed.tokens;
+      record.settledMicros = billed.micros;
+      return billed;
+    };
+
     beforeUpstream(seamContext);
     try {
       const clientBudget = Number(request.headers && request.headers.get('X-Marg-Timeout-Ms'));
-      const generated = await generateWithControlledRetry(validation.upstreamPayload, env.GEMINI_API_KEY, request.signal, clientBudget);
-      record.upstreamCalls = generated.upstreamCalls || 1;
+      const generated = await generateWithControlledRetry(validation.upstreamPayload, env.GEMINI_API_KEY, request.signal, clientBudget, {
+        beforeAttempt:async () => {
+          const extra = await ledgerFetch(env, {
+            action:'extend',
+            now:Date.now(),
+            day:usageDay(Date.now(), limits.zone),
+            ttl:limits.ttl,
+            reservationId,
+            caps:ledgerCaps(limits, mode),
+            add:{ tokens:perAttempt.tokens, micros:perAttempt.micros }
+          });
+          if (!extra || extra.unavailable) {
+            return { stop:true, status:503, error:{ code:503, status:'SPENDING_CONTROL_UNAVAILABLE', message:'Marg could not reserve the retry, so it was not sent.', retryable:true } };
+          }
+          if (!extra.ok) {
+            const quota = publicQuota(mode, extra.quota);
+            const resetsAt = resetsAtFor(Date.now(), limits.zone, /minute/.test(quota));
+            return { stop:true, status:429, error:{ code:429, status:'QUOTA_EXCEEDED', quota, message:quotaCopy(quota, resetsAt, quota.indexOf('guest_') === 0), resetsAt, retryable:false, signInRequired:quota.indexOf('guest_') === 0 } };
+          }
+          record.reservedTokens = extra.reservedTokens || record.reservedTokens;
+          return { ok:true };
+        }
+      });
+      await settleOrRelease(generated);
+      record.upstreamCalls = generated.upstreamCalls || (generated.attempts ? generated.attempts.length : 0);
       record.usageMetadata = usageCounts(generated.usageMetadata);
       afterUpstream(seamContext, {
         usageMetadata:record.usageMetadata,
@@ -1124,49 +1929,57 @@ export default {
         ok:!!generated.ok,
         status:generated.status
       });
-      responseHeaders['X-Marg-Upstream-Calls'] = String(generated.upstreamCalls || 1);
+      responseHeaders['X-Marg-Upstream-Calls'] = String(record.upstreamCalls || 0);
       responseHeaders['X-Marg-Model-Fallback'] = generated.modelFallbackUsed ? '1' : '0';
+      let response;
       if (!generated.ok) {
         console.error('Gemini upstream rejected request', {
           requestId,
           httpStatus:generated.status,
           code:generated.error && generated.error.status || '',
-          upstreamCalls:generated.upstreamCalls || 1
+          upstreamCalls:record.upstreamCalls
         });
         if (generated.retryAfter) responseHeaders['Retry-After'] = generated.retryAfter;
-        return finish(jsonResponse({
-          error:Object.assign({}, generated.error, {
-            message:generated.status === 429 ? 'Marg’s answer service is busy. Please wait briefly and retry.' : generated.status === 503 ? 'Marg’s answer service is temporarily unavailable.' : generated.status === 504 ? 'Marg’s answer service took too long on this request.' : 'Marg could not complete this request.',
+        const failure = generated.error || {};
+        response = jsonResponse({
+          error:Object.assign({}, failure, {
+            message:failure.status === 'QUOTA_EXCEEDED' || failure.status === 'SPENDING_CONTROL_UNAVAILABLE' ? failure.message : generated.status === 429 ? 'Marg’s answer service is busy. Please wait briefly and retry.' : generated.status === 503 ? 'Marg’s answer service is temporarily unavailable.' : generated.status === 504 ? 'Marg’s answer service took too long on this request.' : generated.status === 499 ? 'The request closed before Marg finished.' : 'Marg could not complete this request.',
             request_id:requestId,
-            retryable:generated.retryable,
-            attempts:generated.upstreamCalls
+            retryable:failure.status === 'QUOTA_EXCEEDED' ? false : generated.retryable,
+            attempts:record.upstreamCalls
           })
-        }, generated.status, responseHeaders));
-      }
-      if (validation.compatibilityMode) {
+        }, generated.status, responseHeaders);
+      } else if (validation.compatibilityMode) {
         const compatibilityGrounding = generated.json && generated.json.candidates && generated.json.candidates[0] && generated.json.candidates[0].groundingMetadata || null;
         responseHeaders['X-Marg-Web-Grounded'] = compatibilityGrounding ? '1' : '0';
-        return finish(jsonResponse({
+        response = jsonResponse({
           content:[{ type:'text', text:generated.text }],
           stop_reason:generated.finishReason,
           usage_metadata:generated.usageMetadata,
           grounding_metadata:compatibilityGrounding,
           marg_request:{ request_id:requestId, upstream_calls:generated.upstreamCalls, truncated:generated.finishReason === 'MAX_TOKENS' }
-        }, generated.status, responseHeaders));
+        }, generated.status, responseHeaders);
+      } else {
+        const groundingMetadata = generated.json && generated.json.candidates && generated.json.candidates[0] && generated.json.candidates[0].groundingMetadata;
+        responseHeaders['X-Marg-Web-Grounded'] = groundingMetadata ? '1' : '0';
+        generated.json.margRequest = { requestId, upstreamCalls:generated.upstreamCalls, truncated:generated.finishReason === 'MAX_TOKENS' };
+        response = new Response(JSON.stringify(generated.json), {
+          status:generated.status,
+          headers:Object.assign({ 'Content-Type':'application/json; charset=utf-8' }, CORS_HEADERS, responseHeaders)
+        });
       }
-      const groundingMetadata = generated.json && generated.json.candidates && generated.json.candidates[0] && generated.json.candidates[0].groundingMetadata;
-      responseHeaders['X-Marg-Web-Grounded'] = groundingMetadata ? '1' : '0';
-      generated.json.margRequest = { requestId, upstreamCalls:generated.upstreamCalls, truncated:generated.finishReason === 'MAX_TOKENS' };
-      return finish(new Response(JSON.stringify(generated.json), {
-        status:generated.status,
-        headers:Object.assign({ 'Content-Type':'application/json; charset=utf-8' }, CORS_HEADERS, responseHeaders)
-      }));
+      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, reservationId, response);
+      return finish(response);
     } catch (_error) {
+      const started = !!(_error && _error.upstreamStarted);
+      await settleOrRelease({ upstreamStarted:started, attempts:_error && _error.attempts || (started ? [{ uncertain:true, usage:null }] : []) });
       afterUpstream(seamContext, { usageMetadata:null, upstreamCalls:record.upstreamCalls || 0, ok:false, status:502 });
       console.error('Gemini Worker upstream failure', { requestId });
-      return finish(jsonResponse({
+      const failure = jsonResponse({
         error:{ code:502, status:'WORKER_UPSTREAM_FAILURE', message:'Marg could not reach its answer service.', request_id:requestId, retryable:true }
-      }, 502, responseHeaders));
+      }, 502, responseHeaders);
+      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, reservationId, failure);
+      return finish(failure);
     }
   }
 };
