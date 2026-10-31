@@ -176,6 +176,7 @@ function showDailyPanel(title, body, label, mode) {
   var action = '';
   if (mode === 'home') action = '<a class="cta-btn" href="/">' + dailyEscapeHtml(label) + '</a>';
   else if (mode === 'reload') action = '<button type="button" class="cta-btn" style="border:none;cursor:pointer;font-family:inherit;" onclick="location.reload()">' + dailyEscapeHtml(label) + '</button>';
+  else if (mode === 'static') action = '';
   else action = '<button type="button" class="cta-btn" style="border:none;cursor:pointer;font-family:inherit;" onclick="generateQA()">' + dailyEscapeHtml(label) + '</button>';
   container.innerHTML = '<div class="loading"><div style="font-size:16px;color:var(--text);font-weight:500;margin-bottom:8px;">' + dailyEscapeHtml(title) + '</div><div style="margin-bottom:18px;line-height:1.6;">' + dailyEscapeHtml(body) + '</div>' + action + '</div>';
 }
@@ -253,7 +254,15 @@ async function generateQA() {
       throw Object.assign(qaFail('transient', 'network'), { cause: networkError });
     }
     if (res.status === 401 || res.status === 403) throw qaFail('auth', 'auth');
-    if (res.status === 429) throw Object.assign(qaFail('rate', 'rate'), { retryAfter: res.headers && res.headers.get ? res.headers.get('Retry-After') : null });
+    if (res.status === 429) {
+      var quotaPayload = null;
+      try { quotaPayload = await res.json(); } catch (ignore) {}
+      var quotaError = quotaPayload && quotaPayload.error;
+      if (quotaError && quotaError.status === 'QUOTA_EXCEEDED' && quotaError.retryable === false) {
+        throw Object.assign(qaFail('quota', 'quota'), { resetsAt: quotaError.resetsAt || '' });
+      }
+      throw Object.assign(qaFail('rate', 'rate'), { retryAfter: res.headers && res.headers.get ? res.headers.get('Retry-After') : null });
+    }
     if (!res.ok) throw qaFail('transient', 'status ' + res.status);
     var data;
     try { data = await res.json(); }
@@ -276,6 +285,14 @@ async function generateQA() {
     } else if (kind === 'rate') {
       qaRememberRetry('rate', qaRetrySeconds(e.retryAfter) * 1000);
       showDailyPanel('Too many requests', 'Wait a minute and try again.', 'Try again', 'retry');
+    } else if (kind === 'quota') {
+      var keptQa = null;
+      try { keptQa = localStorage.getItem(cacheKey); } catch (ignore) {}
+      if (keptQa) {
+        try { var keptQaData = JSON.parse(keptQa); if (hasCleanQASolutions(keptQaData)) { renderQA(keptQaData); return; } } catch (ignore) {}
+      }
+      var quotaBody = e && e.resetsAt ? 'Today\'s allowance is used. It resets at ' + e.resetsAt + '.' : 'Today\'s allowance is used.';
+      showDailyPanel('Today\'s allowance is used', quotaBody, '', 'static');
     } else if (kind === 'invalid') {
       var fallback = verifiedQAFallback();
       localStorage.setItem(cacheKey, JSON.stringify(fallback));

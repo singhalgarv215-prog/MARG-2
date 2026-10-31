@@ -2,14 +2,27 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createMemoryUsageLedger } from './worker-ledger-memory.mjs';
 
-const ROOT = '/workspace';
+const ROOT = dirname(fileURLToPath(import.meta.url));
+const PRE_B3 = '7cb5991';
 const MAX_REQUEST_BYTES = 20 * 1024 * 1024;
 const GOOD_AUTH = 'Bearer good-token';
 const SOURCE = readFileSync(join(ROOT, 'cloudflare-worker.js'), 'utf8');
-const BASELINE_SOURCE = execFileSync('git', ['show', 'main:cloudflare-worker.js'], { cwd: ROOT, encoding: 'utf8' });
+let BASELINE_SOURCE;
+try {
+  BASELINE_SOURCE = execFileSync('git', ['show', PRE_B3 + ':cloudflare-worker.js'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+} catch (error) {
+  const detail = error && error.stderr ? String(error.stderr).trim() : (error && error.message || error);
+  console.log('FAIL git show ' + PRE_B3 + ':cloudflare-worker.js failed: ' + detail);
+  process.exit(1);
+}
 
 let failed = 0;
 let ipCounter = 1;
@@ -110,15 +123,24 @@ async function check(name, fn) {
   }
 }
 
+function bindLedger(ledger) {
+  return { idFromName(name) { return name; }, get() { return ledger; } };
+}
+
 function testEnv(module, env) {
   const next = Object.assign({
     GEMINI_API_KEY: 'TEST_NOT_REAL',
     MARG_USER_REQUESTS_PER_MINUTE: '1000',
     MARG_GUEST_REQUESTS_PER_MINUTE: '1000',
-    MARG_IP_REQUESTS_PER_MINUTE: '1000'
+    MARG_IP_REQUESTS_PER_MINUTE: '1000',
+    MARG_GROUNDING_MICROS_PER_REQUEST: '14000'
   }, env || {});
-  if (module && typeof module.createMemoryUsageLedger === 'function' && !Object.prototype.hasOwnProperty.call(env || {}, 'MARG_USAGE_LEDGER_MEMORY') && !next.MARG_USAGE_LEDGER) {
-    next.MARG_USAGE_LEDGER_MEMORY = module.createMemoryUsageLedger();
+  if (Object.prototype.hasOwnProperty.call(env || {}, 'MARG_USAGE_LEDGER_MEMORY') && !next.MARG_USAGE_LEDGER) {
+    next.MARG_USAGE_LEDGER = bindLedger(env.MARG_USAGE_LEDGER_MEMORY);
+    delete next.MARG_USAGE_LEDGER_MEMORY;
+  }
+  if (module && typeof module.UsageLedger === 'function' && !Object.prototype.hasOwnProperty.call(env || {}, 'MARG_USAGE_LEDGER_MEMORY') && !next.MARG_USAGE_LEDGER) {
+    next.MARG_USAGE_LEDGER = bindLedger(createMemoryUsageLedger(module.UsageLedger, { strict: true }));
   }
   return next;
 }
@@ -259,7 +281,7 @@ async function callBoth(payload, headers) {
 
 await check('source has no import and keeps the allowed export form', async () => {
   const exportLines = SOURCE.split('\n').filter((line) => /^\s*export\b/.test(line));
-  return !/^import\s/m.test(SOURCE) && exportLines.length === 2 && exportLines[0] === 'export { resolveMaxOutputTokens, UsageLedger, createMemoryUsageLedger };' && exportLines[1] === 'export default {';
+  return !/^import\s/m.test(SOURCE) && exportLines.length === 2 && exportLines[0] === 'export { resolveMaxOutputTokens, UsageLedger };' && exportLines[1] === 'export default {';
 });
 
 await check('W1 baseline still forwards safetySettings tools toolConfig cachedContent candidateCount thinkingBudget includeThoughts responseModalities temperature', async () => {
@@ -379,7 +401,7 @@ await check('W4 guest limiter key is the IP bucket, not the client id; a user is
   const missing = await post(workerModule, chat('no-client', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { 'X-Marg-Client-Id': '', 'CF-Connecting-IP': '198.51.100.30', Authorization: '' });
   const missingBody = await missing.json();
   keys.length = 0;
-  const bare = await workerModule.default.fetch({ method: 'POST', text: async () => JSON.stringify(chat('unit', 1024, 'minimal')) }, Object.assign({}, env, { MARG_USAGE_LEDGER_MEMORY: workerModule.createMemoryUsageLedger(), MARG_USER_REQUESTS_PER_MINUTE: '1000', MARG_GUEST_REQUESTS_PER_MINUTE: '1000', MARG_IP_REQUESTS_PER_MINUTE: '1000' }));
+  const bare = await workerModule.default.fetch({ method: 'POST', text: async () => JSON.stringify(chat('unit', 1024, 'minimal')) }, Object.assign({}, env, { MARG_USAGE_LEDGER: bindLedger(createMemoryUsageLedger(workerModule.UsageLedger, { strict: true })), MARG_USER_REQUESTS_PER_MINUTE: '1000', MARG_GUEST_REQUESTS_PER_MINUTE: '1000', MARG_IP_REQUESTS_PER_MINUTE: '1000' }));
   return guestOk && userOk && v6a.status === 200 && v6b.status === 429 && v6c.status === 200 && v6Keys[0] === 'guest:2001:db8:1:2' && v6Keys[1] === 'guest:2001:db8:1:2' && v6Keys[2] === 'guest:2001:db8:1:3' && missing.status === 401 && missingBody.error.status === 'CLIENT_ID_REQUIRED' && bare.status === 200 && keys[0] === 'guest:unit-test';
 });
 
@@ -457,7 +479,7 @@ await check('W7 guests are limited only in enforce; a registered student keeps i
   const registeredTokens = await post(workerModule, chat('study', 16384, 'low'), { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_GUEST_CAPABILITIES: 'enforce' }, { Authorization: GOOD_AUTH });
   return imageLog.status === 200 && imageLog.called === 1 && imageLog.line.rejectReasons.includes('CAPABILITY_NOT_AVAILABLE:image') &&
     imageEnforce.status === 403 && imageEnforce.body.capability === 'image' && imageEnforce.called === 0 &&
-    groundLog.status === 200 && groundLog.upstream.tools[0].google_search && groundEnforce.status === 403 && groundEnforce.body.capability === 'web_grounding' &&
+    groundLog.status === 503 && groundLog.body.error && groundLog.body.error.status === 'GROUNDING_UNAVAILABLE' && groundLog.called === 0 && groundEnforce.status === 403 && groundEnforce.body.capability === 'web_grounding' &&
     jsonLog.status === 200 && jsonEnforce.status === 403 && jsonEnforce.body.capability === 'structured' &&
     articleLog.status === 502 && articleEnforce.status === 403 && articleEnforce.body.capability === 'daily_article' && articleEnforce.other === 0 &&
     tokenLog.status === 200 && tokenLog.upstream.generationConfig.maxOutputTokens === 9000 && tokenEnforce.status === 403 && tokenEnforce.body.capability === 'output_tokens' &&
@@ -538,7 +560,7 @@ await check('W10 exactly one marg_worker_request log and it contains no message,
   return response.status === 200 && forbidden.every((value) => line.indexOf(value) === -1) && record.event === 'marg_worker_request' && record.callerKind === 'user' && record.authState === 'valid' && record.subjectHash === hash && record.requestClass === 'chat' && record.validationMode === 'log' && record.outputTokensSent === 1024 && record.upstreamCalls === 1 && record.usageMetadata.promptTokenCount === 3 && record.httpStatus === 200 && errors.slice().join(' ').indexOf('SENTINEL_') === -1;
 });
 
-await check('W11 resolveMaxOutputTokens matches main for the same inputs', async () => {
+await check('W11 resolveMaxOutputTokens matches 7cb5991 for the same inputs', async () => {
   const contents = [{ role: 'user', parts: [{ text: 'Explain ratios.' }] }];
   const imageContents = [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/jpeg', data: 'aaaa' } }, { text: 'Solve this.' }] }];
   const practice = { system: 'Generate only valid JSON', generationConfig: { responseMimeType: 'application/json' } };
@@ -577,8 +599,7 @@ await check('W12 forged internal memory is not sent to the model', async () => {
 
 function sharedEnv(extra) {
   return testEnv(workerModule, Object.assign({
-    GEMINI_API_KEY: 'TEST_NOT_REAL',
-    MARG_USAGE_LEDGER_MEMORY: workerModule.createMemoryUsageLedger()
+    GEMINI_API_KEY: 'TEST_NOT_REAL'
   }, extra || {}));
 }
 
@@ -781,7 +802,8 @@ await check('S5 disconnect and timeout settle the reservation and do not call Ge
   const replay = await post(workerModule, chat('abort', 1024, 'minimal'), env, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.110', 'X-Marg-Idempotency-Key': 'abort-key-1' });
   const fresh = await post(workerModule, chat('abort-new', 1024, 'minimal'), env, { Authorization: GOOD_AUTH, 'CF-Connecting-IP': '203.0.113.110', 'X-Marg-Idempotency-Key': 'abort-key-2' });
   const freshBody = await fresh.json();
-  const abortOk = aborted.status === 499 && abortedBody.error.status === 'CLIENT_CLOSED' && replay.status === aborted.status && replay.headers.get('X-Marg-Idempotent-Replay') === '1' && fresh.status === 429 && freshBody.error.quota === 'user_daily_calls' && geminiBodies.length === 0;
+  const replayBody = await replay.json();
+  const abortOk = aborted.status === 499 && abortedBody.error.status === 'CLIENT_CLOSED' && replay.status === 429 && replay.headers.get('X-Marg-Idempotent-Replay') !== '1' && replayBody.error && replayBody.error.quota === 'user_daily_calls' && fresh.status === 429 && freshBody.error.quota === 'user_daily_calls' && geminiBodies.length === 0;
   globalThis.fetch = async (url, options) => {
     if (String(url).includes(':generateContent')) {
       geminiBodies.push(originalParse(options.body));
@@ -881,7 +903,7 @@ await check('S7 signed guest identity survives visitor rotation and a shared net
 
 await check('S8 Durable Object binding name is the production entry and a thrown stub fails closed', async () => {
   resetNetwork();
-  const memory = workerModule.createMemoryUsageLedger();
+  const memory = createMemoryUsageLedger(workerModule.UsageLedger, { strict: true });
   const bound = await post(workerModule, chat('binding', 1024, 'minimal'), {
     GEMINI_API_KEY: 'TEST_NOT_REAL',
     MARG_USAGE_LEDGER: { idFromName(name) { return name; }, get() { return memory; } }

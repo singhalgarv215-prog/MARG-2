@@ -3707,6 +3707,7 @@ function protectedRequestNotice(error) {
   if (code === 'IDEMPOTENCY_CONFLICT' || code === 'ALREADY_COMPLETED') return 'That message was already sent. Your message is still in the chat.';
   if (code === 'SESSION_INVALID' || code === 'GUEST_SESSION_INVALID') return 'That sign-in needs to be refreshed. Your message is still in the chat.';
   if (code === 'AUTH_UNAVAILABLE' || code === 'SPENDING_CONTROL_UNAVAILABLE') return 'Marg could not check the usage allowance, so this request was not sent. Your message is still in the chat.';
+  if (code === 'GROUNDING_UNAVAILABLE') return 'Web lookup is unavailable right now. Check the official source. Your message is still in the chat.';
   return '';
 }
 
@@ -3750,10 +3751,16 @@ function runSpendQuotaNoticeTests() {
   var notice = status.textContent || '';
   var signedIn = spendQuotaNotice({ code:'QUOTA_EXCEEDED', signInRequired:false, resetsAt:'2026-11-01T18:30:00.000Z' });
   var duplicate = protectedRequestNotice({ code:'DUPLICATE_IN_PROGRESS' });
+  var quotaDraft = input.value;
+  input.value = '';
+  var grounding = { name:'GeminiAPIError', code:'GROUNDING_UNAVAILABLE', status:503, requestId:'ground-1' };
+  var groundingHandled = presentProtectedRequestFailure(grounding, 'Check the CAT official website');
+  var groundingNotice = status.textContent || '';
   return [
-    { name:'quota keeps the draft and is not an AI error', passed:handled === true && input.value === 'What is 20 percent of 80?' && notice.indexOf('allowance') !== -1 && notice.indexOf('IST') !== -1 && notice.indexOf('Save progress') !== -1 && notice.indexOf('still in the chat') !== -1 && notice.indexOf('could not finish') === -1 && notice.indexOf('busy') === -1 && geminiRetryBlockedUntil === beforeCooldown && shouldStartGeminiCooldown(quota) === false },
+    { name:'quota keeps the draft and is not an AI error', passed:handled === true && quotaDraft === 'What is 20 percent of 80?' && notice.indexOf('allowance') !== -1 && notice.indexOf('IST') !== -1 && notice.indexOf('Save progress') !== -1 && notice.indexOf('still in the chat') !== -1 && notice.indexOf('could not finish') === -1 && notice.indexOf('busy') === -1 && geminiRetryBlockedUntil === beforeCooldown && shouldStartGeminiCooldown(quota) === false },
     { name:'signed-in quota names the reset without a sign-in prompt', passed:signedIn.indexOf('IST') !== -1 && signedIn.indexOf('Save progress') === -1 && signedIn.indexOf('still in the chat') !== -1 },
-    { name:'a duplicate request is not described as an AI failure', passed:duplicate.indexOf('already answering') !== -1 && shouldStartGeminiCooldown({ code:'DUPLICATE_IN_PROGRESS', status:409 }) === false && shouldStartGeminiCooldown({ code:'RATE_LIMITED', status:429 }) === true }
+    { name:'a duplicate request is not described as an AI failure', passed:duplicate.indexOf('already answering') !== -1 && shouldStartGeminiCooldown({ code:'DUPLICATE_IN_PROGRESS', status:409 }) === false && shouldStartGeminiCooldown({ code:'RATE_LIMITED', status:429 }) === true },
+    { name:'grounding unavailable keeps the message and does not start a cooldown', passed:groundingHandled === true && input.value === 'Check the CAT official website' && groundingNotice.indexOf('Web lookup is unavailable') !== -1 && groundingNotice.indexOf('official source') !== -1 && groundingNotice.indexOf('still in the chat') !== -1 && geminiRetryBlockedUntil === beforeCooldown && shouldStartGeminiCooldown(grounding) === false }
   ];
 }
 

@@ -1073,32 +1073,78 @@ async function generateWithinDeadline(initialPayload, apiKey, clientSignal, dead
 // cache $0.15 / 1M. From 1 Jan 2027 the 3.6 list price rises to $1.50 / $7.50
 // and stays below 3.5, so the reservation still uses 3.5 unless the variables
 // are changed. Grounding with Google Search is not inside those token rates
-// (5,000 prompts free, then $14 / 1,000). Set MARG_GROUNDING_MICROS_PER_REQUEST
-// to 14000 to hold that amount; the default is 0 until that is configured.
+// (5,000 prompts free, then $14 / 1,000). MARG_GROUNDING_MICROS_PER_REQUEST has
+// no built-in price. When it is unset or 0, a grounded request is refused
+// before Gemini. Guests are never grounded.
 //
-// One UsageLedger Durable Object is the authority for beta. Every reserve and
-// settle is serialised there so a user, a guest, a shared network, and the
-// global cap move in one transaction. At the beta ceilings (about $10 and 5M
-// tokens a day) that object is not expected to be the throughput limit. It
-// becomes a hotspot only when concurrent model calls queue on the same
-// storage transaction. Scale later by sharding personal counters with
-// idFromName(subject) and keeping one global object. Always lock the subject
-// first and the global object second. Do not add that second object until a
-// measured queue shows this one is the limit.
-const LEDGER_STATE_KEY = 'usage-state';
+// UsageLedger is one Durable Object, but it does not store one growing blob.
+// Counters, reservations, minute slots and stored replies are separate keys.
+// A normal reserve reads and writes only the keys for that subject. The object
+// still serialises every call, so it becomes a hotspot when concurrent model
+// calls queue on it. Do not shard in this change. Scale later by sharding
+// personal counters with idFromName(subject) and keeping one global object.
+// Always lock the subject first and the global object second.
+//
+// IDEMPOTENCY_PER_SUBJECT_CAP and IDEMPOTENCY_TOTAL_CAP are storage bounds.
+// They are not student or guest allowances. They keep one replay index small
+// and stop stored replies from growing without limit. The oldest stored reply
+// is dropped first. IDEMPOTENCY_VALUE_CAP keeps one stored reply under the
+// key-value Durable Object value limit. LEDGER_SQLITE_VALUE_BYTES is
+// Cloudflare's documented 2 MiB limit for one SQLite-backed value.
 const RESERVE_MODEL = 'gemini-3.5-flash';
 const BUILTIN_MODEL_PRICES = {
   'gemini-3.6-flash':{ input:750000, output:3750000, cached:75000 },
   'gemini-3.5-flash':{ input:1500000, output:9000000, cached:150000 }
 };
 const IDEMPOTENCY_REPLAY_BYTES = 512 * 1024;
+const IDEMPOTENCY_PER_SUBJECT_CAP = 32;
+const IDEMPOTENCY_TOTAL_CAP = 4096;
+const IDEMPOTENCY_VALUE_CAP = 96 * 1024;
+const LEDGER_SQLITE_VALUE_BYTES = 2 * 1024 * 1024;
+// 128-bit storage-key hash. Not an allowance. A shorter hash would make collisions plausible.
+const LEDGER_KEY_HASH_HEX = 32;
+// Cloudflare documents 128 as the maximum keys in one storage.get/delete array call.
+// Pages use that size so a prefix is never loaded in one call. Not an allowance.
+const LEDGER_LIST_PAGE = 128;
 
 function configuredInt(env, name, fallback, allowZero) {
   const raw = env && env[name];
   if (raw == null || String(raw).trim() === '') return fallback;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) return fallback;
-  if (value === 0 && !allowZero) return fallback;
+  if (!Number.isInteger(value) || value < 0 || (value === 0 && !allowZero)) {
+    try { console.log(JSON.stringify({ configuredIntRejected:name })); } catch (_error) {}
+    return fallback;
+  }
+  return value;
+}
+
+function optionalPositiveInt(env, name) {
+  const raw = env && env[name];
+  if (raw == null || String(raw).trim() === '') return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    try { console.log(JSON.stringify({ configuredIntRejected:name })); } catch (_error) {}
+    return null;
+  }
+  if (value === 0) return null;
+  return value;
+}
+
+function guestPoolFromEnv(env) {
+  const tokens = optionalPositiveInt(env, 'MARG_GLOBAL_GUEST_TOKENS_PER_DAY');
+  const micros = optionalPositiveInt(env, 'MARG_GLOBAL_GUEST_SPEND_MICROS_PER_DAY');
+  if (tokens == null && micros == null) return null;
+  return { tokens:tokens || 0, micros:micros || 0, partial:(tokens == null) !== (micros == null) };
+}
+
+function groundingMicrosPerQuery(env) {
+  const raw = env && env.MARG_GROUNDING_MICROS_PER_REQUEST;
+  if (raw == null || String(raw).trim() === '' || String(raw).trim() === '0') return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    try { console.log(JSON.stringify({ configuredIntRejected:'MARG_GROUNDING_MICROS_PER_REQUEST' })); } catch (_error) {}
+    return null;
+  }
   return value;
 }
 
@@ -1124,7 +1170,7 @@ function microsForTokens(tokens, perMillion) {
   return Math.ceil((count * rate) / 1000000);
 }
 
-function spendLimits(env) {
+function spendLimits(env, guestPool) {
   const guest = {
     minute:configuredInt(env, 'MARG_GUEST_REQUESTS_PER_MINUTE', 10, false),
     calls:configuredInt(env, 'MARG_GUEST_CALLS_PER_DAY', 5, false),
@@ -1147,6 +1193,7 @@ function spendLimits(env) {
       tokens:configuredInt(env, 'MARG_GLOBAL_TOKENS_PER_DAY', 5000000, false),
       micros:configuredInt(env, 'MARG_GLOBAL_SPEND_MICROS_PER_DAY', 10000000, false)
     },
+    guestPool:guestPool === undefined ? guestPoolFromEnv(env) : guestPool,
     ttl:configuredInt(env, 'MARG_RESERVATION_TTL_MS', 180000, false),
     idemTtl:configuredInt(env, 'MARG_IDEMPOTENCY_TTL_MS', 600000, false),
     replayMax:configuredInt(env, 'MARG_IDEMPOTENCY_MAX_BYTES', IDEMPOTENCY_REPLAY_BYTES, false),
@@ -1186,290 +1233,696 @@ function estimateAttempt(env, payload, outputTokens, grounded) {
   if (pricingEnabled(env)) {
     const prices = modelPrices(env, RESERVE_MODEL);
     micros = microsForTokens(inputTokens, prices.input) + microsForTokens(output, prices.output);
-    if (grounded) micros += configuredInt(env, 'MARG_GROUNDING_MICROS_PER_REQUEST', 0, true);
+    if (grounded) {
+      const grounding = groundingMicrosPerQuery(env);
+      if (grounding) micros += grounding;
+    }
   }
   return { tokens:inputTokens + output, micros, inputTokens, outputTokens:output };
 }
 
-function priceUsage(env, model, usage, grounded) {
+// Gemini 3 reports each executed Google Search query in
+// candidates[0].groundingMetadata.webSearchQueries. Billing counts unique
+// non-empty queries. Source: https://ai.google.dev/gemini-api/docs/google-search
+// A grounded attempt with no reported queries still costs one.
+function searchQueryCount(responseJson) {
+  const candidate = responseJson && responseJson.candidates && responseJson.candidates[0];
+  const queries = candidate && candidate.groundingMetadata && candidate.groundingMetadata.webSearchQueries;
+  if (!Array.isArray(queries)) return 1;
+  const unique = new Set();
+  queries.forEach((query) => {
+    const text = String(query == null ? '' : query).trim();
+    if (text) unique.add(text);
+  });
+  return Math.max(1, unique.size);
+}
+
+function queryCount(value) {
+  if (value === true) return 1;
+  if (!value) return 0;
+  const count = Math.round(Number(value) || 0);
+  return count > 0 ? count : 0;
+}
+
+function priceUsage(env, model, usage, groundingQueries) {
   const prompt = Math.max(0, Math.round(Number(usage && usage.promptTokenCount) || 0));
   const cached = Math.min(prompt, Math.max(0, Math.round(Number(usage && usage.cachedContentTokenCount) || 0)));
   const candidates = Math.max(0, Math.round(Number(usage && usage.candidatesTokenCount) || 0));
   const thoughts = Math.max(0, Math.round(Number(usage && usage.thoughtsTokenCount) || 0));
+  const tool = Math.max(0, Math.round(Number(usage && usage.toolUsePromptTokenCount) || 0));
   const total = Math.max(0, Math.round(Number(usage && usage.totalTokenCount) || 0));
-  const tokens = total > 0 ? total : prompt + candidates + thoughts;
+  const explained = prompt + candidates + thoughts + tool;
+  const tokens = total > 0 ? total : explained;
   let micros = 0;
   if (pricingEnabled(env)) {
     const prices = modelPrices(env, model || RESERVE_MODEL);
-    // thoughtsTokenCount is reported separately from candidates. Google bills
-    // thinking at the output rate, so both are charged and neither is added
-    // into the token total twice when totalTokenCount is present.
-    micros = microsForTokens(prompt - cached, prices.input) + microsForTokens(cached, prices.cached) + microsForTokens(candidates, prices.output) + microsForTokens(thoughts, prices.output);
-    if (grounded) micros += configuredInt(env, 'MARG_GROUNDING_MICROS_PER_REQUEST', 0, true);
+    micros = microsForTokens(prompt - cached, prices.input) + microsForTokens(cached, prices.cached) + microsForTokens(tool, prices.input) + microsForTokens(candidates, prices.output) + microsForTokens(thoughts, prices.output);
+    if (total > explained) micros += microsForTokens(total - explained, prices.output);
+    const queries = queryCount(groundingQueries);
+    const grounding = groundingMicrosPerQuery(env);
+    if (queries > 0 && grounding) micros += grounding * queries;
   }
   return { tokens, micros };
 }
 
 function usageIsKnown(usage) {
   if (!usage || typeof usage !== 'object') return false;
-  return ['totalTokenCount', 'promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount'].some((key) => Number.isFinite(Number(usage[key])));
+  return ['totalTokenCount', 'promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount', 'toolUsePromptTokenCount'].some((key) => Number.isFinite(Number(usage[key])));
 }
 
-function billAttempts(env, attempts, perAttempt, grounded) {
+function billAttempts(env, attempts, perAttempt, groundingQueries) {
   if (!attempts || !attempts.length) return { tokens:perAttempt.tokens, micros:perAttempt.micros };
   let tokens = 0;
   let micros = 0;
-  attempts.forEach((attempt) => {
+  const queries = queryCount(groundingQueries);
+  attempts.forEach((attempt, index) => {
     if (!attempt || attempt.uncertain || !usageIsKnown(attempt.usage)) {
       tokens += perAttempt.tokens;
       micros += perAttempt.micros;
       return;
     }
-    const priced = priceUsage(env, attempt.model || RESERVE_MODEL, attempt.usage, grounded);
+    const priced = priceUsage(env, attempt.model || RESERVE_MODEL, attempt.usage, index === attempts.length - 1 ? queries : (queries > 0 ? 1 : 0));
     tokens += priced.tokens;
     micros += priced.micros;
   });
   return { tokens, micros };
 }
 
-function emptySpend() {
-  return { calls:0, tokens:0, micros:0, heldCalls:0, heldTokens:0, heldMicros:0 };
+function emptySpend(day) {
+  return { day:day || '', calls:0, tokens:0, micros:0, heldCalls:0, heldTokens:0, heldMicros:0 };
 }
 
-function emptyLedgerState(day) {
-  return { day:day || '', subjects:{}, minutes:{}, global:{ tokens:0, micros:0, heldTokens:0, heldMicros:0 }, open:{}, idem:{} };
+function emptyDay(day) {
+  return {
+    day:day || '',
+    tokens:0, micros:0, heldTokens:0, heldMicros:0,
+    guestTokens:0, guestMicros:0, guestHeldTokens:0, guestHeldMicros:0,
+    idemCount:0, iseq:0, ihead:0, itail:0, open:[], oldestOpenAt:0, cleanupPending:''
+  };
 }
 
-function spendBucket(state, key) {
-  if (!state.subjects[key]) state.subjects[key] = emptySpend();
-  return state.subjects[key];
+const ledgerHmacKeys = new Map();
+const ledgerHashCache = new Map();
+
+async function ledgerKeyMaterial(value, salt) {
+  const text = String(value || '');
+  if (!text) return '';
+  const cacheKey = String(salt || '') + '\u0000' + text;
+  const cached = ledgerHashCache.get(cacheKey);
+  if (cached) return cached;
+  const encoded = new TextEncoder().encode(text);
+  let bytes;
+  if (salt) {
+    let key = ledgerHmacKeys.get(String(salt));
+    if (!key) {
+      key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(salt)), { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
+      ledgerHmacKeys.set(String(salt), key);
+    }
+    bytes = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoded));
+  } else bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', encoded));
+  const hex = Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, LEDGER_KEY_HASH_HEX);
+  if (ledgerHashCache.size > 250000) ledgerHashCache.clear();
+  ledgerHashCache.set(cacheKey, hex);
+  return hex;
 }
 
-function minuteSlot(state, key) {
-  if (!state.minutes[key]) state.minutes[key] = { window:0, count:0 };
-  return state.minutes[key];
-}
-
-function bumpMinute(slot, now) {
-  const window = Math.floor(now / 60000);
-  if (slot.window !== window) {
-    slot.window = window;
-    slot.count = 0;
-  }
-  slot.count += 1;
-  return slot.count;
-}
+function balanceKey(day, subject) { return 'bal:' + day + ':' + subject; }
+function minuteKey(day, window, scope) { return 'min:' + day + ':' + window + ':' + scope; }
+function idemStorageKey(subject, clientKey) { return 'idem:' + subject + '\u0000' + clientKey; }
 
 function overCap(spent, held, add, cap) {
   return cap > 0 && spent + held + add > cap;
 }
 
-function moveHoldToSpent(state, reservation, billedTokens, billedMicros) {
-  const subject = spendBucket(state, reservation.subject);
-  subject.heldCalls = Math.max(0, subject.heldCalls - (reservation.calls || 0));
-  subject.heldTokens = Math.max(0, subject.heldTokens - (reservation.tokens || 0));
-  subject.heldMicros = Math.max(0, subject.heldMicros - (reservation.micros || 0));
-  subject.calls += reservation.calls || 0;
-  subject.tokens += Math.max(0, Math.round(Number(billedTokens) || 0));
-  subject.micros += Math.max(0, Math.round(Number(billedMicros) || 0));
-  if (reservation.aggregate) {
-    const aggregate = spendBucket(state, reservation.aggregate);
-    aggregate.heldCalls = Math.max(0, aggregate.heldCalls - (reservation.calls || 0));
-    aggregate.heldTokens = Math.max(0, aggregate.heldTokens - (reservation.tokens || 0));
-    aggregate.heldMicros = Math.max(0, aggregate.heldMicros - (reservation.micros || 0));
-    aggregate.calls += reservation.calls || 0;
-    aggregate.tokens += Math.max(0, Math.round(Number(billedTokens) || 0));
-    aggregate.micros += Math.max(0, Math.round(Number(billedMicros) || 0));
-  }
-  state.global.heldTokens = Math.max(0, state.global.heldTokens - (reservation.tokens || 0));
-  state.global.heldMicros = Math.max(0, state.global.heldMicros - (reservation.micros || 0));
-  state.global.tokens += Math.max(0, Math.round(Number(billedTokens) || 0));
-  state.global.micros += Math.max(0, Math.round(Number(billedMicros) || 0));
+function addHeld(spend, calls, tokens, micros) {
+  spend.heldCalls += calls;
+  spend.heldTokens += tokens;
+  spend.heldMicros += micros;
 }
 
-function releaseHold(state, reservation) {
-  const subject = spendBucket(state, reservation.subject);
-  subject.heldCalls = Math.max(0, subject.heldCalls - (reservation.calls || 0));
-  subject.heldTokens = Math.max(0, subject.heldTokens - (reservation.tokens || 0));
-  subject.heldMicros = Math.max(0, subject.heldMicros - (reservation.micros || 0));
-  if (reservation.aggregate) {
-    const aggregate = spendBucket(state, reservation.aggregate);
-    aggregate.heldCalls = Math.max(0, aggregate.heldCalls - (reservation.calls || 0));
-    aggregate.heldTokens = Math.max(0, aggregate.heldTokens - (reservation.tokens || 0));
-    aggregate.heldMicros = Math.max(0, aggregate.heldMicros - (reservation.micros || 0));
-  }
-  state.global.heldTokens = Math.max(0, state.global.heldTokens - (reservation.tokens || 0));
-  state.global.heldMicros = Math.max(0, state.global.heldMicros - (reservation.micros || 0));
+function subHeld(spend, calls, tokens, micros) {
+  spend.heldCalls = Math.max(0, spend.heldCalls - calls);
+  spend.heldTokens = Math.max(0, spend.heldTokens - tokens);
+  spend.heldMicros = Math.max(0, spend.heldMicros - micros);
 }
 
-function addHold(state, reservation, calls, tokens, micros) {
-  const subject = spendBucket(state, reservation.subject);
-  subject.heldCalls += calls;
-  subject.heldTokens += tokens;
-  subject.heldMicros += micros;
-  if (reservation.aggregate) {
-    const aggregate = spendBucket(state, reservation.aggregate);
-    aggregate.heldCalls += calls;
-    aggregate.heldTokens += tokens;
-    aggregate.heldMicros += micros;
+function addGlobalHold(dayState, reservation, tokens, micros) {
+  dayState.heldTokens += tokens;
+  dayState.heldMicros += micros;
+  if (reservation && reservation.guestPool) {
+    dayState.guestHeldTokens += tokens;
+    dayState.guestHeldMicros += micros;
   }
-  state.global.heldTokens += tokens;
-  state.global.heldMicros += micros;
+}
+
+function subGlobalHold(dayState, reservation, tokens, micros) {
+  dayState.heldTokens = Math.max(0, dayState.heldTokens - tokens);
+  dayState.heldMicros = Math.max(0, dayState.heldMicros - micros);
+  if (reservation && reservation.guestPool) {
+    dayState.guestHeldTokens = Math.max(0, dayState.guestHeldTokens - tokens);
+    dayState.guestHeldMicros = Math.max(0, dayState.guestHeldMicros - micros);
+  }
+}
+
+function addGlobalSpent(dayState, reservation, tokens, micros) {
+  dayState.tokens += tokens;
+  dayState.micros += micros;
+  if (reservation && reservation.guestPool) {
+    dayState.guestTokens += tokens;
+    dayState.guestMicros += micros;
+  }
+}
+
+async function readSpend(storage, day, subject) {
+  if (!subject) return emptySpend(day);
+  const raw = await storage.get(balanceKey(day, subject));
+  if (!raw || raw.day !== day) return emptySpend(day);
+  return raw;
+}
+
+async function readMinute(storage, day, window, scope) {
+  const raw = await storage.get(minuteKey(day, window, scope));
+  if (!raw || raw.window !== window) return 0;
+  return Math.max(0, Math.round(Number(raw.count) || 0));
+}
+
+async function writeMinute(storage, day, window, scope, count) {
+  await storage.put(minuteKey(day, window, scope), { day, window, count });
+  if (window > 0) await storage.delete(minuteKey(day, window - 1, scope));
+}
+
+function namesFromList(page) {
+  if (!page) return [];
+  if (typeof Map === 'function' && page instanceof Map) return Array.from(page.keys());
+  if (typeof page.forEach === 'function' && typeof page.size === 'number' && typeof page.keys === 'function') {
+    const names = [];
+    page.forEach((_value, key) => { names.push(key); });
+    return names;
+  }
+  if (Array.isArray(page)) return page.map((item) => typeof item === 'string' ? item : item && item.name).filter(Boolean);
+  if (Array.isArray(page.keys)) return page.keys.map((item) => typeof item === 'string' ? item : item && item.name).filter(Boolean);
+  return [];
+}
+
+async function listPrefixPage(storage, prefix, startAfter) {
+  if (!storage || typeof storage.list !== 'function') return [];
+  const options = { prefix, limit:LEDGER_LIST_PAGE };
+  if (startAfter) options.startAfter = startAfter;
+  const page = await storage.list(options);
+  return namesFromList(page);
+}
+
+async function prefixNames(storage, prefix) {
+  const names = [];
+  let startAfter = '';
+  let guard = 0;
+  while (guard < 100000) {
+    guard += 1;
+    const pageNames = await listPrefixPage(storage, prefix, startAfter);
+    if (!pageNames.length) return names;
+    let advanced = false;
+    for (const name of pageNames) {
+      if (!name || String(name).indexOf(prefix) !== 0) continue;
+      if (startAfter && String(name) <= String(startAfter)) continue;
+      names.push(name);
+      if (!startAfter || String(name) > String(startAfter)) {
+        startAfter = name;
+        advanced = true;
+      }
+    }
+    if (!advanced) return names;
+    if (pageNames.length < LEDGER_LIST_PAGE) return names;
+  }
+  return names;
+}
+
+async function deletePrefix(storage, prefix) {
+  const names = await prefixNames(storage, prefix);
+  for (const name of names) await storage.delete(name);
+}
+
+async function deletePrefixBatch(storage, prefix) {
+  const names = await listPrefixPage(storage, prefix, '');
+  let deleted = 0;
+  for (const name of names) {
+    if (!name || String(name).indexOf(prefix) !== 0) continue;
+    await storage.delete(name);
+    deleted += 1;
+  }
+  return names.length >= LEDGER_LIST_PAGE && deleted > 0;
+}
+
+async function creditExisting(storage, dayState, reservation) {
+  const calls = reservation.calls || 0;
+  const tokens = reservation.tokens || 0;
+  const micros = reservation.micros || 0;
+  const spend = await readSpend(storage, dayState.day, reservation.subject);
+  addHeld(spend, calls, tokens, micros);
+  spend.day = dayState.day;
+  await storage.put(balanceKey(dayState.day, reservation.subject), spend);
+  if (reservation.aggregate) {
+    const aggregate = await readSpend(storage, dayState.day, reservation.aggregate);
+    addHeld(aggregate, calls, tokens, micros);
+    aggregate.day = dayState.day;
+    await storage.put(balanceKey(dayState.day, reservation.aggregate), aggregate);
+  }
+  addGlobalHold(dayState, reservation, tokens, micros);
+}
+
+async function takeHold(storage, dayState, reservation, calls, tokens, micros) {
   reservation.calls += calls;
   reservation.tokens += tokens;
   reservation.micros += micros;
+  const spend = await readSpend(storage, dayState.day, reservation.subject);
+  addHeld(spend, calls, tokens, micros);
+  spend.day = dayState.day;
+  await storage.put(balanceKey(dayState.day, reservation.subject), spend);
+  if (reservation.aggregate) {
+    const aggregate = await readSpend(storage, dayState.day, reservation.aggregate);
+    addHeld(aggregate, calls, tokens, micros);
+    aggregate.day = dayState.day;
+    await storage.put(balanceKey(dayState.day, reservation.aggregate), aggregate);
+  }
+  addGlobalHold(dayState, reservation, tokens, micros);
 }
 
-function quotaCode(state, op, addCalls, addTokens, addMicros, checkMinute) {
-  const caps = op.caps || {};
-  const subject = spendBucket(state, op.subject);
-  if (checkMinute) {
-    const subjectMinute = minuteSlot(state, 'subject:' + op.subject);
-    const ipMinute = minuteSlot(state, 'ip:' + op.network);
-    const subjectCaps = caps.subject || {};
-    if (subjectCaps.minute && subjectMinute.count > subjectCaps.minute) return 'subject_minute';
-    if (caps.ipMinute && ipMinute.count > caps.ipMinute) return 'ip_minute';
+async function releaseHold(storage, dayState, reservation) {
+  const calls = reservation.calls || 0;
+  const tokens = reservation.tokens || 0;
+  const micros = reservation.micros || 0;
+  const spend = await readSpend(storage, dayState.day, reservation.subject);
+  subHeld(spend, calls, tokens, micros);
+  spend.day = dayState.day;
+  await storage.put(balanceKey(dayState.day, reservation.subject), spend);
+  if (reservation.aggregate) {
+    const aggregate = await readSpend(storage, dayState.day, reservation.aggregate);
+    subHeld(aggregate, calls, tokens, micros);
+    aggregate.day = dayState.day;
+    await storage.put(balanceKey(dayState.day, reservation.aggregate), aggregate);
   }
+  subGlobalHold(dayState, reservation, tokens, micros);
+}
+
+async function moveHoldToSpent(storage, dayState, reservation, billedTokens, billedMicros) {
+  const calls = reservation.calls || 0;
+  const tokens = reservation.tokens || 0;
+  const micros = reservation.micros || 0;
+  const spentTokens = Math.max(0, Math.round(Number(billedTokens) || 0));
+  const spentMicros = Math.max(0, Math.round(Number(billedMicros) || 0));
+  const spend = await readSpend(storage, dayState.day, reservation.subject);
+  subHeld(spend, calls, tokens, micros);
+  spend.calls += calls;
+  spend.tokens += spentTokens;
+  spend.micros += spentMicros;
+  spend.day = dayState.day;
+  await storage.put(balanceKey(dayState.day, reservation.subject), spend);
+  if (reservation.aggregate) {
+    const aggregate = await readSpend(storage, dayState.day, reservation.aggregate);
+    subHeld(aggregate, calls, tokens, micros);
+    aggregate.calls += calls;
+    aggregate.tokens += spentTokens;
+    aggregate.micros += spentMicros;
+    aggregate.day = dayState.day;
+    await storage.put(balanceKey(dayState.day, reservation.aggregate), aggregate);
+  }
+  subGlobalHold(dayState, reservation, tokens, micros);
+  addGlobalSpent(dayState, reservation, spentTokens, spentMicros);
+}
+
+async function quotaHit(storage, dayState, op, addCalls, addTokens, addMicros, checkMinute, now) {
+  const caps = op.caps || {};
   const subjectCaps = caps.subject || {};
-  if (overCap(subject.calls, subject.heldCalls, addCalls, subjectCaps.calls || 0)) return 'subject_calls';
-  if (overCap(subject.tokens, subject.heldTokens, addTokens, subjectCaps.tokens || 0)) return 'subject_tokens';
-  if (caps.pricing !== false && overCap(subject.micros, subject.heldMicros, addMicros, subjectCaps.micros || 0)) return 'subject_spend';
+  if (checkMinute) {
+    const window = Math.floor(now / 60000);
+    const subjectMinute = await readMinute(storage, dayState.day, window, 's:' + op.subject);
+    const ipMinute = await readMinute(storage, dayState.day, window, 'ip:' + (op.network || ''));
+    if (subjectCaps.minute && subjectMinute + 1 > subjectCaps.minute) return 'subject_minute';
+    if (caps.ipMinute && ipMinute + 1 > caps.ipMinute) return 'ip_minute';
+  }
+  const spend = await readSpend(storage, dayState.day, op.subject);
+  if (overCap(spend.calls, spend.heldCalls, addCalls, subjectCaps.calls || 0)) return 'subject_calls';
+  if (overCap(spend.tokens, spend.heldTokens, addTokens, subjectCaps.tokens || 0)) return 'subject_tokens';
+  if (caps.pricing !== false && overCap(spend.micros, spend.heldMicros, addMicros, subjectCaps.micros || 0)) return 'subject_spend';
   if (op.aggregate && caps.aggregate) {
-    const aggregate = spendBucket(state, op.aggregate);
+    const aggregate = await readSpend(storage, dayState.day, op.aggregate);
     if (overCap(aggregate.calls, aggregate.heldCalls, addCalls, caps.aggregate.calls || 0)) return 'aggregate_calls';
     if (overCap(aggregate.tokens, aggregate.heldTokens, addTokens, caps.aggregate.tokens || 0)) return 'aggregate_tokens';
     if (caps.pricing !== false && overCap(aggregate.micros, aggregate.heldMicros, addMicros, caps.aggregate.micros || 0)) return 'aggregate_spend';
   }
+  if (caps.guestPool) {
+    if (overCap(dayState.guestTokens, dayState.guestHeldTokens, addTokens, caps.guestPool.tokens || 0)) return 'guest_global_tokens';
+    if (caps.pricing !== false && overCap(dayState.guestMicros, dayState.guestHeldMicros, addMicros, caps.guestPool.micros || 0)) return 'guest_global_spend';
+  }
   const globalCaps = caps.global || {};
-  if (overCap(state.global.tokens, state.global.heldTokens, addTokens, globalCaps.tokens || 0)) return 'global_tokens';
-  if (caps.pricing !== false && overCap(state.global.micros, state.global.heldMicros, addMicros, globalCaps.micros || 0)) return 'global_spend';
+  if (overCap(dayState.tokens, dayState.heldTokens, addTokens, globalCaps.tokens || 0)) return 'global_tokens';
+  if (caps.pricing !== false && overCap(dayState.micros, dayState.heldMicros, addMicros, globalCaps.micros || 0)) return 'global_spend';
   return '';
 }
 
-function rollLedgerDay(state, day) {
-  if (state.day === day) return state;
-  const previous = state;
-  const next = emptyLedgerState(day);
-  Object.keys(previous.open || {}).forEach((id) => {
-    const reservation = previous.open[id];
-    if (!reservation) return;
-    moveHoldToSpent(next, Object.assign({}, reservation, { calls:reservation.calls || 0, tokens:0, micros:0 }), reservation.tokens || 0, reservation.micros || 0);
-  });
+async function unlinkNode(storage, dayState, seq) {
+  if (!seq) return;
+  const node = await storage.get('inode:' + seq);
+  if (!node) {
+    if (dayState.ihead === seq) dayState.ihead = 0;
+    if (dayState.itail === seq) dayState.itail = 0;
+    return;
+  }
+  if (node.prev) {
+    const prev = await storage.get('inode:' + node.prev);
+    if (prev) {
+      prev.next = node.next || 0;
+      await storage.put('inode:' + node.prev, prev);
+    }
+  } else dayState.ihead = node.next || 0;
+  if (node.next) {
+    const next = await storage.get('inode:' + node.next);
+    if (next) {
+      next.prev = node.prev || 0;
+      await storage.put('inode:' + node.next, next);
+    }
+  } else dayState.itail = node.prev || 0;
+  await storage.delete('inode:' + seq);
+}
+
+async function linkTail(storage, dayState, seq, idem, subject, clientKey, expiresAt) {
+  const node = { seq, idem, subject, clientKey, prev:dayState.itail || 0, next:0, expiresAt };
+  if (dayState.itail) {
+    const tail = await storage.get('inode:' + dayState.itail);
+    if (tail) {
+      tail.next = seq;
+      await storage.put('inode:' + dayState.itail, tail);
+    } else dayState.ihead = seq;
+  } else dayState.ihead = seq;
+  dayState.itail = seq;
+  await storage.put('inode:' + seq, node);
+}
+
+async function removeFromIndex(storage, subject, seq) {
+  const key = 'iidx:' + subject;
+  const index = await storage.get(key);
+  if (!Array.isArray(index)) return;
+  const next = index.filter((item) => item !== seq);
+  if (next.length) await storage.put(key, next);
+  else await storage.delete(key);
+}
+
+async function deleteIdem(storage, dayState, subject, clientKey, row) {
+  if (row && row.seq) {
+    await removeFromIndex(storage, subject, row.seq);
+    await unlinkNode(storage, dayState, row.seq);
+    dayState.idemCount = Math.max(0, (dayState.idemCount || 0) - 1);
+  }
+  if (clientKey) await storage.delete(idemStorageKey(subject, clientKey));
+}
+
+async function evictOldest(storage, dayState) {
+  const seq = dayState.ihead;
+  if (!seq) {
+    dayState.idemCount = 0;
+    return;
+  }
+  const node = await storage.get('inode:' + seq);
+  if (!node) {
+    dayState.ihead = 0;
+    dayState.itail = 0;
+    dayState.idemCount = 0;
+    return;
+  }
+  await removeFromIndex(storage, node.subject, seq);
+  if (node.idem) await storage.delete(node.idem);
+  await unlinkNode(storage, dayState, seq);
+  dayState.idemCount = Math.max(0, (dayState.idemCount || 0) - 1);
+}
+
+async function evictSubjectOverflow(storage, dayState, subject) {
+  const key = 'iidx:' + subject;
+  let index = await storage.get(key);
+  if (!Array.isArray(index)) return;
+  let guard = index.length + 1;
+  while (index.length > IDEMPOTENCY_PER_SUBJECT_CAP && guard > 0) {
+    guard -= 1;
+    let chosen = 0;
+    for (let i = 0; i < index.length; i += 1) {
+      const node = await storage.get('inode:' + index[i]);
+      const row = node && node.idem ? await storage.get(node.idem) : null;
+      if (!row || row.status !== 'running') { chosen = i; break; }
+    }
+    const seq = index[chosen];
+    index.splice(chosen, 1);
+    const node = await storage.get('inode:' + seq);
+    if (node && node.idem) await storage.delete(node.idem);
+    await unlinkNode(storage, dayState, seq);
+    dayState.idemCount = Math.max(0, (dayState.idemCount || 0) - 1);
+  }
+  if (index.length) await storage.put(key, index);
+  else await storage.delete(key);
+}
+
+async function rememberRunning(storage, dayState, subject, clientKey, bodyHash, reservationId, now, ttl) {
+  const idem = idemStorageKey(subject, clientKey);
+  const seq = (dayState.iseq = (dayState.iseq || 0) + 1);
+  const expiresAt = now + ttl;
+  await storage.put(idem, { bodyHash, status:'running', httpStatus:0, response:null, expiresAt, reservationId, seq });
+  await linkTail(storage, dayState, seq, idem, subject, clientKey, expiresAt);
+  const indexKey = 'iidx:' + subject;
+  const index = (await storage.get(indexKey)) || [];
+  index.push(seq);
+  await storage.put(indexKey, index);
+  dayState.idemCount = (dayState.idemCount || 0) + 1;
+  await evictSubjectOverflow(storage, dayState, subject);
+  let guard = (dayState.idemCount || 0) + 1;
+  while ((dayState.idemCount || 0) > IDEMPOTENCY_TOTAL_CAP && guard > 0) {
+    guard -= 1;
+    await evictOldest(storage, dayState);
+  }
+}
+
+async function loadIdem(storage, dayState, subject, clientKey, now) {
+  if (!clientKey) return null;
+  const row = await storage.get(idemStorageKey(subject, clientKey));
+  if (!row) return null;
+  if (Number(row.expiresAt || 0) <= now) {
+    await deleteIdem(storage, dayState, subject, clientKey, row);
+    return null;
+  }
+  return row;
+}
+
+async function rollToDay(storage, previous, day) {
+  const next = emptyDay(day);
+  next.idemCount = previous.idemCount || 0;
+  next.iseq = previous.iseq || 0;
+  next.ihead = previous.ihead || 0;
+  next.itail = previous.itail || 0;
+  next.oldestOpenAt = previous.oldestOpenAt || 0;
+  next.cleanupPending = previous.cleanupPending || '';
+  const ids = Array.isArray(previous.open) ? previous.open.slice() : [];
+  for (const id of ids) {
+    const reservation = await storage.get('res:' + id);
+    if (!reservation) continue;
+    await creditExisting(storage, next, reservation);
+    next.open.push(id);
+  }
+  // The new day is stored before cleanup. A cleanup failure must not roll it back.
+  await storage.put('day', next);
+  const days = [];
+  if (next.cleanupPending) days.push(next.cleanupPending);
+  if (previous.day && previous.day !== day && days.indexOf(previous.day) < 0) days.push(previous.day);
+  let pending = '';
+  for (let index = 0; index < days.length; index += 1) {
+    try {
+      await deletePrefix(storage, 'bal:' + days[index] + ':');
+      await deletePrefix(storage, 'min:' + days[index] + ':');
+    } catch (_error) {
+      if (!pending) pending = days[index];
+    }
+  }
+  if ((pending || '') !== (next.cleanupPending || '')) {
+    next.cleanupPending = pending;
+    await storage.put('day', next);
+  }
   return next;
 }
 
-function recoverStaleReservations(state, now, ttl) {
-  Object.keys(state.open || {}).forEach((id) => {
-    const reservation = state.open[id];
-    if (!reservation || now - Number(reservation.createdAt || 0) < ttl) return;
-    moveHoldToSpent(state, reservation, reservation.tokens, reservation.micros);
-    delete state.open[id];
-  });
-}
-
-function pruneIdempotency(state, now) {
-  Object.keys(state.idem || {}).forEach((key) => {
-    if (!state.idem[key] || Number(state.idem[key].expiresAt || 0) <= now) delete state.idem[key];
-  });
+async function recoverStale(storage, dayState, now, ttl) {
+  const ids = Array.isArray(dayState.open) ? dayState.open : [];
+  if (!ids.length) {
+    if (dayState.oldestOpenAt) {
+      dayState.oldestOpenAt = 0;
+      return true;
+    }
+    return false;
+  }
+  // A fresh oldest reservation cannot be stale, so a begin does not read
+  // every open id. The read count stays flat as the number of subjects grows.
+  const oldest = Number(dayState.oldestOpenAt || 0);
+  if (oldest && now - oldest < ttl) return false;
+  let changed = false;
+  const keep = [];
+  let nextOldest = 0;
+  for (const id of ids) {
+    const reservation = await storage.get('res:' + id);
+    if (!reservation) { changed = true; continue; }
+    const created = Number(reservation.createdAt || 0);
+    if (now - created < ttl) {
+      keep.push(id);
+      if (!nextOldest || created < nextOldest) nextOldest = created;
+      continue;
+    }
+    await moveHoldToSpent(storage, dayState, reservation, reservation.tokens, reservation.micros);
+    await storage.delete('res:' + id);
+    changed = true;
+  }
+  if (changed || nextOldest !== oldest) {
+    dayState.open = keep;
+    dayState.oldestOpenAt = nextOldest;
+    return true;
+  }
+  return false;
 }
 
 async function applyLedgerOp(storage, op) {
+  const salt = op && op.ledgerSalt || '';
+  op = Object.assign({}, op, {
+    subject:await ledgerKeyMaterial(op && op.subject, salt),
+    aggregate:await ledgerKeyMaterial(op && op.aggregate, salt),
+    network:await ledgerKeyMaterial(op && op.network, salt)
+  });
   const now = Number(op && op.now) || Date.now();
   const day = String(op && op.day || '');
   const ttl = Number(op && op.ttl) > 0 ? Number(op.ttl) : 180000;
   const idemTtl = Number(op && op.idemTtl) > 0 ? Number(op.idemTtl) : 600000;
   const replayMax = Number(op && op.replayMax) > 0 ? Number(op.replayMax) : IDEMPOTENCY_REPLAY_BYTES;
-  let state = await storage.get(LEDGER_STATE_KEY);
-  if (!state || typeof state !== 'object') state = emptyLedgerState(day);
-  state = rollLedgerDay(state, day);
-  recoverStaleReservations(state, now, ttl);
-  pruneIdempotency(state, now);
+  let dayState = await storage.get('day');
+  if (!dayState || typeof dayState !== 'object') dayState = emptyDay(day);
+  let changed = false;
+  if (dayState.day && day !== dayState.day) {
+    dayState = await rollToDay(storage, dayState, day);
+    changed = true;
+  } else if (dayState.cleanupPending) {
+    const pendingDay = dayState.cleanupPending;
+    try {
+      const moreBalances = await deletePrefixBatch(storage, 'bal:' + pendingDay + ':');
+      const moreMinutes = await deletePrefixBatch(storage, 'min:' + pendingDay + ':');
+      if (!moreBalances && !moreMinutes) dayState.cleanupPending = '';
+    } catch (_error) {}
+    changed = true;
+  }
+  if (!dayState.day) dayState.day = day;
+  if (await recoverStale(storage, dayState, now, ttl)) changed = true;
   const action = String(op && op.action || '');
-  let result = { ok:false };
+  let result = { ok:false, unavailable:true };
   if (action === 'begin') {
     const key = String(op.idempotencyKey || '');
-    const existing = key ? state.idem[key] : null;
-    if (existing && Number(existing.expiresAt || 0) > now) {
-      if (existing.bodyHash !== op.bodyHash) result = { ok:false, mode:'conflict' };
-      else if (existing.status === 'running') result = { ok:false, mode:'in_progress' };
-      else if (existing.status === 'completed' && typeof existing.response === 'string') result = { ok:true, mode:'replay', httpStatus:existing.httpStatus || 200, response:existing.response };
-      else if (existing.status === 'completed') result = { ok:false, mode:'completed_unreplayable', httpStatus:existing.httpStatus || 409 };
-      else result = { ok:false, mode:'in_progress' };
-    } else {
-      bumpMinute(minuteSlot(state, 'subject:' + op.subject), now);
-      bumpMinute(minuteSlot(state, 'ip:' + op.network), now);
+    const subject = String(op.subject || '');
+    const idemBefore = dayState.idemCount || 0;
+    const existing = await loadIdem(storage, dayState, subject, key, now);
+    if (existing || (dayState.idemCount || 0) !== idemBefore) changed = true;
+    if (existing && existing.bodyHash !== op.bodyHash) result = { ok:false, mode:'conflict' };
+    else if (existing && existing.status === 'running') result = { ok:false, mode:'in_progress' };
+    else if (existing && existing.status === 'completed' && existing.httpStatus === 200 && typeof existing.response === 'string') {
+      result = { ok:true, mode:'replay', httpStatus:200, response:existing.response };
+    } else if (existing && existing.status === 'completed') result = { ok:false, mode:'completed_unreplayable', httpStatus:existing.httpStatus || 409 };
+    else {
       const add = op.add || {};
-      const hit = quotaCode(state, op, add.calls || 0, add.tokens || 0, add.micros || 0, true);
-      if (hit) {
-        if (key) {
-          state.idem[key] = { bodyHash:op.bodyHash, status:'completed', httpStatus:429, response:null, expiresAt:now + idemTtl, reservationId:'' };
-        }
-        result = { ok:false, mode:'quota', quota:hit };
-      } else {
+      const hit = await quotaHit(storage, dayState, op, add.calls || 0, add.tokens || 0, add.micros || 0, true, now);
+      if (hit) result = { ok:false, mode:'quota', quota:hit };
+      else {
         const reservation = {
           id:String(op.reservationId || ''),
-          subject:String(op.subject || ''),
+          subject,
           aggregate:String(op.aggregate || ''),
           network:String(op.network || ''),
-          calls:0,
-          tokens:0,
-          micros:0,
+          calls:0, tokens:0, micros:0,
           createdAt:now,
-          visitorHash:String(op.visitorHash || '')
+          visitorHash:String(op.visitorHash || ''),
+          guestPool:!!(op.caps && op.caps.guestPool)
         };
-        addHold(state, reservation, add.calls || 0, add.tokens || 0, add.micros || 0);
-        state.open[reservation.id] = reservation;
-        if (key) {
-          state.idem[key] = { bodyHash:op.bodyHash, status:'running', httpStatus:0, response:null, expiresAt:now + idemTtl, reservationId:reservation.id };
-        }
+        await takeHold(storage, dayState, reservation, add.calls || 0, add.tokens || 0, add.micros || 0);
+        await storage.put('res:' + reservation.id, reservation);
+        dayState.open = (dayState.open || []).concat([reservation.id]);
+        if (!dayState.oldestOpenAt) dayState.oldestOpenAt = now;
+        const window = Math.floor(now / 60000);
+        await writeMinute(storage, day, window, 's:' + subject, (await readMinute(storage, day, window, 's:' + subject)) + 1);
+        await writeMinute(storage, day, window, 'ip:' + reservation.network, (await readMinute(storage, day, window, 'ip:' + reservation.network)) + 1);
+        if (key) await rememberRunning(storage, dayState, subject, key, op.bodyHash, reservation.id, now, ttl);
+        changed = true;
         result = { ok:true, mode:'owner', reservationId:reservation.id, reservedTokens:reservation.tokens, reservedMicros:reservation.micros };
       }
     }
   } else if (action === 'extend') {
-    const reservation = state.open[String(op.reservationId || '')];
+    const reservation = await storage.get('res:' + String(op.reservationId || ''));
     if (!reservation) result = { ok:false, missing:true };
     else {
       const add = op.add || {};
-      const hit = quotaCode(state, {
+      const hit = await quotaHit(storage, dayState, {
         subject:reservation.subject,
         aggregate:reservation.aggregate,
         network:reservation.network,
         caps:op.caps || {}
-      }, 0, add.tokens || 0, add.micros || 0, false);
+      }, 0, add.tokens || 0, add.micros || 0, false, now);
       if (hit) result = { ok:false, mode:'quota', quota:hit };
       else {
-        addHold(state, reservation, 0, add.tokens || 0, add.micros || 0);
+        await takeHold(storage, dayState, reservation, 0, add.tokens || 0, add.micros || 0);
+        await storage.put('res:' + reservation.id, reservation);
+        changed = true;
         result = { ok:true, reservedTokens:reservation.tokens, reservedMicros:reservation.micros };
       }
     }
   } else if (action === 'release') {
-    const reservation = state.open[String(op.reservationId || '')];
+    const id = String(op.reservationId || '');
+    const reservation = await storage.get('res:' + id);
     if (reservation) {
-      releaseHold(state, reservation);
-      delete state.open[reservation.id];
+      await releaseHold(storage, dayState, reservation);
+      await storage.delete('res:' + id);
+      dayState.open = (dayState.open || []).filter((item) => item !== id);
+      if (!dayState.open.length) dayState.oldestOpenAt = 0;
+      changed = true;
     }
     result = { ok:true, released:!!reservation };
   } else if (action === 'settle') {
-    const reservation = state.open[String(op.reservationId || '')];
+    const id = String(op.reservationId || '');
+    const reservation = await storage.get('res:' + id);
     if (!reservation) result = { ok:true, already:true };
     else {
-      moveHoldToSpent(state, reservation, op.billedTokens, op.billedMicros);
-      delete state.open[reservation.id];
+      await moveHoldToSpent(storage, dayState, reservation, op.billedTokens, op.billedMicros);
+      await storage.delete('res:' + id);
+      dayState.open = (dayState.open || []).filter((item) => item !== id);
+      if (!dayState.open.length) dayState.oldestOpenAt = 0;
+      changed = true;
       result = { ok:true, settledTokens:Math.max(0, Math.round(Number(op.billedTokens) || 0)), settledMicros:Math.max(0, Math.round(Number(op.billedMicros) || 0)) };
     }
   } else if (action === 'complete') {
     const key = String(op.idempotencyKey || '');
-    const row = key ? state.idem[key] : null;
-    if (row) {
+    const subject = String(op.subject || '');
+    const idem = key ? idemStorageKey(subject, key) : '';
+    const row = idem ? await storage.get(idem) : null;
+    const status = Number(op.httpStatus) || 0;
+    const storeCap = Math.min(replayMax, IDEMPOTENCY_VALUE_CAP);
+    if (!row) result = { ok:true, stored:false };
+    else if (status === 200 && typeof op.response === 'string' && byteLength(op.response) <= storeCap) {
       row.status = 'completed';
-      row.httpStatus = Number(op.httpStatus) || row.httpStatus || 200;
+      row.httpStatus = 200;
+      row.response = op.response;
+      row.expiresAt = now + idemTtl;
       row.reservationId = String(op.reservationId || row.reservationId || '');
-      if (typeof op.response === 'string' && byteLength(op.response) <= replayMax) row.response = op.response;
-      else row.response = null;
-      result = { ok:true, stored:typeof row.response === 'string' };
-    } else result = { ok:true, stored:false };
-  } else result = { ok:false, unavailable:true };
-  await storage.put(LEDGER_STATE_KEY, state);
+      await storage.put(idem, row);
+      result = { ok:true, stored:true };
+    } else if (status === 200) {
+      row.status = 'completed';
+      row.httpStatus = 200;
+      row.response = null;
+      row.expiresAt = now + idemTtl;
+      row.reservationId = String(op.reservationId || row.reservationId || '');
+      await storage.put(idem, row);
+      result = { ok:true, stored:false };
+    } else {
+      await deleteIdem(storage, dayState, subject, key, row);
+      changed = true;
+      result = { ok:true, stored:false };
+    }
+  }
+  if (changed) await storage.put('day', dayState);
   return result;
 }
 
@@ -1485,38 +1938,15 @@ class UsageLedger {
     if (!storage || typeof storage.get !== 'function' || typeof storage.put !== 'function') {
       return new Response(JSON.stringify({ ok:false, unavailable:true }), { status:500, headers:{ 'Content-Type':'application/json' } });
     }
-    const run = typeof storage.transaction === 'function' ? (fn) => storage.transaction(fn) : (fn) => fn();
     try {
-      const result = await run(() => applyLedgerOp(storage, op));
+      const result = typeof storage.transaction === 'function'
+        ? await storage.transaction((tx) => applyLedgerOp(tx, op))
+        : await applyLedgerOp(storage, op);
       return new Response(JSON.stringify(result), { status:200, headers:{ 'Content-Type':'application/json' } });
     } catch (_error) {
       return new Response(JSON.stringify({ ok:false, unavailable:true }), { status:500, headers:{ 'Content-Type':'application/json' } });
     }
   }
-}
-
-function createMemoryUsageLedger() {
-  const map = new Map();
-  const storage = {
-    async get(key) {
-      if (!map.has(key)) return undefined;
-      return JSON.parse(JSON.stringify(map.get(key)));
-    },
-    async put(key, value) {
-      map.set(key, JSON.parse(JSON.stringify(value)));
-    },
-    async delete(key) { map.delete(key); },
-    async transaction(fn) { return await fn(); }
-  };
-  const ledger = new UsageLedger({ storage });
-  let chain = Promise.resolve();
-  return {
-    fetch(request) {
-      const run = chain.then(() => ledger.fetch(request));
-      chain = run.then(() => undefined, () => undefined);
-      return run;
-    }
-  };
 }
 
 function callerSpendMode(caller) {
@@ -1532,7 +1962,8 @@ function ledgerCaps(limits, mode) {
     subject:{ minute:personal.minute, calls:personal.calls, tokens:personal.tokens, micros:personal.micros },
     ipMinute:limits.ipMinute,
     aggregate:mode === 'guest-session' ? limits.guestIp : null,
-    global:limits.global
+    global:limits.global,
+    guestPool:mode === 'user' ? null : limits.guestPool
   };
 }
 
@@ -1548,7 +1979,9 @@ function publicQuota(mode, code) {
     aggregate_tokens:'guest_network_tokens',
     aggregate_spend:'guest_network_spend',
     global_tokens:'global_daily_tokens',
-    global_spend:'global_daily_spend'
+    global_spend:'global_daily_spend',
+    guest_global_tokens:'guest_global_daily_tokens',
+    guest_global_spend:'guest_global_daily_spend'
   };
   return names[code] || 'usage';
 }
@@ -1568,7 +2001,9 @@ function quotaCopy(quota, resetsAt, signInRequired) {
     guest_network_tokens:'today’s shared-network guest token limit',
     guest_network_spend:'today’s shared-network guest model allowance',
     global_daily_tokens:'today’s shared Marg token allowance',
-    global_daily_spend:'today’s shared Marg model allowance'
+    global_daily_spend:'today’s shared Marg model allowance',
+    guest_global_daily_tokens:'today’s shared guest token allowance',
+    guest_global_daily_spend:'today’s shared guest model allowance'
   }[quota] || 'today’s usage allowance';
   return 'Marg paused this request because it would pass ' + label + '.' + (resetsAt ? ' It resets at ' + resetsAt + '.' : '') + (signInRequired ? ' Sign in to continue as a student.' : '');
 }
@@ -1579,18 +2014,19 @@ function idempotencyKeyFrom(request) {
   return cleaned.length >= 8 ? cleaned : '';
 }
 
+function servicePaused(env, caller) {
+  if (String(env && env.MARG_GEMINI_PAUSED || '') === '1') return true;
+  if (String(env && env.MARG_GUESTS_PAUSED || '') === '1' && (!caller || caller.kind !== 'user')) return true;
+  return false;
+}
+
 async function ledgerFetch(env, op) {
-  const memory = env && env.MARG_USAGE_LEDGER_MEMORY;
+  const payload = Object.assign({}, op || {}, { ledgerSalt:env && env.MARG_LEDGER_HASH_SALT ? String(env.MARG_LEDGER_HASH_SALT) : '' });
   try {
-    if (memory && typeof memory.fetch === 'function') {
-      const response = await memory.fetch(new Request('https://ledger.internal/', { method:'POST', body:JSON.stringify(op) }));
-      if (!response || !response.ok) return { ok:false, unavailable:true };
-      return await response.json();
-    }
     const namespace = env && env.MARG_USAGE_LEDGER;
     if (!namespace || typeof namespace.idFromName !== 'function' || typeof namespace.get !== 'function') return { ok:false, unavailable:true };
     const stub = namespace.get(namespace.idFromName('marg-usage-ledger'));
-    const response = await stub.fetch(new Request('https://ledger.internal/', { method:'POST', body:JSON.stringify(op) }));
+    const response = await stub.fetch(new Request('https://ledger.internal/', { method:'POST', body:JSON.stringify(payload) }));
     if (!response || !response.ok) return { ok:false, unavailable:true };
     return await response.json();
   } catch (_error) {
@@ -1598,7 +2034,7 @@ async function ledgerFetch(env, op) {
   }
 }
 
-async function rememberIdempotent(env, limits, key, bodyHash, reservationId, response) {
+async function rememberIdempotent(env, limits, key, bodyHash, reservationId, response, subject) {
   if (!key) return { stored:false };
   let text = '';
   try { text = await response.clone().text(); } catch (_error) { text = ''; }
@@ -1610,6 +2046,7 @@ async function rememberIdempotent(env, limits, key, bodyHash, reservationId, res
     idemTtl:limits.idemTtl,
     replayMax:limits.replayMax,
     idempotencyKey:key,
+    subject:subject || '',
     bodyHash,
     reservationId:reservationId || '',
     httpStatus:response.status,
@@ -1617,12 +2054,13 @@ async function rememberIdempotent(env, limits, key, bodyHash, reservationId, res
   });
 }
 
-export { resolveMaxOutputTokens, UsageLedger, createMemoryUsageLedger };
+
+export { resolveMaxOutputTokens, UsageLedger };
 
 function usageCounts(usage) {
   if (!usage || typeof usage !== 'object') return null;
   const counts = {};
-  ['promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount', 'totalTokenCount', 'cachedContentTokenCount'].forEach((key) => {
+  ['promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount', 'totalTokenCount', 'cachedContentTokenCount', 'toolUsePromptTokenCount'].forEach((key) => {
     if (Number.isFinite(Number(usage[key]))) counts[key] = Number(usage[key]);
   });
   return Object.keys(counts).length ? counts : null;
@@ -1679,6 +2117,7 @@ export default {
     // Kept on the log line so older dashboards still have the field. Invalid
     // and unavailable sessions are rejected above, whether or not this is set.
     const authStrict = String(env && env.MARG_AUTH_STRICT || '').trim().toLowerCase() === 'on';
+    const guestPool = guestPoolFromEnv(env);
     let issuedGuestToken = '';
     const record = {
       event:'marg_worker_request',
@@ -1698,7 +2137,12 @@ export default {
       upstreamCalls:0,
       usageMetadata:null,
       reservedTokens:0,
+      reservedMicros:0,
       settledTokens:0,
+      settledMicros:0,
+      guestPoolConfigured:guestPool != null,
+      guestPoolPartial:!!(guestPool && guestPool.partial),
+      ledgerSaltConfigured:!!(env && String(env.MARG_LEDGER_HASH_SALT || '').trim()),
       httpStatus:0
     };
     let logged = false;
@@ -1814,13 +2258,19 @@ export default {
     if (!validation.upstreamPayload || !Array.isArray(validation.upstreamPayload.contents) || validation.upstreamPayload.contents.length === 0) {
       return finish(jsonResponse({ error:{ code:400, status:'MISSING_CONTENTS', message:'Gemini contents are required', request_id:requestId } }, 400, responseHeaders), { rejectReasons:record.rejectReasons.concat(['MISSING_CONTENTS']) });
     }
+    if (servicePaused(env, caller)) {
+      return finish(jsonResponse({ error:{ code:503, status:'SERVICE_PAUSED', message:'Marg is paused. This request was not sent to the model.', request_id:requestId, retryable:false } }, 503, responseHeaders), { upstreamCalls:0, rejectReasons:['SERVICE_PAUSED'] });
+    }
     if (!env || !env.GEMINI_API_KEY) return finish(jsonResponse({ error:{ code:500, status:'MISSING_API_KEY', message:'GEMINI_API_KEY is not configured', request_id:requestId } }, 500, responseHeaders));
 
-    const limits = spendLimits(env);
+    const limits = spendLimits(env, guestPool);
     const mode = callerSpendMode(caller);
     const idemKey = idempotencyKeyFrom(request);
     const bodyHash = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawBodyText)));
     const grounded = !!validation.requestedGrounding;
+    if (grounded && (caller.kind !== 'user' || !groundingMicrosPerQuery(env))) {
+      return finish(jsonResponse({ error:{ code:503, status:'GROUNDING_UNAVAILABLE', message:'Web lookup is unavailable right now. Check the official source.', request_id:requestId, retryable:false } }, 503, responseHeaders), { upstreamCalls:0, rejectReasons:['GROUNDING_UNAVAILABLE'] });
+    }
     const perAttempt = estimateAttempt(env, validation.upstreamPayload || payload, validation.outputTokensSent, grounded);
     const now = Date.now();
     const began = await ledgerFetch(env, {
@@ -1841,6 +2291,7 @@ export default {
       visitorHash:caller.clientId ? await subjectHash('visitor:' + caller.clientId) : ''
     });
     record.reservedTokens = began && began.reservedTokens || 0;
+    record.reservedMicros = began && began.reservedMicros || 0;
     if (!began || began.unavailable) {
       return finish(jsonResponse({ error:{ code:503, status:'SPENDING_CONTROL_UNAVAILABLE', message:'Marg could not check the usage allowance, so this request was not sent to the model.', request_id:requestId, retryable:true } }, 503, responseHeaders), { rejectReasons:['SPENDING_CONTROL_UNAVAILABLE'] });
     }
@@ -1866,12 +2317,16 @@ export default {
       const resetsAt = resetsAtFor(now, limits.zone, minute);
       const signInRequired = quota.indexOf('guest_') === 0;
       const denied = jsonResponse({ error:{ code:429, status:'QUOTA_EXCEEDED', quota, message:quotaCopy(quota, resetsAt, signInRequired), resetsAt, retryable:minute, signInRequired, request_id:requestId } }, 429, Object.assign(minute ? { 'Retry-After':String(Math.max(1, Math.ceil((new Date(resetsAt).getTime() - now) / 1000))) } : {}, responseHeaders));
-      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, '', denied);
+      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, '', denied, caller.subject);
       return finish(denied, { rejectReasons:[quota] });
+    }
+    if (began.mode !== 'owner' || !began.reservationId) {
+      return finish(jsonResponse({ error:{ code:503, status:'SPENDING_CONTROL_UNAVAILABLE', message:'Marg could not check the usage allowance, so this request was not sent to the model.', request_id:requestId, retryable:true } }, 503, responseHeaders), { rejectReasons:['SPENDING_CONTROL_UNAVAILABLE'] });
     }
 
     const reservationId = began.reservationId;
     record.reservedTokens = began.reservedTokens || perAttempt.tokens;
+    record.reservedMicros = began.reservedMicros || perAttempt.micros;
     const settleOrRelease = async (generated) => {
       const started = !!(generated && (generated.upstreamStarted || (generated.attempts && generated.attempts.length)));
       if (!started) {
@@ -1879,7 +2334,7 @@ export default {
         record.settledTokens = 0;
         return { tokens:0, micros:0 };
       }
-      const billed = billAttempts(env, generated.attempts, perAttempt, grounded);
+      const billed = billAttempts(env, generated.attempts, perAttempt, grounded ? searchQueryCount(generated && generated.json) : 0);
       await ledgerFetch(env, {
         action:'settle',
         now:Date.now(),
@@ -1917,6 +2372,7 @@ export default {
             return { stop:true, status:429, error:{ code:429, status:'QUOTA_EXCEEDED', quota, message:quotaCopy(quota, resetsAt, quota.indexOf('guest_') === 0), resetsAt, retryable:false, signInRequired:quota.indexOf('guest_') === 0 } };
           }
           record.reservedTokens = extra.reservedTokens || record.reservedTokens;
+          record.reservedMicros = extra.reservedMicros || record.reservedMicros;
           return { ok:true };
         }
       });
@@ -1968,7 +2424,7 @@ export default {
           headers:Object.assign({ 'Content-Type':'application/json; charset=utf-8' }, CORS_HEADERS, responseHeaders)
         });
       }
-      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, reservationId, response);
+      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, reservationId, response, caller.subject);
       return finish(response);
     } catch (_error) {
       const started = !!(_error && _error.upstreamStarted);
@@ -1978,7 +2434,7 @@ export default {
       const failure = jsonResponse({
         error:{ code:502, status:'WORKER_UPSTREAM_FAILURE', message:'Marg could not reach its answer service.', request_id:requestId, retryable:true }
       }, 502, responseHeaders);
-      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, reservationId, failure);
+      if (idemKey) await rememberIdempotent(env, limits, idemKey, bodyHash, reservationId, failure, caller.subject);
       return finish(failure);
     }
   }
