@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createMemoryUsageLedger } from './worker-ledger-memory.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const TIMEOUT_MS = 240000;
@@ -81,10 +82,14 @@ globalThis.fetch = async (url, options) => {
   throw new Error('unexpected upstream ' + target);
 };
 
+function bindLedger(ledger) {
+  return { idFromName(name) { return name; }, get() { return ledger; } };
+}
+
 function envFor(ledger, extra) {
   return Object.assign({
     GEMINI_API_KEY: 'TEST_NOT_REAL',
-    MARG_USAGE_LEDGER_MEMORY: ledger,
+    MARG_USAGE_LEDGER: bindLedger(ledger),
     MARG_USER_REQUESTS_PER_MINUTE: '1000',
     MARG_GUEST_REQUESTS_PER_MINUTE: '1000',
     MARG_IP_REQUESTS_PER_MINUTE: '1000'
@@ -92,7 +97,12 @@ function envFor(ledger, extra) {
 }
 
 function makeLedger() {
-  return worker.createMemoryUsageLedger({ maxValueBytes: VALUE_LIMIT });
+  return createMemoryUsageLedger(worker.UsageLedger, { maxValueBytes: VALUE_LIMIT, strict: true });
+}
+
+async function storageHash(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 32);
 }
 
 async function check(name, fn) {
@@ -372,7 +382,7 @@ await check('L3 refused requests create no subject or minute records and values 
   detail('measure refuseMs=' + refuseMs + ' sessionMs=' + sessionMs + ' reads=' + readsA + ' writes=' + writesA + ' sessionMax=' + sessionMax + ' successMax=' + successMax + ' keys=' + sessionLedger.storage.keys().length);
   if (!constant) detail('reads ' + readsA + ' vs ' + readsB + ' writes ' + writesA + ' vs ' + writesB);
 
-  const oldMinute = 'min:' + day + ':' + Math.floor(now / 60000) + ':s:user:prune';
+  const oldMinute = 'min:' + day + ':' + Math.floor(now / 60000) + ':s:' + await storageHash('user:prune');
   await costLedger.storage.put(oldMinute, { day, window: Math.floor(now / 60000), count: 1 });
   await ledgerOp(costLedger, {
     action: 'begin', now: now + 60000, day, ttl: 180000, subject: 'user:prune', network: '203.0.113.43', caps: baseCaps,
@@ -665,6 +675,323 @@ await check('L8 one hundred concurrent requests never pass a small global cap', 
   if (!ok) detail('successes=' + successes + ' gemini=' + geminiCalls + ' allowed=' + allowed + ' held=' + held);
   geminiHandler = null;
   return ok;
+});
+
+function wideCaps(extra) {
+  return Object.assign({}, baseCaps, { ipMinute: 100000, subject: { minute: 100000, calls: 100000, tokens: 50000000, micros: 50000000 } }, extra || {});
+}
+
+async function storedText(ledger) {
+  const keys = ledger.storage.keys();
+  const parts = [];
+  for (const key of keys) parts.push(key + '\n' + JSON.stringify(await ledger.storage.get(key)));
+  return parts.join('\n');
+}
+
+await check('L9 a Map from storage.list rolls the day and the next operation still runs', async () => {
+  const ledger = makeLedger();
+  const now = Date.parse('2026-10-31T23:50:00+05:30');
+  const caps = wideCaps();
+  const day1 = await ledgerOp(ledger, { action: 'begin', now, day: '2026-10-31', ttl: 180000, subject: 'user:day1', network: '203.0.113.10', caps, add: { calls: 1, tokens: 20, micros: 10 }, reservationId: 'map-r1', bodyHash: 'h' });
+  const listed = await ledger.storage.list({ prefix: 'bal:' });
+  const day2 = await ledgerOp(ledger, { action: 'begin', now: now + 1000, day: '2026-11-01', ttl: 180000, subject: 'user:day1', network: '203.0.113.10', caps, add: { calls: 1, tokens: 20, micros: 10 }, reservationId: 'map-r2', bodyHash: 'h2' });
+  const day2again = await ledgerOp(ledger, { action: 'begin', now: now + 1001, day: '2026-11-01', ttl: 180000, subject: 'user:other', network: '203.0.113.11', caps, add: { calls: 1, tokens: 20, micros: 10 }, reservationId: 'map-r3', bodyHash: 'h3' });
+  const stored = await ledger.storage.get('day');
+  const ok = listed instanceof Map && day1.mode === 'owner' && day2.mode === 'owner' && day2again.mode === 'owner' && stored && stored.day === '2026-11-01';
+  if (!ok) detail('day1=' + JSON.stringify(day1) + ' day2=' + JSON.stringify(day2) + ' again=' + JSON.stringify(day2again) + ' stored=' + (stored && stored.day));
+  return ok;
+});
+
+await check('L9 day roll keeps an open reservation and drops previous-day keys for 1, 500 and 5000 subjects', async () => {
+  const now = Date.parse('2026-10-31T23:00:00+05:30');
+  const caps = wideCaps();
+  for (const count of [1, 500, 5000]) {
+    const ledger = makeLedger();
+    for (let index = 0; index < count; index += 1) {
+      const begun = await ledgerOp(ledger, {
+        action: 'begin', now, day: '2026-10-31', ttl: 180000, subject: 'user:bulk-' + index, network: '203.0.113.10', caps,
+        add: { calls: 1, tokens: 20, micros: 10 }, reservationId: 'bulk-' + count + '-' + index, bodyHash: 'b'
+      });
+      if (!begun || begun.mode !== 'owner') {
+        detail('begin failed at ' + count + '/' + index + ' ' + JSON.stringify(begun));
+        return false;
+      }
+      await ledgerOp(ledger, { action: 'release', now, day: '2026-10-31', ttl: 180000, reservationId: 'bulk-' + count + '-' + index });
+    }
+    const open = await ledgerOp(ledger, {
+      action: 'begin', now, day: '2026-10-31', ttl: 180000, idemTtl: 600000, subject: 'user:open-' + count, network: '203.0.113.10', caps,
+      add: { calls: 1, tokens: 30, micros: 12 }, reservationId: 'open-' + count, bodyHash: 'open', idempotencyKey: 'open-key-' + count
+    });
+    await ledgerOp(ledger, {
+      action: 'complete', now, day: '2026-10-31', ttl: 180000, idemTtl: 600000, replayMax: 1024,
+      subject: 'user:open-' + count, idempotencyKey: 'open-key-' + count, bodyHash: 'open', httpStatus: 200, response: '{"kept":true}', reservationId: 'open-' + count
+    });
+    const rolled = await ledgerOp(ledger, {
+      action: 'begin', now: now + 1000, day: '2026-11-01', ttl: 180000, subject: 'user:next-' + count, network: '203.0.113.11', caps,
+      add: { calls: 1, tokens: 20, micros: 10 }, reservationId: 'next-' + count, bodyHash: 'n'
+    });
+    const leftover = ledger.storage.keys().filter((key) => key.indexOf('bal:2026-10-31:') === 0 || key.indexOf('min:2026-10-31:') === 0);
+    const replay = await ledgerOp(ledger, {
+      action: 'begin', now: now + 1001, day: '2026-11-01', ttl: 180000, idemTtl: 600000,
+      subject: 'user:open-' + count, idempotencyKey: 'open-key-' + count, bodyHash: 'open', caps,
+      add: { calls: 1, tokens: 20, micros: 10 }, reservationId: 'replay-' + count
+    });
+    const settled = await ledgerOp(ledger, { action: 'settle', now: now + 1002, day: '2026-11-01', ttl: 180000, reservationId: 'open-' + count, billedTokens: 9, billedMicros: 4 });
+    const page = ledger.stats().maxList;
+    const ok = open.mode === 'owner' && rolled.mode === 'owner' && leftover.length === 0 && replay.mode === 'replay' && settled.settledTokens === 9 && page > 0 && page <= 128;
+    if (!ok) detail('count=' + count + ' rolled=' + JSON.stringify(rolled) + ' leftover=' + leftover.length + ' replay=' + JSON.stringify(replay) + ' settle=' + JSON.stringify(settled) + ' page=' + page);
+    if (!ok) return false;
+  }
+  return true;
+});
+
+await check('L9 reserve before midnight settles after, and the first later operation can begin, settle, release or extend', async () => {
+  const now = Date.parse('2026-10-31T23:59:00+05:30');
+  const caps = wideCaps();
+  const flight = makeLedger();
+  const reserved = await ledgerOp(flight, { action: 'begin', now, day: '2026-10-31', ttl: 180000, subject: 'user:flight', network: '203.0.113.12', caps, add: { calls: 1, tokens: 40, micros: 15 }, reservationId: 'flight-1', bodyHash: 'f' });
+  const settledLater = await ledgerOp(flight, { action: 'settle', now: now + 1000, day: '2026-11-01', ttl: 180000, reservationId: 'flight-1', billedTokens: 11, billedMicros: 6 });
+  const flightOk = reserved.mode === 'owner' && settledLater.settledTokens === 11 && settledLater.already !== true;
+
+  async function first(action, extra) {
+    const ledger = makeLedger();
+    const begun = await ledgerOp(ledger, { action: 'begin', now, day: '2026-10-31', ttl: 180000, subject: 'user:' + action, network: '203.0.113.13', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: action + '-1', bodyHash: action });
+    const next = await ledgerOp(ledger, Object.assign({ now: now + 1000, day: '2026-11-01', ttl: 180000, reservationId: action + '-1' }, extra));
+    return begun.mode === 'owner' && next;
+  }
+  const began = await first('begin', { action: 'begin', subject: 'user:fresh', network: '203.0.113.14', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'begin-2', bodyHash: 'fresh' });
+  const settled = await first('settle', { action: 'settle', billedTokens: 7, billedMicros: 3 });
+  const released = await first('release', { action: 'release' });
+  const extended = await first('extend', { action: 'extend', caps, add: { tokens: 5, micros: 2 } });
+  const ok = flightOk && began && began.mode === 'owner' && settled && settled.settledTokens === 7 && released && released.released === true && extended && extended.reservedTokens === 25;
+  if (!ok) detail('flight=' + JSON.stringify(settledLater) + ' begin=' + JSON.stringify(began) + ' settle=' + JSON.stringify(settled) + ' release=' + JSON.stringify(released) + ' extend=' + JSON.stringify(extended));
+  return ok;
+});
+
+await check('L9 a cleanup that throws is retried and a cleanup that keeps throwing still serves the request', async () => {
+  const now = Date.parse('2026-10-31T23:10:00+05:30');
+  const caps = wideCaps();
+  const once = makeLedger();
+  await ledgerOp(once, { action: 'begin', now, day: '2026-10-31', ttl: 180000, subject: 'user:once', network: '203.0.113.15', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'once-1', bodyHash: 'o' });
+  once.failNextList(1);
+  const rolled = await ledgerOp(once, { action: 'begin', now: now + 1000, day: '2026-11-01', ttl: 180000, subject: 'user:once-b', network: '203.0.113.16', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'once-2', bodyHash: 'o2' });
+  const pending = await once.storage.get('day');
+  const stillThere = once.storage.keys().some((key) => key.indexOf('bal:2026-10-31:') === 0 || key.indexOf('min:2026-10-31:') === 0);
+  const retried = await ledgerOp(once, { action: 'begin', now: now + 1001, day: '2026-11-01', ttl: 180000, subject: 'user:once-c', network: '203.0.113.17', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'once-3', bodyHash: 'o3' });
+  const gone = !once.storage.keys().some((key) => key.indexOf('bal:2026-10-31:') === 0 || key.indexOf('min:2026-10-31:') === 0);
+  const cleared = await once.storage.get('day');
+  const onceOk = rolled.mode === 'owner' && pending.day === '2026-11-01' && pending.cleanupPending === '2026-10-31' && stillThere && retried.mode === 'owner' && gone && cleared.cleanupPending === '';
+
+  const always = makeLedger();
+  const held = await ledgerOp(always, { action: 'begin', now, day: '2026-10-31', ttl: 180000, subject: 'user:always', network: '203.0.113.18', caps, add: { calls: 1, tokens: 40, micros: 15 }, reservationId: 'always-1', bodyHash: 'a' });
+  always.failNextList(100000);
+  const blockedRoll = await ledgerOp(always, { action: 'begin', now: now + 1000, day: '2026-11-01', ttl: 180000, subject: 'user:always-b', network: '203.0.113.19', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'always-2', bodyHash: 'a2' });
+  const during = await always.storage.get('day');
+  const keptKeys = always.storage.keys().some((key) => key.indexOf('bal:2026-10-31:') === 0);
+  const charged = await ledgerOp(always, { action: 'settle', now: now + 1002, day: '2026-11-01', ttl: 180000, reservationId: 'always-1', billedTokens: 12, billedMicros: 5 });
+  const stillKept = always.storage.keys().some((key) => key.indexOf('bal:2026-10-31:') === 0);
+  always.failNextList(0);
+  let clearedKeys = false;
+  let served = true;
+  for (let index = 0; index < 40; index += 1) {
+    const step = await ledgerOp(always, { action: 'begin', now: now + 1100 + index, day: '2026-11-01', ttl: 180000, subject: 'user:always-c-' + index, network: '203.0.113.20', caps, add: { calls: 1, tokens: 10, micros: 4 }, reservationId: 'always-c-' + index, bodyHash: 'c' });
+    if (!step || step.mode !== 'owner') served = false;
+    if (!always.storage.keys().some((key) => key.indexOf('bal:2026-10-31:') === 0 || key.indexOf('min:2026-10-31:') === 0)) {
+      clearedKeys = true;
+      break;
+    }
+  }
+  const alwaysOk = held.mode === 'owner' && blockedRoll.mode === 'owner' && during.day === '2026-11-01' && during.cleanupPending === '2026-10-31' && keptKeys && charged.settledTokens === 12 && stillKept && served && clearedKeys;
+  if (!(onceOk && alwaysOk)) detail('once rolled=' + JSON.stringify(rolled) + ' pending=' + (pending && pending.cleanupPending) + ' gone=' + gone + ' always=' + JSON.stringify(blockedRoll) + ' charged=' + JSON.stringify(charged) + ' cleared=' + clearedKeys + ' served=' + served);
+  return onceOk && alwaysOk;
+});
+
+await check('L9 two idle days still roll onto the new day', async () => {
+  const now = Date.parse('2026-10-30T12:00:00+05:30');
+  const ledger = makeLedger();
+  const caps = wideCaps();
+  const first = await ledgerOp(ledger, { action: 'begin', now, day: '2026-10-30', ttl: 180000, subject: 'user:idle', network: '203.0.113.21', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'idle-1', bodyHash: 'i' });
+  await ledgerOp(ledger, { action: 'release', now, day: '2026-10-30', ttl: 180000, reservationId: 'idle-1' });
+  const later = await ledgerOp(ledger, { action: 'begin', now: now + 48 * 60 * 60 * 1000, day: '2026-11-01', ttl: 180000, subject: 'user:idle', network: '203.0.113.21', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'idle-2', bodyHash: 'i2' });
+  const day = await ledger.storage.get('day');
+  const oldKeys = ledger.storage.keys().filter((key) => key.indexOf('2026-10-30') !== -1 && (key.indexOf('bal:') === 0 || key.indexOf('min:') === 0));
+  const missingMiddle = !ledger.storage.keys().some((key) => key.indexOf('2026-10-31') !== -1);
+  const ok = first.mode === 'owner' && later.mode === 'owner' && day.day === '2026-11-01' && oldKeys.length === 0 && missingMiddle;
+  if (!ok) detail('later=' + JSON.stringify(later) + ' day=' + (day && day.day) + ' old=' + oldKeys.length);
+  return ok;
+});
+
+await check('L9 strict list is a Map and the old keys shape still rolls', async () => {
+  const ledger = makeLedger();
+  const page = await ledger.storage.list({ prefix: 'none' });
+  let shapeThrew = false;
+  try { await ledger.storage.list({ returnShape: 'keys' }); } catch (error) { shapeThrew = error && error.code === 'LIST_SHAPE'; }
+  let bothThrew = false;
+  try { await ledger.storage.list({ start: 'a', startAfter: 'b' }); } catch (error) { bothThrew = error && error.code === 'LIST_SHAPE'; }
+  await ledger.storage.put('c', 1);
+  await ledger.storage.put('a', 1);
+  await ledger.storage.put('b', 1);
+  const forward = Array.from((await ledger.storage.list({ startAfter: 'a', limit: 1 })).keys());
+  const reversed = Array.from((await ledger.storage.list({ reverse: true, limit: 1 })).keys());
+  const missing = await ledger.storage.get('missing-key');
+  const removed = await ledger.storage.delete('a');
+  const absent = await ledger.storage.delete('a');
+
+  const map = new Map();
+  const kv = {
+    async get(key) { return map.has(key) ? map.get(key) : undefined; },
+    async put(key, value) { map.set(key, JSON.parse(JSON.stringify(value))); },
+    async delete(key) { const had = map.has(key); map.delete(key); return had; },
+    async list(options) {
+      const prefix = options && options.prefix || '';
+      const names = Array.from(map.keys()).filter((key) => !prefix || String(key).indexOf(prefix) === 0).sort();
+      return { keys: names.map((name) => ({ name })) };
+    },
+    async transaction(fn) {
+      const snap = new Map(map);
+      try { return await fn(kv); } catch (error) { map.clear(); snap.forEach((value, key) => map.set(key, value)); throw error; }
+    }
+  };
+  const old = new worker.UsageLedger({ storage: kv });
+  const caps = wideCaps();
+  const now = Date.parse('2026-10-31T10:00:00+05:30');
+  const first = await (await old.fetch(new Request('https://ledger.internal/', { method: 'POST', body: JSON.stringify({ action: 'begin', now, day: '2026-10-31', ttl: 180000, subject: 'user:old-shape', network: '203.0.113.22', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'old-1', bodyHash: 'k' }) }))).json();
+  const second = await (await old.fetch(new Request('https://ledger.internal/', { method: 'POST', body: JSON.stringify({ action: 'begin', now: now + 1000, day: '2026-11-01', ttl: 180000, subject: 'user:old-shape', network: '203.0.113.22', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'old-2', bodyHash: 'k2' }) }))).json();
+  const leftover = Array.from(map.keys()).filter((key) => key.indexOf('bal:2026-10-31:') === 0 || key.indexOf('min:2026-10-31:') === 0);
+  const ok = page instanceof Map && shapeThrew && bothThrew && forward[0] === 'b' && reversed[0] === 'c' && missing === undefined && removed === true && absent === false && first.mode === 'owner' && second.mode === 'owner' && leftover.length === 0;
+  if (!ok) detail('forward=' + forward.join(',') + ' reverse=' + reversed.join(',') + ' second=' + JSON.stringify(second) + ' leftover=' + leftover.length + ' shape=' + shapeThrew);
+  return ok;
+});
+
+await check('L10 storage keys and values do not contain the raw subject, address, bearer or salt', async () => {
+  const ledger = makeLedger();
+  const salt = 'SENTINEL_SALT_VALUE';
+  const env = envFor(ledger, { MARG_LEDGER_HASH_SALT: salt });
+  const headers = { Authorization: BOB, 'CF-Connecting-IP': '203.0.113.244', 'X-Marg-Client-Id': 'client-sentinel', 'X-Marg-Idempotency-Key': 'idem-key-sentinel-1' };
+  const first = await post(chat('plain question'), env, headers);
+  const keysAfterFirst = ledger.storage.keys().filter((key) => key.indexOf('bal:') === 0).sort().join('|');
+  const second = await post(chat('plain question again'), env, Object.assign({}, headers, { 'X-Marg-Idempotency-Key': 'idem-key-sentinel-2' }));
+  const keysAfterSecond = ledger.storage.keys().filter((key) => key.indexOf('bal:') === 0).sort().join('|');
+  const other = await post(chat('other student'), env, { Authorization: GOOD, 'CF-Connecting-IP': '203.0.113.245', 'X-Marg-Idempotency-Key': 'idem-key-other-1' });
+  const keysAfterOther = ledger.storage.keys().filter((key) => key.indexOf('bal:') === 0);
+  const dumped = await storedText(ledger);
+  const record = lastRecord();
+  const hidden = dumped.indexOf('SENTINEL_USER') === -1 && dumped.indexOf('203.0.113.244') === -1 && dumped.indexOf('SENTINEL_BEARER_TOKEN') === -1 && dumped.indexOf(salt) === -1;
+  const same = keysAfterFirst && keysAfterFirst === keysAfterSecond;
+  const distinct = keysAfterOther.length === 2 && keysAfterFirst !== keysAfterOther.sort().join('|');
+  const rolled = makeLedger();
+  const caps = wideCaps();
+  const now = Date.parse('2026-10-31T22:00:00+05:30');
+  await ledgerOp(rolled, { action: 'begin', now, day: '2026-10-31', ttl: 180000, ledgerSalt: salt, subject: 'user:SENTINEL_USER', network: '203.0.113.244', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'hash-1', bodyHash: 'h' });
+  await ledgerOp(rolled, { action: 'release', now, day: '2026-10-31', ttl: 180000, ledgerSalt: salt, reservationId: 'hash-1' });
+  const next = await ledgerOp(rolled, { action: 'begin', now: now + 1000, day: '2026-11-01', ttl: 180000, ledgerSalt: salt, subject: 'user:SENTINEL_USER', network: '203.0.113.244', caps, add: { calls: 1, tokens: 20, micros: 8 }, reservationId: 'hash-2', bodyHash: 'h2' });
+  const old = rolled.storage.keys().filter((key) => key.indexOf('bal:2026-10-31:') === 0 || key.indexOf('min:2026-10-31:') === 0);
+  const ok = first.status === 200 && second.status === 200 && other.status === 200 && hidden && same && distinct && record.ledgerSaltConfigured === true && next.mode === 'owner' && old.length === 0;
+  if (!ok) detail('statuses=' + first.status + '/' + second.status + '/' + other.status + ' hidden=' + hidden + ' same=' + same + ' distinct=' + distinct + ' salt=' + (record && record.ledgerSaltConfigured) + ' old=' + old.length + ' next=' + JSON.stringify(next));
+  const unsalted = logs.filter((item) => item.includes('marg_worker_request')).pop();
+  await post(chat('no salt'), envFor(makeLedger()), { Authorization: GOOD, 'CF-Connecting-IP': '203.0.113.246' });
+  const unsaltedRecord = lastRecord();
+  if (!unsaltedRecord || unsaltedRecord.ledgerSaltConfigured !== false) {
+    detail('unsalted flag ' + (unsaltedRecord && unsaltedRecord.ledgerSaltConfigured) + ' prior ' + unsalted);
+    return false;
+  }
+  return ok;
+});
+
+await check('L11 pause switches stop model calls and a partial guest pool is logged', async () => {
+  geminiCalls = 0;
+  const paused = await post(chat('paused'), { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_GEMINI_PAUSED: '1' }, { Authorization: GOOD, 'CF-Connecting-IP': '203.0.113.250' });
+  const pausedBody = await paused.json();
+  const pausedCalls = geminiCalls;
+  const notOne = await post(chat('not paused'), envFor(makeLedger(), { MARG_GEMINI_PAUSED: 'on' }), { Authorization: GOOD, 'CF-Connecting-IP': '203.0.113.251' });
+  const article = await post({ margAction: 'daily_article', topic: 'economy' }, { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_GEMINI_PAUSED: '1' }, { Authorization: GOOD, 'CF-Connecting-IP': '203.0.113.252' });
+  const articleBody = await article.json();
+  const guestEnv = envFor(makeLedger(), { MARG_GUESTS_PAUSED: '1' });
+  const guest = await post(chat('guest paused'), guestEnv, { 'CF-Connecting-IP': '203.0.113.253', 'X-Marg-Client-Id': 'paused-guest' });
+  const guestBody = await guest.json();
+  const student = await post(chat('student continues'), guestEnv, { Authorization: GOOD, 'CF-Connecting-IP': '203.0.113.254' });
+  const pauseOk = paused.status === 503 && pausedBody.error.status === 'SERVICE_PAUSED' && pausedBody.error.retryable === false && pausedCalls === 0 && notOne.status === 200 && article.status === 502 && articleBody.error.status === 'ARTICLE_SOURCE_FAILURE' && guest.status === 503 && guestBody.error.status === 'SERVICE_PAUSED' && student.status === 200;
+
+  const tokenOnly = envFor(makeLedger(), { MARG_GLOBAL_GUEST_TOKENS_PER_DAY: '5000000' });
+  await post(chat('partial tokens'), tokenOnly, { 'CF-Connecting-IP': '203.0.113.60', 'X-Marg-Client-Id': 'partial-a' });
+  const tokenRecord = lastRecord();
+  const microsOnly = envFor(makeLedger(), { MARG_GLOBAL_GUEST_SPEND_MICROS_PER_DAY: '5000000' });
+  await post(chat('partial micros'), microsOnly, { 'CF-Connecting-IP': '203.0.113.61', 'X-Marg-Client-Id': 'partial-b' });
+  const microsRecord = lastRecord();
+  const both = envFor(makeLedger(), { MARG_GLOBAL_GUEST_TOKENS_PER_DAY: '5000000', MARG_GLOBAL_GUEST_SPEND_MICROS_PER_DAY: '5000000' });
+  await post(chat('both pools'), both, { 'CF-Connecting-IP': '203.0.113.62', 'X-Marg-Client-Id': 'partial-c' });
+  const bothRecord = lastRecord();
+  const partialOk = tokenRecord.guestPoolPartial === true && tokenRecord.guestPoolConfigured === true && microsRecord.guestPoolPartial === true && bothRecord.guestPoolPartial === false && bothRecord.guestPoolConfigured === true;
+  if (!(pauseOk && partialOk)) detail('paused=' + paused.status + '/' + (pausedBody.error && pausedBody.error.status) + ' article=' + article.status + '/' + (articleBody.error && articleBody.error.status) + ' guest=' + guest.status + ' student=' + student.status + ' partial=' + (tokenRecord && tokenRecord.guestPoolPartial) + '/' + (microsRecord && microsRecord.guestPoolPartial) + '/' + (bothRecord && bothRecord.guestPoolPartial));
+  return pauseOk && partialOk;
+});
+
+await check('L12 per-subject idempotency keeps the newest 32 and the total cap drops the oldest row', async () => {
+  const now = Date.parse('2026-10-31T09:00:00+05:30');
+  const caps = wideCaps();
+  const subjectLedger = makeLedger();
+  for (let index = 0; index < 33; index += 1) {
+    const key = 'sub-key-' + String(index).padStart(3, '0');
+    const begun = await ledgerOp(subjectLedger, {
+      action: 'begin', now, day: '2026-10-31', ttl: 180000, idemTtl: 600000, subject: 'user:capped', network: '203.0.113.70', caps,
+      add: { calls: 1, tokens: 10, micros: 4 }, reservationId: 'sub-' + index, bodyHash: 'c' + index, idempotencyKey: key
+    });
+    if (!begun || begun.mode !== 'owner') {
+      detail('subject begin ' + index + ' ' + JSON.stringify(begun));
+      return false;
+    }
+  }
+  const idemKeys = subjectLedger.storage.keys().filter((key) => key.indexOf('idem:') === 0);
+  const oldest = await ledgerOp(subjectLedger, {
+    action: 'begin', now: now + 1, day: '2026-10-31', ttl: 180000, idemTtl: 600000, subject: 'user:capped', network: '203.0.113.70', caps,
+    add: { calls: 1, tokens: 10, micros: 4 }, reservationId: 'sub-again-0', bodyHash: 'c0', idempotencyKey: 'sub-key-000'
+  });
+  const newest = await ledgerOp(subjectLedger, {
+    action: 'begin', now: now + 2, day: '2026-10-31', ttl: 180000, idemTtl: 600000, subject: 'user:capped', network: '203.0.113.70', caps,
+    add: { calls: 1, tokens: 10, micros: 4 }, reservationId: 'sub-again-32', bodyHash: 'c32', idempotencyKey: 'sub-key-032'
+  });
+  const subjectOk = oldest.mode === 'owner' && newest.mode === 'in_progress' && idemKeys.length <= 32 && !idemKeys.some((key) => key.indexOf('sub-key-000') !== -1) && idemKeys.some((key) => key.indexOf('sub-key-032') !== -1);
+
+  const totalLedger = makeLedger();
+  const firstKey = 'tot-s000-k000';
+  let newestKey = '';
+  let created = 0;
+  for (let subject = 0; subject < 128; subject += 1) {
+    for (let index = 0; index < 32; index += 1) {
+      const key = 'tot-s' + String(subject).padStart(3, '0') + '-k' + String(index).padStart(3, '0');
+      const begun = await ledgerOp(totalLedger, {
+        action: 'begin', now, day: '2026-10-31', ttl: 180000, idemTtl: 600000, subject: 'user:total-' + subject, network: 'net-' + subject, caps,
+        add: { calls: 1, tokens: 10, micros: 4 }, reservationId: 'tot-' + subject + '-' + index, bodyHash: 't', idempotencyKey: key
+      });
+      if (!begun || begun.mode !== 'owner') {
+        detail('total begin failed at ' + subject + '/' + index + ' ' + JSON.stringify(begun));
+        return false;
+      }
+      newestKey = key;
+      created += 1;
+    }
+  }
+  const extra = await ledgerOp(totalLedger, {
+    action: 'begin', now, day: '2026-10-31', ttl: 180000, idemTtl: 600000, subject: 'user:total-extra', network: 'net-extra', caps,
+    add: { calls: 1, tokens: 10, micros: 4 }, reservationId: 'tot-extra', bodyHash: 'tx', idempotencyKey: 'tot-extra-key'
+  });
+  const againFirst = await ledgerOp(totalLedger, {
+    action: 'begin', now: now + 1, day: '2026-10-31', ttl: 180000, idemTtl: 600000, subject: 'user:total-0', network: 'net-0', caps,
+    add: { calls: 1, tokens: 10, micros: 4 }, reservationId: 'tot-first-again', bodyHash: 't', idempotencyKey: firstKey
+  });
+  const againNewest = await ledgerOp(totalLedger, {
+    action: 'begin', now: now + 2, day: '2026-10-31', ttl: 180000, idemTtl: 600000, subject: 'user:total-127', network: 'net-127', caps,
+    add: { calls: 1, tokens: 10, micros: 4 }, reservationId: 'tot-newest-again', bodyHash: 't', idempotencyKey: newestKey
+  });
+  const totalOk = created === 4096 && extra.mode === 'owner' && againFirst.mode === 'owner' && againNewest.mode === 'in_progress';
+  if (!(subjectOk && totalOk)) detail('subject oldest=' + JSON.stringify(oldest) + ' newest=' + JSON.stringify(newest) + ' idem=' + idemKeys.length + ' extra=' + JSON.stringify(extra) + ' first=' + JSON.stringify(againFirst) + ' newestTotal=' + JSON.stringify(againNewest) + ' key=' + newestKey);
+  return subjectOk && totalOk;
+});
+
+await check('L13 the worker source has no in-memory test hook', async () => {
+  const hook = source.indexOf('MARG_USAGE_LEDGER_MEMORY') === -1 && source.indexOf('function createMemoryUsageLedger') === -1 && source.indexOf('createMemoryUsageLedger') === -1;
+  const listed = /^export \{[^}]+\};/m.test(source) && source.indexOf('export { resolveMaxOutputTokens, UsageLedger };') !== -1;
+  return hook && listed;
 });
 
 clearTimeout(timeout);

@@ -1101,6 +1101,11 @@ const IDEMPOTENCY_PER_SUBJECT_CAP = 32;
 const IDEMPOTENCY_TOTAL_CAP = 4096;
 const IDEMPOTENCY_VALUE_CAP = 96 * 1024;
 const LEDGER_SQLITE_VALUE_BYTES = 2 * 1024 * 1024;
+// 128-bit storage-key hash. Not an allowance. A shorter hash would make collisions plausible.
+const LEDGER_KEY_HASH_HEX = 32;
+// Cloudflare documents 128 as the maximum keys in one storage.get/delete array call.
+// Pages use that size so a prefix is never loaded in one call. Not an allowance.
+const LEDGER_LIST_PAGE = 128;
 
 function configuredInt(env, name, fallback, allowZero) {
   const raw = env && env[name];
@@ -1129,7 +1134,7 @@ function guestPoolFromEnv(env) {
   const tokens = optionalPositiveInt(env, 'MARG_GLOBAL_GUEST_TOKENS_PER_DAY');
   const micros = optionalPositiveInt(env, 'MARG_GLOBAL_GUEST_SPEND_MICROS_PER_DAY');
   if (tokens == null && micros == null) return null;
-  return { tokens:tokens || 0, micros:micros || 0 };
+  return { tokens:tokens || 0, micros:micros || 0, partial:(tokens == null) !== (micros == null) };
 }
 
 function groundingMicrosPerQuery(env) {
@@ -1312,8 +1317,33 @@ function emptyDay(day) {
     day:day || '',
     tokens:0, micros:0, heldTokens:0, heldMicros:0,
     guestTokens:0, guestMicros:0, guestHeldTokens:0, guestHeldMicros:0,
-    idemCount:0, iseq:0, ihead:0, itail:0, open:[], oldestOpenAt:0
+    idemCount:0, iseq:0, ihead:0, itail:0, open:[], oldestOpenAt:0, cleanupPending:''
   };
+}
+
+const ledgerHmacKeys = new Map();
+const ledgerHashCache = new Map();
+
+async function ledgerKeyMaterial(value, salt) {
+  const text = String(value || '');
+  if (!text) return '';
+  const cacheKey = String(salt || '') + '\u0000' + text;
+  const cached = ledgerHashCache.get(cacheKey);
+  if (cached) return cached;
+  const encoded = new TextEncoder().encode(text);
+  let bytes;
+  if (salt) {
+    let key = ledgerHmacKeys.get(String(salt));
+    if (!key) {
+      key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(salt)), { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
+      ledgerHmacKeys.set(String(salt), key);
+    }
+    bytes = new Uint8Array(await crypto.subtle.sign('HMAC', key, encoded));
+  } else bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', encoded));
+  const hex = Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, LEDGER_KEY_HASH_HEX);
+  if (ledgerHashCache.size > 250000) ledgerHashCache.clear();
+  ledgerHashCache.set(cacheKey, hex);
+  return hex;
 }
 
 function balanceKey(day, subject) { return 'bal:' + day + ':' + subject; }
@@ -1381,15 +1411,65 @@ async function writeMinute(storage, day, window, scope, count) {
   if (window > 0) await storage.delete(minuteKey(day, window - 1, scope));
 }
 
-async function prefixNames(storage, prefix) {
+function namesFromList(page) {
+  if (!page) return [];
+  if (typeof Map === 'function' && page instanceof Map) return Array.from(page.keys());
+  if (typeof page.forEach === 'function' && typeof page.size === 'number' && typeof page.keys === 'function') {
+    const names = [];
+    page.forEach((_value, key) => { names.push(key); });
+    return names;
+  }
+  if (Array.isArray(page)) return page.map((item) => typeof item === 'string' ? item : item && item.name).filter(Boolean);
+  if (Array.isArray(page.keys)) return page.keys.map((item) => typeof item === 'string' ? item : item && item.name).filter(Boolean);
+  return [];
+}
+
+async function listPrefixPage(storage, prefix, startAfter) {
   if (!storage || typeof storage.list !== 'function') return [];
-  const page = await storage.list({ prefix });
-  return (page && page.keys || []).map((item) => item.name).filter(Boolean);
+  const options = { prefix, limit:LEDGER_LIST_PAGE };
+  if (startAfter) options.startAfter = startAfter;
+  const page = await storage.list(options);
+  return namesFromList(page);
+}
+
+async function prefixNames(storage, prefix) {
+  const names = [];
+  let startAfter = '';
+  let guard = 0;
+  while (guard < 100000) {
+    guard += 1;
+    const pageNames = await listPrefixPage(storage, prefix, startAfter);
+    if (!pageNames.length) return names;
+    let advanced = false;
+    for (const name of pageNames) {
+      if (!name || String(name).indexOf(prefix) !== 0) continue;
+      if (startAfter && String(name) <= String(startAfter)) continue;
+      names.push(name);
+      if (!startAfter || String(name) > String(startAfter)) {
+        startAfter = name;
+        advanced = true;
+      }
+    }
+    if (!advanced) return names;
+    if (pageNames.length < LEDGER_LIST_PAGE) return names;
+  }
+  return names;
 }
 
 async function deletePrefix(storage, prefix) {
   const names = await prefixNames(storage, prefix);
   for (const name of names) await storage.delete(name);
+}
+
+async function deletePrefixBatch(storage, prefix) {
+  const names = await listPrefixPage(storage, prefix, '');
+  let deleted = 0;
+  for (const name of names) {
+    if (!name || String(name).indexOf(prefix) !== 0) continue;
+    await storage.delete(name);
+    deleted += 1;
+  }
+  return names.length >= LEDGER_LIST_PAGE && deleted > 0;
 }
 
 async function creditExisting(storage, dayState, reservation) {
@@ -1635,6 +1715,7 @@ async function rollToDay(storage, previous, day) {
   next.ihead = previous.ihead || 0;
   next.itail = previous.itail || 0;
   next.oldestOpenAt = previous.oldestOpenAt || 0;
+  next.cleanupPending = previous.cleanupPending || '';
   const ids = Array.isArray(previous.open) ? previous.open.slice() : [];
   for (const id of ids) {
     const reservation = await storage.get('res:' + id);
@@ -1642,9 +1723,23 @@ async function rollToDay(storage, previous, day) {
     await creditExisting(storage, next, reservation);
     next.open.push(id);
   }
-  if (previous.day) {
-    await deletePrefix(storage, 'bal:' + previous.day + ':');
-    await deletePrefix(storage, 'min:' + previous.day + ':');
+  // The new day is stored before cleanup. A cleanup failure must not roll it back.
+  await storage.put('day', next);
+  const days = [];
+  if (next.cleanupPending) days.push(next.cleanupPending);
+  if (previous.day && previous.day !== day && days.indexOf(previous.day) < 0) days.push(previous.day);
+  let pending = '';
+  for (let index = 0; index < days.length; index += 1) {
+    try {
+      await deletePrefix(storage, 'bal:' + days[index] + ':');
+      await deletePrefix(storage, 'min:' + days[index] + ':');
+    } catch (_error) {
+      if (!pending) pending = days[index];
+    }
+  }
+  if ((pending || '') !== (next.cleanupPending || '')) {
+    next.cleanupPending = pending;
+    await storage.put('day', next);
   }
   return next;
 }
@@ -1687,6 +1782,12 @@ async function recoverStale(storage, dayState, now, ttl) {
 }
 
 async function applyLedgerOp(storage, op) {
+  const salt = op && op.ledgerSalt || '';
+  op = Object.assign({}, op, {
+    subject:await ledgerKeyMaterial(op && op.subject, salt),
+    aggregate:await ledgerKeyMaterial(op && op.aggregate, salt),
+    network:await ledgerKeyMaterial(op && op.network, salt)
+  });
   const now = Number(op && op.now) || Date.now();
   const day = String(op && op.day || '');
   const ttl = Number(op && op.ttl) > 0 ? Number(op.ttl) : 180000;
@@ -1697,6 +1798,14 @@ async function applyLedgerOp(storage, op) {
   let changed = false;
   if (dayState.day && day !== dayState.day) {
     dayState = await rollToDay(storage, dayState, day);
+    changed = true;
+  } else if (dayState.cleanupPending) {
+    const pendingDay = dayState.cleanupPending;
+    try {
+      const moreBalances = await deletePrefixBatch(storage, 'bal:' + pendingDay + ':');
+      const moreMinutes = await deletePrefixBatch(storage, 'min:' + pendingDay + ':');
+      if (!moreBalances && !moreMinutes) dayState.cleanupPending = '';
+    } catch (_error) {}
     changed = true;
   }
   if (!dayState.day) dayState.day = day;
@@ -1840,99 +1949,6 @@ class UsageLedger {
   }
 }
 
-function createMemoryUsageLedger(options) {
-  const maxValueBytes = options && Number(options.maxValueBytes) > 0 ? Number(options.maxValueBytes) : LEDGER_SQLITE_VALUE_BYTES;
-  const map = new Map();
-  let reads = 0;
-  let writes = 0;
-  let maxSerialized = 0;
-  let failPuts = 0;
-
-  function acceptPut(value) {
-    const serial = JSON.stringify(value);
-    if (serial.length > maxValueBytes) {
-      const error = new Error('VALUE_TOO_LARGE');
-      error.code = 'VALUE_TOO_LARGE';
-      throw error;
-    }
-    if (failPuts > 0) {
-      failPuts -= 1;
-      throw new Error('PUT_FAILED');
-    }
-    writes += 1;
-    if (serial.length > maxSerialized) maxSerialized = serial.length;
-    return JSON.parse(serial);
-  }
-
-  function makeView(overlay, deleted) {
-    return {
-      async get(key) {
-        reads += 1;
-        if (deleted && deleted.has(key)) return undefined;
-        if (overlay && overlay.has(key)) return JSON.parse(JSON.stringify(overlay.get(key)));
-        if (!map.has(key)) return undefined;
-        return JSON.parse(JSON.stringify(map.get(key)));
-      },
-      async put(key, value) {
-        const stored = acceptPut(value);
-        if (overlay) {
-          overlay.set(key, stored);
-          if (deleted) deleted.delete(key);
-        } else map.set(key, stored);
-      },
-      async delete(key) {
-        writes += 1;
-        if (overlay) {
-          overlay.delete(key);
-          deleted.add(key);
-        } else map.delete(key);
-      },
-      async list(listOptions) {
-        reads += 1;
-        const prefix = listOptions && listOptions.prefix || '';
-        const names = [];
-        const seen = new Set();
-        const add = (key) => {
-          if (seen.has(key)) return;
-          if (prefix && String(key).indexOf(prefix) !== 0) return;
-          if (deleted && deleted.has(key) && !(overlay && overlay.has(key))) return;
-          seen.add(key);
-          names.push(key);
-        };
-        if (overlay) overlay.forEach((_value, key) => add(key));
-        map.forEach((_value, key) => add(key));
-        names.sort();
-        const limit = listOptions && listOptions.limit > 0 ? listOptions.limit : names.length;
-        return { keys:names.slice(0, limit).map((name) => ({ name })) };
-      }
-    };
-  }
-
-  const storage = makeView(null, null);
-  storage.keys = () => Array.from(map.keys());
-  storage.transaction = async (fn) => {
-    const overlay = new Map();
-    const deleted = new Set();
-    const tx = makeView(overlay, deleted);
-    const result = await fn(tx);
-    deleted.forEach((key) => { if (!overlay.has(key)) map.delete(key); });
-    overlay.forEach((value, key) => map.set(key, value));
-    return result;
-  };
-  const ledger = new UsageLedger({ storage });
-  let chain = Promise.resolve();
-  return {
-    fetch(request) {
-      const run = chain.then(() => ledger.fetch(request));
-      chain = run.then(() => undefined, () => undefined);
-      return run;
-    },
-    storage,
-    stats() { return { reads, writes, maxSerialized }; },
-    failNextPut(count) { failPuts += Number(count) || 0; }
-  };
-}
-
 function callerSpendMode(caller) {
   if (caller && caller.kind === 'user') return 'user';
   if (caller && caller.aggregate) return 'guest-session';
@@ -1998,18 +2014,19 @@ function idempotencyKeyFrom(request) {
   return cleaned.length >= 8 ? cleaned : '';
 }
 
+function servicePaused(env, caller) {
+  if (String(env && env.MARG_GEMINI_PAUSED || '') === '1') return true;
+  if (String(env && env.MARG_GUESTS_PAUSED || '') === '1' && (!caller || caller.kind !== 'user')) return true;
+  return false;
+}
+
 async function ledgerFetch(env, op) {
-  const memory = env && env.MARG_USAGE_LEDGER_MEMORY;
+  const payload = Object.assign({}, op || {}, { ledgerSalt:env && env.MARG_LEDGER_HASH_SALT ? String(env.MARG_LEDGER_HASH_SALT) : '' });
   try {
-    if (memory && typeof memory.fetch === 'function') {
-      const response = await memory.fetch(new Request('https://ledger.internal/', { method:'POST', body:JSON.stringify(op) }));
-      if (!response || !response.ok) return { ok:false, unavailable:true };
-      return await response.json();
-    }
     const namespace = env && env.MARG_USAGE_LEDGER;
     if (!namespace || typeof namespace.idFromName !== 'function' || typeof namespace.get !== 'function') return { ok:false, unavailable:true };
     const stub = namespace.get(namespace.idFromName('marg-usage-ledger'));
-    const response = await stub.fetch(new Request('https://ledger.internal/', { method:'POST', body:JSON.stringify(op) }));
+    const response = await stub.fetch(new Request('https://ledger.internal/', { method:'POST', body:JSON.stringify(payload) }));
     if (!response || !response.ok) return { ok:false, unavailable:true };
     return await response.json();
   } catch (_error) {
@@ -2038,7 +2055,7 @@ async function rememberIdempotent(env, limits, key, bodyHash, reservationId, res
 }
 
 
-export { resolveMaxOutputTokens, UsageLedger, createMemoryUsageLedger };
+export { resolveMaxOutputTokens, UsageLedger };
 
 function usageCounts(usage) {
   if (!usage || typeof usage !== 'object') return null;
@@ -2124,6 +2141,8 @@ export default {
       settledTokens:0,
       settledMicros:0,
       guestPoolConfigured:guestPool != null,
+      guestPoolPartial:!!(guestPool && guestPool.partial),
+      ledgerSaltConfigured:!!(env && String(env.MARG_LEDGER_HASH_SALT || '').trim()),
       httpStatus:0
     };
     let logged = false;
@@ -2238,6 +2257,9 @@ export default {
 
     if (!validation.upstreamPayload || !Array.isArray(validation.upstreamPayload.contents) || validation.upstreamPayload.contents.length === 0) {
       return finish(jsonResponse({ error:{ code:400, status:'MISSING_CONTENTS', message:'Gemini contents are required', request_id:requestId } }, 400, responseHeaders), { rejectReasons:record.rejectReasons.concat(['MISSING_CONTENTS']) });
+    }
+    if (servicePaused(env, caller)) {
+      return finish(jsonResponse({ error:{ code:503, status:'SERVICE_PAUSED', message:'Marg is paused. This request was not sent to the model.', request_id:requestId, retryable:false } }, 503, responseHeaders), { upstreamCalls:0, rejectReasons:['SERVICE_PAUSED'] });
     }
     if (!env || !env.GEMINI_API_KEY) return finish(jsonResponse({ error:{ code:500, status:'MISSING_API_KEY', message:'GEMINI_API_KEY is not configured', request_id:requestId } }, 500, responseHeaders));
 

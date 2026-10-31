@@ -4,6 +4,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createMemoryUsageLedger } from './worker-ledger-memory.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -596,8 +597,8 @@ async function runWorker() {
     }
     throw new Error('unexpected upstream ' + target);
   };
-  const ledger = worker.createMemoryUsageLedger();
-  const workerEnv = { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_USAGE_LEDGER_MEMORY: ledger, MARG_USER_REQUESTS_PER_MINUTE: '1000', MARG_IP_REQUESTS_PER_MINUTE: '1000' };
+  const ledger = createMemoryUsageLedger(worker.UsageLedger, { strict: true });
+  const workerEnv = { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_USAGE_LEDGER: { idFromName(name) { return name; }, get() { return ledger; } }, MARG_USER_REQUESTS_PER_MINUTE: '1000', MARG_IP_REQUESTS_PER_MINUTE: '1000' };
   const negative = await worker.default.fetch(new Request(WORKER_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

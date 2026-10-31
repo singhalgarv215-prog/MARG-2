@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createMemoryUsageLedger } from './worker-ledger-memory.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PRE_B3 = '7cb5991';
@@ -122,6 +123,10 @@ async function check(name, fn) {
   }
 }
 
+function bindLedger(ledger) {
+  return { idFromName(name) { return name; }, get() { return ledger; } };
+}
+
 function testEnv(module, env) {
   const next = Object.assign({
     GEMINI_API_KEY: 'TEST_NOT_REAL',
@@ -130,8 +135,12 @@ function testEnv(module, env) {
     MARG_IP_REQUESTS_PER_MINUTE: '1000',
     MARG_GROUNDING_MICROS_PER_REQUEST: '14000'
   }, env || {});
-  if (module && typeof module.createMemoryUsageLedger === 'function' && !Object.prototype.hasOwnProperty.call(env || {}, 'MARG_USAGE_LEDGER_MEMORY') && !next.MARG_USAGE_LEDGER) {
-    next.MARG_USAGE_LEDGER_MEMORY = module.createMemoryUsageLedger();
+  if (Object.prototype.hasOwnProperty.call(env || {}, 'MARG_USAGE_LEDGER_MEMORY') && !next.MARG_USAGE_LEDGER) {
+    next.MARG_USAGE_LEDGER = bindLedger(env.MARG_USAGE_LEDGER_MEMORY);
+    delete next.MARG_USAGE_LEDGER_MEMORY;
+  }
+  if (module && typeof module.UsageLedger === 'function' && !Object.prototype.hasOwnProperty.call(env || {}, 'MARG_USAGE_LEDGER_MEMORY') && !next.MARG_USAGE_LEDGER) {
+    next.MARG_USAGE_LEDGER = bindLedger(createMemoryUsageLedger(module.UsageLedger, { strict: true }));
   }
   return next;
 }
@@ -272,7 +281,7 @@ async function callBoth(payload, headers) {
 
 await check('source has no import and keeps the allowed export form', async () => {
   const exportLines = SOURCE.split('\n').filter((line) => /^\s*export\b/.test(line));
-  return !/^import\s/m.test(SOURCE) && exportLines.length === 2 && exportLines[0] === 'export { resolveMaxOutputTokens, UsageLedger, createMemoryUsageLedger };' && exportLines[1] === 'export default {';
+  return !/^import\s/m.test(SOURCE) && exportLines.length === 2 && exportLines[0] === 'export { resolveMaxOutputTokens, UsageLedger };' && exportLines[1] === 'export default {';
 });
 
 await check('W1 baseline still forwards safetySettings tools toolConfig cachedContent candidateCount thinkingBudget includeThoughts responseModalities temperature', async () => {
@@ -392,7 +401,7 @@ await check('W4 guest limiter key is the IP bucket, not the client id; a user is
   const missing = await post(workerModule, chat('no-client', 1024, 'minimal'), { GEMINI_API_KEY: 'TEST_NOT_REAL' }, { 'X-Marg-Client-Id': '', 'CF-Connecting-IP': '198.51.100.30', Authorization: '' });
   const missingBody = await missing.json();
   keys.length = 0;
-  const bare = await workerModule.default.fetch({ method: 'POST', text: async () => JSON.stringify(chat('unit', 1024, 'minimal')) }, Object.assign({}, env, { MARG_USAGE_LEDGER_MEMORY: workerModule.createMemoryUsageLedger(), MARG_USER_REQUESTS_PER_MINUTE: '1000', MARG_GUEST_REQUESTS_PER_MINUTE: '1000', MARG_IP_REQUESTS_PER_MINUTE: '1000' }));
+  const bare = await workerModule.default.fetch({ method: 'POST', text: async () => JSON.stringify(chat('unit', 1024, 'minimal')) }, Object.assign({}, env, { MARG_USAGE_LEDGER: bindLedger(createMemoryUsageLedger(workerModule.UsageLedger, { strict: true })), MARG_USER_REQUESTS_PER_MINUTE: '1000', MARG_GUEST_REQUESTS_PER_MINUTE: '1000', MARG_IP_REQUESTS_PER_MINUTE: '1000' }));
   return guestOk && userOk && v6a.status === 200 && v6b.status === 429 && v6c.status === 200 && v6Keys[0] === 'guest:2001:db8:1:2' && v6Keys[1] === 'guest:2001:db8:1:2' && v6Keys[2] === 'guest:2001:db8:1:3' && missing.status === 401 && missingBody.error.status === 'CLIENT_ID_REQUIRED' && bare.status === 200 && keys[0] === 'guest:unit-test';
 });
 
@@ -590,8 +599,7 @@ await check('W12 forged internal memory is not sent to the model', async () => {
 
 function sharedEnv(extra) {
   return testEnv(workerModule, Object.assign({
-    GEMINI_API_KEY: 'TEST_NOT_REAL',
-    MARG_USAGE_LEDGER_MEMORY: workerModule.createMemoryUsageLedger()
+    GEMINI_API_KEY: 'TEST_NOT_REAL'
   }, extra || {}));
 }
 
@@ -895,7 +903,7 @@ await check('S7 signed guest identity survives visitor rotation and a shared net
 
 await check('S8 Durable Object binding name is the production entry and a thrown stub fails closed', async () => {
   resetNetwork();
-  const memory = workerModule.createMemoryUsageLedger();
+  const memory = createMemoryUsageLedger(workerModule.UsageLedger, { strict: true });
   const bound = await post(workerModule, chat('binding', 1024, 'minimal'), {
     GEMINI_API_KEY: 'TEST_NOT_REAL',
     MARG_USAGE_LEDGER: { idFromName(name) { return name; }, get() { return memory; } }
