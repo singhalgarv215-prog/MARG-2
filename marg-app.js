@@ -830,11 +830,13 @@ function completeHomepageIntent(intent) {
 
 function failHomepageIntent(intent, error) {
   if (!intent) return;
-  var message = error && error.status === 429
+  var protectedNotice = typeof protectedRequestNotice === 'function' ? protectedRequestNotice(error) : '';
+  var message = protectedNotice
+    || (error && error.status === 429
     ? 'Marg is under high demand right now. Your question is safe—retry in a moment.'
     : error && error.status === 503
       ? 'Marg is temporarily unavailable. Your question is safe—retry when the service settles.'
-      : 'I could not finish that response. Your question is safe—retry without typing it again.';
+      : 'I could not finish that response. Your question is safe—retry without typing it again.');
   var retryIntent = writeHomepageIntent(Object.assign({}, intent, { status:'retry', failureMessage:message }));
   activeHomepageIntentDispatch = null;
   renderHomepageIntentRetry(retryIntent, message);
@@ -3669,6 +3671,92 @@ async function constructVerifiedDILRResponse(request, signal) {
   return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(data)}]},finishReason:'STOP'}],margRequest:{upstreamCalls:0,construction:'exhaustive-code-solver'}}), {status:200,headers:{'Content-Type':'application/json','X-Marg-Upstream-Calls':'0'}});
 }
 
+var margIdempotencyCache = {};
+function margIdempotencyKeyForBody(body) {
+  var hash = simpleStableHash(body);
+  var now = Date.now();
+  var existing = margIdempotencyCache[hash];
+  if (existing && now - existing.at < 10 * 60 * 1000) return existing.key;
+  var key = '';
+  try { key = crypto.randomUUID(); } catch (e) { key = 'marg-' + now + '-' + hash; }
+  key = String(key).replace(/[^a-zA-Z0-9._:-]/g, '').slice(0, 80);
+  if (key.length < 8) key = ('margkey' + hash).slice(0, 32);
+  margIdempotencyCache[hash] = { key:key, at:now };
+  return key;
+}
+
+function formatAllowanceReset(iso) {
+  var when = new Date(iso);
+  if (!iso || isNaN(when.getTime())) return '';
+  try {
+    return new Intl.DateTimeFormat('en-IN', { timeZone:'Asia/Kolkata', day:'numeric', month:'short', hour:'numeric', minute:'2-digit', hourCycle:'h12' }).format(when) + ' IST';
+  } catch (e) { return ''; }
+}
+
+function spendQuotaNotice(error) {
+  var when = formatAllowanceReset(error && error.resetsAt);
+  var reset = when ? ' It resets at ' + when + '.' : '';
+  var sign = error && error.signInRequired ? ' Use Save progress to sign in and continue.' : '';
+  return 'This request reached today’s usage allowance.' + reset + sign + ' Your message is still in the chat.';
+}
+
+function protectedRequestNotice(error) {
+  var code = String(error && (error.code || error.quota) || '');
+  if (code === 'QUOTA_EXCEEDED' || error && error.quota) return spendQuotaNotice(error);
+  if (code === 'DUPLICATE_IN_PROGRESS') return 'Marg is already answering this message. Your message is still in the chat.';
+  if (code === 'IDEMPOTENCY_CONFLICT' || code === 'ALREADY_COMPLETED') return 'That message was already sent. Your message is still in the chat.';
+  if (code === 'SESSION_INVALID' || code === 'GUEST_SESSION_INVALID') return 'That sign-in needs to be refreshed. Your message is still in the chat.';
+  if (code === 'AUTH_UNAVAILABLE' || code === 'SPENDING_CONTROL_UNAVAILABLE') return 'Marg could not check the usage allowance, so this request was not sent. Your message is still in the chat.';
+  return '';
+}
+
+function shouldStartGeminiCooldown(error) {
+  if (!error) return false;
+  if (protectedRequestNotice(error)) return false;
+  var status = Number(error.status) || 0;
+  return status === 429 || status === 503;
+}
+
+function restoreDraftToComposer(draftText) {
+  var input = document.getElementById('user-input');
+  if (input && draftText && !String(input.value || '').trim()) {
+    input.value = draftText;
+    try { input.style.height = 'auto'; } catch (e) {}
+    saveCurrentChatDraft();
+  }
+  if (draftText) lastFailedOutgoingMessage = { text:draftText, failedAt:Date.now(), requestId:String(errorRequestId || '') };
+}
+
+var errorRequestId = '';
+function presentProtectedRequestFailure(error, draftText) {
+  var notice = protectedRequestNotice(error);
+  if (!notice) return false;
+  hideTyping();
+  errorRequestId = error && error.requestId || '';
+  restoreDraftToComposer(draftText);
+  showComposerStatus(notice, 'info', true);
+  return true;
+}
+
+function runSpendQuotaNoticeTests() {
+  var input = document.getElementById('user-input') || document.createElement('textarea');
+  input.id = 'user-input';
+  input.value = '';
+  var status = document.getElementById('composer-status') || document.createElement('div');
+  status.id = 'composer-status';
+  var beforeCooldown = geminiRetryBlockedUntil;
+  var quota = { name:'GeminiAPIError', code:'QUOTA_EXCEEDED', status:429, quota:'guest_daily_calls', signInRequired:true, resetsAt:'2026-11-01T18:30:00.000Z', requestId:'quota-1' };
+  var handled = presentProtectedRequestFailure(quota, 'What is 20 percent of 80?');
+  var notice = status.textContent || '';
+  var signedIn = spendQuotaNotice({ code:'QUOTA_EXCEEDED', signInRequired:false, resetsAt:'2026-11-01T18:30:00.000Z' });
+  var duplicate = protectedRequestNotice({ code:'DUPLICATE_IN_PROGRESS' });
+  return [
+    { name:'quota keeps the draft and is not an AI error', passed:handled === true && input.value === 'What is 20 percent of 80?' && notice.indexOf('allowance') !== -1 && notice.indexOf('IST') !== -1 && notice.indexOf('Save progress') !== -1 && notice.indexOf('still in the chat') !== -1 && notice.indexOf('could not finish') === -1 && notice.indexOf('busy') === -1 && geminiRetryBlockedUntil === beforeCooldown && shouldStartGeminiCooldown(quota) === false },
+    { name:'signed-in quota names the reset without a sign-in prompt', passed:signedIn.indexOf('IST') !== -1 && signedIn.indexOf('Save progress') === -1 && signedIn.indexOf('still in the chat') !== -1 },
+    { name:'a duplicate request is not described as an AI failure', passed:duplicate.indexOf('already answering') !== -1 && shouldStartGeminiCooldown({ code:'DUPLICATE_IN_PROGRESS', status:409 }) === false && shouldStartGeminiCooldown({ code:'RATE_LIMITED', status:429 }) === true }
+  ];
+}
+
 async function fetchWithTimeout(url, options, timeoutMs) {
   // DILR construction is finite-domain code, not an upstream AI draft. It
   // remains usable during Google quota, location and service failures. The
@@ -3715,10 +3803,17 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     };
     setWorkerHeader('X-Marg-Timeout-Ms', String(Math.max(1000,effectiveTimeout-1500)));
     if (typeof SUPABASE_TOKEN !== 'undefined' && SUPABASE_TOKEN) setWorkerHeader('Authorization', 'Bearer ' + SUPABASE_TOKEN);
+    else {
+      try {
+        var guestToken = localStorage.getItem('marg_guest_token') || '';
+        if (guestToken) setWorkerHeader('X-Marg-Guest-Token', guestToken);
+      } catch(e) {}
+    }
     try {
       var clientId = typeof getAcquisitionVisitorId === 'function' ? getAcquisitionVisitorId() : '';
       if (clientId) setWorkerHeader('X-Marg-Client-Id', String(clientId).slice(0, 120));
     } catch(e) {}
+    if (usesGeminiUpstream && options && typeof options.body === 'string') setWorkerHeader('X-Marg-Idempotency-Key', margIdempotencyKeyForBody(options.body));
     options = Object.assign({}, options, { headers:workerHeaders });
   }
   var timeoutId = setTimeout(function() { controller.abort(); }, effectiveTimeout);
@@ -3726,19 +3821,32 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
     clearTimeout(timeoutId);
     if (externalSignal) externalSignal.removeEventListener('abort', relayExternalAbort);
+    if (url === WORKER_URL) {
+      try {
+        var issuedGuest = res.headers.get('X-Marg-Guest-Token');
+        if (issuedGuest) localStorage.setItem('marg_guest_token', issuedGuest);
+      } catch(e) {}
+    }
     if (!res.ok) {
       var errorPayload = null;
       try { errorPayload = await res.clone().json(); } catch(parseError) {}
       var errorInfo = errorPayload && errorPayload.error ? errorPayload.error : {};
+      if ((!errorInfo || !errorInfo.status) && errorPayload && errorPayload.status) errorInfo = Object.assign({ status:errorPayload.status, retryable:errorPayload.retryable }, errorInfo);
+      if (errorInfo.status === 'GUEST_SESSION_INVALID') {
+        try { localStorage.removeItem('marg_guest_token'); } catch(e) {}
+      }
       var requestError = new Error(String(errorInfo.message || ('Request failed with status ' + res.status)));
       requestError.name = 'GeminiAPIError';
       requestError.status = Number(errorInfo.code) || res.status;
       requestError.code = String(errorInfo.status || ('HTTP_' + res.status));
       requestError.requestId = String(errorInfo.request_id || res.headers.get('X-Marg-Request-Id') || '');
-      requestError.retryable = errorInfo.retryable === true || res.status === 429 || res.status === 503;
+      requestError.quota = String(errorInfo.quota || '');
+      requestError.resetsAt = String(errorInfo.resetsAt || '');
+      requestError.signInRequired = errorInfo.signInRequired === true;
+      requestError.retryable = errorInfo.retryable === true || (!protectedRequestNotice(requestError) && (res.status === 429 || res.status === 503));
       requestError.attempts = Number(errorInfo.attempts || res.headers.get('X-Marg-Upstream-Calls')) || 1;
       requestError.retryAfter = res.headers.get('Retry-After') || '';
-      if (requestError.status === 429 || requestError.status === 503) {
+      if (shouldStartGeminiCooldown(requestError)) {
         var retryAfterSeconds = Number(requestError.retryAfter);
         geminiRetryBlockedStatus = requestError.status;
         geminiRetryBlockedUntil = Date.now() + (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? Math.min(30000, retryAfterSeconds * 1000) : 8000);
@@ -22673,6 +22781,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     return false;
   } catch(e) {
     hideTyping();
+    if (presentProtectedRequestFailure(e, userMessage)) return true;
     if (isGeminiServiceError(e)) {
       completeMentorTurnWithLocalRecovery(userMessage, mentorAnalysis.diagnosis, useWebGrounding, e);
       await maybeScheduleChatGroundedReminder(userMessage, context);
@@ -26127,6 +26236,10 @@ async function sendMessage(fromQueue, submissionOptions) {
     if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
   } catch (e) {
     hideTyping();
+    if (presentProtectedRequestFailure(e, text)) {
+      if (homepageIntentForSend && typeof failHomepageIntent === 'function') failHomepageIntent(homepageIntentForSend, e);
+      return;
+    }
     if (isGeminiServiceError(e)) {
       completeMentorTurnWithLocalRecovery(text, mentorAnalysis.diagnosis, useWebGrounding, e);
       if (homepageIntentForSend && typeof completeHomepageIntent === 'function') completeHomepageIntent(homepageIntentForSend);
@@ -31118,6 +31231,9 @@ async function auditGeneratedCATContent(section, generatedData, expectedTopic, k
         : { valid:false, issues:agreement.issues, correctedData:null, failureType:'verification' };
     } catch(e) {
       if (auditOptions.signal && auditOptions.signal.aborted) throw e;
+      if (e && (e.code === 'QUOTA_EXCEEDED' || e.quota)) {
+        return { valid:false, issues:['Usage allowance reached before the answer check'], correctedData:null, failureType:'quota', error:e };
+      }
       var technical = isGeminiServiceError(e) || e instanceof SyntaxError || /JSON|parse|response|network|fetch/i.test(String(e && e.message || ''));
       if (!technical || attempt + 1 >= maxTechnicalAttempts) {
         return { valid:false, issues:['Independent answer check could not finish'], correctedData:null, failureType:'technical', error:e };

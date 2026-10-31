@@ -579,11 +579,13 @@ async function runWorker() {
     }
     throw new Error('unexpected upstream ' + target);
   };
+  const ledger = worker.createMemoryUsageLedger();
+  const workerEnv = { GEMINI_API_KEY: 'TEST_NOT_REAL', MARG_USAGE_LEDGER_MEMORY: ledger, MARG_USER_REQUESTS_PER_MINUTE: '1000', MARG_IP_REQUESTS_PER_MINUTE: '1000' };
   const negative = await worker.default.fetch(new Request(WORKER_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ max_tokens: 8192, system: 'You are an expert CAT exam question generator. Generate only valid JSON with no markdown.', messages: [{ role: 'user', content: 'Generate questions' }] })
-  }), { GEMINI_API_KEY: 'TEST_NOT_REAL' });
+  }), workerEnv);
   const negativeBody = await negative.json();
   check('E1 old request shape is 401 CLIENT_ID_REQUIRED and does not call Gemini', negative.status === 401 && negativeBody.error && negativeBody.error.status === 'CLIENT_ID_REQUIRED' && geminiCalls === 0);
 
@@ -598,7 +600,7 @@ async function runWorker() {
     fetchImpl: async function(url, init) {
       if (String(url) !== WORKER_URL) throw new Error('unexpected ' + url);
       workerCalls += 1;
-      return worker.default.fetch(new Request(String(url), { method: 'POST', headers: init.headers, body: init.body }), { GEMINI_API_KEY: 'TEST_NOT_REAL' });
+      return worker.default.fetch(new Request(String(url), { method: 'POST', headers: init.headers, body: init.body }), workerEnv);
     }
   });
   check('E2 QA renders the generated draft and does not show the fallback note', workerCalls === 1 && containerText(qa).includes(pages.QA.validItem.questions[0].q.slice(0, 40)) && !containerText(qa).includes('hand-checked') && qa.storage.dump()[pages.QA.newKey + dayKey(qa)]);
@@ -615,7 +617,7 @@ async function runWorker() {
     fetchImpl: async function(url, init) {
       if (String(url) !== WORKER_URL) throw new Error('unexpected ' + url);
       workerCalls += 1;
-      return worker.default.fetch(new Request(String(url), { method: 'POST', headers: init.headers, body: init.body }), { GEMINI_API_KEY: 'TEST_NOT_REAL' });
+      return worker.default.fetch(new Request(String(url), { method: 'POST', headers: init.headers, body: init.body }), workerEnv);
     }
   });
   check('E3 RC renders the generated draft and does not show the fallback note', workerCalls === beforeRc + 1 && containerText(rc).includes(pages.RC.validItem.topic) && !containerText(rc).includes('hand-checked') && rc.storage.dump()[pages.RC.newKey + dayKey(rc)]);
