@@ -1772,26 +1772,22 @@ function guardDeterministicArithmeticEqualities(text) {
 function noteLabelledAnswerDisagreement(original, repaired) {
   var stated = statedSolutionAnswer(original);
   if (typeof stated !== 'number' || !Number.isFinite(stated)) return repaired;
-  if (String(original || '') === String(repaired || '')) return repaired;
   if (/does not equal the checked value/i.test(repaired)) return repaired;
-  var oldShown = [];
-  var newShown = [];
-  String(original || '').replace(/=\s*(?:₹|Rs\.?\s*)?(-?\d+(?:\.\d+)?)/g, function(_match, number) {
-    oldShown.push(Number(number));
-    return _match;
-  });
+  var results = [];
   String(repaired || '').replace(/(?:=|≈)\s*(?:₹|Rs\.?\s*)?(-?\d+(?:\.\d+)?)/g, function(_match, number) {
-    newShown.push(Number(number));
+    var value = Number(number);
+    if (Number.isFinite(value)) results.push(value);
     return _match;
   });
-  var checked = null;
-  for (var i = 0; i < oldShown.length && i < newShown.length; i++) {
-    if (!Number.isFinite(oldShown[i]) || !Number.isFinite(newShown[i])) continue;
-    var matchedLabel = Math.abs(oldShown[i] - stated) <= Math.max(1e-6, Math.abs(stated) * 1e-6);
-    var changed = Math.abs(newShown[i] - oldShown[i]) > Math.max(1e-6, Math.abs(newShown[i]) * 1e-6);
-    if (matchedLabel && changed) checked = newShown[i];
-  }
-  if (checked === null) return repaired;
+  if (!results.length) return repaired;
+  // A repaired intermediate can equal the old label even when the final net
+  // still matches it. "(8 × 3) − (2 × 1) = 22 − 2 = 22" becomes 24 − 2 = 22.
+  // Citing 24 would tell the student that a correct final answer is wrong.
+  var agrees = results.some(function(value) {
+    return Math.abs(value - stated) <= Math.max(1e-6, Math.abs(stated) * 1e-6);
+  });
+  if (agrees) return repaired;
+  var checked = results[results.length - 1];
   return String(repaired).replace(/\s+$/, '') + '\nThe labelled answer ' + formatDeterministicNumber(stated) + ' does not equal the checked value ' + formatDeterministicNumber(checked) + '.';
 }
 
@@ -34136,6 +34132,10 @@ async function runConversationDefectTests() {
     var rounded = guardDeterministicArithmeticEqualities('22 / 7 = 3.14');
     var exact = guardDeterministicArithmeticEqualities('2 × 3 = 6');
     check('an arithmetic-mean step cannot wear a harmonic answer', walk.indexOf('(40 + 60) / 2 = 48') === -1 && walk.indexOf('50') !== -1 && /does not equal the checked value/.test(walk));
+    var falseTail = guardDeterministicArithmeticEqualities('The answer is 22.\n(8 × 3) − (2 × 1) = 22 − 2 = 22');
+    var labelledMean = guardDeterministicArithmeticEqualities('Final answer: 48\n(40 + 60) / 2 = 50');
+    check('a corrected intermediate does not contradict a matching final answer', falseTail.indexOf('24 - 2 = 22') !== -1 && falseTail.indexOf('22 - 2 = 22') === -1 && falseTail.indexOf('22 − 2 = 22') === -1 && !/does not equal the checked value/.test(falseTail));
+    check('a labelled answer that disagrees with a correct equality is marked', labelledMean.indexOf('(40 + 60) / 2 = 50') !== -1 && /labelled answer 48 does not equal the checked value 50/.test(labelledMean));
     check('a valid equal-distance average stays exact', harmonic.indexOf('= 48') !== -1 && harmonic.indexOf('≈') === -1 && !/does not equal the checked value/.test(harmonic));
     check('a distance-time conversion is recomputed', train.indexOf('= 72') !== -1 && train.indexOf('= 20') === -1);
     check('a rounded quotient is not printed as an exact equality', rounded.indexOf('≈') !== -1 && rounded.indexOf('= 3.14') === -1 && exact.indexOf('2 × 3 = 6') !== -1 && exact.indexOf('≈') === -1);
