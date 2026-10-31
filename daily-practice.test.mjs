@@ -424,6 +424,23 @@ async function runPages() {
       check(kind + ' P7 ' + variant.label + ' cooldown', Number(rate.sessions.dump()[spec.retryKey]) === rate.clock.now() + variant.seconds * 1000 && !rate.storage.dump()[spec.newKey + dayKey(rate)]);
     }
 
+    const dailyQuota = await drive(kind, {
+      auto: true,
+      responses: [httpResult(429, { error: { status: 'QUOTA_EXCEEDED', retryable: false, resetsAt: '2026-11-01T18:30:00.000Z' } })],
+      before(storage, sessions, clock) { signIn(storage, clock, token); }
+    });
+    check(kind + ' P18 a used daily allowance is not a short retry', containerText(dailyQuota).includes('Today&#39;s allowance is used') && containerText(dailyQuota).includes('2026-11-01T18:30:00.000Z') && !containerText(dailyQuota).includes('Too many requests') && !dailyQuota.sessions.dump()[spec.retryKey] && !dailyQuota.storage.dump()[spec.newKey + dayKey(dailyQuota)] && dailyQuota.intervals.length === 0);
+    const keptPractice = await drive(kind, {
+      auto: true,
+      responses: [httpResult(429, { error: { status: 'QUOTA_EXCEEDED', retryable: false, resetsAt: '2026-11-01T18:30:00.000Z' } })],
+      before(storage, sessions, clock) {
+        signIn(storage, clock, token);
+        storage.seed(spec.newKey + new Date(clock.now()).toISOString().split('T')[0], JSON.stringify(spec.validItem));
+      }
+    });
+    const keptMarker = spec.validItem.questions ? spec.validItem.questions[0].q.slice(0, 24) : spec.validItem.topic;
+    check(kind + ' P18 a later generate leaves today\'s practice in place', keptPractice.calls.length === 0 && containerText(keptPractice).includes(keptMarker) && !containerText(keptPractice).includes('Today\'s allowance is used'));
+
     const failures = [
       { label: 'TypeError', make: function() { return new TypeError('Failed to fetch'); } },
       { label: 'AbortError', make: function() { const error = new Error('aborted'); error.name = 'AbortError'; return error; } },
