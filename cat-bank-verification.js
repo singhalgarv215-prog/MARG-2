@@ -1,6 +1,7 @@
 /* Checked CAT bank.
  * answer_key_ready in the paper files means the text and an answer table were extracted.
- * Only the items in this file have an answer recomputed from the question.
+ * Only the items in this file are served. Their keys were re-solved by the implementation author
+ * (see data/cat-pyq/answer-key-manifest.json); the solver functions below hold typed answers, they do not compute them.
  * Indexed DILR remains unavailable: the shared table or conditions are not in the question record. */
 var MargCATBank = (function () {
   var items = [
@@ -1797,8 +1798,14 @@ solvers["cat-2025-s3-qa-q8"] = () => '54000';
   function bare(option) {
     return String(option || '').replace(/^[A-D]\.\s*/, '').trim();
   }
+  // Items kept in this file with their key and content, but not shown to students
+  // until the reason is resolved. Adding an id here removes it from every pack.
+  var withheld = {
+    'cat-2024-s1-varc-q11': 'Unresolved disagreement: the extracted key is B, but C is also a defensible summary. Not verified by anyone else.'
+  };
+  function isWithheld(id) { return Object.prototype.hasOwnProperty.call(withheld, id); }
   function byId(id) {
-    for (var i = 0; i < items.length; i++) if (items[i].id === id) return items[i];
+    for (var i = 0; i < items.length; i++) if (items[i].id === id && !isWithheld(id)) return items[i];
     return null;
   }
   function agreement(entry) {
@@ -1808,8 +1815,8 @@ solvers["cat-2025-s3-qa-q8"] = () => '54000';
     entry.options.forEach(function(option, index) { if (canon(bare(option)) === solved) hits.push(index); });
     return hits.length === 1 && hits[0] === entry.correct;
   }
-  function qaItems() { return items.filter(function(entry) { return entry.section === 'qa' && agreement(entry); }); }
-  function verbalItems() { return items.filter(function(entry) { return entry.section === 'varc'; }); }
+  function qaItems() { return items.filter(function(entry) { return entry.section === 'qa' && !isWithheld(entry.id) && agreement(entry); }); }
+  function verbalItems() { return items.filter(function(entry) { return entry.section === 'varc' && !isWithheld(entry.id); }); }
   function questionShape(entry) {
     return {
       sourceId:entry.id, topic:entry.topic, q:entry.stem, options:entry.options.slice(), correct:entry.correct,
@@ -1898,6 +1905,7 @@ solvers["cat-2025-s3-qa-q8"] = () => '54000';
   }
   function classify(record) {
     if (!record || !record.id) return 'incomplete_data';
+    if (isWithheld(record.id)) return 'withheld_unresolved';
     if (byId(record.id) && (record.section !== 'qa' || agreement(byId(record.id)))) return 'independently_checked';
     if (defects(record).length) return 'defective_extraction';
     if (record.section === 'varc' || record.section === 'dilr') {
@@ -1913,7 +1921,9 @@ solvers["cat-2025-s3-qa-q8"] = () => '54000';
   return {
     items:function() { return items.map(function(entry) { return Object.assign({}, entry); }); },
     qaPacks:qaPacks, verbalPacks:verbalPacks, isCheckedVerbalPack:isCheckedVerbalPack, isCheckedQAPack:isCheckedQAPack,
-    classify:classify, agreement:agreement, servedIds:function() { return items.map(function(entry) { return entry.id; }); }
+    classify:classify, agreement:agreement,
+    servedIds:function() { return items.filter(function(entry) { return !isWithheld(entry.id); }).map(function(entry) { return entry.id; }); },
+    withheld:function() { return Object.assign({}, withheld); }
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = MargCATBank;

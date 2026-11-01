@@ -357,6 +357,12 @@ var answered = {};
 var isGenerating = false;
 var dailyRetryKind = '';
 
+// Beta restriction. A model-written passage comes with a model-chosen key that nothing independently
+// checks. Until generated keys have a verification step of their own, Daily RC opens only the
+// hand-checked passage below.
+var DAILY_RC_MODEL_GENERATION = false;
+var BETA_RC_NOTE = 'During the beta, Daily RC opens a hand-checked passage only.';
+
 var VERIFIED_RC_FALLBACK = {
   passage: 'Public indicators are often treated as passive descriptions of social reality. A ranking of universities, a measure of hospital efficiency, or a national index of innovation appears merely to condense facts that already exist. Yet once an indicator becomes consequential, the institutions being measured reorganise themselves around it. Universities redirect effort toward countable publications; hospitals may prefer cases that protect reported outcomes; governments fund activities that move an index even when those activities are only weakly connected to its stated purpose. The familiar complaint that such behaviour is dishonest misses the deeper problem. Even conscientious actors must decide how to allocate scarce attention, and a public measure quietly tells them which achievements will be recognised and which will remain administratively invisible.\n\nThis does not make measurement useless. Decisions made without common measures can be opaque, inconsistent and vulnerable to private judgment. Nor does it follow that every behavioural response corrupts a measure: a hospital that improves hygiene because infection rates are published may be responding exactly as policymakers hoped. The difficulty is that the same pressure can produce substantive improvement, selective compliance, or merely cosmetic adaptation, and the numerical result alone cannot reliably distinguish among them. Better statistical design can reduce distortions by combining measures or adjusting for obvious incentives, but cannot eliminate them, because every indicator selects a limited representation of a more complex goal. Adding variables can even disguise rather than solve the problem by making the measure appear comprehensive while leaving its governing assumptions unexamined.\n\nThe usual defence of indicators appeals to comparison. Without a common scale, how could citizens judge hospitals, students choose universities, or governments identify ineffective programmes? But comparison is not a neutral operation performed after institutions have acted. It establishes a field in which unlike activities must be rendered commensurable, often by suppressing differences in purpose, population or circumstance. Once the comparison acquires authority, institutions that depart from its categories may look inefficient even when their divergence reflects a legitimate alternative mission. Conversely, organisations can become skilled at the measured activity while the public objective that justified the measure deteriorates. The apparent precision of a ranking therefore may coexist with uncertainty about whether the ranked objects ought to be pursuing the same ends.\n\nThe appropriate response is neither blind trust nor abandonment. Indicators should be treated as institutional interventions whose effects require scrutiny. A useful measure is not merely accurate at the moment of construction; it must remain informative after people begin adapting to it. That requires revising measures, comparing them with qualitative evidence, and asking who bears the cost when organisations optimise what can be counted. It also requires accepting that revision will disrupt historical comparability, the very quality that gives indicators much of their authority. The choice is thus not between a stable objective measure and unstable judgment. It is between acknowledging that judgment already inhabits measurement and allowing yesterday’s judgments to harden into today’s facts.',
   difficulty: 'Hard',
@@ -380,6 +386,24 @@ function isValidRC(data) {
     return q && String(q.q || '').trim().length >= 20 && options.length === 4 && new Set(options).size === 4 &&
       Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3 && String(q.explanation || '').trim().length >= 20;
   });
+}
+
+function rcIdentity(data) {
+  var squash = function(value) { return String(value || '').replace(/\s+/g, ' ').trim(); };
+  return squash(data && data.passage) + '#' + (Array.isArray(data && data.questions) ? data.questions : []).map(function(question) {
+    return squash(question && question.q) + '|' + String(question && question.correct) + '|' +
+      (Array.isArray(question && question.options) ? question.options : []).map(squash).join('~');
+  }).join('##');
+}
+
+// True only for the hand-checked passage, with its questions, options and keys unchanged.
+function isVerifiedRCData(data) {
+  return rcIdentity(data) === rcIdentity(VERIFIED_RC_FALLBACK);
+}
+
+// What may be shown. A generated draft is allowed only when generation is switched on.
+function rcServable(data) {
+  return DAILY_RC_MODEL_GENERATION ? isValidRC(data) : isVerifiedRCData(data);
 }
 
 function cloneVerifiedRC() {
@@ -458,11 +482,11 @@ async function generateRC() {
     if (cached) {
       try {
         const data = JSON.parse(cached);
-        if (isValidRC(data)) { renderRC(data); return; }
+        if (rcServable(data)) { renderRC(data); return; }
         localStorage.removeItem(cacheKey);
       } catch(e) { localStorage.removeItem(cacheKey); }
     }
-    var waitMs = rcRetryRemaining();
+    var waitMs = DAILY_RC_MODEL_GENERATION ? rcRetryRemaining() : 0;
     if (waitMs > 0) {
       var waitBody = 'Please wait ' + Math.ceil(waitMs / 1000) + ' more seconds before trying again.';
       if (dailyRetryKind === 'rate') showDailyPanel('Too many requests', waitBody, 'Try again', 'retry');
@@ -476,6 +500,13 @@ async function generateRC() {
     }
     if (session.reason === 'expired') {
       showDailyPanel('Your session has timed out', 'Open Marg to renew it, then come back to this page.', 'Open Marg', 'home');
+      return;
+    }
+    if (!DAILY_RC_MODEL_GENERATION) {
+      var betaRC = cloneVerifiedRC();
+      betaRC.recoveryNote = BETA_RC_NOTE;
+      localStorage.setItem(cacheKey, JSON.stringify(betaRC));
+      renderRC(betaRC);
       return;
     }
     const prompt = 'Generate one original CAT-level Reading Comprehension passage with exactly 3 questions. The passage alone must be 480-550 words in 4 distinct paragraphs, argument-driven and dense rather than narrative or explanatory. It must contain a central thesis, a qualification or counter-consideration, and a subtle change in the author’s position. Questions must test primary purpose, attitude/tone, and inference. Each must have 4 distinct options, exactly one defensible answer, and at least 2 plausible traps based on scope, force, ownership, or inference. Independently verify each key using only the passage. Return ONLY valid JSON no markdown: {"passage":"480-550 words with \\n\\n between paragraphs","difficulty":"Hard","topic":"topic name","questions":[{"q":"question text","options":["A. text","B. text","C. text","D. text"],"correct":0,"explanation":"brief evidence-based explanation","trap_type":"short trap label"}]}';
@@ -518,7 +549,7 @@ async function generateRC() {
       const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
       rcData = JSON.parse(clean);
     } catch (modelError) { throw rcFail('invalid', 'model json'); }
-    if (!isValidRC(rcData)) throw rcFail('invalid', 'validator');
+    if (!rcServable(rcData)) throw rcFail('invalid', 'validator');
     rcClearRetry();
     localStorage.setItem(cacheKey, JSON.stringify(rcData));
     renderRC(rcData);
@@ -533,7 +564,7 @@ async function generateRC() {
       var keptRc = null;
       try { keptRc = localStorage.getItem(cacheKey); } catch (ignore) {}
       if (keptRc) {
-        try { var keptRcData = JSON.parse(keptRc); if (isValidRC(keptRcData)) { renderRC(keptRcData); return; } } catch (ignore) {}
+        try { var keptRcData = JSON.parse(keptRc); if (rcServable(keptRcData)) { renderRC(keptRcData); return; } } catch (ignore) {}
       }
       var quotaBody = e && e.resetsAt ? 'Today\'s allowance is used. It resets at ' + e.resetsAt + '.' : 'Today\'s allowance is used.';
       showDailyPanel('Today\'s allowance is used', quotaBody, '', 'static');
