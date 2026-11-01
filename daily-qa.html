@@ -133,6 +133,12 @@ var answered = {};
 var isGenerating = false;
 var dailyRetryKind = '';
 
+// Beta restriction. A model-written question comes with a model-chosen key that nothing independently
+// checks, and the draft checks below only catch a draft that contradicts itself. Until generated keys have
+// a verification step of their own, Daily QA opens only the two hand-checked questions below.
+var DAILY_QA_MODEL_GENERATION = false;
+var BETA_QA_NOTE = 'During the beta, Daily QA opens two hand-checked questions only.';
+
 var VERIFIED_QA_FALLBACK = {
   difficulty:'Medium to Hard',
   recoveryNote:'Today’s generated draft did not pass Marg’s checks, so two hand-checked questions opened instead.',
@@ -151,12 +157,75 @@ function hasExposedSolutionScratchwork(value) {
   return false;
 }
 
+// Deterministic checks on a generated draft. They only reject; they never edit
+// a question, a key or a solution.
+function qaPlainNumbers(text) {
+  return (String(text || '').replace(/(\d),(?=\d{3}\b)/g, '$1').match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+}
+
+function qaEvaluatePlain(expression) {
+  var tokens = String(expression).replace(/\s+/g, '').replace(/−/g, '-').match(/\d+(?:\.\d+)?|[+\-*\/×÷]/g) || [];
+  if (!tokens.length || tokens.join('') !== String(expression).replace(/\s+/g, '').replace(/−/g, '-')) return null;
+  var values = [Number(tokens[0])], operators = [];
+  for (var i = 1; i < tokens.length; i += 2) {
+    var operator = tokens[i] === '×' ? '*' : tokens[i] === '÷' ? '/' : tokens[i], next = Number(tokens[i + 1]);
+    if (!/^[+\-*\/]$/.test(operator) || !Number.isFinite(next)) return null;
+    if (operator === '*') values[values.length - 1] *= next;
+    else if (operator === '/') { if (next === 0) return null; values[values.length - 1] /= next; }
+    else { operators.push(operator); values.push(next); }
+  }
+  return values.reduce(function(total, value, index) { return index === 0 ? value : operators[index - 1] === '+' ? total + value : total - value; }, 0);
+}
+
+function qaHasFalseEquality(text) {
+  var found = false;
+  String(text || '').replace(/(^|[^\d.)\w^])(\d+(?:\.\d+)?(?:\s*[+\-−*\/×÷]\s*\d+(?:\.\d+)?)+)\s*=\s*(-?\d+)(?![\d.]|\s*[+\-−*\/×÷^%(]|[A-Za-z])/g, function(all, lead, expression, result) {
+    var computed = qaEvaluatePlain(expression);
+    if (computed !== null && Number.isInteger(computed) && computed !== Number(result)) found = true;
+    return all;
+  });
+  return found;
+}
+
+// The solution must end on the keyed option, not on a different one.
+function qaSolutionContradictsKey(question) {
+  var options = Array.isArray(question && question.options) ? question.options : [];
+  var keyed = qaPlainNumbers(String(options[question.correct] || '').replace(/^\s*[A-D][.)]\s*/, ''));
+  var solutionNumbers = qaPlainNumbers(question && question.solution);
+  if (keyed.length !== 1 || !solutionNumbers.length) return false;
+  var last = solutionNumbers[solutionNumbers.length - 1];
+  if (last === keyed[0]) return false;
+  return options.some(function(option, index) {
+    if (index === question.correct) return false;
+    var numbers = qaPlainNumbers(String(option).replace(/^\s*[A-D][.)]\s*/, ''));
+    return numbers.length === 1 && numbers[0] === last;
+  });
+}
+
+function qaIdentity(question) {
+  return String(question && question.q || '').replace(/\s+/g, ' ').trim() + '|' + String(question && question.correct) + '|' +
+    (Array.isArray(question && question.options) ? question.options : []).map(function(option) { return String(option).replace(/\s+/g, ' ').trim(); }).join('~');
+}
+
+// True only for the two hand-checked questions, with their options and keys unchanged.
+function isVerifiedQAData(data) {
+  var known = VERIFIED_QA_FALLBACK.questions.map(qaIdentity);
+  return !!(data && Array.isArray(data.questions) && data.questions.length === known.length &&
+    data.questions.every(function(question, index) { return qaIdentity(question) === known[index]; }));
+}
+
+// What may be shown. A generated draft is allowed only when generation is switched on.
+function qaServable(data) {
+  return hasCleanQASolutions(data) && (DAILY_QA_MODEL_GENERATION || isVerifiedQAData(data));
+}
+
 function hasCleanQASolutions(data) {
   return !!(data && Array.isArray(data.questions) && data.questions.length === 2 && data.questions.every(function(question) {
     var options = Array.isArray(question && question.options) ? question.options.map(function(option) { return String(option).trim().toLowerCase(); }) : [];
     return String(question && question.q || '').trim().length >= 28 && /\?|^(?:what|which|find|determine|calculate|how)\b/i.test(String(question.q || '').trim()) &&
       options.length === 4 && new Set(options).size === 4 && Number.isInteger(question.correct) && question.correct >= 0 && question.correct <= 3 &&
-      typeof question.solution === 'string' && question.solution.trim().length >= 24 && !hasExposedSolutionScratchwork(question.solution);
+      typeof question.solution === 'string' && question.solution.trim().length >= 24 && !hasExposedSolutionScratchwork(question.solution) &&
+      !qaHasFalseEquality(question.solution) && !qaSolutionContradictsKey(question);
   }));
 }
 
@@ -224,8 +293,8 @@ async function generateQA() {
       return;
     }
     const cached = localStorage.getItem(cacheKey);
-    if (cached) { try { var cachedData = JSON.parse(cached); if (hasCleanQASolutions(cachedData)) { renderQA(cachedData); return; } localStorage.removeItem(cacheKey); } catch(e) { localStorage.removeItem(cacheKey); } }
-    var waitMs = qaRetryRemaining();
+    if (cached) { try { var cachedData = JSON.parse(cached); if (qaServable(cachedData)) { renderQA(cachedData); return; } localStorage.removeItem(cacheKey); } catch(e) { localStorage.removeItem(cacheKey); } }
+    var waitMs = DAILY_QA_MODEL_GENERATION ? qaRetryRemaining() : 0;
     if (waitMs > 0) {
       var waitBody = 'Please wait ' + Math.ceil(waitMs / 1000) + ' more seconds before trying again.';
       if (dailyRetryKind === 'rate') showDailyPanel('Too many requests', waitBody, 'Try again', 'retry');
@@ -239,6 +308,13 @@ async function generateQA() {
     }
     if (session.reason === 'expired') {
       showDailyPanel('Your session has timed out', 'Open Marg to renew it, then come back to this page.', 'Open Marg', 'home');
+      return;
+    }
+    if (!DAILY_QA_MODEL_GENERATION) {
+      var betaSet = verifiedQAFallback();
+      betaSet.recoveryNote = BETA_QA_NOTE;
+      localStorage.setItem(cacheKey, JSON.stringify(betaSet));
+      renderQA(betaSet);
       return;
     }
     const prompt = 'Generate 2 genuine CAT-level Quantitative Aptitude questions: Q1 medium and Q2 hard. Vary naturally across Arithmetic, Algebra, Geometry and Number Systems. A question may use one topic deeply or combine related topics; never force a pairing merely to look difficult. The central difficulty must be inferring the setup, not executing a visible formula chain. Each question must contain a hidden relationship, invariant, feasibility restriction or case split and require at least 2 linked reasoning decisions before routine arithmetic. Use only necessary data. Reject repeated percentage-change questions and markup-discount-profit questions with an artificial alternate-discount condition. Solve every draft, verify exactly one option is correct, and make distractors believable mid-solution errors. Do all scratch work privately. Every solution field must contain only the clean final derivation—never false starts, abandoned calculations, self-corrections, repeated variable definitions, or phrases such as wait, let\'s recheck, let\'s fix, actually, or ignore that. If working changes, discard it and rewrite the solution from the first valid step. Return ONLY valid JSON no markdown: {"difficulty":"Medium to Hard","questions":[{"q":"complete concise question","topics":["Topic1","Topic2 if genuinely used"],"options":["A. value","B. value","C. value","D. value"],"correct":0,"solution":"concise step-by-step working","common_mistake":"most likely reasoning error","concept_check":"specific concept or insight tested"}]}';
@@ -274,7 +350,7 @@ async function generateQA() {
       const clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
       qaData = JSON.parse(clean);
     } catch (modelError) { throw qaFail('invalid', 'model json'); }
-    if (!hasCleanQASolutions(qaData)) throw qaFail('invalid', 'validator');
+    if (!qaServable(qaData)) throw qaFail('invalid', 'validator');
     qaClearRetry();
     localStorage.setItem(cacheKey, JSON.stringify(qaData));
     renderQA(qaData);
@@ -289,7 +365,7 @@ async function generateQA() {
       var keptQa = null;
       try { keptQa = localStorage.getItem(cacheKey); } catch (ignore) {}
       if (keptQa) {
-        try { var keptQaData = JSON.parse(keptQa); if (hasCleanQASolutions(keptQaData)) { renderQA(keptQaData); return; } } catch (ignore) {}
+        try { var keptQaData = JSON.parse(keptQa); if (qaServable(keptQaData)) { renderQA(keptQaData); return; } } catch (ignore) {}
       }
       var quotaBody = e && e.resetsAt ? 'Today\'s allowance is used. It resets at ' + e.resetsAt + '.' : 'Today\'s allowance is used.';
       showDailyPanel('Today\'s allowance is used', quotaBody, '', 'static');

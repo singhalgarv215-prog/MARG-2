@@ -188,6 +188,9 @@ function loadPage(kind, options) {
   const html = fs.readFileSync(path.join(root, spec.file), 'utf8');
   const extracted = extractScript(html);
   let code = extracted.code;
+  // The pages ship with model generation switched off for the beta. These tests exercise the generation
+  // machinery, so they switch it on in the page source; options.beta leaves the shipped setting alone.
+  if (!options.beta) code = code.replace('var DAILY_QA_MODEL_GENERATION = false;', 'var DAILY_QA_MODEL_GENERATION = true;').replace('var DAILY_RC_MODEL_GENERATION = false;', 'var DAILY_RC_MODEL_GENERATION = true;');
   if (!options.auto) code = code.replace(new RegExp('\\n' + spec.fn + '\\(\\);\\s*$'), '\n');
   const storage = memoryStorage();
   const sessions = memoryStorage();
@@ -661,10 +664,76 @@ async function runWorker() {
   fs.unlinkSync(dest);
 }
 
+// Beta content restrictions: with the pages as shipped, no model-written question or passage can be shown.
+async function runBeta() {
+  const draftQA = JSON.parse(JSON.stringify(pages.QA.validItem));
+  draftQA.questions[0].q = 'A different two-digit number problem written by the model, which also chose its own key. What is the number?';
+  const draftRC = pages.RC.validItem;
+  const cases = [
+    { kind: 'QA', draft: draftQA, verifiedMark: function(page) { return page.sandbox.VERIFIED_QA_FALLBACK.questions[0].q.slice(0, 40); }, draftMark: draftQA.questions[0].q.slice(0, 40) },
+    { kind: 'RC', draft: draftRC, verifiedMark: function(page) { return page.sandbox.VERIFIED_RC_FALLBACK.passage.slice(0, 40); }, draftMark: draftRC.passage.slice(0, 20) }
+  ];
+  for (const item of cases) {
+    const spec = pages[item.kind];
+    const dayOf = function(clock) { return new Date(clock.now()).toISOString().split('T')[0]; };
+    const valid = httpResult(200, spec.model(item.draft));
+
+    const fresh = await drive(item.kind, { auto: true, beta: true, responses: [valid], before(storage, sessions, clock) { signIn(storage, clock); } });
+    const shown = containerText(fresh);
+    check(item.kind + ' B1 beta opens the hand-checked content and makes no model request', fresh.calls.length === 0 && shown.includes(item.verifiedMark(fresh).slice(0, 30)) && !shown.includes(item.draftMark));
+
+    const rateLimited = await drive(item.kind, { auto: true, beta: true, responses: [httpResult(429, { error: { status: 'QUOTA_EXCEEDED', retryable: false } })], before(storage, sessions, clock) { signIn(storage, clock); } });
+    check(item.kind + ' B2 quota, rate and invalid-draft paths are not reachable in the beta (no request is ever made)', rateLimited.calls.length === 0 && containerText(rateLimited).includes(item.verifiedMark(rateLimited).slice(0, 30)));
+
+    const poisoned = await drive(item.kind, {
+      auto: true, beta: true, responses: [valid],
+      before(storage, sessions, clock) { signIn(storage, clock); storage.seed(spec.newKey + dayOf(clock), JSON.stringify(item.draft)); }
+    });
+    const stored = poisoned.storage.dump()[spec.newKey + dayKey(poisoned)];
+    check(item.kind + ' B3 a model draft already in the cache is refused and replaced by the hand-checked content', poisoned.calls.length === 0 && !containerText(poisoned).includes(item.draftMark) && containerText(poisoned).includes(item.verifiedMark(poisoned).slice(0, 30)) && stored && !stored.includes(item.draftMark));
+
+    const kept = await drive(item.kind, {
+      auto: true, beta: true, responses: [valid],
+      before(storage, sessions, clock) {
+        signIn(storage, clock);
+        const probe = loadPage(item.kind, { beta: true, responses: [] });
+        const verified = item.kind === 'QA' ? probe.sandbox.VERIFIED_QA_FALLBACK : probe.sandbox.VERIFIED_RC_FALLBACK;
+        storage.seed(spec.newKey + dayOf(clock), JSON.stringify(verified));
+      }
+    });
+    check(item.kind + ' B4 the hand-checked content already in the cache still renders without a request', kept.calls.length === 0 && containerText(kept).includes(item.verifiedMark(kept).slice(0, 30)));
+
+    const signedOutBeta = await drive(item.kind, { auto: true, beta: true, responses: [valid] });
+    check(item.kind + ' B5 signed-out students still get the sign-in prompt, not content', signedOutBeta.calls.length === 0 && containerText(signedOutBeta).includes('Sign in to use Daily Practice'));
+
+    const gate = await drive(item.kind, { beta: true, responses: [] });
+    const servable = gate.sandbox[item.kind === 'QA' ? 'qaServable' : 'rcServable'];
+    const verified = item.kind === 'QA' ? gate.sandbox.VERIFIED_QA_FALLBACK : gate.sandbox.VERIFIED_RC_FALLBACK;
+    check(item.kind + ' B6 the gate refuses a clean-looking model draft and accepts the hand-checked content', servable(item.draft) === false && servable(JSON.parse(JSON.stringify(verified))) === true);
+    const altered = JSON.parse(JSON.stringify(verified));
+    (altered.questions || altered.sets)[0].correct = (((altered.questions || altered.sets)[0].correct) + 1) % 4;
+    check(item.kind + ' B7 hand-checked content with one key changed is refused', servable(altered) === false);
+    const tweaked = JSON.parse(JSON.stringify(verified));
+    tweaked.questions[0].options = tweaked.questions[0].options.slice().reverse();
+    check(item.kind + ' B8 hand-checked content with reordered options is refused', servable(tweaked) === false);
+
+    if (item.kind === 'QA') {
+      const rekeyed = JSON.parse(JSON.stringify(verified));
+      rekeyed.questions[0].correct = (rekeyed.questions[0].correct + 1) % 4;
+      rekeyed.questions[0].solution = 'We compare the two conditions carefully and keep the one that satisfies both of them together.';
+      check('QA B8b a re-keyed copy whose solution is consistent with any key is still refused', gate.sandbox.hasCleanQASolutions(rekeyed) === true && servable(rekeyed) === false);
+    }
+    const open = loadPage(item.kind, { responses: [] });
+    check(item.kind + ' B9 the shipped switch is off, and the test harness is the only thing that turns it on', gate.sandbox[item.kind === 'QA' ? 'DAILY_QA_MODEL_GENERATION' : 'DAILY_RC_MODEL_GENERATION'] === false && open.sandbox[item.kind === 'QA' ? 'DAILY_QA_MODEL_GENERATION' : 'DAILY_RC_MODEL_GENERATION'] === true);
+    check(item.kind + ' B10 the page source ships with generation off', new RegExp('var DAILY_' + item.kind + '_MODEL_GENERATION = false;').test(fs.readFileSync(path.join(root, spec.file), 'utf8')));
+  }
+}
+
 const unhandled = [];
 process.on('unhandledRejection', function(error) { unhandled.push(error); });
 await runUnit();
 await runPages();
+await runBeta();
 await runWorker();
 await flush();
 if (unhandled.length) check('no unhandled rejections', false);

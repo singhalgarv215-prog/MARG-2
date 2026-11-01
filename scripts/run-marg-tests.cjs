@@ -243,6 +243,10 @@ function report(name, results) {
     'runMargSubmissionStateTests',
     'runContextRoutingTests'
   ];
+  // The app ships with graded practice limited to checked material for the beta. The older suites exercise
+  // the generation, audit and grading machinery itself, so they run with that restriction off. The suite
+  // runBetaGradedRestrictionTests switches it back on and tests the shipped behaviour.
+  vm.runInContext('BETA_VERIFIED_GRADED_ONLY = false;', sandbox);
   const discovered = Object.keys(sandbox).filter(function(name) {
     return (/^run.*Tests$/.test(name) || /^runMarg.*Tests$/.test(name)) && typeof sandbox[name] === 'function';
   });

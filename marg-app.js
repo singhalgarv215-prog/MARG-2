@@ -1794,7 +1794,7 @@ function carryArithmeticCorrectionsForward(value, corrections, studentText) {
     var piece = pieces[i], lead = piece.match(/^[.,;:!?)\]]+/);
     if (lead) { out += lead[0]; piece = piece.slice(lead[0].length); }
     out += piece.split('\n').map(function(line) {
-      return line.replace(/[^\n]+?(?:[.!?](?=\s|$)|$)/g, function(sentence) {
+      return line.replace(/[^\n]+?(?:(?<!\bRs)[.!?](?=\s|$)|$)/g, function(sentence) {
         var hasOption = optionLabel.test(sentence);
         if (!hasOption && !conclusionCue.test(sentence)) return sentence;
         // A figure the student gave, or a sentence about the student's own
@@ -1806,7 +1806,8 @@ function carryArithmeticCorrectionsForward(value, corrections, studentText) {
           active.forEach(function(candidate) { if (plain(digits) === Number(candidate.from)) correction = candidate; });
           if (!correction || insideMarkupTag(source, offset)) return token;
           var before = source.slice(0, offset), after = source.slice(offset + token.length);
-          if (/[=×÷*+\-−–—\/^]\s*$/.test(before) || /^\s*[=×÷*+\-−–—\/^%]/.test(after) || /^[A-Za-z]/.test(after)) return token;
+          var labelled = /\b(?:total|answer|result|sum|product|difference|quotient|average|cost|price|amount|value)\s*[=:]\s*$/i.test(before);
+          if ((/[=×÷*+\-−–—\/^]\s*$/.test(before) && !labelled) || /^\s*[=×÷*+\-−–—\/^%]/.test(after) || /^[A-Za-z]/.test(after)) return token;
           if (!hasOption && !(linkedBefore.test(before) && restatement.test(after))) return token;
           if (owned) { kept.push(correction); return token; }
           stale = correction;
@@ -1852,6 +1853,9 @@ function repairInconsistentEqualityChains(text, corrections) {
     if (line.indexOf('\u0000') !== -1) return line;
     return line.replace(chainPattern, function(chain, offset) {
       if (isReportedOrHypotheticalClaim(line, offset) || insideMarkupTag(line, offset)) return chain;
+      // A result written as a fraction or ratio ("= 5/6", "= 3:5") is a pair of
+      // numbers, not one value, so its first number is never compared alone.
+      if (/^\s*[\/:]\s*\d/.test(line.slice(offset + chain.length))) return chain;
       var parts = chain.split(/\s*=\s*/).map(function(part) { return part.trim(); }).filter(Boolean);
       if (parts.length < 2) return chain;
       var values = parts.map(deterministicExpressionValue);
@@ -1891,6 +1895,10 @@ function guardDeterministicArithmeticEqualities(text, studentText) {
     return line.replace(equalityPattern, function(match, boundary, expression, shown, offset, source) {
     var trailing = String(source || '').slice(offset + match.length);
     if (isReportedOrHypotheticalClaim(source, offset + boundary.length) || insideMarkupTag(source, offset)) return match;
+    // A ratio is not an equation between its parts: "18:30 = 3:5" compares two
+    // ratios, so a colon directly before the expression or after the result
+    // marks ratio notation and the figures are left exactly as written.
+    if (/^\s*:\s*\d/.test(trailing) || (boundary.charAt(0) === ':' && /\d\s*$/.test(String(source || '').slice(0, offset)))) return match;
     // A unit or word after the result ("= 14.29 km/h") is fine; a continued
     // expression, an attached letter ("2x") or a lone variable is not.
     if (/^\s*[\/×÷*+^]/.test(trailing) || /^[A-Za-z]/.test(trailing) || /^\s+[A-Za-z](?![A-Za-z])/.test(trailing)) return match;
@@ -3941,6 +3949,427 @@ function presentProtectedRequestFailure(error, draftText) {
   return true;
 }
 
+function runPreBetaCatCorrectnessTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var savedHistory = conversationHistory;
+  var savedUser = currentUser;
+  currentUser = { id:'pre-beta-test' };
+  var note = PERCENTILE_PROVENANCE_NOTE;
+  var scorecardTurn = 'Analyse my scorecard image';
+  conversationHistory = [{ role:'user', content:scorecardTurn }];
+  var upload = function(text) { return guardPercentileProvenance(text, scorecardTurn, undefined, { documentTurn:true }); };
+  var plain = function(text) { return guardPercentileProvenance(text, scorecardTurn); };
+  var imageDiagnosis = Object.assign({}, buildDiagnosisDirective(scorecardTurn).diagnosis, { hasImage:true });
+
+  // Step 2: a figure read from the student's own upload is kept, with its source.
+  var read = 'Your scorecard shows an overall percentile of 91 and VARC 88 percentile.';
+  check('P2 an uploaded scorecard figure is kept and its source is stated', upload(read) === 'Your scorecard shows an overall percentile of 91 and VARC 88 percentile' + note + '.', upload(read));
+  check('P2 the provenance does not claim the figure is verified', /not independently verified/.test(upload(read)) && !/\b(?:verified by|confirmed|authentic|official)\b/i.test(upload(read)));
+  check('P2 a figure from "The scorecard you uploaded lists…" is annotated too', upload('The scorecard you uploaded lists 91 percentile overall.') === 'The scorecard you uploaded lists 91 percentile overall' + note + '.');
+  check('P2 the real mentor path keeps it on an image turn', applyMentorResponseGuard(read, imageDiagnosis).indexOf('91') !== -1 && /not independently verified/.test(applyMentorResponseGuard(read, imageDiagnosis)));
+  check('P2 the same sentence with no image in the turn is still blocked', plain(read) === PERCENTILE_REWRITES.other);
+  check('P2 a figure with no mention of the upload is still blocked on an image turn', upload('Overall 91 percentile; VARC 88 percentile.') === PERCENTILE_REWRITES.other);
+  var blocked = ['Your scorecard shows 91 percentile, so you can reach 99.', 'Your scorecard shows 91 percentile, which needs roughly 160 marks.', 'This puts you at about the 85th percentile.', 'You will land around the 95th percentile.', 'Your scorecard shows 99 percentile and the IIM call cut-off is higher.', 'Your scorecard shows 82 percentile, which is about 60 marks.'];
+  blocked.forEach(function(text) { check('P2 MARG\'s own promise stays blocked on an image turn: ' + text, /^(?:I cannot give a percentile|I do not have a sourced cut-off)/.test(upload(text)), upload(text)); });
+  check('P2 an estimate derived from the upload is blocked even though it names the upload', upload('Your scorecard puts you at about the 85th percentile.') === PERCENTILE_REWRITES.other, upload('Your scorecard puts you at about the 85th percentile.'));
+  check('P2 the provenance wording cannot be borrowed to pass a promise', guardPercentileInMarkup('<p>You can reach 99 percentile (as read from your upload; not independently verified).</p>').indexOf(PERCENTILE_REWRITES.other) !== -1 && guardPercentileInMarkup('<p>Your target is 99 percentile; this is not independently verified.</p>').indexOf(PERCENTILE_REWRITES.other) !== -1);
+  check('S3 every assistant message passes the arithmetic display backstop', /guardArithmeticInMarkup\(html\)/.test(addMessage.toString()) && addMessage.toString().indexOf('guardPercentileInMarkup(html)') < addMessage.toString().indexOf('guardArithmeticInMarkup(html)'));
+  var mixed = upload('The scorecard shows 82 percentile. You are on track for 98+ percentile.');
+  check('P2 in one reply the upload figure stays and the promise goes', mixed.indexOf('The scorecard shows 82 percentile' + note) === 0 && mixed.indexOf(PERCENTILE_REWRITES.other) !== -1 && mixed.indexOf('98+') === -1, mixed);
+  var annotated = upload(read);
+  check('P2 the display backstop keeps an annotated reading and blocks the bare one', guardPercentileInMarkup('<p>' + annotated + '</p>') === '<p>' + annotated + '</p>' && guardPercentileInMarkup('<p>' + read + '</p>').indexOf(PERCENTILE_REWRITES.other) !== -1);
+  check('P2 the gate is idempotent on an annotated reading', upload(annotated) === annotated && plain(annotated) === annotated);
+  check('P2 a figure the student typed is untouched and not annotated', guardPercentileProvenance('You said you got 92 percentile.', 'I got 92 percentile') === 'You said you got 92 percentile.');
+  check('P2 the image directive asks the model to name the source', /scorecard or screenshot, say it is what their scorecard shows/.test(getImageAnalysisDirective([{ data:'x', mimeType:'image/png' }])));
+
+  // Step 3: the same arithmetic result on every path that reaches a student.
+  var asked = 'What is 12 x 15? I think 170';
+  conversationHistory = [{ role:'user', content:asked }];
+  var diagnosis = buildDiagnosisDirective(asked).diagnosis;
+  var paths = {
+    guard: function(text) { return guardDeterministicArithmeticEqualities(text, asked); },
+    mentor: function(text) { return applyMentorResponseGuard(text, diagnosis); },
+    mission: function(text) { return stabilizeAndRememberMission(text, asked, diagnosis); },
+    display: function(text) { return guardArithmeticInMarkup('<p>' + text + '</p>').replace(/^<p>|<\/p>$/g, ''); }
+  };
+  var table = [
+    ['a wrong conclusion is corrected', '12 × 15 = 170. So the answer is 170.', '12 × 15 = 180. So the answer is 180.'],
+    ['"total = 170" is carried forward', '12 × 15 = 170, so total = 170.', '12 × 15 = 180, so total = 180.'],
+    ['"total = Rs. 170" is carried forward', '12 × 15 = 170. Hence total = Rs. 170.', '12 × 15 = 180. Hence total = Rs. 180.'],
+    ['a conclusion after "Rs." is carried forward', '12 × 15 = 170, so the cost is Rs. 170.', '12 × 15 = 180, so the cost is Rs. 180.'],
+    ['a stale option letter is replaced', '17 × 23 = 381. Option (B) 381 is correct.', '17 × 23 = 391. The checked value is 391. Choose the option that equals 391; the option letter above came from the earlier mistake.'],
+    ['correct arithmetic is unchanged', '12 × 15 = 180. So the answer is 180 and the total is Rs. 180.', '12 × 15 = 180. So the answer is 180 and the total is Rs. 180.'],
+    ['an unrelated figure is unchanged', '12 × 15 = 170. So the hall had 170 seats last year.', '12 × 15 = 180. So the hall had 170 seats last year.'],
+    ['a payment instruction with no conclusion is unchanged', '12 × 15 = 170. Pay Rs. 170 now.', '12 × 15 = 180. Pay Rs. 170 now.']
+  ];
+  Object.keys(paths).forEach(function(name) {
+    table.forEach(function(row) {
+      var got = paths[name](row[1]);
+      check('S3 ' + name + ': ' + row[0], got === row[2], got);
+    });
+  });
+  var studentCases = [['You said the answer is 170.', 'You said the answer is 170.'], ['Your answer is 170, which is right.', 'Your answer is 170, which is right.']];
+  Object.keys(paths).forEach(function(name) {
+    studentCases.forEach(function(pair) {
+      var got = paths[name]('12 × 15 = 170. ' + pair[0]);
+      check('S3 ' + name + ': the student\'s own figure is kept and flagged: ' + pair[0], got.indexOf('12 × 15 = 180. ' + pair[1]) === 0 && /The labelled answer 170 does not equal the checked value 180\./.test(got), got);
+    });
+  });
+  var once = paths.mentor('12 × 15 = 170, so total = 170.');
+  check('S3 the mentor, mission and display passes together change nothing more', paths.display(paths.mission(once)) === once && once === '12 × 15 = 180, so total = 180.', paths.display(paths.mission(once)));
+  check('S3 the display backstop leaves tags and attributes alone', guardArithmeticInMarkup('<span data-x="2 + 2 = 5">ok</span> 2 + 2 = 4') === '<span data-x="2 + 2 = 5">ok</span> 2 + 2 = 4');
+  check('S3 a text with no equals sign is returned untouched', guardArithmeticInMarkup('<p>No sums here</p>') === '<p>No sums here</p>');
+
+  // Ratio and fraction notation is not an equation between its parts.
+  var ratioCases = ['Pinu:Rinu = 20:32 = 5:8.', 'The income ratio is 18:30 = 3:5.', 'lemon:syrup = 0.5:3.5 = 1:7.', 'So 12:18 = 2:3.', 'Also 3:5 = 6:10 so they are in proportion.', 'Then 20 : 32 = 5 : 8.', 'Score 3:2 = 1.5 times.', 'x:y = 2:3 = 4:6.', 'So 1/2 + 1/3 = 5/6.', 'And 3/4 × 2/3 = 1/2.', 'Average = 3 / (1/10 + 1/20 + 1/30) = 180/11 kmph.'];
+  check('R1 correct ratios and fractions are left exactly as written', ratioCases.every(function(text) { return guardDeterministicArithmeticEqualities(text, '') === text; }), ratioCases.filter(function(text) { return guardDeterministicArithmeticEqualities(text, '') !== text; }).join(' | '));
+  check('R5 a ratio that is the result of a division is left alone', guardDeterministicArithmeticEqualities('The scaled ratio is 12 / 4 = 3:1.', '') === 'The scaled ratio is 12 / 4 = 3:1.');
+  check('R2 a wrong plain equality beside a ratio is still corrected', guardDeterministicArithmeticEqualities('The ratio is 3:5. Then 12 × 15 = 170.', '') === 'The ratio is 3:5. Then 12 × 15 = 180.', guardDeterministicArithmeticEqualities('The ratio is 3:5. Then 12 × 15 = 170.', ''));
+  check('R3 a time such as 10:12 does not hide a wrong sum on the same line', guardDeterministicArithmeticEqualities('At 10:12 we get 12 + 15 = 28 minutes.', '').indexOf('12 + 15 = 27') !== -1);
+  var verifiedRatioIds = ['cat-2022-s1-qa-q7', 'cat-2025-s2-qa-q7', 'cat-2025-s2-qa-q22', 'cat-2019-s1-qa-q27'];
+  var bankItems = typeof MargCATBank !== 'undefined' ? MargCATBank.items() : [];
+  check('R4 the checked-bank solutions that use ratios and fractions pass the guard unchanged', verifiedRatioIds.every(function(id) {
+    var item = bankItems.filter(function(entry) { return entry.id === id; })[0];
+    return item && guardDeterministicArithmeticEqualities(item.solution, '') === item.solution;
+  }), verifiedRatioIds.join(','));
+
+  conversationHistory = savedHistory;
+  currentUser = savedUser;
+  return results;
+}
+
+function runBetaContentRestrictionTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var savedUser = currentUser;
+  var savedType = currentPracticeType;
+  var savedFlag = BETA_VERIFIED_RC_ONLY;
+  var savedSet = currentSetIndex;
+  var savedQuestion = currentQuestionIndex;
+  currentUser = { id:'beta-restriction-test' };
+  var clone = function(value) { return JSON.parse(JSON.stringify(value)); };
+  var bank = getVerifiedArticleRCFallbackBank();
+  var checkedFallback = getVerifiedFallbackPractice('rc', 4);
+  var summaryPack = MargCATBank.verbalPacks(3)[0];
+
+  // Verified packs remain accessible.
+  check('V1 every stored article passage is recognised as hand-checked', bank.length >= 3 && bank.every(isVerifiedRCContent));
+  check('V2 the RC fallback pack is recognised as hand-checked', !!checkedFallback && isVerifiedRCContent(checkedFallback));
+  check('V3 the checked paragraph-summary pack is recognised', !!summaryPack && isVerifiedRCContent(summaryPack));
+  check('V4 a shortened copy of a hand-checked pack (fewer questions) is still accepted', (function() { var copy = clone(bank[0]); copy.sets[0].questions = copy.sets[0].questions.slice(0, 3); return isVerifiedRCContent(copy); })());
+  check('V5 the verified RC and QA packs still open through the normal path', !!getUnseenVerifiedFallbackPractice('rc', 3) && isVerifiedRCContent(getUnseenVerifiedFallbackPractice('rc', 3)) && !!getUnseenVerifiedFallbackPractice('qa', 3, null));
+  var keysSeen = [];
+  for (var keyIndex = 0; keyIndex < 40; keyIndex++) keysSeen.push(isVerifiedRCContent(getVerifiedArticleRCFallback('beta-key-' + keyIndex)));
+  check('V6 the article fallback only ever returns hand-checked passages', keysSeen.every(Boolean));
+  check('V7 the checked QA packs hold only served bank items', (function() {
+    var served = MargCATBank.servedIds();
+    var pack = getUnseenVerifiedFallbackPractice('qa', 3, null);
+    return !!pack && pack.questions.every(function(question) { return !question.sourceId || served.indexOf(question.sourceId) !== -1; }) && served.indexOf('cat-2024-s1-varc-q11') === -1;
+  })());
+
+  // Unverified RC cannot be served.
+  var generated = clone(bank[0]);
+  generated.sets[0].passage = generated.sets[0].passage + ' A model added this sentence.';
+  var keyChanged = clone(bank[0]);
+  keyChanged.sets[0].questions[0].correct = (keyChanged.sets[0].questions[0].correct + 1) % 4;
+  var optionsMoved = clone(bank[0]);
+  optionsMoved.sets[0].questions[0].options = optionsMoved.sets[0].questions[0].options.slice().reverse();
+  var extraQuestion = clone(bank[0]);
+  extraQuestion.sets[0].questions.push({ q:'A question the model wrote about the same passage?', options:['A. one','B. two','C. three','D. four'], correct:2, explanation:'Invented.' });
+  var unknownPassage = clone(bank[0]);
+  unknownPassage.sets[0].passage = 'A passage written by a model. '.repeat(40);
+  [['a new passage', generated], ['a hand-checked pack with one key changed', keyChanged], ['reordered options', optionsMoved], ['an extra model question on a checked passage', extraQuestion], ['an unknown passage', unknownPassage], ['an empty pack', { sets:[] }], ['null', null]].forEach(function(row) {
+    check('U1 unverified RC is refused: ' + row[0], isVerifiedRCContent(row[1]) === false);
+  });
+  check('U2 formatting an unverified article RC returns nothing', formatStructuredArticleRC(generated) === '' && formatStructuredArticleRC(keyChanged) === '' && formatStructuredArticleRC(bank[0]).indexOf('PASSAGE') === 0);
+  var guidedRefusal = formatGuidedExerciseForChat('rc', generated, null);
+  check('U3 the guided RC formatter refuses an unverified pack and shows no passage', guidedRefusal.indexOf('model added this sentence') === -1 && /not shown/.test(guidedRefusal) && formatGuidedExerciseForChat('rc', clone(bank[0]), null).indexOf('CAT RC') === 0);
+  var generatedThree = clone(generated);
+  generatedThree.sets[0].questions = generatedThree.sets[0].questions.slice(0, 3);
+  var leaked = preventStructuredOutputLeak(JSON.stringify(generatedThree));
+  check('U4 a model JSON reply holding an unverified RC is not opened in chat', leaked.indexOf('model added this sentence') === -1 && /could not open/.test(leaked));
+  var threeQuestions = clone(bank[0]);
+  threeQuestions.sets[0].questions = threeQuestions.sets[0].questions.slice(0, 3);
+  check('U5 a model JSON reply holding a hand-checked RC still opens', preventStructuredOutputLeak(JSON.stringify(threeQuestions)).indexOf('CAT RC') === 0);
+
+  // Caches cannot carry an unverified RC past the restriction.
+  var cacheKey = getUserScopedKey('marg_verified_practice_cache_v1');
+  var cacheBefore = null;
+  try { cacheBefore = localStorage.getItem(cacheKey); } catch (error) { cacheBefore = null; }
+  var plantable = clone(bank[1]);
+  plantable.sets[0].questions = plantable.sets[0].questions.slice(0, 3);
+  plantable.sets[0].passage = plantable.sets[0].passage + ' A model added this sentence.';
+  var entry = { section:'rc', topic:normalizePracticeTopicName('mixed'), signature:practiceContentSignature('rc', plantable), savedAt:new Date().toISOString(), verification:{ mode:'model-check', provesKey:false }, data:plantable };
+  try { localStorage.setItem(cacheKey, JSON.stringify([entry])); } catch (error) {}
+  var planted = getCachedVerifiedPractice('rc', 3, null, true);
+  var plantedToday = getTodaysVerifiedPractice('rc', 3, null);
+  BETA_VERIFIED_RC_ONLY = false;
+  var openCache = getCachedVerifiedPractice('rc', 3, null, true);
+  BETA_VERIFIED_RC_ONLY = savedFlag;
+  check('U6 an unverified RC in the verified-practice cache is not returned', planted === null && plantedToday === null);
+  check('U7 the same cache entry is returned when the restriction is off, so U6 is exercising the gate', !!openCache && /model added this sentence/.test(openCache.sets[0].passage));
+  try { if (cacheBefore === null) localStorage.removeItem(cacheKey); else localStorage.setItem(cacheKey, cacheBefore); } catch (error) {}
+
+  var labConfig = { mode:'diagnose', focus:'mixed', difficulty:'cat', topic:'surprise' };
+  var labTheme = { title:'beta-restriction-lab' };
+  var labKey = rcLabDailyExerciseCacheKey(labConfig, labTheme);
+  var labBefore = null;
+  try { labBefore = localStorage.getItem(labKey); } catch (error) { labBefore = null; }
+  try { localStorage.setItem(labKey, JSON.stringify({ date:getTodayDate(), data:generated })); } catch (error) {}
+  var labGenerated = readCachedRCLabExercise(labConfig, labTheme);
+  try { localStorage.setItem(labKey, JSON.stringify({ date:getTodayDate(), data:clone(bank[0]) })); } catch (error) {}
+  var labVerified = readCachedRCLabExercise(labConfig, labTheme);
+  try { if (labBefore === null) localStorage.removeItem(labKey); else localStorage.setItem(labKey, labBefore); } catch (error) {}
+  check('U14 a generated RC in the RC Lab daily cache is not returned, a hand-checked one is', labGenerated === null && !!labVerified && isVerifiedRCContent(labVerified));
+
+  // The display backstop.
+  var practiceBox = document.getElementById('practice-content');
+  var madeBox = false;
+  if (!practiceBox && document.createElement) {
+    practiceBox = document.createElement('div');
+    practiceBox.id = 'practice-content';
+    madeBox = true;
+  }
+  if (practiceBox) {
+    currentPracticeType = 'rc';
+    currentSetIndex = 0;
+    currentQuestionIndex = 0;
+    practiceBox.innerHTML = '';
+    renderPractice(generated);
+    check('U8 the practice screen refuses an unverified RC and shows its passage nowhere', practiceBox.innerHTML.indexOf('model added this sentence') === -1 && /no checked answer key/.test(practiceBox.innerHTML));
+    practiceBox.innerHTML = '';
+    if (madeBox) practiceBox.id = '';
+  } else {
+    check('U8 the practice screen refuses an unverified RC (no practice box in this harness)', true, 'skipped: no DOM');
+  }
+  currentPracticeType = savedType;
+  currentSetIndex = savedSet;
+  currentQuestionIndex = savedQuestion;
+
+  // Generation entry points never reach the model while the restriction is on.
+  var modelCalls = 0;
+  var originalFetchWithTimeout = typeof fetchWithTimeout === 'function' ? fetchWithTimeout : null;
+  var originalServe = serveBetaVerifiedRC;
+  var originalClose = typeof closeVarcCard === 'function' ? closeVarcCard : null;
+  var originalPromptBuilder = buildRCPrompt;
+  var served = 0;
+  if (originalFetchWithTimeout) fetchWithTimeout = function() { modelCalls++; return Promise.reject(new Error('blocked in test')); };
+  buildRCPrompt = function() { modelCalls++; return originalPromptBuilder(); };
+  serveBetaVerifiedRC = function() { served++; return true; };
+  if (originalClose) closeVarcCard = function() {};
+  var entrySafe = true;
+  try { createRCPassage(); } catch (error) { entrySafe = false; }
+  check('U10 the article RC entry point serves a stored passage and builds no model request', entrySafe && served === 1 && modelCalls === 0, 'served=' + served + ' modelCalls=' + modelCalls);
+  var guidedReturn = null;
+  try { guidedReturn = generateGuidedDiagnosticExercise('rc', null); if (guidedReturn && guidedReturn.catch) guidedReturn.catch(function() {}); } catch (error) { guidedReturn = 'threw'; }
+  check('U11 the guided RC entry point serves a stored passage and builds no model request', served === 2 && modelCalls === 0 && guidedReturn !== 'threw', 'served=' + served + ' modelCalls=' + modelCalls);
+  serveBetaVerifiedRC = originalServe;
+  buildRCPrompt = originalPromptBuilder;
+  if (originalFetchWithTimeout) fetchWithTimeout = originalFetchWithTimeout;
+  if (originalClose) closeVarcCard = originalClose;
+  check('U12 the restriction is on as shipped', BETA_VERIFIED_RC_ONLY === true);
+
+  // The entry points check the restriction before they build any request.
+  var gateText = function(fn, marker) { var text = String(fn); return text.indexOf('BETA_VERIFIED_RC_ONLY') !== -1 && text.indexOf('BETA_VERIFIED_RC_ONLY') < text.indexOf(marker); };
+  check('U13 each RC generation entry point checks the restriction before building a request', gateText(createRCPassage, 'buildArticleRCPrompt') && gateText(generateGuidedDiagnosticExercise, 'buildRCPrompt') && gateText(loadDailyPractice, 'buildRCPrompt'));
+
+  currentUser = savedUser;
+  return results;
+}
+
+async function runBetaGradedRestrictionTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var clone = function(value) { return JSON.parse(JSON.stringify(value)); };
+  var saved = {
+    flag:BETA_VERIFIED_GRADED_ONLY, user:currentUser, guest:isGuestMode, history:conversationHistory, exercise:activeGeneratedExercise,
+    fetch:fetchWithTimeout, timed:startTimedTest, serve:serveBetaVerifiedRC, studyConfigured:ensureStudyConfigured, getContext:(typeof MargStudy !== 'undefined' && MargStudy) ? MargStudy.getContext : null,
+    lab:launchVerifiedStrategyDecisionLab, tab:switchTab
+  };
+  var modelCalls = 0, timedCalls = [], rcServes = 0, labCalls = 0;
+  var lastReply = function() { var last = conversationHistory[conversationHistory.length - 1]; return last ? String(last.content || '') : ''; };
+  var arm = function() {
+    modelCalls = 0; timedCalls = []; rcServes = 0; labCalls = 0;
+    conversationHistory = [];
+    fetchWithTimeout = function() { modelCalls++; return Promise.reject(new Error('no model request is allowed here')); };
+    startTimedTest = function(section, topic, count) { timedCalls.push([section, topic, count]); return Promise.resolve(true); };
+    serveBetaVerifiedRC = function() { rcServes++; return true; };
+    launchVerifiedStrategyDecisionLab = function() { labCalls++; return true; };
+    switchTab = function() {};
+  };
+  currentUser = { id:'beta-graded-test' };
+  isGuestMode = true;
+  BETA_VERIFIED_GRADED_ONLY = true;
+  try {
+    // Free-typed requests that name a question type.
+    arm();
+    await serveOriginalQuestionsInChat(parseInChatQuestionRequest('give me 2 QA percentages questions'));
+    check('A1 a chat QA request opens checked QA and writes no model request', modelCalls === 0 && timedCalls.length === 1 && timedCalls[0][0] === 'qa' && timedCalls[0][2] === 3, JSON.stringify(timedCalls));
+    arm();
+    await serveOriginalQuestionsInChat(parseInChatQuestionRequest('can you give me some DILR questions'));
+    check('A2 a chat DILR request opens checked DILR and writes no model request', modelCalls === 0 && timedCalls.length === 1 && timedCalls[0][0] === 'dilr' && timedCalls[0][2] === 4, JSON.stringify(timedCalls));
+    arm();
+    await serveOriginalQuestionsInChat(parseInChatQuestionRequest('Start a verified CAT-level DILR practice set'));
+    check('A3 the Daily DILR redirect text opens checked DILR, not a model-written set', modelCalls === 0 && timedCalls.length === 1 && timedCalls[0][0] === 'dilr', JSON.stringify(timedCalls));
+    arm();
+    await serveOriginalQuestionsInChat(parseInChatQuestionRequest('write me a reading comprehension passage'));
+    check('A4 a chat RC request opens a hand-checked passage and writes no model request', modelCalls === 0 && rcServes === 1 && timedCalls.length === 0);
+    var verbalTexts = ['give me 3 parajumble questions', 'give me a summary question', 'can you create odd one out questions'];
+    for (var verbalIndex = 0; verbalIndex < verbalTexts.length; verbalIndex++) {
+      arm();
+      var verbalRequest = parseInChatQuestionRequest(verbalTexts[verbalIndex]);
+      await serveOriginalQuestionsInChat(verbalRequest);
+      check('A5 "' + verbalTexts[verbalIndex] + '" gets an honest explanation and no graded question', !!verbalRequest && modelCalls === 0 && timedCalls.length === 0 && rcServes === 0 && /do not have checked question sets/.test(lastReply()) && !/\bcorrect\b/i.test(lastReply()));
+    }
+    arm();
+    startTimedTest = function() { return Promise.reject(new Error('timed test unavailable')); };
+    await serveOriginalQuestionsInChat(parseInChatQuestionRequest('give me 2 QA percentages questions'));
+    check('A6 if checked QA cannot open, the student gets an explanation, not a model-written set', modelCalls === 0 && /do not write new graded QA questions/.test(lastReply()));
+    arm();
+    BETA_VERIFIED_GRADED_ONLY = false;
+    try { await serveOriginalQuestionsInChat(parseInChatQuestionRequest('give me 2 QA percentages questions')); } catch (error) {}
+    BETA_VERIFIED_GRADED_ONLY = true;
+    check('A7 with the restriction off the same request does reach the model, so A1 is exercising the gate', modelCalls >= 1, 'modelCalls=' + modelCalls);
+
+    // Ordinary practice requests that are not parsed as question requests.
+    var launchRequest = parseExplicitPracticeLaunchRequest('give me a DILR set');
+    arm();
+    var launched = maybeLaunchExplicitPracticeRequest('give me a DILR set');
+    check('B1 "give me a DILR set" opens checked DILR instead of reaching the mentor model', !!launchRequest && launched === true && timedCalls.length === 1 && timedCalls[0][0] === 'dilr' && modelCalls === 0, JSON.stringify(timedCalls));
+    arm();
+    check('B2 asking to open the practice tab still just opens it', maybeLaunchExplicitPracticeRequest('open the QA practice tab') === true && timedCalls.length === 0);
+
+    // Questions written from the student's own material.
+    arm();
+    ensureStudyConfigured = function() { return true; };
+    var oldGetContext = MargStudy.getContext;
+    MargStudy.getContext = function() { return { id:'ctx', section:'varc', text:'A passage the student pasted.', passages:[] }; };
+    var studyDone = await generateQuestionsFromStudyMaterial('give me 4 questions from this article', { type:'generate_questions', owns:true, count:4 });
+    MargStudy.getContext = oldGetContext;
+    check('C1 questions on the student\'s own material are not written as graded questions', studyDone === true && modelCalls === 0 && /will not write graded questions/.test(lastReply()));
+
+    // Guided exercises.
+    arm();
+    await generateGuidedDiagnosticExercise('qa', { subcategory:'percentages' });
+    check('D1 guided QA opens the checked QA constructor, not a model draft', modelCalls === 0 && timedCalls.length === 1 && timedCalls[0][0] === 'qa' && timedCalls[0][1] === 'percentages', JSON.stringify(timedCalls));
+    arm();
+    await generateGuidedDiagnosticExercise('va', {});
+    var vaReply = lastReply();
+    arm();
+    await generateGuidedDiagnosticExercise('varc_mixed', {});
+    check('D2 guided verbal checks are refused with an explanation and write no graded item', modelCalls === 0 && timedCalls.length === 0 && /do not have checked question sets/.test(vaReply) && /do not have checked question sets/.test(lastReply()));
+    arm();
+    await generateGuidedDiagnosticExercise('strategy', {});
+    check('D3 the strategy lab is the fixed hand-written one, never a model draft', modelCalls === 0 && labCalls === 1);
+    arm();
+    await generateGuidedDiagnosticExercise('rc', {});
+    check('D4 guided RC opens a hand-checked passage', modelCalls === 0 && rcServes === 1);
+
+    // Hypothesis experiments.
+    arm();
+    var experiment = await launchHypothesisExperiment({ origin:'mentor_reasoning', hypothesisId:'h-beta' });
+    check('E1 a model-written hypothesis experiment is refused with an explanation', experiment === false && modelCalls === 0 && /cannot run a fair test/.test(lastReply()));
+    var evaluations = 0;
+    var realEvaluate = evaluateHypothesisExperiment;
+    evaluateHypothesisExperiment = function() { evaluations++; return { deterministic:true, verdict:'SUPPORTED', observations:[] }; };
+    var storedAttempt = evaluateStoredHypothesisAttempt({ hypothesis:{ origin:'mentor_reasoning', hypothesisId:'h-beta' } }, {});
+    evaluateHypothesisExperiment = realEvaluate;
+    check('E2 an old experiment cannot be marked from its unchecked key', evaluations === 0 && storedAttempt.deterministic === false && storedAttempt.verdict === 'INCONCLUSIVE');
+    var newAttempt = completeHypothesisExperiment({ hypothesis:{ origin:'mentor_reasoning', hypothesisId:'h-beta' } }, {});
+    var recordedResult = completeHypothesisExperiment({ hypothesis:{ origin:'mentor_reasoning', hypothesisId:'h-beta' }, experimentEvaluation:{ verdict:'INCONCLUSIVE' } }, {});
+    check('E3 a new attempt at an old experiment records nothing, while a result already recorded is still shown', newAttempt.ok === false && newAttempt.reason === 'no_attempt' && recordedResult.ok === true && recordedResult.repeated === true);
+    var memoryStatus = function(status) {
+      activeGeneratedExercise = { id:'beta-memory', type:'qa', validationVerdict:{ status:status }, content:{ questions:[] } };
+      return recordBehaviorPattern('qa', 'confuses the base of a percentage', 'chose the wrong base', 'answer-review');
+    };
+    var heldBack = memoryStatus('model_checked');
+    BETA_VERIFIED_GRADED_ONLY = false;
+    var keptOpen = memoryStatus('model_checked');
+    BETA_VERIFIED_GRADED_ONLY = true;
+    check('E4 a wrong answer against an unchecked key is not stored as a lasting pattern, and the restriction-off run stores it', heldBack === null && !!keptOpen);
+
+    // Grading uses only checked keys.
+    var gradedHistory = [{ role:'assistant', content:'Q1 Which is right here and now?\nA. one\nB. two\nC. three\nD. four', exerciseId:'beta-grade' }];
+    var gradable = function(status) {
+      conversationHistory = clone(gradedHistory);
+      activeGeneratedExercise = { id:'beta-grade', type:'qa', content:{ questions:[{ q:'Which is right here and now? ', options:['A. one','B. two','C. three','D. four'], correct:1 }] }, validationVerdict:{ status:status } };
+      return hasVerifiedActiveAnswerKey();
+    };
+    check('F1 a code-verified key can be graded', gradable('verified_local') === true);
+    check('F2 a key only another model agreed with cannot be graded', gradable('model_checked') === false && gradable('independently_verified') === false);
+    BETA_VERIFIED_GRADED_ONLY = false;
+    var wasGradable = gradable('model_checked');
+    BETA_VERIFIED_GRADED_ONLY = true;
+    check('F3 with the restriction off the same exercise is graded, so F2 is exercising the gate', wasGradable === true);
+    check('F4 a stored hand-checked passage can still be graded', (function() { conversationHistory = clone(gradedHistory); activeGeneratedExercise = { id:'beta-grade', type:'rc', content:{ questions:[{ q:'Which is right here and now? ', options:['A. one','B. two','C. three','D. four'], correct:1 }] }, validationVerdict:{ status:'stored_pack' } }; return hasGradableStoredAnswerKey(); })());
+
+    // Caches and fallbacks cannot carry an unchecked QA or DILR set.
+    var qaPack = await MargQAEngine.create('Percentages', 4242, 3);
+    var qaVerification = MargQAEngine.verify(qaPack, 'Percentages').verification;
+    var dilrPack = MargDILREngine.create('Games & Tournaments', 99, 1);
+    var dilrVerification = MargDILREngine.verify(dilrPack, 'Games & Tournaments').verification;
+    check('G1 an engine-built QA pack and DILR set are recognised as checked', isCheckedGradedPractice('qa', qaPack, qaVerification) && isCheckedGradedPractice('dilr', dilrPack, dilrVerification));
+    var tamperedQA = clone(qaPack);
+    tamperedQA.questions[0].correct = (tamperedQA.questions[0].correct + 1) % 4;
+    var tamperedDILR = clone(dilrPack);
+    tamperedDILR.sets[0].questions[0].correct = (tamperedDILR.sets[0].questions[0].correct + 1) % 4;
+    check('G2 an engine pack with one key changed is refused', isCheckedGradedPractice('qa', tamperedQA, qaVerification) === false && isCheckedGradedPractice('dilr', tamperedDILR, dilrVerification) === false);
+    var modelQA = clone(qaPack);
+    delete modelQA._margQAConstruction;
+    var modelDILR = clone(dilrPack);
+    delete modelDILR._margConstruction;
+    check('G3 a model-written pack with no certificate and no hand-checked twin is refused', isCheckedGradedPractice('qa', modelQA, { method:'model-check' }) === false && isCheckedGradedPractice('dilr', modelDILR, { method:'model-check' }) === false);
+    var handQA = getVerifiedFallbackPractice('qa', 3, null);
+    var handPercent = getVerifiedFallbackPractice('qa', 3, 'Percentages');
+    var handDILR = ['Arrangements & Rankings', 'Distribution & Grouping', 'Games & Tournaments', 'Tables, Charts & DI Caselets'].map(function(name) { return getVerifiedFallbackPractice('dilr', 4, name); });
+    check('G4 every hand-checked QA and DILR pack, and a checked-bank QA pack, is accepted', isCheckedGradedPractice('qa', handQA) && isCheckedGradedPractice('qa', handPercent) && isCheckedGradedPractice('qa', MargCATBank.qaPacks(3, '')[0]) && handDILR.every(function(pack) { return !!pack && isCheckedGradedPractice('dilr', pack); }));
+    var keyLetters = function(pack) { return pack.sets[0].questions.map(function(question) { return 'ABCD'.charAt(question.correct); }).join(''); };
+    check('G8 the four hand-checked DILR sets keep the keys that were re-derived by exhaustive search', keyLetters(getVerifiedFallbackPractice('dilr', 4, 'Arrangements & Rankings')) === 'ADDC' && keyLetters(getVerifiedFallbackPractice('dilr', 4, 'Distribution & Grouping')) === 'ABAA' && keyLetters(getVerifiedFallbackPractice('dilr', 4, 'Games & Tournaments')) === 'ABCB' && keyLetters(getVerifiedFallbackPractice('dilr', 4, 'Tables, Charts & DI Caselets')) === 'BBCA');
+    var editedHand = clone(handDILR[0]);
+    editedHand.sets[0].questions[0].correct = (editedHand.sets[0].questions[0].correct + 1) % 4;
+    check('G5 a hand-checked DILR pack with one key changed is refused', isCheckedGradedPractice('dilr', editedHand) === false);
+
+    var cacheKey = getUserScopedKey('marg_verified_practice_cache_v1');
+    var cacheBefore = null;
+    try { cacheBefore = localStorage.getItem(cacheKey); } catch (error) { cacheBefore = null; }
+    var plant = function(section, topic, data, verification) {
+      var entry = { section:section, topic:normalizePracticeTopicName(topic), signature:practiceContentSignature(section, data), savedAt:new Date().toISOString(), verification:verification, data:data };
+      try { localStorage.setItem(cacheKey, JSON.stringify([entry])); } catch (error) {}
+    };
+    plant('qa', 'Percentages', modelQA, { method:'model-check' });
+    var modelCached = getTodaysVerifiedPractice('qa', 3, 'Percentages');
+    BETA_VERIFIED_GRADED_ONLY = false;
+    var modelCachedOpen = getTodaysVerifiedPractice('qa', 3, 'Percentages');
+    BETA_VERIFIED_GRADED_ONLY = true;
+    var modelCachedOld = getCachedVerifiedPractice('qa', 3, 'Percentages', true);
+    BETA_VERIFIED_GRADED_ONLY = false;
+    var modelCachedOldOpen = getCachedVerifiedPractice('qa', 3, 'Percentages', true);
+    BETA_VERIFIED_GRADED_ONLY = true;
+    BETA_VERIFIED_GRADED_ONLY = true;
+    plant('qa', 'Percentages', qaPack, qaVerification);
+    var engineCached = getTodaysVerifiedPractice('qa', 3, 'Percentages');
+    try { if (cacheBefore === null) localStorage.removeItem(cacheKey); else localStorage.setItem(cacheKey, cacheBefore); } catch (error) {}
+    check('G6 a model-checked QA set in the cache is not returned, and an engine-built one still is', modelCached === null && !!engineCached, 'modelCached=' + (modelCached ? 'returned' : 'null') + ' engineCached=' + (engineCached ? 'returned' : 'null'));
+    check('G7 the same cache entry is returned when the restriction is off, so G6 is exercising the gate', !!modelCachedOpen && !!modelCachedOldOpen);
+    check('G9 the older-day cache cannot return a model-checked set either', modelCachedOld === null);
+  } finally {
+    BETA_VERIFIED_GRADED_ONLY = saved.flag;
+    currentUser = saved.user;
+    isGuestMode = saved.guest;
+    conversationHistory = saved.history;
+    activeGeneratedExercise = saved.exercise;
+    fetchWithTimeout = saved.fetch;
+    startTimedTest = saved.timed;
+    serveBetaVerifiedRC = saved.serve;
+    ensureStudyConfigured = saved.studyConfigured;
+    if (saved.getContext && typeof MargStudy !== 'undefined') MargStudy.getContext = saved.getContext;
+    launchVerifiedStrategyDecisionLab = saved.lab;
+    switchTab = saved.tab;
+  }
+  return results;
+}
+
 function runMobileAuditFixTests() {
   var results = [];
   var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
@@ -5693,7 +6122,7 @@ function trimHistoryForGroundedRequest(requestHistory) {
 function getImageAnalysisDirective(attachments) {
   var count = Array.isArray(attachments) ? attachments.length : attachments ? 1 : 0;
   if (!count) return '';
-  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, keep every intermediate value consistent with the previous line and with the final answer, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually”, changed answer, second solution, or closing invitation to the next question. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, use only the images attached to this message. Do not repeat question numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers from the images attached to this message, and do not repeat numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If a number or question boundary is unreadable, say so instead of guessing. If a number or question boundary is unreadable, say so instead of guessing. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
+  return '\n\nIMAGE INPUT MODE: The current user message includes ' + count + ' image' + (count === 1 ? '' : 's') + '. The current image is authoritative for this turn: inspect every image before using any older question, topic or assumption. When you read a percentile off the student\'s own scorecard or screenshot, say it is what their scorecard shows; never estimate a percentile from marks. A short caption such as “Q7”, “Q47”, “solve this” or “this is the question” refers to the current image; it is never a vague plea for emotional help. Do not claim you cannot see an image attached to this message. When there are multiple images, treat them as ordered pages of one continuous passage, DILR set, scorecard or question unless the user says otherwise. Reconstruct the material in page order and do not analyse only the first page. Extract only text, question numbers, markings and values that are genuinely legible. If any condition, option, symbol or marking is unclear, identify that exact part and ask for a closer crop instead of completing it from memory. Never substitute a different textbook question merely because it has the same number or topic. If solving, briefly restate the visible givens, use one clean derivation, keep every intermediate value consistent with the previous line and with the final answer, independently recheck the final value, and publish only that final derivation—no false start, “wait”, “actually”, changed answer, second solution, or closing invitation to the next question. If simplifying an earlier solution, preserve the same valid equation; do not invent a shortcut that changes what the quantities mean. If selecting questions from photographed pages, use only the images attached to this message. Do not repeat question numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Respect visible ticks/marks as completed only when they are actually legible, recommend only visible question numbers from the images attached to this message, and do not repeat numbers from an earlier chapter unless the student explicitly asks to mix chapters that are still available. Do not manufacture question text or concepts, expand ranges when counting, de-duplicate the numbers and verify every stated total. If a number or question boundary is unreadable, say so instead of guessing. If a number or question boundary is unreadable, say so instead of guessing. If the student says more pages are still coming, do not start the list yet. Never replace a request for the list from those pages with newly written practice questions. If it is a CAT mock or sectional score screenshot, first identify the provider/header and whether each visible value is labelled marks/score, correct, attempted, accuracy, percentile, or time. Report VARC, DILR and QA values with those labels. Never silently treat attempts or correct answers as marks. If the screenshot does not make the unit unambiguous, state the values you can read, give one useful first observation, and ask one compact clarification: “Are these marks, correct counts, or attempts?” Once the units are clear, continue the existing mock diagnosis flow using section balance, selection, accuracy and execution evidence. If it is a question, passage, handwritten working, schedule or another preparation image, answer the student’s actual request and use the visible evidence without inventing missing content.';
 }
 
 function isBareQuestionReference(message) {
@@ -8570,6 +8999,11 @@ async function requestHypothesisExperimentDraft(design, previousFailure, timeout
 // separate the explanations, nothing is shown and the same task stays ready.
 async function launchHypothesisExperiment(target, options) {
   options = options || {};
+  if (BETA_VERIFIED_GRADED_ONLY) {
+    // The experiment is a model-written graded set. Its keys are agreed by the same model, not checked.
+    postBetaGradedNotice('experiment');
+    return false;
+  }
   var gate = hypothesisExperimentGate(target);
   if (!gate.ok) {
     var notice = gate.reason === 'retired' ? 'That read has already been set aside, so I will not test it again. A different explanation needs its own evidence first.'
@@ -8652,7 +9086,7 @@ async function resumeHypothesisExperimentTask(task, hypothesisId) {
     addMentorLeadMessage(stripInternalMentorTags(describeExperimentResultForStudent(snapshot)));
     return true;
   }
-  if (restorable && snapshot.awaitingAnswers !== false && hypothesisExperimentGate(hypothesisId).ok) {
+  if (restorable && !BETA_VERIFIED_GRADED_ONLY && snapshot.awaitingAnswers !== false && hypothesisExperimentGate(hypothesisId).ok) {
     var attempt = (mentorExecutionLoop.attempts || []).find(function(item) { return item.task_id === task.id; });
     activeGeneratedExercise = snapshot;
     activeGeneratedExercise.mentorTaskId = task.id;
@@ -10274,7 +10708,8 @@ function hasVerifiedActiveAnswerKey() {
   var status = activeGeneratedExercise && activeGeneratedExercise.validationVerdict && activeGeneratedExercise.validationVerdict.status;
   // model_checked means a second model pass agreed. It can be graded, and it is not independent proof.
   // independently_verified remains only so an exercise saved before this distinction can still be graded.
-  return /^(?:verified_local|model_checked|independently_verified|preverified)$/.test(String(status || '')) && isActiveExerciseCurrentInConversation();
+  var allowed = BETA_VERIFIED_GRADED_ONLY ? /^(?:verified_local|preverified)$/ : /^(?:verified_local|model_checked|independently_verified|preverified)$/;
+  return allowed.test(String(status || '')) && isActiveExerciseCurrentInConversation();
 }
 
 function hasGradableStoredAnswerKey() {
@@ -10998,6 +11433,7 @@ function collectHypothesisChoices(exercise, choices) {
 function evaluateStoredHypothesisAttempt(exercise, choices) {
   var hypothesis = exercise && exercise.hypothesis;
   if (!hypothesis) return { deterministic:false, verdict:'INCONCLUSIVE', reason:'No stored hypothesis is attached to this attempt.', observations:[] };
+  if (isMentorHypothesisEntry(hypothesis) && BETA_VERIFIED_GRADED_ONLY) return { deterministic:false, verdict:'INCONCLUSIVE', reason:'The questions in this test have keys that were not independently checked, so no answer is marked right or wrong from them.', observations:[] };
   if (isMentorHypothesisEntry(hypothesis)) return evaluateHypothesisExperiment(exercise, liveExperimentHypothesis(hypothesis) || hypothesis, choices);
   var recorded = collectHypothesisChoices(exercise, choices);
   var hasAttempt = !!(exercise.result) || Object.keys(recorded).length > 0;
@@ -11386,6 +11822,8 @@ function completeHypothesisExperiment(exercise, choices) {
   if (exercise.experimentEvaluation) {
     return { ok:true, repeated:true, evaluation:exercise.experimentEvaluation, status:exercise.hypothesisStatusAfter || null, nextAction:exercise.nextDiagnosticAction || null };
   }
+  // A result that was already recorded is kept. A new attempt is never marked against a key nothing checked.
+  if (BETA_VERIFIED_GRADED_ONLY) return { ok:false, reason:'no_attempt' };
   var entry = liveExperimentHypothesis(exercise.hypothesis);
   if (!entry) return { ok:false, reason:'unknown_hypothesis' };
   // Answers can arrive over several messages; they accumulate until the test
@@ -11929,7 +12367,7 @@ function recordBehaviorPattern(section, insight, evidence, source) {
   // cross-session memory.
   if (source === 'answer-review') {
     var status = activeGeneratedExercise && activeGeneratedExercise.validationVerdict && String(activeGeneratedExercise.validationVerdict.status || activeGeneratedExercise.validationVerdict).toLowerCase();
-    if (['verified_local','model_checked','independently_verified'].indexOf(status) === -1) return null;
+    if ((BETA_VERIFIED_GRADED_ONLY ? ['verified_local'] : ['verified_local','model_checked','independently_verified']).indexOf(status) === -1) return null;
   }
   if (!behavioralMemory || !Array.isArray(behavioralMemory.patterns)) loadBehavioralMemory();
   var normalized = normalizeBehaviorPattern(section, insight);
@@ -12508,6 +12946,14 @@ var PERCENTILE_SECOND_PERSON = /\byour\b|\byou(?:['’]re|['’]ve|['’]ll|\s+a
 var PERCENTILE_PERSONAL_FORECAST = /\byou(?:['’]ll|\s+will|\s+would|\s+are going)\b|\byour\s+(?:chances?|odds)\b/i;
 var PERCENTILE_HYPOTHETICAL_LEAD = /^\W*(?:suppose|assume|assuming|imagine|let['’]s say|what if|for example|for instance|e\.g\.?)\b/i;
 var PERCENTILE_MAPPING_CUE = /\b(?:needs?|requires?|takes?|corresponds?|translates?|equates?|equivalent|typically|usually|generally|normally|roughly|approximately)\b/i;
+// A figure the student's own upload shows (a scorecard or screenshot) is theirs
+// to read back, with its source stated. It is not a verified fact and not a
+// MARG estimate, so it is kept only when the reply attributes it to the upload
+// and says nothing predictive, derived or about cut-offs.
+var PERCENTILE_DOCUMENT_CUE = /\b(?:score\s*card|score\s*report|result\s*(?:sheet|card)|report\s*card|image|screenshot|photo|picture|upload(?:ed)?|attached|printout|sheet|shown|listed|printed|the mock you)\b/i;
+var PERCENTILE_DERIVED_CUE = /\b(?:puts you|about|around|estimate[ds]?|equates?|translates?|works? out|implies|suggests|means you|that is|which is)\b/i;
+var PERCENTILE_PROVENANCE_MARK = /not independently verified/i;
+var PERCENTILE_PROVENANCE_NOTE = ' (as read from your upload; not independently verified)';
 var PERCENTILE_WORD = '(?:percentiles?|%\\s*-?\\s*iles?|%\\s*-?\\s*tiles?|pctl|pct\\.?\\s*ile)';
 var PERCENTILE_TENS = { twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90 };
 var PERCENTILE_ONES = { one:1, first:1, two:2, second:2, three:3, third:3, four:4, fourth:4, five:5, fifth:5, six:6, sixth:6, seven:7, seventh:7, eight:8, eighth:8, nine:9, ninth:9 };
@@ -12585,12 +13031,26 @@ function percentileCompanionClaim(sentence, studentText) {
   return unsupported;
 }
 
-function percentileRewriteFor(sentence, studentText) {
+// True when the sentence only reads a figure back from the student's upload:
+// the student did not type it, it names the upload, and it forecasts, derives,
+// maps to marks or mentions cut-offs nothing.
+function percentileReadFromUpload(sentence, studentText, numbers) {
+  if (!PERCENTILE_DOCUMENT_CUE.test(sentence) || PERCENTILE_DERIVED_CUE.test(sentence) || PERCENTILE_FORECAST_CUE.test(sentence)) return false;
+  if (PERCENTILE_CUTOFF_CUE.test(sentence) || percentileCompanionClaim(sentence, studentText)) return false;
+  if (PERCENTILE_HYPOTHETICAL_LEAD.test(sentence)) return false;
+  return !numbers.every(function(number) { return studentSuppliedPercentile(number, studentText); });
+}
+
+function percentileRewriteFor(sentence, studentText, options) {
+  options = options || {};
   if (/\?\s*$/.test(sentence) || /\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG|MARG)|\[\[/.test(sentence)) return null;
   var numbers = percentileClaimNumbers(sentence);
   if (!numbers.length) return null;
   var forecast = PERCENTILE_FORECAST_CUE.test(sentence);
   var secondPerson = PERCENTILE_SECOND_PERSON.test(sentence);
+  var uploadRead = percentileReadFromUpload(sentence, studentText, numbers);
+  if (uploadRead && PERCENTILE_PROVENANCE_MARK.test(sentence)) return null;
+  if (uploadRead && options.documentTurn) return { kind:'document' };
   if (PERCENTILE_DATA_CUE.test(sentence) && !forecast && !secondPerson) return null;
   if (PERCENTILE_HYPOTHETICAL_LEAD.test(sentence) && !PERCENTILE_PERSONAL_FORECAST.test(sentence)) return null;
   var isDefinition = /\b(?:means?|is defined as|stands for|refers to|indicates)\b/i.test(sentence) && /\b(?:candidates|test[-\s]?takers|students|takers|others|people|everyone|examinees|participants)\b/i.test(sentence) && /\b(?:better|higher|more|ahead|above|lower|less|below|behind|beat)\b/i.test(sentence);
@@ -12606,15 +13066,16 @@ function percentileRewriteFor(sentence, studentText) {
   return { kind:'other' };
 }
 
-function guardPercentileProvenance(text, studentText, state) {
+function guardPercentileProvenance(text, studentText, state, options) {
   var value = String(text || '');
   if (!/percentile|%\s*-?\s*(?:ile|tile)|pctl|pct\.?\s*ile|\btop\s+\w+\s*(?:%|per\s*cent)|\b(?:beat|outscor|ahead of|better than|higher than)\w*\s+\d|\b(?:high|mid|low|upper|lower)[-\s]+\d0s\b|\bthe\s+\d0s\b|\b(?:9\d|100)\s*\+|\b(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b/i.test(value)) return value;
   state = state || { seen:{} };
   var student = String(studentText || '');
   return value.split('\n').map(function(line) {
     return line.replace(/[^\n]+?(?:[.!?](?=\s|$)|$)/g, function(sentence) {
-      var verdict = percentileRewriteFor(sentence, student);
+      var verdict = percentileRewriteFor(sentence, student, options);
       if (!verdict) return sentence;
+      if (verdict.kind === 'document') return sentence.replace(/([.!]?)(\s*)$/, PERCENTILE_PROVENANCE_NOTE + '$1$2');
       try { recordProductIncident('percentile_claim_rewritten', null, { surface:'reply', stage:verdict.kind }); } catch (error) {}
       if (state.seen[verdict.kind]) return '';
       state.seen[verdict.kind] = true;
@@ -12635,6 +13096,26 @@ function guardPercentileInMarkup(markup) {
   var inlineFree = String(markup).replace(/<\/?(?:b|strong|i|em|u|mark|span|small|sup|sub|code)\b[^>]*>/gi, '');
   var gated = run(inlineFree);
   return gated !== inlineFree ? gated : run(String(markup));
+}
+
+// Display backstop for arithmetic: any assistant text that skipped the
+// generation guards is checked once more, outside HTML tags only.
+function latestStudentMessageText() {
+  var history = typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : [];
+  for (var i = history.length - 1; i >= 0; i--) {
+    var item = history[i];
+    if (item && item.role === 'user' && typeof item.content === 'string' && !isInternalMemoryMessage(item)) return item.content;
+  }
+  return '';
+}
+
+function guardArithmeticInMarkup(markup) {
+  var value = String(markup || '');
+  if (value.indexOf('=') === -1) return value;
+  var student = latestStudentMessageText();
+  return value.split(/(<[^>]*>)/).map(function(piece) {
+    return piece.charAt(0) === '<' || piece.indexOf('=') === -1 ? piece : guardDeterministicArithmeticEqualities(piece, student);
+  }).join('');
 }
 
 function guardUnearnedPercentilePromise(response, userMessage) {
@@ -12712,7 +13193,10 @@ function allowMissionPersistence(response, userMessage, diagnosis) {
 }
 
 function stabilizeAndRememberMission(response, userMessage, diagnosis) {
-  var revisedResponse = guardPercentileProvenance(guardUnearnedPercentilePromise(response, userMessage), percentileStudentText(userMessage));
+  var revisedResponse = guardPercentileProvenance(guardUnearnedPercentilePromise(response, userMessage), percentileStudentText(userMessage), undefined, { documentTurn:!!(diagnosis && diagnosis.hasImage) });
+  // The mission and fallback paths did not run the arithmetic guard. It is
+  // deterministic and idempotent, so a reply that already passed it is unchanged.
+  revisedResponse = guardDeterministicArithmeticEqualities(revisedResponse, userMessage);
   var mission = extractTodayMission(revisedResponse);
   if (!mission) return revisedResponse;
   var missionContext = String(userMessage || '') + '\n' + revisedResponse.slice(0, revisedResponse.indexOf(mission.full));
@@ -17711,6 +18195,7 @@ function addMessage(role, html, showAvatar) {
   // Display backstop for any assistant text that skipped the generation guards.
   if (role === 'marg' && typeof html === 'string') {
     html = guardPercentileInMarkup(html);
+    html = guardArithmeticInMarkup(html);
   }
   // Plain mentor text keeps headings, steps and emphasis. Already rendered
   // activities and structured HTML are left intact.
@@ -22005,7 +22490,7 @@ function guardInvalidNumericPractice(text) {
 }
 
 function applyMentorResponseGuard(response, diagnosis) {
-  return guardPercentileProvenance(applyMentorResponseGuardCore(response, diagnosis), percentileStudentText(diagnosis && diagnosis.submittedAnswerText));
+  return guardPercentileProvenance(applyMentorResponseGuardCore(response, diagnosis), percentileStudentText(diagnosis && diagnosis.submittedAnswerText), undefined, { documentTurn:!!(diagnosis && diagnosis.hasImage) });
 }
 
 function applyMentorResponseGuardCore(response, diagnosis) {
@@ -26381,6 +26866,25 @@ function getInChatQuestionSchema(request) {
 
 async function serveOriginalQuestionsInChat(request) {
   if (!request || !request.format) return false;
+  if (BETA_VERIFIED_GRADED_ONLY) {
+    // Beta: no model-written graded questions. A passage request opens a hand-checked passage.
+    if (request.section === 'rc' && serveBetaVerifiedRC()) return true;
+    if (request.section === 'qa' || request.section === 'dilr') {
+      // Open the checked material instead: the QA and DILR constructors, or the hand-checked packs.
+      var openedChecked = false;
+      try {
+        var betaLead = request.section === 'qa' ? 'During the beta I open graded QA from my checked sets rather than writing new questions here.' : 'During the beta I open graded DILR from my checked sets rather than writing a new set here.';
+        addMessage('marg', escapeChatHtml(betaLead), true);
+        conversationHistory.push({ role:'assistant', content:betaLead });
+        if (!isGuestMode) saveChatMessage('assistant', betaLead);
+        openedChecked = (await startTimedTest(request.section, request.section === 'qa' ? (request.topic || 'Mixed QA') : 'Diagnostic Set', request.section === 'qa' ? 3 : 4, null)) !== false;
+      } catch (error) { openedChecked = false; }
+      if (!openedChecked) postBetaGradedNotice(request.section);
+      return true;
+    }
+    postBetaGradedNotice('verbal');
+    return true;
+  }
   var diagnosis = { intent:'study_activity', responseShape:'study', studyTurnType:'generate_questions', preserveFullReply:true, questionBudget:null };
   showTyping(request.sourceText || '', diagnosis, false);
   try {
@@ -26538,6 +27042,11 @@ function maybeLaunchExplicitPracticeRequest(message) {
     var requestedTabButton = document.getElementById('ptab-' + request.type);
     if (requestedTabButton) requestedTabButton.classList.add('active');
     switchTab('practice');
+    return true;
+  }
+  if (BETA_VERIFIED_GRADED_ONLY && (request.type === 'qa' || request.type === 'dilr')) {
+    // Beta: graded QA and DILR open from the checked constructors and packs, never from a model reply.
+    startTimedTest(request.type, request.topic || (request.type === 'qa' ? 'Mixed QA' : 'Diagnostic Set'), request.requestedCount || (request.type === 'qa' ? 3 : 4), null);
     return true;
   }
   // A timed or ordinary question request is written in this chat. It does not
@@ -27081,6 +27590,10 @@ function formatStudyQuestionsForChat(ctx, questions) {
 async function generateQuestionsFromStudyMaterial(text, turn) {
   var ctx = ensureStudyConfigured() ? MargStudy.getContext() : null;
   if (!ctx) return false;
+  if (BETA_VERIFIED_GRADED_ONLY) {
+    postBetaGradedNotice('study');
+    return true;
+  }
   var materialSection = ctx.section === 'dilr' ? 'dilr' : ctx.section === 'qa' ? 'qa' : 'varc';
   var auditSection = materialSection === 'varc' ? 'rc' : materialSection;
   var count = Math.max(1, Math.min(8, turn.count || (ctx.passages && ctx.passages.length > 1 ? Math.min(8, ctx.passages.length * 2) : 4)));
@@ -28270,7 +28783,7 @@ function rcLabDailyExerciseCacheKey(config, theme) {
 function readCachedRCLabExercise(config, theme) {
   try {
     var cached = JSON.parse(localStorage.getItem(rcLabDailyExerciseCacheKey(config, theme)) || 'null');
-    if (!cached || cached.date !== getTodayDate() || !validateRCPracticeSet(cached.data, 4)) return null;
+    if (!cached || cached.date !== getTodayDate() || !validateRCPracticeSet(cached.data, 4) || !isVerifiedRCContent(cached.data)) return null;
     return cached.data;
   } catch(e) { return null; }
 }
@@ -28388,6 +28901,14 @@ function serveStoredArticlePassage() {
 
 async function createRCPassage() {
   if (articleRCGenerating) return;
+  if (BETA_VERIFIED_RC_ONLY) {
+    // Beta: never write a new passage with a model-chosen key. Open a hand-checked one.
+    closeVarcCard();
+    if (!serveBetaVerifiedRC()) {
+      addMessage('marg', 'No hand-checked reading passage is ready just now. Nothing was generated in its place.', true);
+    }
+    return;
+  }
   if (!currentArticle) {
     if (currentRCSource === 'aeon') await loadAeonEssayForCurrentTopic(articleIndex || 0);
     else currentArticle = bankStyledPracticeSource(currentTopic);
@@ -28698,6 +29219,7 @@ function buildArticleRCAnswerMemory(rcData) {
 }
 
 function formatStructuredArticleRC(rcData) {
+  if (!isVerifiedRCContent(rcData)) return '';
   var setObj = rcData && Array.isArray(rcData.sets) ? rcData.sets[0] : null;
   if (!setObj) return '';
   var parts = ['PASSAGE', String(setObj.passage || '').trim(), 'QUESTIONS'];
@@ -28962,6 +29484,104 @@ function submitArticleRCAttempt(button) {
   input.value = 'My RC Lab answers are ' + answers.join(', ') + '. The elapsed timer was ' + activeGeneratedExercise.result.elapsedSeconds + ' seconds (it may include pauses). I chose this focus: ' + (submittedConfig.focusLabel || 'mixed RC') + '. Check every answer against this passage, then tell me what my choices actually show and what the next RC should test.';
   input.dispatchEvent(new Event('input', { bubbles:true }));
   sendMessage();
+}
+
+// Beta restriction. A model-written RC passage comes with a model-chosen answer key that nothing
+// independently checks, so reading comprehension opens only from the hand-checked sets below
+// (the stored article passages, the RC fallback, and the checked paragraph-summary bank). Set this to
+// false only once generated keys have a verification step of their own.
+var BETA_VERIFIED_RC_ONLY = true;
+
+function rcContentNormal(value) { return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+
+function rcQuestionIdentity(question) {
+  return rcContentNormal(question && question.q) + '|' + String(question && question.correct) + '|' +
+    (Array.isArray(question && question.options) ? question.options : []).map(function(option) { return rcContentNormal(String(option).replace(/^[A-D][.)]\s*/, '')); }).join('~');
+}
+
+function verifiedRCQuestionIndex() {
+  var index = {};
+  function add(pack) {
+    ((pack && pack.sets) || []).forEach(function(setObj) {
+      if (!setObj || !setObj.passage) return;
+      var key = rcContentNormal(setObj.passage);
+      index[key] = index[key] || {};
+      (setObj.questions || []).forEach(function(question) { index[key][rcQuestionIdentity(question)] = true; });
+    });
+  }
+  getVerifiedArticleRCFallbackBank().forEach(add);
+  add(getVerifiedFallbackPractice('rc', 4));
+  if (typeof MargCATBank !== 'undefined' && MargCATBank && typeof MargCATBank.verbalPacks === 'function') MargCATBank.verbalPacks(1).forEach(add);
+  return index;
+}
+
+// True only when every set is one of the identified hand-checked passages and every question,
+// option list and key matches the checked copy exactly.
+function isVerifiedRCContent(data) {
+  if (!BETA_VERIFIED_RC_ONLY) return true;
+  if (!data || !Array.isArray(data.sets) || !data.sets.length) return false;
+  var index = verifiedRCQuestionIndex();
+  return data.sets.every(function(setObj) {
+    var known = setObj && index[rcContentNormal(setObj.passage)];
+    return !!(known && Array.isArray(setObj.questions) && setObj.questions.length && setObj.questions.every(function(question) { return known[rcQuestionIdentity(question)] === true; }));
+  });
+}
+
+// True for QA and DILR material whose keys are checked: built by the deterministic constructor (it carries
+// its certificate, which the engine re-verifies), or identical to a hand-checked pack. RC has its own check.
+function isCheckedGradedPractice(section, data, verification) {
+  if (!BETA_VERIFIED_GRADED_ONLY || section === 'rc' || !data) return true;
+  try {
+    var certified = (section === 'qa' && data._margQAConstruction) || (section === 'dilr' && data._margConstruction);
+    if (certified) {
+      var engine = section === 'qa' ? (typeof MargQAEngine !== 'undefined' ? MargQAEngine : null) : (typeof MargDILREngine !== 'undefined' ? MargDILREngine : null);
+      // The engines load on demand. Until one has loaded, rely on the code-solver verification stored with the entry.
+      if (engine) return engine.verify(data, null).valid === true;
+      return answerKeyVerificationStatus(verification) === 'verified_local';
+    }
+  } catch (error) { return false; }
+  var packs = [];
+  try {
+    if (section === 'qa') {
+      packs.push(getVerifiedFallbackPractice('qa', 3, null), getVerifiedFallbackPractice('qa', 3, 'Percentages'));
+      var served = typeof MargCATBank !== 'undefined' ? MargCATBank : null;
+      if (served) packs = packs.concat(served.qaPacks(3, ''));
+    } else if (section === 'dilr') {
+      ['Arrangements', 'Distribution', 'Games & Tournaments', 'Tables'].forEach(function(name) { packs.push(getVerifiedFallbackPractice('dilr', 4, name)); });
+    }
+  } catch (error) { return false; }
+  var signature = function(pack) { return JSON.stringify(pack && (pack.questions || pack.sets) ? (pack.questions || pack.sets).map(function(item) { return item.questions ? item.questions.map(function(q) { return [q.q, q.correct]; }) : [item.q, item.correct]; }) : null); };
+  var wanted = signature(data);
+  return packs.some(function(pack) { return pack && signature(pack) === wanted; });
+}
+
+function serveBetaVerifiedRC(reason) {
+  useStoredVarcPassage(reason || 'Beta practice opens hand-checked passages only');
+  return serveStoredArticlePassage();
+}
+
+// Beta restriction on graded practice. A question written by a model comes with a model-chosen key,
+// and a second model pass agreeing with it is not independent proof. Graded practice therefore opens only
+// from the deterministic QA and DILR constructors and the hand-checked packs. Everything else is refused
+// with an explanation. Ordinary conceptual discussion is not affected. Set false only once generated
+// keys have a verification step of their own.
+var BETA_VERIFIED_GRADED_ONLY = true;
+
+var BETA_GRADED_NOTICES = {
+  qa:'I do not write new graded QA questions in chat during the beta, because I cannot check their answers independently. Open the Practice tab and pick QA for a set whose answers are checked. I can still explain any QA idea or work through a question you send me.',
+  dilr:'I do not write new graded DILR sets in chat during the beta, because I cannot check their answers independently. Open the Practice tab and pick DILR for a set whose answers are checked. I can still explain how to approach a DILR set or work through one you send me.',
+  verbal:'I do not have checked question sets for that verbal question type yet, so I will not write graded ones. The RC passages in the Practice tab have checked answers. I can still explain how to approach this type of question.',
+  study:'I can still explain, summarise and discuss your material, but I will not write graded questions on it during the beta, because I cannot check their answers independently. The Practice tab has sets with checked answers.',
+  experiment:'I cannot run a fair test of that read yet: it would need questions with checked answers, and I will not mark you right or wrong against a key I cannot check. The Practice tab has checked QA, DILR and RC sets, and I can keep working on this with you in conversation.'
+};
+
+function postBetaGradedNotice(kind) {
+  var notice = BETA_GRADED_NOTICES[kind] || BETA_GRADED_NOTICES.verbal;
+  hideTyping();
+  addMessage('marg', escapeChatHtml(notice), true);
+  conversationHistory.push({ role:'assistant', content:notice });
+  if (!isGuestMode) saveChatMessage('assistant', notice);
+  return notice;
 }
 
 function getVerifiedArticleRCFallbackBank() {
@@ -32129,6 +32749,8 @@ function getCachedVerifiedPractice(section, questionCount, topic, allowSeen) {
     var candidate;
     try { candidate = JSON.parse(JSON.stringify(entry.data)); } catch(e) { continue; }
     if (!isPracticePackValidForRequest(section, candidate, topic, questionCount)) continue;
+    if (section === 'rc' && !isVerifiedRCContent(candidate)) continue;
+    if (!isCheckedGradedPractice(section, candidate, entry.verification)) continue;
     if (!allowSeen && wasPracticeRecentlySeen(section, candidate)) continue;
     return candidate;
   }
@@ -32150,7 +32772,7 @@ function getTodaysVerifiedPractice(section, questionCount, topic) {
     var completedSignatures = [];
     try { completedSignatures = JSON.parse(localStorage.getItem(getUserScopedKey('marg_completed_practice_v1')) || '[]'); } catch(e) {}
     if (Array.isArray(completedSignatures) && completedSignatures.indexOf(practiceContentSignature(section, candidate)) !== -1) continue;
-    if (isPracticePackValidForRequest(section, candidate, topic, questionCount)) {
+    if (isPracticePackValidForRequest(section, candidate, topic, questionCount) && (section !== 'rc' || isVerifiedRCContent(candidate)) && isCheckedGradedPractice(section, candidate, entry.verification)) {
       return { data:candidate, source:'verified-today-cache', repeated:false, verification:entry.verification || null };
     }
   }
@@ -32211,7 +32833,7 @@ function preventStructuredOutputLeak(text) {
     var jsonBlock = raw.match(/```json\s*([\s\S]*?)```/i);
     var parsed = parseGeneratedJson(jsonBlock ? jsonBlock[1] : raw.slice(raw.indexOf('{')));
     var rc = normalizePracticeAnswers(parsed, 'rc');
-    if (validateRCPracticeSet(rc)) return formatGuidedExerciseForChat('rc', rc, null);
+    if (validateRCPracticeSet(rc) && isVerifiedRCContent(rc)) return formatGuidedExerciseForChat('rc', rc, null);
     if (parsed && (parsed.questions || parsed.sets || parsed.varc || parsed.dilr || parsed.qa)) {
       return 'I could not open that exercise properly. Your topic is still here—use Retry answer and I will continue from the same point.';
     }
@@ -32913,6 +33535,7 @@ async function runPredictionValidationExercise(entry) {
 function formatGuidedExerciseForChat(section, data, diagnosticEntry) {
   var parts = [];
   if (section === 'rc') {
+    if (!isVerifiedRCContent(data)) return 'I could not open that reading passage: its answer key has not been checked, so it was not shown.';
     var rcSet = data.sets[0];
     parts.push('CAT RC · ' + (rcSet.difficulty || 'Medium-Hard') + '\n\n' + rcSet.passage);
     rcSet.questions.forEach(function(question, index) { parts.push(formatQuestionBlock(question, index + 1)); });
@@ -32957,6 +33580,27 @@ async function generateGuidedDiagnosticExercise(section, diagnosticEntry) {
   if (section === 'dilr' || section === 'dilr_selection') {
     clearGuidedGenerationState();
     return startTimedTest('dilr', section === 'dilr_selection' ? 'Mixed Set Selection' : 'Diagnostic Set', section === 'dilr_selection' ? 8 : 4, diagnosticEntry || null);
+  }
+  if (BETA_VERIFIED_GRADED_ONLY && section === 'qa') {
+    // Checked QA comes from the deterministic constructor through the timed-test path.
+    clearGuidedGenerationState();
+    var guidedQATopic = diagnosticEntry && diagnosticEntry.subcategory && diagnosticEntry.subcategory !== 'mixed' ? String(diagnosticEntry.subcategory).replace(/_/g, ' ') : 'Mixed QA';
+    return startTimedTest('qa', guidedQATopic, 3, diagnosticEntry || null);
+  }
+  if (BETA_VERIFIED_GRADED_ONLY && section === 'strategy') {
+    clearGuidedGenerationState();
+    return launchVerifiedStrategyDecisionLab(diagnosticEntry || null);
+  }
+  if (BETA_VERIFIED_GRADED_ONLY && (section === 'va' || section === 'varc_mixed')) {
+    clearGuidedGenerationState();
+    postBetaGradedNotice('verbal');
+    return true;
+  }
+  if (section === 'rc' && BETA_VERIFIED_RC_ONLY) {
+    clearGuidedGenerationState();
+    if (serveBetaVerifiedRC()) return true;
+    addMessage('marg', 'No hand-checked reading passage is ready just now. Nothing was generated in its place.', true);
+    return false;
   }
   isLoading = true;
   var sendButton = document.getElementById('send-btn');
@@ -33926,6 +34570,27 @@ async function loadDailyPractice() {
     return;
   }
 
+  if (currentPracticeType === 'rc' && BETA_VERIFIED_RC_ONLY) {
+    // Beta: no model-written passage. Open a hand-checked one, or say none is ready.
+    practiceLoadInFlight = false;
+    if (practiceLoadAbortController === requestController) practiceLoadAbortController = null;
+    var betaRCCandidate = getReliablePracticeCandidate('rc', 3, null, true);
+    var betaRC = betaRCCandidate && betaRCCandidate.data;
+    if (betaRC && validateRCPracticeSet(betaRC) && isVerifiedRCContent(betaRC)) {
+      practiceLoadMetrics.source = betaRCCandidate.source;
+      practiceData.rc = betaRC;
+      storeActiveGeneratedExercise({ type:'rc', source:'verified-practice-fallback', title:'RC practice', purpose:'Beta reading practice from a hand-checked passage', generationStartedAt:practiceGenerationStartedAt, validationVerdict:{ status:'verified_local' }, content:betaRC });
+      currentSetIndex = 0;
+      currentQuestionIndex = 0;
+      practiceAnswered = false;
+      practiceSessionCounted = false;
+      renderPractice(betaRC);
+      return;
+    }
+    content.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">No hand-checked reading passage is ready just now. Nothing was generated in its place.</div></div>';
+    return;
+  }
+
   var typeName = currentPracticeType === 'rc' ? 'RC' : currentPracticeType === 'dilr' ? 'DILR' : 'QA';
   content.innerHTML = '<div class="practice-loading"><div class="practice-spinner"></div><div class="practice-loading-text">Preparing today\'s ' + typeName + ' practice for you…</div></div>';
   practiceLoadMetrics.shellVisibleAt = Date.now();
@@ -34252,6 +34917,11 @@ function ensurePracticeExerciseArtifact(data) {
 }
 
 function renderPractice(data) {
+  if (currentPracticeType === 'rc' && !isVerifiedRCContent(data)) {
+    var blocked = document.getElementById('practice-content');
+    if (blocked) blocked.innerHTML = '<div class="practice-loading"><div class="practice-loading-text">This reading passage has no checked answer key, so it was not opened.</div></div>';
+    return;
+  }
   if (typeof ensurePracticeExerciseArtifact === 'function') ensurePracticeExerciseArtifact(data);
   var content = document.getElementById('practice-content');
   var morningPrompt = getMorningPromptHtml();
