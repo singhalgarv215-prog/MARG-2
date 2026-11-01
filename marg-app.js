@@ -3941,6 +3941,147 @@ function presentProtectedRequestFailure(error, draftText) {
   return true;
 }
 
+function runMobileAuditFixTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var budgetFor = function(message) { return buildDiagnosisDirective(message).diagnosis; };
+  var layout = 'Intro line.\n\n1. First step with detail.\n2. Second step with detail.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```\nx = 12 * 15 = 180\n```\n\nOutro line.';
+
+  // M-1: the question limit removes sentences, not the reply's layout.
+  ['Give me the section comparison table', 'Make my study plan for next week', 'How do I improve my RC accuracy?', 'explain percentages step by step'].forEach(function(message) {
+    var diagnosis = budgetFor(message);
+    var out = enforceTurnQuestionBudget(layout, diagnosis);
+    check('M-1 a table, list and code block keep their layout: ' + message, out === layout, JSON.stringify(out));
+  });
+  var asking = 'Intro line.\n\n1. First step. Does that make sense?\n2. Second step.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nOutro line. Want me to continue?\n[OPTIONS: Yes|No][CONTEXT: general]';
+  var one = enforceTurnQuestionBudget(asking, Object.assign({}, budgetFor('How do I improve my RC accuracy?'), { questionBudget:1 }));
+  check('M-1 with one question allowed the first stays and later ones go, layout intact', /1\. First step\. Does that make sense\?\n2\. Second step\./.test(one) && !/Want me to continue/.test(one) && /\| A \| B \|\n\|---\|---\|\n\| 1 \| 2 \|/.test(one) && /\n\n\| A/.test(one) && /Outro line\.\n\[OPTIONS: Yes\|No\]/.test(one), JSON.stringify(one));
+  var none = enforceTurnQuestionBudget(asking, Object.assign({}, budgetFor('Make my study plan for next week'), { questionBudget:0 }));
+  check('M-1 with no question allowed every question and the choice tags go, layout intact', !/\?/.test(none) && !/OPTIONS/.test(none) && /1\. First step\.\n2\. Second step\./.test(none) && /\| 1 \| 2 \|/.test(none), JSON.stringify(none));
+  check('M-1 a one-paragraph reply is unchanged apart from dropped questions', enforceTurnQuestionBudget('The setup is right. Does that help? Should I continue?', Object.assign({}, budgetFor('How do I improve my RC accuracy?'), { questionBudget:0 })) === 'The setup is right.');
+  check('M-1 a line that is only a dropped question does not leave an empty bullet', enforceTurnQuestionBudget('Plan:\n- Do the first set.\n- Does that work?\n- Review it.', Object.assign({}, budgetFor('Make my study plan for next week'), { questionBudget:0 })) === 'Plan:\n- Do the first set.\n- Review it.');
+  check('M-1 a question inside a code fence or table row is not treated as a sentence', enforceTurnQuestionBudget('```\nwhy? because?\n```\n| Q | A |\n|---|---|\n| who? | me |', Object.assign({}, budgetFor('Make my study plan for next week'), { questionBudget:0 })) === '```\nwhy? because?\n```\n| Q | A |\n|---|---|\n| who? | me |');
+  var visionLayout = typeof MargVision !== 'undefined' && MargVision.guardReply ? MargVision.guardReply('Intro line.\n\n1. First step.\n2. Second step.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nOutro line.', 'How am I doing?') : null;
+  check('M-1 the vision reply guard keeps blank lines, lists and table rows', visionLayout === 'Intro line.\n\n1. First step.\n2. Second step.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nOutro line.', JSON.stringify(visionLayout));
+  var visionDrop = typeof MargVision !== 'undefined' && MargVision.guardReply ? MargVision.guardReply('Good work.\n\nYour 99 is within reach. Keep going.', 'How am I doing?') : null;
+  check('M-1 the vision reply guard still removes only the unsupported sentence', visionDrop === 'Good work.\n\nKeep going.', JSON.stringify(visionDrop));
+  var tableReply = 'Here is the full comparison.\n\n| Section | Attempts | Accuracy |\n|---|---|---|\n| VARC | 22 | 55% |\n| DILR | 12 | 40% |\n\nThat is the read.';
+  var guarded = applyMentorResponseGuard(tableReply, budgetFor('Give me the section comparison table'));
+  check('M-1 the whole mentor guard keeps the blank line before a table and after it', /comparison\.\n\n\| Section \| Attempts \| Accuracy \|\n\|---\|---\|---\|\n\| VARC/.test(guarded) && /40% \|\n\nThat is the read\./.test(guarded), JSON.stringify(guarded));
+  var html = formatUnstructuredMentorReply(guarded);
+  var pairs = ['Section', 'Attempts', 'Accuracy'].map(function(label, index) {
+    var value = ['VARC', '22', '55%'][index];
+    return html.indexOf('<div class="mentor-table-label">' + label + '</div><div class="mentor-table-value">' + value + '</div>') !== -1;
+  });
+  check('M-1 the rendered table pairs each label with its own value', pairs.every(Boolean) && html.indexOf('mentor-table-label">Here is the full comparison.') === -1 && html.indexOf('<div class="mentor-paragraph">Here is the full comparison.</div>') !== -1, html.slice(0, 200));
+
+  // M-3: only a stated wrong answer is a reported miss.
+  var misses = ['I got this QA question wrong again', 'I keep getting these questions wrong', 'I keep getting percentages wrong', 'I marked wrong in the mock', 'I keep missing questions on time and work'];
+  var notMisses = ['I keep getting stuck between two options in RC inference questions', 'I keep getting confused by the DILR setup', 'I keep missing the point of the passage', 'I keep getting good marks in QA'];
+  check('M-3 stated wrong answers are reported misses', misses.every(studentReportsAMiss), misses.filter(function(text) { return !studentReportsAMiss(text); }).join(' | '));
+  check('M-3 being stuck or confused is not a reported miss', !notMisses.some(studentReportsAMiss), notMisses.filter(studentReportsAMiss).join(' | '));
+  var savedHistory = conversationHistory;
+  conversationHistory = [];
+  var stuck = 'I keep getting stuck between two options in RC inference questions';
+  check('M-3 a student who is stuck is not told where their answer "broke"', decideConversationClose(stuck, buildDiagnosisDirective(stuck).diagnosis).pattern !== 'error_review');
+  var stuckClose = decideConversationClose(stuck, buildDiagnosisDirective(stuck).diagnosis);
+  check('M-3 a student who is stuck is asked what is open, not given a clean-check ending', stuckClose.pattern === 'diagnostic' || stuckClose.pattern === 'worked_example', JSON.stringify(stuckClose));
+  var finished = 'I worked it out: 17 x 23 = 391 so my answer is 391 for the percentages question';
+  check('M-3 finished work still gets a bridge ending', decideConversationClose(finished, buildDiagnosisDirective(finished).diagnosis).pattern === 'similar_check');
+  check('M-3 a real reported miss still gets the where-it-broke ending', decideConversationClose('I got this QA question wrong again', buildDiagnosisDirective('I got this QA question wrong again').diagnosis).pattern === 'error_review');
+  conversationHistory = savedHistory;
+
+  // M-4: the sign-out clear removes one account's data and nothing else.
+  var fake = (function() {
+    var data = {};
+    return { data:data, getItem:function(key) { return Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null; }, setItem:function(key, value) { data[key] = String(value); }, removeItem:function(key) { delete data[key]; }, key:function(index) { return Object.keys(data)[index] || null; }, get length() { return Object.keys(data).length; } };
+  })();
+  var seeded = ['marg_chat_topics_acct-a', 'marg_diagnostic_memory_acct-a', 'marg_vision_v1_acct-a', 'marg_study_context_acct-a_thread1', 'marg_seen_practice_acct-a', 'marg_onboarding_done_acct-a', 'marg_chat_outbox_v1_acct-a'];
+  var others = ['marg_chat_topics_acct-ab', 'marg_chat_topics_acct-b', 'marg_diagnostic_memory_acct-b', 'marg_study_context_acct-ab_thread1', 'marg_acquisition_visitor_v1', 'marg_token'];
+  seeded.concat(others).forEach(function(key) { fake.setItem(key, key === 'marg_chat_outbox_v1_acct-a' ? '[]' : 'x'); });
+  var matched = accountStorageKeys('acct-a', fake);
+  check('M-4 only keys that belong to the account are matched, not a longer id that starts the same', seeded.every(function(key) { return matched.indexOf(key) !== -1; }) && matched.every(function(key) { return seeded.indexOf(key) !== -1; }), matched.join(','));
+  var removed = clearAccountDeviceData('acct-a', fake);
+  check('M-4 clearing removes every key for the account', seeded.every(function(key) { return fake.getItem(key) === null; }) && removed === seeded.length, removed + ' removed');
+  check('M-4 clearing leaves other accounts, shared keys and the session alone', others.every(function(key) { return fake.getItem(key) === 'x'; }));
+  fake.setItem('marg_chat_outbox_v1_acct-a', JSON.stringify([{ id:'m1', user_id:'acct-a', content:'unsent message' }]));
+  fake.setItem('marg_chat_topics_acct-a', 'x');
+  clearAccountDeviceData('acct-a', fake);
+  check('M-4 a message that has not reached the server is never cleared', JSON.parse(fake.getItem('marg_chat_outbox_v1_acct-a')).length === 1 && fake.getItem('marg_chat_topics_acct-a') === null);
+  fake.setItem('marg_chat_outbox_v1_acct-a', '{broken');
+  clearAccountDeviceData('acct-a', fake);
+  check('M-4 an unreadable outbox is kept rather than risk losing messages', fake.getItem('marg_chat_outbox_v1_acct-a') === '{broken');
+  check('M-4 clearing with no account id removes nothing', clearAccountDeviceData('', fake) === 0 && accountStorageKeys('', fake).length === 0);
+  // Plain sign-out: the signing-out account's own pending handoffs are removed,
+  // another account's and pre-sign-in ones are not, and no device data is cleared.
+  var savedUserForLogout = currentUser;
+  var savedTokenForLogout = SUPABASE_TOKEN;
+  var logoutKeys = ['marg_pending_attempt', 'marg_ask_question', 'marg_ask_question_meta'];
+  var logoutBefore = {};
+  logoutKeys.concat(['marg_seen_practice_acct-out']).forEach(function(key) { logoutBefore[key] = localStorage.getItem(key); });
+  var logoutResult = {};
+  try {
+    currentUser = { id:'acct-out' };
+    SUPABASE_TOKEN = null;
+    localStorage.setItem('marg_seen_practice_acct-out', '[{"signature":"keep"}]');
+    var runLogout = function(attemptOwner, questionOwner) {
+      localStorage.setItem('marg_pending_attempt', JSON.stringify({ type:'qa', owner:attemptOwner, savedAt:Date.now() }));
+      localStorage.setItem('marg_ask_question', 'Question');
+      localStorage.setItem('marg_ask_question_meta', JSON.stringify({ owner:questionOwner, savedAt:Date.now() }));
+      var pending = logout();
+      if (pending && pending.catch) pending.catch(function() {});
+      return { attempt:localStorage.getItem(logoutKeys[0]) !== null, question:localStorage.getItem(logoutKeys[1]) !== null };
+    };
+    logoutResult.own = runLogout('acct-out', 'acct-out');
+    logoutResult.other = runLogout('acct-other', 'acct-other');
+    logoutResult.anonymous = runLogout('', '');
+    logoutResult.kept = localStorage.getItem('marg_seen_practice_acct-out') !== null;
+  } finally {
+    currentUser = savedUserForLogout;
+    SUPABASE_TOKEN = savedTokenForLogout;
+    Object.keys(logoutBefore).forEach(function(key) { if (logoutBefore[key] === null) localStorage.removeItem(key); else localStorage.setItem(key, logoutBefore[key]); });
+  }
+  check('M-4 plain sign-out removes the signing-out account\'s own pending handoffs', logoutResult.own && logoutResult.own.attempt === false && logoutResult.own.question === false, JSON.stringify(logoutResult));
+  check('M-4 plain sign-out leaves another account\'s and pre-sign-in handoffs, and clears no device data', logoutResult.other.attempt === true && logoutResult.other.question === true && logoutResult.anonymous.attempt === true && logoutResult.anonymous.question === true && logoutResult.kept === true, JSON.stringify(logoutResult));
+  var savedConfirm = typeof confirm === 'function' ? confirm : null;
+  var declined = false;
+  var loggedOut = false;
+  try {
+    confirm = function() { return false; };
+    var savedLogout = logout;
+    logout = function() { loggedOut = true; return Promise.resolve(); };
+    logoutAndClearDevice();
+    declined = loggedOut === false;
+    confirm = function() { return true; };
+    logoutAndClearDevice();
+    declined = declined && loggedOut === true;
+    logout = savedLogout;
+  } catch (error) { declined = false; }
+  if (savedConfirm) confirm = savedConfirm;
+  check('M-4 the clear option asks first and does nothing when declined', declined);
+  check('M-4 plain sign-out never clears device data', /options && options\.clearDevice === true/.test(logout.toString()) );
+
+  // M-2: the pre-sign-in question reaches returning students too.
+  var savedAsk = window._askMargQuestion;
+  var savedTimer = setTimeout;
+  var queued = [];
+  window._askMargQuestion = null;
+  check('M-2 with no saved question nothing is delivered', deliverAskMargQuestion() === false);
+  try {
+    setTimeout = function(callback) { queued.push(callback); return 0; };
+    window._askMargQuestion = 'Explain this practice question';
+    var delivered = deliverAskMargQuestion();
+    check('M-2 a saved question is taken once and scheduled for sending', delivered === true && window._askMargQuestion === null && queued.length === 1);
+  } finally {
+    setTimeout = savedTimer;
+    window._askMargQuestion = savedAsk;
+  }
+  var initSource = initSession.toString() + showWelcome.toString();
+  check('M-2 the returning-student branch delivers the saved question or attempt', /deliverAskMargQuestion\(\)/.test(initSource) && /startFromAttemptContext\(attempt\)/.test(initSource) && /arrivedWithHomepageIntent && !arrivedWithDeepLinkQuestion/.test(initSource.replace(/\s+/g, ' ')));
+  check('M-2 the new-student path uses the same delivery function', /deliverAskMargQuestion\(\)\) return/.test(showPathChoiceScreen.toString()));
+  return results;
+}
+
 function runMentoringExperienceTests() {
   var results = [];
   var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
@@ -16243,11 +16384,51 @@ function startLogin(options) {
   window.location.href = SUPABASE_URL + '/auth/v1/authorize?provider=google&redirect_to=' + redirectTo;
 }
 
-async function logout() {
+// Every browser-storage key that belongs to one account: the id ends the key
+// or sits between underscores (some keys add a thread suffix after it).
+function storageKeyList(store) {
+  var keys = [];
+  try { for (var i = 0; i < store.length; i++) { var name = store.key(i); if (name) keys.push(name); } } catch (error) {}
+  if (!keys.length) { try { keys = Object.keys(store); } catch (error) {} }
+  return keys;
+}
+
+function accountStorageKeys(accountId, store) {
+  var id = String(accountId || '');
+  if (!id) return [];
+  return storageKeyList(store || localStorage).filter(function(key) {
+    return key.slice(-(id.length + 1)) === '_' + id || key.indexOf('_' + id + '_') !== -1;
+  });
+}
+
+// Removes what this browser stored for one account. Messages that have not
+// reached the server yet are kept so nothing the student wrote is lost.
+function clearAccountDeviceData(accountId, store) {
+  var target = store || localStorage;
+  var removed = 0;
+  accountStorageKeys(accountId, target).forEach(function(key) {
+    if (key === 'marg_chat_outbox_v1_' + accountId) {
+      var unsent = [];
+      try { unsent = JSON.parse(target.getItem(key) || '[]'); } catch (error) { unsent = [{}]; }
+      if (Array.isArray(unsent) ? unsent.length : true) return;
+    }
+    try { target.removeItem(key); removed++; } catch (error) {}
+  });
+  return removed;
+}
+
+function logoutAndClearDevice() {
+  var ok = typeof confirm === 'function' && confirm('Sign out and remove everything Marg stored on this device for your account? Chats saved to your account stay. Anything kept only on this device, such as practice history and some notes, is erased.');
+  if (ok) return logout({ clearDevice:true });
+  return Promise.resolve(false);
+}
+
+async function logout(options) {
   var token = SUPABASE_TOKEN;
+  var accountId = currentUser && currentUser.id ? currentUser.id : '';
   // Drop this account's own unconsumed handoffs so the next person on this
   // browser cannot receive them. Unstamped (pre-sign-in) ones are left alone.
-  discardOwnPendingHandoffs(currentUser && currentUser.id ? currentUser.id : '');
+  discardOwnPendingHandoffs(accountId);
   clearStoredSupabaseSession();
   try {
     if (token) await fetchWithDeadline(SUPABASE_URL + '/auth/v1/logout?scope=local', {
@@ -16256,6 +16437,7 @@ async function logout() {
   } catch(error) {
     console.warn('Remote sign out did not finish; local session was still cleared.', error);
   } finally {
+    if (options && options.clearDevice === true) clearAccountDeviceData(accountId);
     location.href = window.location.origin;
   }
 }
@@ -17592,9 +17774,8 @@ async function finishOnboarding() {
   if (!schedulePendingDeepLinkQuestionDispatch(300)) showPathChoiceScreen();
 }
 
-function showPathChoiceScreen() {
-
-  if (window._askMargQuestion) {
+function deliverAskMargQuestion() {
+  if (!window._askMargQuestion) return false;
     var question = window._askMargQuestion;
     window._askMargQuestion = null;
     setTimeout(async function() {
@@ -17627,8 +17808,12 @@ function showPathChoiceScreen() {
         addMessage('marg', e && e.name === 'AbortError' ? 'That took longer than expected — mind asking again?' : 'Yaar, connection issue. Please try again in a moment.');
       }
     }, 800);
-    return;
-  }
+  return true;
+}
+
+function showPathChoiceScreen() {
+
+  if (deliverAskMargQuestion()) return;
 
   if (window._pendingAttempt) {
     startFromAttemptContext(window._pendingAttempt);
@@ -21152,7 +21337,7 @@ function closeVariant(pattern, variants) {
 }
 
 function studentReportsAMiss(message) {
-  return /\b(?:got\b[^.!?\n]{0,40}\bwrong|(?:was|is|are|were) wrong|marked wrong|incorrect|made a mistake|missed (?:it|this|that|again)|failed (?:it|this|that)|keep (?:getting|making|missing))\b/i.test(String(message || ''));
+  return /\b(?:got\b[^.!?\n]{0,40}\bwrong|(?:was|is|are|were) wrong|marked wrong|incorrect|made a mistake|missed (?:it|this|that|again)|failed (?:it|this|that)|keep (?:getting|making)\b[^.!?\n]{0,30}\b(?:wrong|incorrect|mistakes?|errors?)|keep missing\b[^.!?\n]{0,30}\b(?:questions?|marks?|answers?))\b/i.test(String(message || ''));
 }
 
 function studentSoundsUpset(message) {
@@ -21242,7 +21427,9 @@ function decideConversationClose(message, diagnosis, budget) {
       ? 'A single ' + topic + ' question without hints would show where this stands.'
       : 'One similar ' + topic + ' question, with no hint, is the check.' };
   }
-  if (showedWork && decision.mode !== 'clarify' && decision.mode !== 'challenge') {
+  // "Stuck between two options" is a question about a step, not finished work,
+  // so it is not closed with a check as though the student had resolved it.
+  if (showedWork && !stuckNow && decision.mode !== 'clarify' && decision.mode !== 'challenge') {
     return bridgeClose(topic, openPlanLabel(), recurringPatternLabel(text, diagnosis), previous, { miss:miss });
   }
   if (decision.mode === 'guide' && decision.observed && !frustrated) {
@@ -22006,26 +22193,33 @@ function enforceTurnQuestionBudget(text, diagnosis) {
   if (!diagnosis || (diagnosis.questionBudget !== 0 && diagnosis.questionBudget !== 1)) return String(text || '');
   if (diagnosis.rcProgressionReady || diagnosis.rcFunctionMapProgressionReady) return String(text || '');
   var separated = separateMentorControlTags(text);
-  var split = splitCompleteMentorSentences(separated.visible);
   var kept = [];
   var questionsKept = separated.tags.some(function(tag) {
     return /\[\[MARG_NEXT\]\]/i.test(tag) && /"pattern"\s*:\s*"diagnostic"/i.test(tag) && /\?/.test(tag);
   }) ? 1 : 0;
-  function keepQuestion(sentence) {
+  function keepsSentence(sentence) {
+    if (!mentorSentenceIsFollowUpQuestion(sentence)) return true;
     if (diagnosis.questionBudget === 1 && questionsKept < 1) {
-      kept.push(sentence);
       questionsKept += 1;
-      return;
+      return true;
     }
+    return false;
   }
-  split.sentences.forEach(function(sentence) {
-    if (!mentorSentenceIsFollowUpQuestion(sentence)) kept.push(sentence);
-    else keepQuestion(sentence);
-  });
-  if (split.remainder) {
-    if (!mentorSentenceIsFollowUpQuestion(split.remainder)) kept.push(split.remainder);
-    else keepQuestion(split.remainder);
-  }
+  // Work line by line so paragraphs, list items, table rows and code keep
+  // their layout. Only sentences are dropped; the breaks around them stay.
+  var inCode = false;
+  var lines = String(separated.visible || '').split('\n').map(function(line) {
+    if (/^\s*```/.test(line)) { inCode = !inCode; return line; }
+    if (inCode || !line.trim() || /^\s*\|/.test(line)) return line;
+    var lead = (line.match(/^\s*(?:[-*•]\s+|\d{1,2}[.)]\s+|#{1,6}\s+)?/) || [''])[0];
+    var split = splitCompleteMentorSentences(line.slice(lead.length));
+    var parts = split.sentences.slice();
+    if (split.remainder) parts.push(split.remainder);
+    var keptHere = parts.filter(keepsSentence);
+    if (!keptHere.length) return null;
+    keptHere.forEach(function(sentence) { kept.push(sentence); });
+    return lead + keptHere.join(' ').replace(/[ \t]{2,}/g, ' ');
+  }).filter(function(line) { return line !== null; });
   var keptBody = kept.join(' ');
   var choiceStillNeeded = /\?|\b(?:choose|pick|which|select)\b/i.test(keptBody);
   var tags = separated.tags.filter(function(tag) {
@@ -22036,7 +22230,7 @@ function enforceTurnQuestionBudget(text, diagnosis) {
     if (diagnosis.questionBudget === 0 && !choiceStillNeeded && /^\[(?:OPTIONS|CONTEXT):/i.test(tag)) return false;
     return true;
   });
-  return (kept.join(' ').replace(/\s{2,}/g, ' ').trim() + (tags.length ? '\n' + tags.join('\n') : '')).replace(/\n{3,}/g, '\n\n').trim();
+  return (lines.join('\n').trim() + (tags.length ? '\n' + tags.join('\n') : '')).replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function statedTargetValueMatches(value) {
@@ -29112,6 +29306,20 @@ async function initSession() {
           if (arrivedWithDeepLinkQuestion) schedulePendingDeepLinkQuestionDispatch(180);
         } else {
           switchTab(requestedInitialTab || 'chat');
+        }
+        // A question or practice attempt saved before sign-in is for this
+        // student too, not only for brand-new accounts. Another explicit
+        // handoff above takes priority so two messages are never sent at once.
+        if (!arrivedWithHomepageDestination && !arrivedWithHomepageIntent && !arrivedWithDeepLinkQuestion && !recoveredInterruptedGeneration && (window._askMargQuestion || window._pendingAttempt)) {
+          switchTab('chat');
+          setTimeout(function() {
+            if (deliverAskMargQuestion()) return;
+            if (window._pendingAttempt) {
+              var attempt = window._pendingAttempt;
+              window._pendingAttempt = null;
+              startFromAttemptContext(attempt);
+            }
+          }, 500);
         }
       } else {
 

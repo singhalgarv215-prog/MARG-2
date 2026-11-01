@@ -226,7 +226,11 @@ await check('B2-2 end to end: a stamped attempt written by a page is received by
 await check('B2-2 the app consumes all three one-shot keys through the account check and the page script version changed with the helper', async () => {
   const app = read('marg-app.js');
   const direct = app.split('\n').filter((line) => /localStorage\.getItem\('marg_(?:pending_attempt|ask_question|first_message)'\)/.test(line));
-  return direct.length === 0 && /takePendingHandoff\('marg_pending_attempt'/.test(app) && /takePendingHandoff\('marg_ask_question'/.test(app) && /takePendingHandoff\('marg_first_message'/.test(app) && /discardOwnPendingHandoffs\(currentUser/.test(app) && !read('daily-qa.html').includes('marg-session.js?v=20261030-1');
+  // The call must sit inside logout(), take the signed-in account's id, and run before the session is cleared.
+  // (A bare match on the name would also be satisfied by the function's own definition line.)
+  const logoutSource = app.slice(app.indexOf('async function logout('), app.indexOf('var chatOutboxFlushes'));
+  const logoutDiscardsOwnHandoffs = /var accountId = currentUser && currentUser\.id \? currentUser\.id : '';/.test(logoutSource) && /discardOwnPendingHandoffs\(accountId\);\s*clearStoredSupabaseSession\(\)/.test(logoutSource);
+  return direct.length === 0 && /takePendingHandoff\('marg_pending_attempt'/.test(app) && /takePendingHandoff\('marg_ask_question'/.test(app) && /takePendingHandoff\('marg_first_message'/.test(app) && logoutDiscardsOwnHandoffs && !read('daily-qa.html').includes('marg-session.js?v=20261030-1');
 });
 
 // B2-5: the privacy page only states what the code does.
