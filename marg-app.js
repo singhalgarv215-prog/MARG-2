@@ -3941,6 +3941,168 @@ function presentProtectedRequestFailure(error, draftText) {
   return true;
 }
 
+function runMentoringExperienceTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var savedHistory = conversationHistory;
+  var savedMemory = progressiveProfileMemory;
+  var savedUser = currentUser;
+  currentUser = { id:'mentoring-experience-test' };
+  var closeFor = function(message) { return decideConversationClose(message, buildDiagnosisDirective(message).diagnosis); };
+  var tagFor = function(close) { return close && close.pattern ? '[[MARG_NEXT]]{"kind":"' + close.kind + '","pattern":"' + close.pattern + '"}[[/MARG_NEXT]]' : ''; };
+  var addTurn = function(message, close) { conversationHistory.push({ role:'user', content:message }, { role:'assistant', content:'Reply. ' + tagFor(close) }); };
+
+  // F-4: endings follow the turn, do not repeat, and are not forced.
+  conversationHistory = [];
+  var missClose = closeFor('I got this QA question wrong again');
+  check('F-4 a reported miss is pointed at where it broke, not at a generic check', missClose.pattern === 'error_review' && /broke/.test(missClose.line) && missClose.options.indexOf('Show where it broke') !== -1 && !/clean check|no hint/.test(missClose.line), JSON.stringify(missClose));
+  addTurn('I got this QA question wrong again', missClose);
+  var repeatMiss = closeFor('I got another QA question wrong');
+  check('F-4 a second miss in a row does not repeat the same ending', repeatMiss.kind === 'none' && repeatMiss.line === '', JSON.stringify(repeatMiss));
+
+  conversationHistory = [];
+  var lines = [];
+  var patterns = [];
+  for (var i = 0; i < 6; i++) {
+    var message = 'I worked it: 17 x 23 = 391 so my answer is 391 for the percentages question ' + i;
+    var close = closeFor(message);
+    patterns.push(close.pattern || '');
+    if (close.line) lines.push(close.line);
+    addTurn(message, close);
+  }
+  var windowRepeat = patterns.some(function(pattern, index) { return pattern && patterns.slice(index + 1, index + 4).indexOf(pattern) !== -1; });
+  check('F-4 six similar turns never reuse an ending within three turns', !windowRepeat, patterns.join(','));
+  check('F-4 six similar turns use different wording each time', lines.length >= 4 && lines.every(function(line, index) { return lines.indexOf(line) === index; }), lines.join(' | '));
+  check('F-4 not every turn ends with a question or call to action', patterns.indexOf('') !== -1 && patterns.filter(Boolean).length < 6, patterns.join(','));
+
+  conversationHistory = [{ role:'assistant', content:'Good. ' + tagFor({ kind:'resolved', pattern:'similar_check' }) }, { role:'assistant', content:'Plain.' }, { role:'assistant', content:'Plain.' }, { role:'assistant', content:'Plain.' }];
+  var rotated = closeFor('I worked it: 17 x 23 = 391 so my answer is 391 for the percentages question');
+  check('F-4 an ending used earlier returns in different words', rotated.pattern === 'similar_check' && !/^A clean check is one similar/.test(rotated.line) && /percentages/.test(rotated.line), JSON.stringify(rotated));
+
+  conversationHistory = [];
+  var upset = closeFor('I worked it: 17 x 23 = 391 so my answer is 391 for percentages and I am so annoyed with this');
+  check('F-4 an upset student who showed work is not handed a quiz', upset.kind === 'none' && upset.options.length === 0, JSON.stringify(upset));
+  check('F-4 an upset student who asks for help still gets direct help', closeFor('I am so frustrated and I do not get this functional equation').kind !== 'resolved');
+
+  var understood = closeFor('I think I understand ratios now');
+  check('F-4 a first "I understand" gets one no-hint check', understood.pattern === 'micro_check' && understood.options.length === 2, JSON.stringify(understood));
+  addTurn('I think I understand ratios now', understood);
+  check('F-4 the same check is not repeated on the next turn', closeFor('I think I understand ratios now').kind === 'none');
+
+  conversationHistory = [];
+  check('F-4 an acknowledgement still stops cleanly', closeFor('okay thanks').kind === 'stop' && closeFor('okay thanks').options.length === 0);
+  check('F-4 a direct information request still gets no ending', closeFor('What is the cutoff for IIM Ahmedabad').kind === 'none' && closeFor('explain what a rhombus is').kind === 'none');
+  check('F-4 the CAT diagnosis question for a mock score is unchanged', closeFor('I scored 62 in VARC mock yesterday and my accuracy was 55 percent').pattern === 'diagnostic');
+  var nextClose = conversationCloseInstruction({ kind:'none' });
+  check('F-4 a turn with no ending tells the model not to add a stock menu', /Do not append a stock menu/.test(nextClose));
+
+  // F-6: profile questions and answers keep their full content.
+  var longQuestion = 'Before we go further, which mock series are you actually using right now, and is it one series for every mock or a mix of TIME, IMS and Cracku, because that changes how much weight the percentile from each one should carry in your plan, and also how many of them you take each week alongside sectionals?';
+  check('F-6 a question longer than 240 characters is kept whole', longQuestion.length > 240 && profileQuestionExcerpt(longQuestion) === longQuestion);
+  var hugeQuestion = new Array(80).join('which mock series do you use regularly and why ') + '?';
+  var shortened = profileQuestionExcerpt(hugeQuestion);
+  check('F-6 an unusually long question is shortened at a word and marked', shortened.length <= PROFILE_QUESTION_MAX + 1 && /…$/.test(shortened) && /(?:why|use|regularly|series|which|do|mock) …?$/.test(shortened.replace(/…$/, '') + ' …') && hugeQuestion.indexOf(shortened.replace(/…$/, '')) === 0 && !/\bwh…|\bmo…|\bse…/.test(shortened));
+  check('F-6 questions on consecutive lines are kept together', profileQuestionExcerpt('Some context first.\nWhich mock series are you using?\nIs it TIME, IMS or a mix?') === 'Which mock series are you using? Is it TIME, IMS or a mix?');
+  check('F-6 a short question, no question and control tags behave as before', profileQuestionExcerpt('Which mock series are you using?') === 'Which mock series are you using?' && profileQuestionExcerpt('No question here.') === '' && profileQuestionExcerpt('Which series?\n[OPTIONS: TIME|IMS][CONTEXT: profile_mockSeries]') === 'Which series?');
+  check('F-6 prose before the question is not stored with it', profileQuestionExcerpt('A long analysis of sections goes here.\n\nWhich mock series are you using?').indexOf('analysis') === -1);
+
+  var answer = function(field, text) {
+    progressiveProfileMemory = null;
+    conversationHistory = [];
+    try { localStorage.removeItem(progressiveProfileStorageKey()); } catch (error) {}
+    var memory = loadProgressiveProfileMemory();
+    memory.awaitingField = field;
+    memory.awaitingPrompt = 'Asked?';
+    saveProgressiveProfileMemory(memory);
+    return captureProgressiveProfileDetails(text);
+  };
+  var strategy = 'I usually spend the first ten minutes scanning all the sets, then attempt the easiest set first, skip any set with more than three variables, leave the hardest set for last and only return to it if I have more than twelve minutes left, and in QA I start with arithmetic before algebra because that order calms me down and keeps accuracy above eighty percent for the first twenty questions of the paper';
+  check('F-6 a long attempt-strategy answer is kept in full', strategy.length > 360 && answer('attemptStrategy', strategy).attemptStrategy === strategy);
+  var shortStrategy = 'I scan the sets first and skip the hardest one.';
+  check('F-6 a short attempt-strategy answer is kept as before', answer('attemptStrategy', shortStrategy).attemptStrategy === shortStrategy);
+  var multiPart = 'First I scan every set. Second I pick the easiest. Third I skip anything with four variables. Fourth I come back at the end if there are ten minutes left.';
+  check('F-6 a multi-part answer keeps every part', answer('attemptStrategy', multiPart).attemptStrategy === multiPart);
+  var resources = 'I mostly use Arun Sharma for QA practice and the Norman Lewis book for vocabulary, plus the TIME video lessons for DILR and Cracku sectionals on weekends and the previous year papers whenever I finish a topic from the coaching notes';
+  var resourceMemory = answer('prepResources', resources);
+  check('F-6 a long resources answer is kept in full beside the recognised names', resourceMemory.prepResources.indexOf(resources) !== -1 && resourceMemory.prepResources.indexOf('Arun Sharma') !== -1);
+  var mocks = 'I take TIME mocks on Sundays and IMS mocks on Wednesdays and sometimes Cracku sectionals and AIMCAT when a friend shares it with me';
+  var mockMemory = answer('mockSeries', mocks);
+  check('F-6 a long mock-series answer is kept in full beside the recognised series', mockMemory.mockSeries.indexOf(mocks) !== -1 && mockMemory.mockSeries.indexOf('TIME AIMCAT') !== -1);
+  check('F-6 short answers are captured as before', answer('mockSeries', 'TIME').mockSeries.join() === 'TIME AIMCAT' && answer('dreamCollege', 'IIM Ahmedabad').dreamCollege === 'IIM Ahmedabad');
+  var pasted = 'Q1. Which of the following captures the main idea of the passage? Solve this: find the perimeter of the rhombus. A) 12 B) 16 C) 20 D) 24. Q2. What is the probability of the second event? My answer: B. Questions and sets from my mock, passage below.';
+  check('F-6 pasted practice material is not read as a strategy answer', !answer('attemptStrategy', pasted).attemptStrategy);
+  var tooLong = new Array(60).join('I scan sets and skip hard questions. ');
+  check('F-6 an answer far beyond the limit is not captured as a strategy', tooLong.length > PROFILE_ANSWER_MAX.attemptStrategy && !answer('attemptStrategy', tooLong).attemptStrategy);
+
+  try { localStorage.removeItem(progressiveProfileStorageKey()); } catch (error) {}
+  conversationHistory = savedHistory;
+  progressiveProfileMemory = savedMemory;
+  currentUser = savedUser;
+  return results;
+}
+
+function runCatMentoringRegressionTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var savedHistory = conversationHistory;
+  var savedUser = currentUser;
+  currentUser = { id:'cat-regression-test' };
+  conversationHistory = [];
+  var diagnose = function(message) { var diagnosis = buildDiagnosisDirective(message).diagnosis; return { diagnosis:diagnosis, intent:diagnosis.intent, topic:closeTopicLabel(message, diagnosis), close:decideConversationClose(message, diagnosis) }; };
+
+  // The CAT sections are still recognised and routed to their own diagnosis.
+  var varc = diagnose('I do not get why option B is wrong in this RC passage');
+  var dilr = diagnose('Solve this DILR set: five people sit in a row, A is left of B and C is not next to B');
+  var qa = diagnose('Give me three QA practice questions on percentages');
+  var mock = diagnose('I scored 62 in VARC mock yesterday and my accuracy was 55 percent');
+  check('CAT a VARC reading question routes to the VARC diagnosis and topic', varc.intent === 'varc_diagnosis' && varc.topic === 'VARC', JSON.stringify([varc.intent, varc.topic]));
+  check('CAT a DILR set routes to the DILR diagnosis and topic', dilr.intent === 'dilr_diagnosis' && dilr.topic === 'DILR', JSON.stringify([dilr.intent, dilr.topic]));
+  check('CAT a QA practice request routes to the QA diagnosis', qa.intent === 'qa_diagnosis', JSON.stringify([qa.intent, qa.topic]));
+  check('CAT a mock score routes to the mock diagnosis and asks the one diagnostic question', mock.intent === 'mock_diagnosis' && mock.close.pattern === 'diagnostic' && /VARC/.test(mock.close.line), JSON.stringify([mock.intent, mock.close]));
+  check('CAT a VARC stuck question still gets direct help toward a real question', varc.close.pattern === 'worked_example' && varc.close.options.indexOf('Send a real question') !== -1);
+  check('CAT a DILR or practice request carries no appended ending', dilr.close.kind === 'none' && qa.close.kind === 'none');
+  check('CAT a mock analysis message names the weakest section topic', diagnose('analyse my mock: attempts 62, accuracy 70, VARC 20 DILR 12 QA 24').intent === 'mock_diagnosis');
+
+  // Verified practice and the guards that protect CAT answers are intact.
+  check('CAT verified QA and RC practice packs are still available', !!getUnseenVerifiedFallbackPractice('qa', 3, null) && !!getUnseenVerifiedFallbackPractice('rc', 3));
+  check('CAT a ten-question QA request still does not open the checked bank', getUnseenVerifiedFallbackPractice('qa', 10, null) === null);
+  check('CAT the arithmetic guard still corrects a wrong CAT-style product', guardDeterministicArithmeticEqualities('Total = 17 × 23 = 381.').indexOf('391') !== -1);
+  check('CAT the percentile gate still removes an unsupported prediction', guardPercentileProvenance('You are on track for a 98+ percentile.', 'How am I doing?') === PERCENTILE_REWRITES.other);
+  check('CAT a mock-based percentile promise is still rewritten', /One mock cannot support a specific percentile prediction/.test(guardUnearnedPercentilePromise('With 60 marks, 99 percentile is within reach for you.', 'I scored 60 in my first mock')));
+
+  // Profile capture for CAT context still works with short answers.
+  var capture = function(field, text) {
+    progressiveProfileMemory = null;
+    try { localStorage.removeItem(progressiveProfileStorageKey()); } catch (error) {}
+    var memory = loadProgressiveProfileMemory();
+    memory.awaitingField = field;
+    memory.awaitingPrompt = 'Asked?';
+    saveProgressiveProfileMemory(memory);
+    return captureProgressiveProfileDetails(text);
+  };
+  check('CAT attempt number, target college and mock series are still captured', capture('attemptNumber', 'second attempt').attemptNumber === '2nd attempt' && capture('dreamCollege', 'IIM Bangalore').dreamCollege === 'IIM Bangalore' && capture('mockSeries', 'IMS').mockSeries.join() === 'IMS SIMCAT');
+  check('CAT study hours are still captured from a sentence', capture('studyHours', 'I can study 4 hours a day').studyHours === '4 hours');
+  check('CAT a pending profile question still enters memory from a finished reply', (function() {
+    progressiveProfileMemory = null;
+    try { localStorage.removeItem(progressiveProfileStorageKey()); } catch (error) {}
+    markProgressiveProfileFollowUpIfAsked('Good plan for QA.\nWhich mock series are you using right now?\n[OPTIONS: TIME|IMS|A mix][CONTEXT: profile_mockSeries]');
+    var asked = loadProgressiveProfileMemory();
+    return asked.awaitingField === 'mockSeries' && asked.awaitingPrompt === 'Which mock series are you using right now?';
+  })());
+  check('CAT a cut-off reply still does not become a pending profile question', (function() {
+    progressiveProfileMemory = null;
+    try { localStorage.removeItem(progressiveProfileStorageKey()); } catch (error) {}
+    markProgressiveProfileFollowUpIfAsked('Which mock series are you using right now? [[MARG_MORE');
+    return !loadProgressiveProfileMemory().awaitingField;
+  })());
+
+  conversationHistory = savedHistory;
+  try { localStorage.removeItem(progressiveProfileStorageKey()); } catch (error) {}
+  progressiveProfileMemory = null;
+  currentUser = savedUser;
+  return results;
+}
+
 function runBatch2ClientTests() {
   var results = [];
   var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
@@ -18630,9 +18792,14 @@ function isClearlyNotAProfileAnswer(text) {
     /\b(?:same|previous|last)\s+(?:set|question|exercise|passage)\b/i.test(value);
 }
 
+// A real answer to a profile question is often several sentences. The old
+// limits (360, 180 and 100 characters) silently discarded anything longer.
+// Pasted practice material is still never read as a profile answer.
+var PROFILE_ANSWER_MAX = { attemptStrategy:700, prepResources:500, mockSeries:300 };
+
 function looksLikeFreeTextAttemptStrategy(text) {
   var value = String(text || '').trim();
-  if (value.length < 3 || value.length > 360 || isClearlyNotAProfileAnswer(value)) return false;
+  if (value.length < 3 || value.length > PROFILE_ANSWER_MAX.attemptStrategy || isClearlyNotAProfileAnswer(value) || isFreshPastedPracticeMaterial(value)) return false;
   return /\b(?:fixed|change|vary|scan|first pass|second pass|round|skip|leave|attempt order|start with|section order|questions?|sets?|minutes?)\b/i.test(value);
 }
 
@@ -18768,10 +18935,10 @@ function captureProgressiveProfileDetails(message) {
   }
 
   var strategyOpening = /\b(?:my|i)\b[\s\S]{0,35}\b(?:attempt|scan|skip|leave|round|start with|section order|question selection|set selection)\b/i.test(text) && /\b(?:mock|section|varc|dilr|qa|question|set|attempt)\b/i.test(text);
-  if ((awaiting === 'attemptStrategy' && looksLikeFreeTextAttemptStrategy(text) || strategyOpening) && text.length >= 8 && text.length <= 360 && !isClearlyNotAProfileAnswer(text)) memory.attemptStrategy = text.substring(0, 360);
+  if ((awaiting === 'attemptStrategy' && looksLikeFreeTextAttemptStrategy(text) || strategyOpening) && text.length >= 8 && text.length <= PROFILE_ANSWER_MAX.attemptStrategy && !isClearlyNotAProfileAnswer(text) && !isFreshPastedPracticeMaterial(text)) memory.attemptStrategy = text;
 
-  if (awaiting === 'prepResources' && !resources.length && text.length >= 2 && text.length <= 180 && !isClearlyNotAProfileAnswer(text) && /\b(?:book|material|course|coaching|videos?|notes?|module|website|app)\b/i.test(text)) memory.prepResources = normalizeProfileList(memory.prepResources.concat([text]));
-  if (awaiting === 'mockSeries' && !mockSeries.length && text.length >= 2 && text.length <= 100 && looksLikeNamedMockSeries(text)) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat([text]));
+  if (awaiting === 'prepResources' && (!resources.length || text.length > 60) && text.length >= 2 && text.length <= PROFILE_ANSWER_MAX.prepResources && !isClearlyNotAProfileAnswer(text) && !isFreshPastedPracticeMaterial(text) && /\b(?:book|material|course|coaching|videos?|notes?|module|website|app)\b/i.test(text)) memory.prepResources = normalizeProfileList(memory.prepResources.concat([text]));
+  if (awaiting === 'mockSeries' && (!mockSeries.length || text.length > 40) && text.length >= 2 && text.length <= PROFILE_ANSWER_MAX.mockSeries && !isFreshPastedPracticeMaterial(text) && looksLikeNamedMockSeries(text)) memory.mockSeries = normalizeProfileList(memory.mockSeries.concat([text]));
   if (awaiting && ((awaiting === 'mockSeries' && memory.mockSeries.length) || (awaiting === 'dreamCollege' && memory.dreamCollege) || (awaiting === 'studyHours' && memory.studyHours) || (awaiting === 'attemptStrategy' && memory.attemptStrategy) || (awaiting === 'prepResources' && memory.prepResources.length) || (awaiting === 'attemptNumber' && memory.attemptNumber) || (awaiting === 'targetYear' && memory.targetYear) || (awaiting === 'category' && memory.category) || (awaiting === 'academics' && memory.academics) || (awaiting === 'workExperience' && memory.workExperience) || (awaiting === 'statedTargetPercentile' && memory.statedTargetPercentile))) memory.awaitingField = null;
   if (awaiting && memory.awaitingField && (/\?/.test(text) || isClearlyNotAProfileAnswer(text))) memory.awaitingField = null;
   if (!memory.awaitingField) memory.awaitingPrompt = null;
@@ -18848,13 +19015,30 @@ function getProgressiveProfileMemoryContext(message, diagnosis) {
   return context + '\n\nNATURAL PROFILE OPENING — ' + profilePrompt.replace('[Name]', firstName || 'One thing') + ' Ask only this one optional question after delivering value. Ask it only at a genuine conversational pause, never in the middle of analysis, a live exercise, an emotional moment, or an action being executed now. A self-study task the student will do after this chat is a natural pause, not a reason to suppress the question. Do not call it profile-building or continue into a second profile question.';
 }
 
+// The saved question is matched against later replies and kept as context, so
+// it keeps the whole final question (and a question split over consecutive
+// lines). Only an unusually long one is shortened, at a word, never mid-word.
+var PROFILE_QUESTION_MAX = 600;
+function shortenAtWord(text, max) {
+  var value = String(text || '');
+  if (value.length <= max) return value;
+  var cut = value.slice(0, max);
+  var space = cut.lastIndexOf(' ');
+  if (space > max * 0.6) cut = cut.slice(0, space);
+  return cut.replace(/[\s,;:]+$/, '') + '…';
+}
+
 function profileQuestionExcerpt(response) {
   var text = stripUnclosedMentorMarkers(String(response || ''))
     .replace(/\[\[[^\]]+\]\][\s\S]*?\[\[\/[^\]]+\]\]/g, ' ')
     .replace(/\s*\[(?:OPTIONS|CONTEXT|START_TEST):[^\]]*\]/gi, ' ');
-  var questions = text.split(/\n+/).map(function(line) { return line.trim(); }).filter(function(line) { return /\?/.test(line); });
-  var question = questions.length ? questions[questions.length - 1] : '';
-  return question.replace(/\s+/g, ' ').trim().slice(0, 240);
+  var lines = text.split(/\n+/).map(function(line) { return line.trim(); }).filter(Boolean);
+  var run = [];
+  for (var i = lines.length - 1; i >= 0; i--) {
+    if (/\?/.test(lines[i])) run.unshift(lines[i]);
+    else if (run.length) break;
+  }
+  return shortenAtWord(run.join(' ').replace(/\s+/g, ' ').trim(), PROFILE_QUESTION_MAX);
 }
 
 function replyMayEnterProfileState(response) {
@@ -20939,26 +21123,90 @@ function directHelpClose(topic, previous) {
   return { kind:'unresolved', pattern:pattern, line:'Let’s test ' + topic + ' on a real question.', options:['Send a real question'] };
 }
 
-function bridgeClose(topic, plan, patternLabel, previous) {
+// The closes used in the last few assistant turns, newest first. A turn with
+// no close counts as an empty slot, so a run of plain endings is remembered.
+var CLOSE_RECENT_TURNS = 3;
+function recentClosePatterns(turns) {
+  var history = typeof conversationHistory !== 'undefined' && conversationHistory ? conversationHistory : [];
+  var found = [];
+  for (var i = history.length - 1; i >= 0 && found.length < (turns || CLOSE_RECENT_TURNS); i--) {
+    var item = history[i];
+    if (!item || item.role !== 'assistant') continue;
+    var match = String(item.content || '').match(/"pattern"\s*:\s*"([a-z0-9_]+)"/i);
+    found.push(match ? match[1] : '');
+  }
+  return found;
+}
+
+// How many times this close was already used, so its wording can rotate.
+function closePatternUses(pattern) {
+  var history = typeof conversationHistory !== 'undefined' && conversationHistory ? conversationHistory : [];
+  var uses = 0;
+  var tag = new RegExp('"pattern"\\s*:\\s*"' + pattern + '"', 'i');
+  history.forEach(function(item) { if (item && item.role === 'assistant' && tag.test(String(item.content || ''))) uses++; });
+  return uses;
+}
+
+function closeVariant(pattern, variants) {
+  return variants[closePatternUses(pattern) % variants.length];
+}
+
+function studentReportsAMiss(message) {
+  return /\b(?:got\b[^.!?\n]{0,40}\bwrong|(?:was|is|are|were) wrong|marked wrong|incorrect|made a mistake|missed (?:it|this|that|again)|failed (?:it|this|that)|keep (?:getting|making|missing))\b/i.test(String(message || ''));
+}
+
+function studentSoundsUpset(message) {
+  return /\b(?:annoyed|frustrat\w*|angry|fed up|irritat\w*|upset|disappointed|demotivat\w*|discouraged)\b/i.test(String(message || ''));
+}
+
+function bridgeClose(topic, plan, patternLabel, previous, options) {
   if (!topic) return { kind:'none', pattern:'', line:'', options:[] };
+  options = options || {};
   var available = [
     plan ? 'plan_next' : '',
     patternLabel ? 'pattern_link' : '',
-    'similar_check',
-    'transfer',
-    'tomorrow'
+    options.miss ? 'error_review' : '',
+    options.miss ? '' : 'similar_check',
+    options.miss ? '' : 'transfer',
+    options.miss ? '' : 'tomorrow'
   ].filter(Boolean);
+  // A close used in any of the last few turns is not repeated. When every
+  // choice was recently used the reply simply ends: no question is forced.
+  var recent = recentClosePatterns(CLOSE_RECENT_TURNS);
   var chosen = '';
   available.some(function(pattern) {
-    if (pattern !== previous) { chosen = pattern; return true; }
+    if (recent.indexOf(pattern) === -1) { chosen = pattern; return true; }
     return false;
   });
-  if (!chosen) chosen = available[0] || 'tomorrow';
+  if (!chosen) return { kind:'none', pattern:'', line:'', options:[] };
   if (chosen === 'plan_next') return { kind:'resolved', pattern:chosen, line:'Next up is the open item: ' + plan + '.', options:['Start that item', 'One similar question first'] };
   if (chosen === 'pattern_link') return { kind:'resolved', pattern:chosen, line:'This sits next to a pattern already on record: ' + patternLabel + '.', options:['Look at that pattern', 'One similar question'] };
-  if (chosen === 'similar_check') return { kind:'resolved', pattern:chosen, line:'A clean check is one similar ' + topic + ' question, with no hint.', options:['Send that question', 'Try a new situation'] };
-  if (chosen === 'transfer') return { kind:'resolved', pattern:chosen, line:'The same idea in a new situation is the useful next check.', options:['New situation', 'One similar question'] };
-  return { kind:'resolved', pattern:'tomorrow', line:'Tomorrow we’ll check whether ' + topic + ' still holds.', options:['Set tomorrow’s check-in', 'One similar question now'] };
+  if (chosen === 'error_review') {
+    return { kind:'unresolved', pattern:chosen, options:['Show where it broke', 'Leave it for now'], line:closeVariant(chosen, [
+      'Where the ' + topic + ' answer broke is the next thing to look at.',
+      'The step where this ' + topic + ' answer went off is worth finding before any new question.'
+    ]) };
+  }
+  if (chosen === 'similar_check') {
+    var similar = closeVariant(chosen, [
+      { line:'A clean check is one similar ' + topic + ' question, with no hint.', options:['Send that question', 'Try a new situation'] },
+      { line:'One fresh ' + topic + ' question, attempted cold, would show whether this holds.', options:['Give me one to try', 'Not now'] },
+      { line:'To see if it sticks, a different ' + topic + ' question before looking at any notes is enough.', options:['Send one', 'Leave it for now'] }
+    ]);
+    return { kind:'resolved', pattern:chosen, line:similar.line, options:similar.options };
+  }
+  if (chosen === 'transfer') {
+    var transfer = closeVariant(chosen, [
+      { line:'The same idea in a new situation is the useful next check.', options:['New situation', 'One similar question'] },
+      { line:'Changing the setting while keeping the idea is the real test of this.', options:['Change the setting', 'Leave it for now'] }
+    ]);
+    return { kind:'resolved', pattern:chosen, line:transfer.line, options:transfer.options };
+  }
+  var tomorrow = closeVariant('tomorrow', [
+    { line:'Tomorrow we’ll check whether ' + topic + ' still holds.', options:['Set tomorrow’s check-in', 'One similar question now'] },
+    { line:'It is worth coming back to ' + topic + ' tomorrow, once it has had a night.', options:['Remind me tomorrow', 'Not now'] }
+  ]);
+  return { kind:'resolved', pattern:'tomorrow', line:tomorrow.line, options:tomorrow.options };
 }
 
 function decideConversationClose(message, diagnosis, budget) {
@@ -20971,7 +21219,7 @@ function decideConversationClose(message, diagnosis, budget) {
   if (explicitResponseConstraint(text)) return { kind:'none', pattern:'', line:'', options:[] };
   var topic = closeTopicLabel(text, diagnosis);
   var questionBudget = budget === 0 || budget === 1 ? budget : diagnosis.questionBudget;
-  var frustrated = diagnosis.emotionalState === 'frustrated' || diagnosis.emotionalState === 'drained' || diagnosis.emotionalState === 'anxious' || diagnosis.emotionalState === 'low-confidence';
+  var frustrated = diagnosis.emotionalState === 'frustrated' || diagnosis.emotionalState === 'drained' || diagnosis.emotionalState === 'anxious' || diagnosis.emotionalState === 'low-confidence' || studentSoundsUpset(text);
   if (studentWantsToStopTurn(text) || (diagnosis.emotionalState === 'drained' && /\b(?:stop|later|rest|done|bye|tired)\b/i.test(text))) {
     return { kind:'stop', pattern:'stop_next', line:'We’ll leave it here.', options:[] };
   }
@@ -20982,19 +21230,29 @@ function decideConversationClose(message, diagnosis, budget) {
   var decision = decideTurnMode(text, diagnosis);
   if (!topic && (selfReport || showedWork)) topic = 'this';
   if (!topic) return { kind:'none', pattern:'', line:'', options:[] };
+  var miss = studentReportsAMiss(text);
+  var stuckNow = /\b(?:don'?t get|do not get|stuck|confused|why does|how come|not sure|can'?t see|still open)\b/i.test(text);
+  // A student who is upset and is not asking for help gets an acknowledgement
+  // in the reply itself, not a quiz appended to it.
+  if (frustrated && !stuckNow && (selfReport || showedWork)) return { kind:'none', pattern:'', line:'', options:[] };
   if (selfReport || (decision.mode === 'continue_flow' && intent === 'task_outcome_report' && !showedWork)) {
-    return { kind:'uncertain', pattern:'micro_check', line:'One similar ' + topic + ' question, with no hint, is the check.', options:['Send that question', 'Leave it for tomorrow'] };
+    var microChecks = closePatternUses('micro_check');
+    if (recentClosePatterns(CLOSE_RECENT_TURNS).indexOf('micro_check') !== -1) return { kind:'none', pattern:'', line:'', options:[] };
+    return { kind:'uncertain', pattern:'micro_check', options:microChecks % 2 ? ['Give me one to try', 'Leave it for tomorrow'] : ['Send that question', 'Leave it for tomorrow'], line:microChecks % 2
+      ? 'A single ' + topic + ' question without hints would show where this stands.'
+      : 'One similar ' + topic + ' question, with no hint, is the check.' };
   }
   if (showedWork && decision.mode !== 'clarify' && decision.mode !== 'challenge') {
-    return bridgeClose(topic, openPlanLabel(), recurringPatternLabel(text, diagnosis), previous);
+    return bridgeClose(topic, openPlanLabel(), recurringPatternLabel(text, diagnosis), previous, { miss:miss });
   }
   if (decision.mode === 'guide' && decision.observed && !frustrated) {
-    return bridgeClose(topic, openPlanLabel(), recurringPatternLabel(text, diagnosis), previous);
+    return bridgeClose(topic, openPlanLabel(), recurringPatternLabel(text, diagnosis), previous, { miss:miss });
   }
   var asked = problemThreadQuestionCount();
   if (frustrated || questionBudget === 0 || asked >= 3) return directHelpClose(topic, previous);
-  var stuck = /\b(?:don'?t get|do not get|stuck|confused|why does|how come|not sure|can'?t see|still open)\b/i.test(text) || decision.mode === 'clarify' || decision.mode === 'diagnose' || decision.mode === 'challenge';
+  var stuck = stuckNow || decision.mode === 'clarify' || decision.mode === 'diagnose' || decision.mode === 'challenge';
   if (!stuck && decision.mode === 'answer') {
+    if (recentClosePatterns(CLOSE_RECENT_TURNS).indexOf('micro_check') !== -1) return { kind:'none', pattern:'', line:'', options:[] };
     return { kind:'uncertain', pattern:'micro_check', line:'One similar ' + topic + ' question, with no hint, is the check.', options:['Send that question', 'Leave it for tomorrow'] };
   }
   var missing = decision.missing || 'the step that is still unclear';
