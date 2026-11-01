@@ -1712,13 +1712,146 @@ function statedSolutionAnswer(text) {
   return null;
 }
 
-function repairInconsistentEqualityChains(text) {
-  var operand = '(?:\\([^()]+\\)|\\d+(?:\\.\\d+)?)';
+// A corrected figure leaves a marker so later sentences that still carry the
+// stale number can be repaired. Markers never leave guardDeterministicArithmeticEqualities.
+function recordArithmeticCorrection(corrections, from, to) {
+  if (!corrections) return '';
+  corrections.push({ from:String(from).replace(/,/g, ''), to:to });
+  return '\u0001' + (corrections.length - 1) + '\u0002';
+}
+
+function shownMatchesRounding(computed, shownText) {
+  var places = (String(shownText).replace(/,/g, '').split('.')[1] || '').length;
+  return Math.abs(computed - Number(String(shownText).replace(/,/g, ''))) <= 0.5 * Math.pow(10, -places) + 1e-9;
+}
+
+// A claim the student made, a hypothetical or a teaching example is not the
+// mentor's own statement, so it is never "corrected" in place.
+function isReportedOrHypotheticalClaim(source, offset) {
+  var text = String(source || '');
+  var before = text.slice(0, offset), start = before.lastIndexOf('\n'), boundary = /[.!?](?=\s)/g, found;
+  while ((found = boundary.exec(before))) if (found.index > start) start = found.index;
+  var lead = before.slice(start + 1);
+  var after = text.slice(offset), end = after.search(/[.!?](?=\s|$)|\n/);
+  var whole = lead + (end < 0 ? after : after.slice(0, end + 1));
+  if (/\?\s*$/.test(whole)) return true;
+  if (/["“‘][^"”’]*$/.test(lead)) return true;
+  if (/\b(?:suppose|assume|assuming|imagine|what if|let['’]s say|for example|for instance|such as)\b/i.test(lead)) return true;
+  if (/\bif\b[^,;:]{0,60}$/i.test(lead)) return true;
+  if (/\b(?:common|typical|frequent)\s+(?:error|mistake)\b|\bmisconception\b|\bmyth\b|\btrap\b|\b(?:wrongly|incorrectly)\s+\w+/i.test(lead)) return true;
+  return /\b(?:you|your|yours|student|they|he|she)\b[^.!?\n]{0,50}\b(?:wrote|write|said|say|answered|marked|chose|picked|got|computed|calculated|claimed|entered|put|thought|typed|reported|had)\b/i.test(lead);
+}
+
+function insideMarkupTag(source, offset) {
+  var before = String(source || '').slice(0, offset);
+  return before.lastIndexOf('<') > before.lastIndexOf('>');
+}
+
+function repairPercentOfClaims(text, corrections) {
+  var pattern = /(\d+(?:\.\d+)?)\s*%\s*of\s+((?:₹|Rs\.?\s*)?\d+(?:,\d{2,3})*(?:\.\d+)?)\s*(=|is|equals)\s*((?:₹|Rs\.?\s*)?)(-?\d+(?:,\d{2,3})*(?:\.\d+)?)/gi;
+  return String(text || '').replace(pattern, function(match, pct, base, _joiner, prefix, shown, offset, source) {
+    var rest = String(source || '').slice(offset + match.length);
+    if (/^\s*(?:[\/×÷*+^%=]|[-−–—]\s*\d|\()/.test(rest) || /^[A-Za-z]/.test(rest)) return match;
+    if (isReportedOrHypotheticalClaim(source, offset) || insideMarkupTag(source, offset)) return match;
+    var computed = Number(pct) / 100 * Number(String(base).replace(/(?:₹|Rs\.?)/gi, '').replace(/,/g, '').trim());
+    var parts = deterministicNumberParts(computed);
+    if (!parts || !Number.isFinite(Number(String(shown).replace(/,/g, '')))) return match;
+    if (shownMatchesRounding(computed, shown)) return match;
+    return match.slice(0, match.length - prefix.length - shown.length) + prefix + parts.text + recordArithmeticCorrection(corrections, shown, parts.text);
+  });
+}
+
+// Later sentences are repaired only when they restate the stale figure as the
+// result of the corrected calculation. The same digits used for anything else
+// ("170 seats", "3 × 381") are left alone. Option letters are replaced only
+// when the figure they stand for is the stale one, or is neither the stale
+// nor the checked value.
+function sentenceBelongsToStudent(sentence, studentText, active) {
+  if (!/\b(?:you|your|yours|you['’](?:re|ve|d|ll)|students?(?:['’]s)?)\b/i.test(sentence)) return false;
+  if (/\b(?:said|says|wrote|written|answered|chose|picked|marked|selected|entered|put|got|gave|typed|submitted|computed|calculated|claimed|reported|thought|tried|circled|had)\b/i.test(sentence)) return true;
+  if (/\b(?:your|yours|student(?:['’]s)?)\s+(?:\w+\s+)?(?:answer|response|result|total|sum|figure|value|working|option|choice|attempt|number|solution)\b/i.test(sentence)) return true;
+  var given = String(studentText || '').replace(/(\d),(?=\d)/g, '$1');
+  return active.some(function(correction) {
+    return new RegExp('(?:^|[^\\d.])' + String(correction.from).replace(/\./g, '\\.') + '(?!\\d|\\.\\d)').test(given);
+  });
+}
+
+function carryArithmeticCorrectionsForward(value, corrections, studentText) {
+  var ids = [];
+  String(value).replace(/\u0001(\d+)\u0002/g, function(all, id) { ids.push(Number(id)); return all; });
+  var pieces = String(value).split(/\u0001\d+\u0002/);
+  var optionLabel = /\(\s*[A-D]\s*\)|(?:[Oo]ption|[Cc]hoice)\s*\(?[A-D]\)?(?![A-Za-z])/;
+  var optionFigure = /(?:\(\s*[A-D]\s*\)|(?:[Oo]ption|[Cc]hoice)\s*\(?[A-D]\)?(?![A-Za-z]))[^\d.\n]{0,12}(?:₹|Rs\.?\s*)?(\d[\d,]*(?:\.\d+)?)/g;
+  var conclusionCue = /\b(?:answer|result|total|sum|product|difference|quotient|average|hence|therefore|thus|so|equals?|gives?|comes?\s+to|works?\s+out|cost|price|amount|final|correct)\b/i;
+  var optionVerdict = /\b(?:is|are)\s+(?:the\s+)?correct\b|\bcorrect\s+(?:answer|option|choice)\b|\banswer\s+is\b|\b(?:choose|select|pick|mark)\b/i;
+  var linkedBefore = /(?:\b(?:is|are|was|be|equals?|gives?|makes?|comes?\s+to|works?\s+out\s+to|to|of|answer|result|total|sum|product|difference|quotient|average|value|cost|price|amount)|[=:≈])\s*(?:(?:about|approximately|roughly|exactly|just|only|the|a|an)\s+)*$/i;
+  var restatement = /^(?:\s*$|\s*[.,;:!?)\]]|\s*<|\s+(?:and|or|so|which|but|because|since|then|as|marks?|points?|rupees|rs|units?|minutes?|seconds?|hours?|days?|km|cm|kg|percent)\b)/i;
+  var active = [], out = pieces[0], changed = false, templated = false, noted = false, kept = [];
+  var plain = function(number) { return Number(String(number).replace(/,/g, '')); };
+  for (var i = 1; i < pieces.length; i++) {
+    var added = corrections[ids[i - 1]];
+    if (added) active.push(added);
+    var piece = pieces[i], lead = piece.match(/^[.,;:!?)\]]+/);
+    if (lead) { out += lead[0]; piece = piece.slice(lead[0].length); }
+    out += piece.split('\n').map(function(line) {
+      return line.replace(/[^\n]+?(?:[.!?](?=\s|$)|$)/g, function(sentence) {
+        var hasOption = optionLabel.test(sentence);
+        if (!hasOption && !conclusionCue.test(sentence)) return sentence;
+        // A figure the student gave, or a sentence about the student's own
+        // answer, is theirs: it is never rewritten as the mentor's slip.
+        var owned = sentenceBelongsToStudent(sentence, studentText, active);
+        var stale = null;
+        var rewritten = sentence.replace(/(₹|Rs\.?\s*)?(\d[\d,]*(?:\.\d+)?)/g, function(token, prefix, digits, offset, source) {
+          var correction = null;
+          active.forEach(function(candidate) { if (plain(digits) === Number(candidate.from)) correction = candidate; });
+          if (!correction || insideMarkupTag(source, offset)) return token;
+          var before = source.slice(0, offset), after = source.slice(offset + token.length);
+          if (/[=×÷*+\-−–—\/^]\s*$/.test(before) || /^\s*[=×÷*+\-−–—\/^%]/.test(after) || /^[A-Za-z]/.test(after)) return token;
+          if (!hasOption && !(linkedBefore.test(before) && restatement.test(after))) return token;
+          if (owned) { kept.push(correction); return token; }
+          stale = correction;
+          return (prefix || '') + correction.to + (String(digits).match(/,+$/) || [''])[0];
+        });
+        if (!hasOption) {
+          if (stale) changed = true;
+          return rewritten;
+        }
+        var figures = [], verdict = optionVerdict.test(sentence), latest = active[active.length - 1];
+        sentence.replace(optionFigure, function(all, digits) { figures.push(plain(digits)); return all; });
+        var valid = function(figure) { return active.some(function(correction) { return Number(correction.to) === figure; }); };
+        var studentFigure = owned && active.filter(function(correction) { return figures.indexOf(Number(correction.from)) !== -1; })[0];
+        if (studentFigure) { kept.push(studentFigure); return sentence; }
+        var invalid = !!stale || (verdict && figures.length > 0 && !figures.some(valid));
+        if (invalid) {
+          changed = true;
+          var tags = sentence.match(/<[^>]*>/g) || [];
+          var leading = (sentence.match(/^\s*(?:<[^>]*>\s*)*/) || [''])[0];
+          var leadTags = leading.match(/<[^>]*>/g) || [];
+          var restTags = tags.slice(leadTags.length).join('');
+          if (templated) return leadTags.join('') + restTags;
+          templated = true;
+          var checked = (stale || latest).to;
+          return leadTags.join('') + (leadTags.length || /^\s/.test(sentence) ? ' ' : '') + 'The checked value is ' + checked + '. Choose the option that equals ' + checked + '; the option letter above came from the earlier mistake.' + restTags;
+        }
+        if (verdict && !figures.length && !noted) {
+          noted = true;
+          return sentence + ' Check that letter against the corrected value ' + latest.to + '.';
+        }
+        return sentence;
+      });
+    }).join('\n');
+  }
+  return { text:out, changed:changed, kept:kept };
+}
+
+function repairInconsistentEqualityChains(text, corrections) {
+  var operand = '(?:\\([^()]+\\)|\\d{1,3}(?:,\\d{2,3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)';
   var expression = operand + '(?:\\s*[×÷+\\-−–—*/^]\\s*' + operand + ')+';
   var chainPattern = new RegExp(expression + '(?:\\s*=\\s*' + expression + ')*(?:\\s*=\\s*' + operand + ')+', 'g');
   return String(text || '').split('\n').map(function(line) {
     if (line.indexOf('\u0000') !== -1) return line;
-    return line.replace(chainPattern, function(chain) {
+    return line.replace(chainPattern, function(chain, offset) {
+      if (isReportedOrHypotheticalClaim(line, offset) || insideMarkupTag(line, offset)) return chain;
       var parts = chain.split(/\s*=\s*/).map(function(part) { return part.trim(); }).filter(Boolean);
       if (parts.length < 2) return chain;
       var values = parts.map(deterministicExpressionValue);
@@ -1727,12 +1860,14 @@ function repairInconsistentEqualityChains(text) {
       var consistent = values.every(function(value) { return Math.abs(value - values[0]) <= tolerance; });
       if (consistent) return chain;
       // A labelled answer must not keep a product that does not equal it.
-      return formatCheckedEquality(parts[0], values[0]);
+      var claimed = parts[parts.length - 1], fixed = deterministicNumberParts(values[0]);
+      var marker = fixed && /^-?[\d,]+(?:\.\d+)?$/.test(claimed) ? recordArithmeticCorrection(corrections, claimed, fixed.text) : '';
+      return formatCheckedEquality(parts[0], values[0]) + marker;
     });
   }).join('\n');
 }
 
-function guardDeterministicArithmeticEqualities(text) {
+function guardDeterministicArithmeticEqualities(text, studentText) {
   var value = String(text || '');
   // Repair expanded score chains as one unit before the general chain pass.
   // Validating only the final net allowed "(8 × 3) − (2 × 1) = 22 − 2 = 22"
@@ -1743,17 +1878,25 @@ function guardDeterministicArithmeticEqualities(text) {
     var net = firstOperator === '+' ? first + second : first - second;
     return '\u0000(' + a + ' × ' + b + ') ' + firstOperator.replace('−', '-') + ' (' + c + ' × ' + d + ') = ' + first + ' ' + firstOperator.replace('−', '-') + ' ' + second + ' = ' + net;
   });
-  value = repairInconsistentEqualityChains(repairPercentFractionClaims(value));
+  var corrections = [];
+  value = repairInconsistentEqualityChains(repairPercentFractionClaims(repairPercentOfClaims(value, corrections)), corrections);
   // Recompute only self-contained numeric equalities. Algebraic equations are
   // left alone; they need symbolic reasoning rather than a brittle parser.
-  var equalityPattern = /(^|\n|[:;=]\s*)([₹\s\d,.()+\-−–—×·÷*/^√%]+)=\s*((?:₹|Rs\.?\s*)?-?[\d,]+(?:\.\d+)?)/gim;
+  var equalityPattern = /(^|\n|[:;=]\s*|[A-Za-z,]\s+)([₹\s\d,.()+\-−–—×·÷*/^√%]+)=\s*((?:₹|Rs\.?\s*)?-?[\d,]+(?:\.\d+)?)/gim;
   value = value.split('\n').map(function(line) {
     // Multi-equality score expansions were normalised as a whole above. A
     // second local rewrite would compare the total expression with the first
     // displayed product and corrupt a now-valid chain.
     if (line.indexOf('\u0000') !== -1) return line.replace(/\u0000/g, '');
     return line.replace(equalityPattern, function(match, boundary, expression, shown, offset, source) {
-    if (/^\s*[\/×÷*+^A-Za-z]/.test(String(source || '').slice(offset + match.length))) return match;
+    var trailing = String(source || '').slice(offset + match.length);
+    if (isReportedOrHypotheticalClaim(source, offset + boundary.length) || insideMarkupTag(source, offset)) return match;
+    // A unit or word after the result ("= 14.29 km/h") is fine; a continued
+    // expression, an attached letter ("2x") or a lone variable is not.
+    if (/^\s*[\/×÷*+^]/.test(trailing) || /^[A-Za-z]/.test(trailing) || /^\s+[A-Za-z](?![A-Za-z])/.test(trailing)) return match;
+    // After a plain word the expression must visibly be arithmetic, so prose
+    // such as "Step 2 = ..." or "pages 10-12 = ..." is never rewritten.
+    if (/^[A-Za-z,]\s+$/.test(boundary) && !/\d\s*(?:[×÷+*/^]|\s[-−–—]\s)\s*[\d(]/.test(expression)) return match;
     var computed;
     try { computed = evaluateDeterministicArithmetic(expression); } catch(e) { return match; }
     var shownNumber = Number(String(shown).replace(/(?:₹|Rs\.?)/gi, '').replace(/,/g, '').trim());
@@ -1764,10 +1907,21 @@ function guardDeterministicArithmeticEqualities(text) {
     if (!parts.approximate && Math.abs(computed - shownNumber) <= tolerance) return match;
     if (parts.approximate && Math.abs(computed - shownNumber) <= tolerance && /≈/.test(match)) return match;
     var prefix = /₹/.test(shown) ? '₹' : /Rs\.?/i.test(shown) ? 'Rs. ' : '';
-    return boundary + String(expression || '').trim() + (parts.approximate ? ' ≈ ' : ' = ') + prefix + parts.text;
+    // Rounding alone is repaired in place; a wrong figure is also carried into later conclusions.
+    var marker = shownMatchesRounding(computed, String(shown).replace(/(?:₹|Rs\.?)/gi, '').trim()) ? '' : recordArithmeticCorrection(corrections, String(shown).replace(/(?:₹|Rs\.?)/gi, '').trim(), parts.text);
+    return boundary + String(expression || '').trim() + (parts.approximate ? ' ≈ ' : ' = ') + prefix + parts.text + marker;
     });
   }).join('\n');
-  value = noteLabelledAnswerDisagreement(text, value);
+  var carried = carryArithmeticCorrectionsForward(value, corrections, studentText);
+  value = carried.text.replace(/\u0001\d+\u0002/g, '');
+  var statedAnswer = statedSolutionAnswer(text);
+  var staleLabel = carried.changed && !carried.kept.length && typeof statedAnswer === 'number' && corrections.some(function(correction) { return Number(correction.from) === statedAnswer; });
+  if (!staleLabel) value = noteLabelledAnswerDisagreement(text, value);
+  // A sentence about the student's own figure was kept, so the disagreement is
+  // stated rather than silently confirmed.
+  if (carried.kept.length && !/does not equal the checked value/i.test(value)) {
+    value = value.replace(/\s+$/, '') + '\nThe labelled answer ' + formatDeterministicNumber(Number(carried.kept[0].from)) + ' does not equal the checked value ' + carried.kept[0].to + '.';
+  }
   return guardPrimePowerFactorCount(value);
 }
 
@@ -3737,6 +3891,305 @@ function presentProtectedRequestFailure(error, draftText) {
   restoreDraftToComposer(draftText);
   showComposerStatus(notice, 'info', true);
   return true;
+}
+
+function runAnswerCorrectnessTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var arithmetic = guardDeterministicArithmeticEqualities;
+  var savedHistory = conversationHistory;
+  var verdicts = {};
+  var leaked = function(text) { return /[\u0001\u0002]/.test(text); };
+
+  // F-2: a corrected figure must reach the conclusions that repeat it.
+  var product = arithmetic('17 × 23 = 381. So the answer is (B) 381.');
+  check('F-2 product: equation, conclusion and option letter agree', /17 × 23 = 391/.test(product) && !/381/.test(product) && /The checked value is 391\. Choose the option that equals 391/.test(product) && !/does not equal the checked value/.test(product) && !/\(B\)/.test(product), product);
+  var sum = arithmetic('45 + 38 = 85. Hence the sum is 85 and option (C) is correct.');
+  check('F-2 sum: no silent contradiction without a labelled answer', /45 \+ 38 = 83/.test(sum) && !/85/.test(sum) && /Choose the option that equals 83/.test(sum) && !/option \(C\)/.test(sum), sum);
+  var cost = arithmetic('12 × 15 = 170. Therefore the total cost is ₹170.');
+  check('F-2 money: the conclusion carries the corrected amount', /12 × 15 = 180/.test(cost) && /total cost is ₹180/.test(cost) && !/170/.test(cost), cost);
+  var percentOf = arithmetic('25% of 80 = 21. So the answer is 21.');
+  check('F-2 N% of M is checked and carried forward', /25% of 80 = 20/.test(percentOf) && /answer is 20/.test(percentOf) && !/21/.test(percentOf), percentOf);
+  var percentIs = arithmetic('10% of 250 is 30.');
+  check('F-2 N% of M with "is" is checked', /10% of 250 is 25/.test(percentIs), percentIs);
+  var neither = arithmetic('Answer: 400\n17 × 23 = 381');
+  check('F-2 a label matching neither value keeps the disagreement note', /17 × 23 = 391/.test(neither) && /labelled answer 400 does not equal the checked value 391/.test(neither), neither);
+  var fine = '17 × 23 = 391. So the answer is (B) 391.';
+  check('F-2 a correct solution is untouched', arithmetic(fine) === fine && arithmetic('25% of 80 = 20. So the answer is 20.') === '25% of 80 = 20. So the answer is 20.' && arithmetic('15% of 90 = 13.5.') === '15% of 90 = 13.5.');
+  check('F-2 a rounded percent-of figure is not rewritten', arithmetic('33% of 100 = 33.') === '33% of 100 = 33.' && arithmetic('1% of 250 = 3.') === '1% of 250 = 3.');
+  var unrelated = arithmetic('12 × 15 = 170. There were 170 students in the hall.');
+  check('F-2 an unrelated later use of the same number is left alone', /12 × 15 = 180/.test(unrelated) && /170 students/.test(unrelated), unrelated);
+  var inEquation = arithmetic('17 × 23 = 381. Then 381 + 9 = 390, so the answer is 390.');
+  check('F-2 a later equation is not corrupted', /381 \+ 9 = 390/.test(inEquation) && /17 × 23 = 391/.test(inEquation), inEquation);
+  var f2Inputs = ['17 × 23 = 381. So the answer is (B) 381.', '45 + 38 = 85. Hence the sum is 85 and option (C) is correct.', '12 × 15 = 170. Therefore the total cost is ₹170.', '25% of 80 = 21. So the answer is 21.', 'Answer: 400\n17 × 23 = 381'];
+  check('F-2 repairs are idempotent and leave no markers', f2Inputs.every(function(input) { var once = arithmetic(input); return arithmetic(once) === once && !leaked(once); }));
+
+  // F-3: a rounded value never keeps "=".
+  var rounded = [
+    ['So 100 ÷ 3 = 33.33.', /100 ÷ 3 ≈ 33\.333333/],
+    ['Speed = 100 ÷ 7 = 14.29 km/h', /100 ÷ 7 ≈ 14\.285714 km\/h/],
+    ['Average = 250 / 3 = 83.33 marks', /250 \/ 3 ≈ 83\.333333 marks/],
+    ['Hence 1 ÷ 3 = 0.33', /1 ÷ 3 ≈ 0\.333333/],
+    ['The ratio is 22 / 7 = 3.14 approximately.', /22 \/ 7 ≈ 3\.142857/],
+    ['22 / 7 = 3.14', /^22 \/ 7 ≈ 3\.142857$/]
+  ];
+  rounded.forEach(function(pair) {
+    var out = arithmetic(pair[0]);
+    check('F-3 rounded value repaired: ' + pair[0], pair[1].test(out) && !leaked(out), out);
+  });
+  var leftAlone = ['Step 2 = 3 is next.', 'If x + 2 = 5 then x = 3.', '2x + 3 = 11', 'The total is 4 × 5 = 20 marks.', 'It ran 100 ÷ 4 = 25 km/h.', 'Option 3 = 2 + 1 is wrong.'];
+  check('F-3 prose, algebra and exact results are untouched', leftAlone.every(function(input) { return arithmetic(input) === input; }), leftAlone.map(arithmetic).join(' | '));
+  check('F-3 exact division is untouched and repaired text is stable', arithmetic('So 100 ÷ 4 = 25.') === 'So 100 ÷ 4 = 25.' && arithmetic(arithmetic('So 100 ÷ 3 = 33.33.')) === arithmetic('So 100 ÷ 3 = 33.33.'));
+
+  // F-7: a percentile appears only when the student supplied it.
+  var bare = '';
+  var gate = function(text, student) { return guardPercentileProvenance(text, student === undefined ? bare : student); };
+  var invented = [
+    'You are on track for a 98+ percentile.',
+    'This puts you at about the 85th percentile.',
+    'You will land around the 95th percentile.',
+    'Students like you usually reach the 90+ percentile range.',
+    'That is a top 2% performance among test takers.',
+    'You are heading for the high 90s.',
+    'You should be between 94 and 96 percentile.',
+    'Your 99 percentile target is achievable.',
+    'A score of 70 is roughly 99%ile.',
+    'You are looking at a percentile of 97 soon.'
+  ];
+  invented.forEach(function(input) {
+    var out = gate(input);
+    check('F-7 invented figure rewritten: ' + input, out === PERCENTILE_REWRITES.other, out);
+  });
+  var fixedOther = PERCENTILE_REWRITES.other;
+  check('F-7 two invented claims give one rewrite, not two', gate('You will land around the 95th percentile. You are heading for the high 90s.') === fixedOther, gate('You will land around the 95th percentile. You are heading for the high 90s.'));
+  check('F-7 the rest of the reply survives', gate('Your accuracy dropped late. You will land around the 95th percentile. Review the last three errors.') === 'Your accuracy dropped late. ' + fixedOther + ' Review the last three errors.', gate('Your accuracy dropped late. You will land around the 95th percentile. Review the last three errors.'));
+  check('F-7 an institution cut-off uses the cut-off wording', gate('The IIM-A call cut-off was 99 percentile last year.') === PERCENTILE_REWRITES.cutoff, gate('The IIM-A call cut-off was 99 percentile last year.'));
+  var studentTarget = 'I am aiming for 99 percentile this year.';
+  check('F-7 a stated target with a feasibility cue uses the target wording', gate('Your 99 percentile target is achievable.', studentTarget) === 'Your target is 99 percentile. That is your goal, not my forecast; this evidence cannot show whether you are on track yet.', gate('Your 99 percentile target is achievable.', studentTarget));
+  check('F-7 a student figure that was never a target is not called one', gate('Your 92 percentile means you will get a call.', 'I scored 92 percentile in a mock.') === PERCENTILE_REWRITES.cutoff && gate('You can reach 92 percentile soon.', 'I scored 92 percentile in a mock.') === fixedOther);
+  var studentFigure = 'I got 92 percentile in my last mock.';
+  check('F-7 a student-supplied figure is allowed', gate('You said you got 92 percentile in your last mock.', studentFigure) === 'You said you got 92 percentile in your last mock.' && gate('Your 92 percentile is a result from that one mock.', studentFigure) === 'Your 92 percentile is a result from that one mock.');
+  check('F-7 an attributed student figure survives even beside a forecast word', gate('You said you can reach 92 percentile.', studentFigure) === 'You said you can reach 92 percentile.' && gate('You said you can reach 95 percentile.', studentFigure) === fixedOther);
+  check('F-7 a generic definition is allowed', gate('A percentile of 90 means you scored better than 90% of candidates.') === 'A percentile of 90 means you scored better than 90% of candidates.');
+  check('F-7 a question, a control tag and a data set are left alone', gate('Is 99 percentile your target?') === 'Is 99 percentile your target?' && gate('[OPTIONS: 90 percentile|95 percentile]') === '[OPTIONS: 90 percentile|95 percentile]' && gate('The 90th percentile of this data set is 41.') === 'The 90th percentile of this data set is 41.');
+  check('F-7 text with no percentile is returned unchanged', gate('Spend ten minutes on the passage map.') === 'Spend ten minutes on the passage map.');
+  check('F-7 the gate is idempotent', invented.concat(['Your 99 percentile target is achievable.']).every(function(input) { var once = gate(input, studentTarget); return gate(once, studentTarget) === once; }));
+  check('F-7 every wording matches the approved text', PERCENTILE_REWRITES.target === 'Your target is <N> percentile. That is your goal, not my forecast; this evidence cannot show whether you are on track yet.' && PERCENTILE_REWRITES.other === 'I cannot give a percentile from this. What the evidence does show is in the points above.' && PERCENTILE_REWRITES.cutoff === 'I do not have a sourced cut-off for that, so I will not quote one. The institution\'s own admissions page is the reliable source.');
+
+  // F-7: every reply path passes through the gate, with or without a mock.
+  conversationHistory = [{ role:'user', content:'How am I doing?' }];
+  var mentor = applyMentorResponseGuard('You will land around the 95th percentile.', { intent:'general_mentor' });
+  var study = applyMentorResponseGuard('You will land around the 95th percentile.', { responseShape:'study', intent:'study_activity', submittedAnswerText:'x' });
+  var hint = applyMentorResponseGuard('You will land around the 95th percentile.', { hintOnly:true, intent:'general_mentor' });
+  var mission = stabilizeAndRememberMission('You are on track for a 98+ percentile.', 'How am I doing?');
+  check('F-7 the mentor, study, hint and mission paths all rewrite', [mentor, study, hint, mission].every(function(out) { return !/95th|98\+/.test(out) && /cannot give a percentile/.test(out); }), [mentor, study, hint, mission].join(' || '));
+  var seenByStudent = '';
+  try {
+    var host = document.getElementById('messages') || (function() { var el = document.createElement('div'); el.id = 'messages'; return el; })();
+    var wrap = addMessage('marg', '<p>You are on track for a <b>98+</b> percentile. Keep going.</p><p>You will land around the 95th percentile.</p>');
+    seenByStudent = String(wrap && wrap.innerHTML || '');
+  } catch (error) { seenByStudent = 'ERR ' + (error && error.message); }
+  check('F-7 the display backstop rewrites text that skipped the guards', !/95th/.test(seenByStudent) && /cannot give a percentile/.test(seenByStudent) && /<p>/.test(seenByStudent), seenByStudent);
+
+  // Correction round: defects found by the independent review (B-1 to B-9).
+  var groupedOk = ['1,200 × 3 = 3,600.', '2,000 + 500 = 2,500.', '10,000 ÷ 4 = 2,500', '1,25,000 × 2 = 2,50,000', 'Total = 1,500 × 12 = 18,000 rupees.', '₹1,200 × 3 = ₹3,600'];
+  check('B-1 correct comma-grouped equations are untouched', groupedOk.every(function(input) { return arithmetic(input) === input; }), groupedOk.map(arithmetic).join(' | '));
+  var groupedWrong = arithmetic('1,200 × 3 = 3,500.');
+  check('B-1 a wrong comma-grouped result is repaired without leftover digits', /^1,200 × 3 = 3600\.$/.test(groupedWrong), groupedWrong);
+  var groupedMentor = applyMentorResponseGuard('Here: 1,200 × 3 = 3,600 rupees in total.', { intent:'general_mentor' });
+  check('B-1 the mentor path keeps a correct grouped total', /1,200 × 3 = 3,600 rupees/.test(groupedMentor), groupedMentor);
+
+  var seats = arithmetic('12 × 15 = 170. So the hall had 170 seats last year.');
+  check('B-2 an unrelated figure after "so" is not rewritten', /12 × 15 = 180\./.test(seats) && /had 170 seats/.test(seats), seats);
+  var keyList = arithmetic('12 × 15 = 170. The answer key lists 170 students.');
+  check('B-2 an unrelated figure after "answer" is not rewritten', /12 × 15 = 180\./.test(keyList) && /lists 170 students/.test(keyList), keyList);
+  var product3 = arithmetic('17 × 23 = 381. So the total is 3 × 381 marks.');
+  check('B-2 a figure used inside another calculation is not rewritten', /3 × 381 marks/.test(product3), product3);
+  var restated = arithmetic('17 × 23 = 381. Hence the product is 381 marks.');
+  check('B-2 a true restatement of the result is still repaired', /product is 391 marks/.test(restated) && !/381/.test(restated), restated);
+
+  var keepOption = arithmetic('17 × 23 = 381. Option (A) 391 is correct.');
+  check('B-3 a correct option letter is kept', keepOption === '17 × 23 = 391. Option (A) 391 is correct.', keepOption);
+  var badOption = arithmetic('17 × 23 = 381. Option (B) 381 is correct.');
+  check('B-3 an option built on the stale figure is replaced', /The checked value is 391\./.test(badOption) && !/\(B\)/.test(badOption), badOption);
+  var otherOption = arithmetic('17 × 23 = 381. Option (A) 400 is correct.');
+  check('B-3 an option whose figure matches neither value is replaced', /The checked value is 391\./.test(otherOption) && !/\(A\)/.test(otherOption), otherOption);
+  var letterOnly = arithmetic('17 × 23 = 381. So the answer is (B).');
+  check('B-3 a bare letter is kept with a check note, not claimed wrong', /So the answer is \(B\)\./.test(letterOnly) && /Check that letter against the corrected value 391\./.test(letterOnly) && !/earlier mistake/.test(letterOnly), letterOnly);
+  var trapOption = arithmetic('17 × 23 = 381. Option (A) is 391. Option (B) is 381.');
+  check('B-3 only the option carrying the stale figure is replaced', /Option \(A\) is 391\./.test(trapOption) && !/Option \(B\)/.test(trapOption), trapOption);
+
+  var stopped = arithmetic('17 × 23 = 381. So the answer is (B) 381.');
+  check('B-6 the full stop after a corrected equation survives', /^17 × 23 = 391\. The checked value is 391\./.test(stopped), stopped);
+  var stoppedSum = arithmetic('45 + 38 = 85. Hence the sum is 85 and option (C) is correct.');
+  check('B-6 the full stop survives when the option clause is replaced', /^45 \+ 38 = 83\. The checked value is 83\./.test(stoppedSum), stoppedSum);
+
+  var tagged = arithmetic('<b>17 × 23 = 381</b> so answer (B) 381');
+  check('B-5 closing and opening tags survive a replaced sentence', tagged.indexOf('<b>') === 0 && /<\/b>/.test(tagged) && (tagged.match(/<[^>]*>/g) || []).length === 2 && /17 × 23 = 391/.test(tagged), tagged);
+  var attr = '<span data-x="2 + 2 = 5">label</span>';
+  check('B-5 numbers inside a tag attribute are never edited', arithmetic(attr) === attr, arithmetic(attr));
+  var taggedParas = arithmetic('<p>17 × 23 = 381</p><p>So the answer is 381.</p>');
+  check('B-5 tags between paragraphs are kept', taggedParas === '<p>17 × 23 = 391</p><p>So the answer is 391.</p>', taggedParas);
+
+  var quoted = ['You said 25% of 80 is 21, but it is 20.', 'Suppose 25% of 80 is 21. Is that right?', 'You wrote 45 + 38 = 85 in your working, which is wrong; it is 83.', 'Is 25% of 80 equal to 21?', 'A common mistake is writing 25% of 80 = 21.', 'If 25% of 80 is 21 then what is 50%?'];
+  check('B-4 quoted, hypothetical and teaching statements are left as written', quoted.every(function(input) { return arithmetic(input) === input; }), quoted.map(arithmetic).join(' | '));
+  var ownClaim = arithmetic('So 25% of 80 is 21, which is the answer.');
+  check('B-4 the mentor\'s own wrong claim is still repaired and keeps its comma', ownClaim === 'So 25% of 80 is 20, which is the answer.', ownClaim);
+
+  var newArithmetic = ['12 × 15 = 170. So the hall had 170 seats last year.', '17 × 23 = 381. Option (A) 391 is correct.', '17 × 23 = 381. So the answer is (B).', '<b>17 × 23 = 381</b> so answer (B) 381', '1,200 × 3 = 3,500.', '17 × 23 = 381. Hence the product is 381 marks.', 'So 25% of 80 is 21, which is the answer.'];
+  check('B-1 to B-6 repairs are idempotent and leave no markers', newArithmetic.every(function(input) { var once = arithmetic(input); return arithmetic(once) === once && !leaked(once); }));
+
+  var pctMissed = ['You will be in the top 5 percent.', 'You will be in the top five percent.', 'You are in the 99th-percentile band.', 'You can hit a 97-percentile.', 'You can hit 97 %tile.', 'You will beat 95% of test takers.', 'You will land in the 90s.', 'You will reach ninety-fifth percentile.', 'Percentile 97 is realistic for you.', 'You are in the top 1 per cent of aspirants.'];
+  pctMissed.forEach(function(input) {
+    var out = gate(input);
+    check('B-7 natural-language percentile claim rewritten: ' + input, out === PERCENTILE_REWRITES.other, out);
+  });
+  var splitClaim = guardPercentileInMarkup('<p><b>98</b> percentile is realistic.</p>');
+  check('B-7 a claim split across inline tags is rewritten and the paragraph tags survive', !/98/.test(splitClaim) && /cannot give a percentile/.test(splitClaim) && /^<p>.*<\/p>$/.test(splitClaim), splitClaim);
+  var shownClaim = '';
+  try { var splitWrap = addMessage('marg', '<p>You will be in the <b>top 5 percent</b>.</p>'); shownClaim = String(splitWrap && splitWrap.innerHTML || ''); } catch (error) { shownClaim = 'ERR ' + (error && error.message); }
+  check('B-7 the display backstop catches "top 5 percent" inside markup', !/top 5 percent/.test(shownClaim) && /cannot give a percentile/.test(shownClaim), shownClaim);
+
+  var educational = ['The 75th percentile of 2, 4, 6, 8 is 7.', 'For 3, 5, 8, 9 the 50th percentile is 6.5.', 'A percentile of 90 means 90% of test takers scored lower.', 'For example, a 95 percentile means you beat 95% of candidates.', 'Suppose a student scores 95 percentile. What changes?', 'Scores of 99+ marks are rare, and you can reach 99+ marks with practice.', 'In Excel, PERCENTILE(A1:A10, 0.9) returns the 90th percentile of the list.'];
+  check('B-8 definitions, data statistics and hypotheticals are not rewritten', educational.every(function(input) { return gate(input) === input; }), educational.map(function(input) { return gate(input); }).join(' | '));
+  check('B-8 a forecast about the student is still rewritten beside a statistic cue', gate('From the distribution you will reach 95 percentile.') === PERCENTILE_REWRITES.other, gate('From the distribution you will reach 95 percentile.'));
+  check('B-8 a definition aimed at the student with an unsupplied figure is rewritten', gate('Your 95 percentile means you scored better than 95% of candidates.') === PERCENTILE_REWRITES.other, gate('Your 95 percentile means you scored better than 95% of candidates.'));
+
+  var companionTarget = 'My target is 99 percentile.';
+  check('B-9 a student figure cannot carry an invented marks requirement', gate('A 99 percentile needs roughly 160 marks.', companionTarget) === PERCENTILE_REWRITES.other && gate('Your 99 percentile corresponds to about 150 marks.', companionTarget) === PERCENTILE_REWRITES.other && gate('You said you got 92 percentile, which typically means 150 marks.', 'I got 92 percentile.') === PERCENTILE_REWRITES.other);
+  check('B-9 a marks figure the student gave is not treated as invented', gate('You said you got 92 percentile with 150 marks.', 'I got 92 percentile with 150 marks.') === 'You said you got 92 percentile with 150 marks.');
+
+  var savedProfile = progressiveProfileMemory;
+  var storedOut = '';
+  try {
+    progressiveProfileMemory = Object.assign(createEmptyProgressiveProfile(), { statedTargetPercentile:'99' });
+    conversationHistory = [{ role:'user', content:'Where do I start today?' }];
+    storedOut = applyMentorResponseGuard('Your target is 99 percentile.', { intent:'general_mentor' });
+    var storedForecast = guardPercentileProvenance('Your 99 percentile target is achievable.', percentileStudentText(''));
+    var storedOther = applyMentorResponseGuard('Your target is 95 percentile.', { intent:'general_mentor' });
+  } finally { progressiveProfileMemory = savedProfile; }
+  check('B-8 a stored target figure is honoured in a new chat without being forecast', storedOut === 'Your target is 99 percentile.' && storedForecast === 'Your target is 99 percentile. That is your goal, not my forecast; this evidence cannot show whether you are on track yet.' && storedOther === PERCENTILE_REWRITES.other, [storedOut, storedForecast, storedOther].join(' || '));
+
+  // Branch coverage added after the first mutation run of the correction round.
+  var attrRestated = '17 × 23 = 381. <img alt="the answer is 381.">';
+  check('B-5 a restated figure inside a tag attribute is never edited', /alt="the answer is 381\."/.test(arithmetic(attrRestated)) && /17 × 23 = 391/.test(arithmetic(attrRestated)), arithmetic(attrRestated));
+  var unitFollow = arithmetic('12 × 15 = 170. The total is 170 seats.');
+  check('B-2 a figure linked by "is" but followed by another noun is left alone', /The total is 170 seats\./.test(unitFollow), unitFollow);
+  var noLink = arithmetic('12 × 15 = 170. So the hall had 170.');
+  check('B-2 a figure with no linking verb is left alone', /the hall had 170\./.test(noLink), noLink);
+  var tagAfter = arithmetic('<p>17 × 23 = 381. Option (B) 381 is <b>correct</b>.</p>');
+  check('B-5 tags after a replaced option clause are kept and balanced', (tagAfter.match(/<p>/g) || []).length === 1 && (tagAfter.match(/<\/p>/g) || []).length === 1 && (tagAfter.match(/<b>/g) || []).length === 1 && (tagAfter.match(/<\/b>/g) || []).length === 1, tagAfter);
+  var twoOptions = arithmetic('17 × 23 = 381. Option (A) 381 is correct. Option (B) 381 is also listed.');
+  check('B-3 two stale option sentences give one replacement line', (twoOptions.match(/The checked value is/g) || []).length === 1 && !/\(A\)|\(B\)/.test(twoOptions), twoOptions);
+  var ifClaim = arithmetic('If 17 × 23 = 381 then the sum changes.');
+  check('B-4 a conditional claim is left as written', ifClaim === 'If 17 × 23 = 381 then the sum changes.', ifClaim);
+  var askedClaim = arithmetic('Is it true that 17 × 23 = 381?');
+  check('B-4 a question about a claim is left as written', askedClaim === 'Is it true that 17 × 23 = 381?', askedClaim);
+  check('B-9 a mapping verb without a marks figure still blocks the student\'s figure', gate('A 99 percentile requires careful sectional balance.', companionTarget) === PERCENTILE_REWRITES.other, gate('A 99 percentile requires careful sectional balance.', companionTarget));
+  check('B-9 an unsourced marks equivalence without a mapping verb is blocked', gate('A 99 percentile is 160 marks.', companionTarget) === PERCENTILE_REWRITES.other, gate('A 99 percentile is 160 marks.', companionTarget));
+  check('B-9 a companion claim also blocks the target wording', gate('Your 99 percentile target needs roughly 160 marks and is achievable.', companionTarget) === PERCENTILE_REWRITES.other, gate('Your 99 percentile target needs roughly 160 marks and is achievable.', companionTarget));
+  check('B-8 a "top N percent" figure the student gave is honoured', gate('You said you want top 1 percent.', 'I want top 1 percent.') === 'You said you want top 1 percent.' && gate('You said you want top 2 percent.', 'I want top 1 percent.') === PERCENTILE_REWRITES.other);
+  check('B-8 a bare 99+ in a marks sentence is not read as a percentile', gate('Marks matter: you can reach 99+ with practice.') === 'Marks matter: you can reach 99+ with practice.', gate('Marks matter: you can reach 99+ with practice.'));
+  check('B-8 "ninety percent" of a count is not a percentile', gate('Ninety percent of your errors are careless.') === 'Ninety percent of your errors are careless.' && gate('Top 10 of your batch.') === 'Top 10 of your batch.', gate('Ninety percent of your errors are careless.'));
+
+  conversationHistory = [{ role:'user', content:'I got 92 percentile in my last mock.' }].concat(Array.apply(null, Array(60)).map(function() { return { role:'user', content:'ok' }; }));
+  var fromHistory = applyMentorResponseGuard('You said you got 92 percentile in your last mock.', { intent:'general_mentor' });
+  var notInHistory = applyMentorResponseGuard('You said you got 93 percentile in your last mock.', { intent:'general_mentor' });
+  check('B-8 a figure the student gave earlier in the conversation is honoured, and a different one is not', fromHistory === 'You said you got 92 percentile in your last mock.' && notInHistory === PERCENTILE_REWRITES.other, fromHistory + ' || ' + notInHistory);
+
+  // D1/D2: the student's own answer is never rewritten as the mentor's slip, and
+  // a corrected figure keeps the punctuation that followed it.
+  conversationHistory = [];
+  var studentTurn = function(message, reply) { return applyMentorResponseGuard(reply, buildDiagnosisDirective(message).diagnosis); };
+  var askedAnswer = 'What is 12 × 15? I think 170';
+  var noteLine = /The labelled answer 170 does not equal the checked value 180\./;
+  var directRef = studentTurn(askedAnswer, 'You are right, 12 × 15 = 170, so your answer is 170, which is correct.');
+  check('D1 a direct reference to the student\'s answer keeps the student\'s figure and the disagreement note', /12 × 15 = 180/.test(directRef) && /your answer is 170, which is correct/.test(directRef) && noteLine.test(directRef) && !/your answer is 180/.test(directRef), directRef);
+  var saidRef = studentTurn(askedAnswer, '12 × 15 = 170. You said the answer is 170.');
+  check('D1 "You said the answer is 170" is preserved with a disagreement note', /You said the answer is 170\./.test(saidRef) && noteLine.test(saidRef) && /12 × 15 = 180/.test(saidRef), saidRef);
+  var yourRef = studentTurn(askedAnswer, '12 × 15 = 170. Your answer is 170, which is right.');
+  check('D1 "Your answer is 170, which is right" is not turned into 180', /Your answer is 170, which is right/.test(yourRef) && !/Your answer is 180/.test(yourRef) && noteLine.test(yourRef), yourRef);
+  var wroteRef = studentTurn(askedAnswer, '12 × 15 = 170. You wrote the total is 170 marks.');
+  check('D1 "You wrote the total is 170 marks" is preserved', /You wrote the total is 170 marks/.test(wroteRef) && noteLine.test(wroteRef), wroteRef);
+  var chosenRef = studentTurn(askedAnswer, '12 × 15 = 170. You chose 170 and the total is 170.');
+  check('D1 the student\'s figure is kept while the mentor\'s own total is corrected', /You chose 170 and the total is 170/.test(chosenRef) && noteLine.test(chosenRef), chosenRef);
+  var optionRef = studentTurn('What is 17 × 23? I chose option B 381', '17 × 23 = 381. You chose (B) 381, which is correct.');
+  check('D1 a student-attributed option is kept and flagged, not replaced and not confirmed', /17 × 23 = 391/.test(optionRef) && /You chose \(B\) 381, which is correct\./.test(optionRef) && /The labelled answer 381 does not equal the checked value 391\./.test(optionRef) && !/earlier mistake/.test(optionRef), optionRef);
+  var optionOwn = studentTurn('What is 17 × 23? I chose option B 381', '17 × 23 = 381. Your option (B) 381 is correct.');
+  check('D1 "Your option (B) 381 is correct" is flagged rather than rewritten', /Your option \(B\) 381 is correct/.test(optionOwn) && /does not equal the checked value 391/.test(optionOwn), optionOwn);
+  var noMessage = studentTurn('Hello', '12 × 15 = 170. You said the answer is 170.');
+  check('D1 a statement attributed to the student is kept even when the message has no figure', /You said the answer is 170\./.test(noMessage) && noteLine.test(noMessage), noMessage);
+  var ownConclusion = studentTurn(askedAnswer, '12 × 15 = 170. So the answer is 170.');
+  check('D1 the mentor\'s own conclusion is still carried forward when the student gave the same figure', ownConclusion === '12 × 15 = 180. So the answer is 180.', ownConclusion);
+  var mixed = arithmetic('12 × 15 = 170. You said the answer is 170. So the total is 170.');
+  check('D1 carry-forward still corrects the mentor\'s sentence beside a protected one', /You said the answer is 170\./.test(mixed) && /So the total is 180\./.test(mixed) && noteLine.test(mixed), mixed);
+  var mixedNote = arithmetic('12 × 15 = 170. Your answer is 170, which is right. So the total is 170.');
+  check('D1 the disagreement note is not suppressed when another sentence was corrected', noteLine.test(mixedNote) && /So the total is 180\./.test(mixedNote), mixedNote);
+  var correctAnswer = studentTurn('I think 180', '12 × 15 = 170. Your answer is 180, which is correct.');
+  check('D1 a student\'s correct answer gets no disagreement note', correctAnswer === '12 × 15 = 180. Your answer is 180, which is correct.', correctAnswer);
+  var withText = arithmetic('12 × 15 = 170. So the total you owe is 170.', 'I owe 170');
+  var withoutText = arithmetic('12 × 15 = 170. So the total you owe is 170.');
+  check('D1 a second-person sentence carrying the student\'s own figure is protected only when the student gave it', /total you owe is 170\./.test(withText) && noteLine.test(withText) && withoutText === '12 × 15 = 180. So the total you owe is 180.', withText + ' | ' + withoutText);
+  var protectedOnce = studentTurn(askedAnswer, '12 × 15 = 170. Your answer is 170, which is right.');
+  check('D1 the guard is idempotent and leaves no marker', arithmetic(protectedOnce, askedAnswer) === protectedOnce && !leaked(protectedOnce) && (protectedOnce.match(/does not equal the checked value/g) || []).length === 1, protectedOnce);
+  var existing = arithmetic('12 × 15 = 170. Therefore the total cost is ₹170.');
+  check('D1 carry-forward is not disabled for unattributed sentences', /total cost is ₹180/.test(existing) && !/170/.test(existing), existing);
+
+  var seamOwn = studentTurn('I think I owe 170', '12 × 15 = 170. So the total you owe is 170.');
+  var seamOther = studentTurn('Hello', '12 × 15 = 170. So the total you owe is 170.');
+  check('D1 the mentor path hands the submitted message to the arithmetic guard', /total you owe is 170\./.test(seamOwn) && noteLine.test(seamOwn) && seamOther === '12 × 15 = 180. So the total you owe is 180.', seamOwn + ' | ' + seamOther);
+  var studySeam = applyMentorResponseGuard('12 × 15 = 170. So the total you owe is 170.', { responseShape:'study', intent:'study_activity', submittedAnswerText:'I think I owe 170' });
+  var studyOther = applyMentorResponseGuard('12 × 15 = 170. So the total you owe is 170.', { responseShape:'study', intent:'study_activity', submittedAnswerText:'Hello' });
+  check('D1 the study path hands the submitted message to the arithmetic guard', /total you owe is 170\./.test(studySeam) && /total you owe is 180\./.test(studyOther), studySeam + ' | ' + studyOther);
+
+  var punct = {
+    comma: ['12 × 15 = 170. So the answer is 170, which is final.', '12 × 15 = 180. So the answer is 180, which is final.'],
+    commaAnd: ['12 × 15 = 170. The total is 170, and we move on.', '12 × 15 = 180. The total is 180, and we move on.'],
+    stop: ['12 × 15 = 170. Therefore the total is 170.', '12 × 15 = 180. Therefore the total is 180.'],
+    semicolon: ['12 × 15 = 170. The total is 170; next step.', '12 × 15 = 180. The total is 180; next step.'],
+    colon: ['12 × 15 = 170. The total is 170: done.', '12 × 15 = 180. The total is 180: done.'],
+    parenthesis: ['12 × 15 = 170. (The total is 170.)', '12 × 15 = 180. (The total is 180.)'],
+    parenthesisAfterEquation: ['12 × 15 = 170 (so the total is 170).', '12 × 15 = 180 (so the total is 180).'],
+    closingQuote: ['12 × 15 = 170. So the total is 170.”', '12 × 15 = 180. So the total is 180.”'],
+    exclamation: ['12 × 15 = 170. The total is 170!', '12 × 15 = 180. The total is 180!'],
+    groupedComma: ['1,200 × 3 = 3,500. So the total is 3,500, which is wrong.', '1,200 × 3 = 3600. So the total is 3600, which is wrong.']
+  };
+  Object.keys(punct).forEach(function(name) {
+    var got = arithmetic(punct[name][0]);
+    check('D2 punctuation after a carried figure is preserved: ' + name, got === punct[name][1], got);
+  });
+  var quotedStatement = arithmetic('12 × 15 = 170. He wrote "the total is 170", which is wrong.');
+  check('D2 quotation marks and the comma around a quoted figure are untouched', quotedStatement === '12 × 15 = 180. He wrote "the total is 170", which is wrong.', quotedStatement);
+
+  // Behaviours that earlier mutants showed the suite did not pin down.
+  var optionOperator = arithmetic('17 × 23 = 381. Option (A) 391 and 2 × 381 = 762 are listed; (A) is correct.');
+  check('G-1 an option sentence keeps a stale figure that sits inside another calculation', optionOperator === '17 × 23 = 391. Option (A) 391 and 2 × 381 = 762 are listed; (A) is correct.', optionOperator);
+  var optionAfter = arithmetic('17 × 23 = 381. Option (A) 391; option (B) 381 × 2 is wrong.');
+  check('G-2 an option sentence keeps a stale figure that starts another calculation', optionAfter === '17 × 23 = 391. Option (A) 391; option (B) 381 × 2 is wrong.', optionAfter);
+  var optionBefore = arithmetic('17 × 23 = 381. Option (A) 391; option (B) 2 × 381 is wrong.');
+  check('G-3 an option sentence keeps a stale figure that ends another calculation', optionBefore === '17 × 23 = 391. Option (A) 391; option (B) 2 × 381 is wrong.', optionBefore);
+  var optionUnit = arithmetic('17 × 23 = 381. Option (A) 391; option (B) 381m is wrong.');
+  check('G-4 an option sentence keeps a stale figure with an attached unit', optionUnit === '17 × 23 = 391. Option (A) 391; option (B) 381m is wrong.', optionUnit);
+  var colonTotal = arithmetic('12 × 15 = 170. Total: ₹170');
+  check('G-5 a total introduced by a colon is carried forward', colonTotal === '12 × 15 = 180. Total: ₹180', colonTotal);
+  var twoFixes = arithmetic('12 × 15 = 170. 8 × 9 = 71. So the answer is 170 and the other is 71.');
+  check('G-6 two corrections in one reply are both carried forward', twoFixes === '12 × 15 = 180. 8 × 9 = 72. So the answer is 180 and the other is 72.', twoFixes);
+  var tagged = arithmetic('<p>17 × 23 = 381. Option (A) 381 is correct. Option (B) 381 is <b>also</b> listed.</p>');
+  check('G-7 tags in a second replaced option sentence stay balanced', (tagged.match(/<b>/g) || []).length === 1 && (tagged.match(/<\/b>/g) || []).length === 1 && (tagged.match(/<p>/g) || []).length === 1 && (tagged.match(/<\/p>/g) || []).length === 1, tagged);
+  conversationHistory = [{ role:'user', content:INTERNAL_MEMORY_PREFIX + ' I got 97 percentile in my mock.' }];
+  var internalRow = applyMentorResponseGuard('You said you got 97 percentile in your mock.', { intent:'general_mentor' });
+  check('G-8 an app-memory row in the history does not license a percentile figure', internalRow === PERCENTILE_REWRITES.other, internalRow);
+  conversationHistory = [];
+  var misconception = arithmetic('A common misconception: 25% of 80 is 21.');
+  check('G-9 a claim introduced as a misconception is left as written', misconception === 'A common misconception: 25% of 80 is 21.', misconception);
+  conversationHistory = [{ role:'user', content:'How am I doing?' }];
+  var spanSplit = guardPercentileInMarkup('<span class="a">98</span> percentile is realistic.');
+  var emSplit = guardPercentileInMarkup('<em>98</em> percentile is realistic.');
+  check('G-10 a claim split across span and em tags is rewritten at display', spanSplit === PERCENTILE_REWRITES.other && emSplit === PERCENTILE_REWRITES.other, spanSplit + ' | ' + emSplit);
+
+  conversationHistory = savedHistory;
+
+  return results;
 }
 
 function runSpendQuotaNoticeTests() {
@@ -11581,6 +12034,151 @@ function isMockAnalysisContext(text) {
   return /\b(?:mock|mock test|sectional)\b/i.test(String(text || ''));
 }
 
+// Percentile provenance. No sourced benchmark exists, so a percentile in a
+// reply is allowed only when it is the student's own figure (or a generic
+// definition). Everything else is rewritten to a fixed, evidence-honest line.
+var PERCENTILE_REWRITES = {
+  target:'Your target is <N> percentile. That is your goal, not my forecast; this evidence cannot show whether you are on track yet.',
+  other:'I cannot give a percentile from this. What the evidence does show is in the points above.',
+  cutoff:'I do not have a sourced cut-off for that, so I will not quote one. The institution\'s own admissions page is the reliable source.'
+};
+var PERCENTILE_FORECAST_CUE = /\b(?:on track|within reach|achievable|achieve|reach|reachable|realistic|gettable|doable|possible|likely|can|could|should|will|would|expect(?:ed)?|aim(?:ing)?|projected|predict(?:ed|ion)?|forecast|land|end up|heading|trajectory|safely|comfortably|odds|chances?|guarantee[d]?|assure[d]?|good enough|enough (?:for|to)|pace)\b/i;
+var PERCENTILE_ATTRIBUTION = /\byou(?:['’]ve| have)?\s+(?:said|told|mentioned|reported|shared|wrote|got|scored|entered|noted|gave)\b|\baccording to you\b/i;
+var PERCENTILE_CUTOFF_CUE = /\bcut-?offs?\b|\bshortlist|\b(?:interview\s+)?calls?\b|\bconver(?:t|sion)|\badmissions?\b/i;
+var PERCENTILE_DATA_CUE = /\b(?:data\s*set|dataset|sample|salaries|incomes?|heights?|weights?|distribution|observations?|lists?|values?|array|quartiles?|median|interpolat\w*|numpy|excel|spreadsheet)\b|\d\s*,\s*\d+(?:\.\d+)?\s*,\s*\d/i;
+var PERCENTILE_SECOND_PERSON = /\byour\b|\byou(?:['’]re|['’]ve|['’]ll|\s+are|\s+were|\s+have|\s+got|\s+reached|\s+will)\b/i;
+var PERCENTILE_PERSONAL_FORECAST = /\byou(?:['’]ll|\s+will|\s+would|\s+are going)\b|\byour\s+(?:chances?|odds)\b/i;
+var PERCENTILE_HYPOTHETICAL_LEAD = /^\W*(?:suppose|assume|assuming|imagine|let['’]s say|what if|for example|for instance|e\.g\.?)\b/i;
+var PERCENTILE_MAPPING_CUE = /\b(?:needs?|requires?|takes?|corresponds?|translates?|equates?|equivalent|typically|usually|generally|normally|roughly|approximately)\b/i;
+var PERCENTILE_WORD = '(?:percentiles?|%\\s*-?\\s*iles?|%\\s*-?\\s*tiles?|pctl|pct\\.?\\s*ile)';
+var PERCENTILE_TENS = { twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90 };
+var PERCENTILE_ONES = { one:1, first:1, two:2, second:2, three:3, third:3, four:4, fourth:4, five:5, fifth:5, six:6, sixth:6, seven:7, seventh:7, eight:8, eighth:8, nine:9, ninth:9 };
+var PERCENTILE_SMALL_WORDS = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, fifteen:15, twenty:20 };
+
+function percentileClaimNumbers(sentence) {
+  var numbers = [];
+  var take = function(match) { for (var i = 1; i < match.length; i++) if (match[i]) numbers.push(match[i]); };
+  var patterns = [
+    new RegExp('\\b(\\d{1,3}(?:\\.\\d+)?)\\s*(?:-|–|to|and)\\s*(\\d{1,3}(?:\\.\\d+)?)\\s*\\+?\\s*(?:st|nd|rd|th)?\\s*-?\\s*' + PERCENTILE_WORD, 'gi'),
+    new RegExp('\\b(\\d{1,3}(?:\\.\\d+)?)\\s*\\+?\\s*(?:st|nd|rd|th)?\\s*-?\\s*' + PERCENTILE_WORD, 'gi'),
+    /\bpercentiles?\s*(?:of|at|around|near|about|above|over|below|is|was|=|:|rank)?\s*(\d{2,3}(?:\.\d+)?)(?!\d|\s*(?:marks?|%|questions?|attempts?|out\b))/gi,
+    /\btop\s+(\d{1,2}(?:\.\d+)?)\s*(?:%|per\s*cent|percent)/gi,
+    /\b(?:beat(?:ing)?|outscor\w+|ahead of|better than|higher than)\s+(\d{1,3}(?:\.\d+)?)\s*(?:%|per\s*cent|percent)\s+of\s+(?:the\s+)?(?:test[-\s]?takers|candidates|students|aspirants|others|people|applicants|peers|examinees)/gi,
+    /\b(?:high|mid|low|upper|lower)[-\s]+(\d0)s\b/gi
+  ];
+  patterns.forEach(function(pattern) { var m; while ((m = pattern.exec(sentence))) take(m); });
+  var word;
+  var topWords = /\btop\s+(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\s*(?:%|per\s*cent|percent)/gi;
+  while ((word = topWords.exec(sentence))) if (PERCENTILE_SMALL_WORDS[word[1].toLowerCase()]) numbers.push(String(PERCENTILE_SMALL_WORDS[word[1].toLowerCase()]));
+  var spelled = new RegExp('\\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[-\\s](one|two|three|four|five|six|seven|eight|nine|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth))?\\s*-?\\s*(?:percentiles?|per\\s*centiles?|%\\s*iles?)', 'gi');
+  while ((word = spelled.exec(sentence))) numbers.push(String(PERCENTILE_TENS[word[1].toLowerCase()] + (word[2] ? PERCENTILE_ONES[word[2].toLowerCase()] : 0)));
+  var forecastCue = PERCENTILE_FORECAST_CUE.test(sentence);
+  if (forecastCue && !/\b(?:marks?|scores?|questions?|attempts?|accuracy|speed|minutes?|years?)\b/i.test(sentence)) {
+    var decade = /\b(?:in|into|reach|hit|touch)\s+the\s+(\d0)s\b/gi, d;
+    while ((d = decade.exec(sentence))) numbers.push(d[1]);
+  }
+  if (forecastCue && !/\b(?:marks?|scores?|questions?|attempts?)\b/i.test(sentence)) {
+    var plus = /\b(9\d|100)\s*\+(?!\s*(?:marks?|questions?|attempts?|accuracy|%|\d))/g, p;
+    while ((p = plus.exec(sentence))) numbers.push(p[1]);
+  }
+  return numbers;
+}
+
+function percentileStoredStudentText() {
+  try {
+    var stored = typeof progressiveProfileMemory !== 'undefined' && progressiveProfileMemory ? progressiveProfileMemory.statedTargetPercentile : '';
+    var number = String(stored || '').match(/\d{1,3}(?:\.\d+)?/);
+    return number ? 'My target is ' + number[0] + ' percentile.' : '';
+  } catch (error) { return ''; }
+}
+
+function percentileStudentText(extra) {
+  var parts = [String(extra || ''), percentileStoredStudentText()];
+  try {
+    (typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory) ? conversationHistory : []).slice(-200).forEach(function(item) {
+      if (item && item.role === 'user' && typeof item.content === 'string' && !isInternalMemoryMessage(item)) parts.push(item.content);
+    });
+  } catch (error) {}
+  return parts.join('\n');
+}
+
+function studentSuppliedPercentile(number, studentText) {
+  var n = String(number).replace(/\./g, '\\.');
+  var edge = '(?:^|[^\\d.])' + n + '(?!\\d|\\.\\d)';
+  return new RegExp('(?:percentile|%ile|target|goal|aim)[^\\n]{0,40}' + edge + '|' + edge + '[^\\n]{0,40}(?:percentile|%ile|target|goal|aim)|\\btop\\s+' + n + '\\s*(?:%|per\\s*cent|percent)', 'i').test(studentText);
+}
+
+function studentStatedPercentileTarget(number, studentText) {
+  var n = String(number).replace(/\./g, '\\.');
+  var edge = '(?:^|[^\\d.])' + n + '(?!\\d|\\.\\d)';
+  return new RegExp('(?:target|aim|aiming|goal|want|wanting|hope|hoping|dream|need|looking|shoot|aspire)[^\\n.!?]{0,80}' + edge + '|' + edge + '[^\\n.!?]{0,40}(?:target|goal)', 'i').test(studentText);
+}
+
+// A companion claim ties a figure to something else the mentor has no source
+// for: what it takes, what it equals, or a marks figure the student never gave.
+function percentileCompanionClaim(sentence, studentText) {
+  if (PERCENTILE_MAPPING_CUE.test(sentence)) return true;
+  var unsupported = false;
+  sentence.replace(/(\d+(?:\.\d+)?)(?:\s*\/\s*\d+)?\s*(?:marks?|points?)\b/gi, function(all, number) {
+    var edge = '(?:^|[^\\d.])' + number.replace(/\./g, '\\.') + '(?!\\d|\\.\\d)';
+    if (!new RegExp(edge).test(studentText)) unsupported = true;
+    return all;
+  });
+  return unsupported;
+}
+
+function percentileRewriteFor(sentence, studentText) {
+  if (/\?\s*$/.test(sentence) || /\[(?:OPTIONS|CONTEXT|START_TEST|PRACTICE_LOG|MARG)|\[\[/.test(sentence)) return null;
+  var numbers = percentileClaimNumbers(sentence);
+  if (!numbers.length) return null;
+  var forecast = PERCENTILE_FORECAST_CUE.test(sentence);
+  var secondPerson = PERCENTILE_SECOND_PERSON.test(sentence);
+  if (PERCENTILE_DATA_CUE.test(sentence) && !forecast && !secondPerson) return null;
+  if (PERCENTILE_HYPOTHETICAL_LEAD.test(sentence) && !PERCENTILE_PERSONAL_FORECAST.test(sentence)) return null;
+  var isDefinition = /\b(?:means?|is defined as|stands for|refers to|indicates)\b/i.test(sentence) && /\b(?:candidates|test[-\s]?takers|students|takers|others|people|everyone|examinees|participants)\b/i.test(sentence) && /\b(?:better|higher|more|ahead|above|lower|less|below|behind|beat)\b/i.test(sentence);
+  if (isDefinition && !forecast && !/\byour\b|\byou(?:['’]re|['’]ve|\s+are|\s+were|\s+have|\s+got|\s+reached)\b/i.test(sentence)) return null;
+  var provided = numbers.every(function(number) { return studentSuppliedPercentile(number, studentText); });
+  var attributed = PERCENTILE_ATTRIBUTION.test(sentence);
+  var cutoff = PERCENTILE_CUTOFF_CUE.test(sentence);
+  var companion = percentileCompanionClaim(sentence, studentText);
+  if (provided && attributed && !companion) return null;
+  if (provided && !forecast && !cutoff && !companion) return null;
+  if (cutoff) return { kind:'cutoff' };
+  if (provided && forecast && !companion && numbers.every(function(number) { return studentStatedPercentileTarget(number, studentText); })) return { kind:'target', number:numbers[0] };
+  return { kind:'other' };
+}
+
+function guardPercentileProvenance(text, studentText, state) {
+  var value = String(text || '');
+  if (!/percentile|%\s*-?\s*(?:ile|tile)|pctl|pct\.?\s*ile|\btop\s+\w+\s*(?:%|per\s*cent)|\b(?:beat|outscor|ahead of|better than|higher than)\w*\s+\d|\b(?:high|mid|low|upper|lower)[-\s]+\d0s\b|\bthe\s+\d0s\b|\b(?:9\d|100)\s*\+|\b(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b/i.test(value)) return value;
+  state = state || { seen:{} };
+  var student = String(studentText || '');
+  return value.split('\n').map(function(line) {
+    return line.replace(/[^\n]+?(?:[.!?](?=\s|$)|$)/g, function(sentence) {
+      var verdict = percentileRewriteFor(sentence, student);
+      if (!verdict) return sentence;
+      try { recordProductIncident('percentile_claim_rewritten', null, { surface:'reply', stage:verdict.kind }); } catch (error) {}
+      if (state.seen[verdict.kind]) return '';
+      state.seen[verdict.kind] = true;
+      var template = PERCENTILE_REWRITES[verdict.kind].replace('<N>', String(verdict.number || '').replace(/\+$/, ''));
+      return (/^\s/.test(sentence) ? ' ' : '') + template;
+    });
+  }).join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Display backstop. Inline formatting tags are removed first when that exposes
+// a claim split across them ("<b>98</b> percentile"); other markup is untouched.
+function guardPercentileInMarkup(markup) {
+  var student = percentileStudentText('');
+  var run = function(source) {
+    var state = { seen:{} };
+    return source.split(/(<[^>]*>)/).map(function(piece) { return piece.charAt(0) === '<' ? piece : guardPercentileProvenance(piece, student, state); }).join('');
+  };
+  var inlineFree = String(markup).replace(/<\/?(?:b|strong|i|em|u|mark|span|small|sup|sub|code)\b[^>]*>/gi, '');
+  var gated = run(inlineFree);
+  return gated !== inlineFree ? gated : run(String(markup));
+}
+
 function guardUnearnedPercentilePromise(response, userMessage) {
   var value = String(response || '');
   if (!isMockAnalysisContext(String(userMessage || '') + '\n' + value)) return value;
@@ -11656,7 +12254,7 @@ function allowMissionPersistence(response, userMessage, diagnosis) {
 }
 
 function stabilizeAndRememberMission(response, userMessage, diagnosis) {
-  var revisedResponse = guardUnearnedPercentilePromise(response, userMessage);
+  var revisedResponse = guardPercentileProvenance(guardUnearnedPercentilePromise(response, userMessage), percentileStudentText(userMessage));
   var mission = extractTodayMission(revisedResponse);
   if (!mission) return revisedResponse;
   var missionContext = String(userMessage || '') + '\n' + revisedResponse.slice(0, revisedResponse.indexOf(mission.full));
@@ -16610,6 +17208,10 @@ function addMessage(role, html, showAvatar) {
   ensureMessageExperienceStyles();
   if (showAvatar === undefined) showAvatar = true;
   if (role === 'marg' && typeof html === 'string') html = convertLatexToPlainText(stripInternalMentorTags(html));
+  // Display backstop for any assistant text that skipped the generation guards.
+  if (role === 'marg' && typeof html === 'string') {
+    html = guardPercentileInMarkup(html);
+  }
   // Plain mentor text keeps headings, steps and emphasis. Already rendered
   // activities and structured HTML are left intact.
   if (role === 'marg' && html && typeof html === 'string' && !assistantReplyNeedsSurface(html) && !/<(?:div|table|ul|ol|p|img|svg|h[1-6])\b/i.test(html)) {
@@ -20667,7 +21269,7 @@ function applyConversationAgencyPolicy(text, diagnosis) {
 // passage/question/option layout, so only the factual and safety passes run.
 function applyStudyResponseGuard(response, diagnosis) {
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(correctCalendarReferences(String(response || '')))).trim();
-  text = guardDeterministicArithmeticEqualities(text);
+  text = guardDeterministicArithmeticEqualities(text, diagnosis && diagnosis.submittedAnswerText);
   text = guardPromptInstructionLeak(text, diagnosis);
   text = MargStudy.normalizeLayout(text);
   if (!text) text = 'I could not finish that reply. Your material is still saved, so send the same request again and I will continue from it.';
@@ -20802,10 +21404,14 @@ function guardInvalidNumericPractice(text) {
 }
 
 function applyMentorResponseGuard(response, diagnosis) {
+  return guardPercentileProvenance(applyMentorResponseGuardCore(response, diagnosis), percentileStudentText(diagnosis && diagnosis.submittedAnswerText));
+}
+
+function applyMentorResponseGuardCore(response, diagnosis) {
   if (diagnosis && diagnosis.responseShape === 'study' && ensureStudyConfigured()) return applyStudyResponseGuard(response, diagnosis);
   if (diagnosis && diagnosis.hintOnly) return guardHintOnlyResponse(response);
   var text = convertLatexToPlainText(reduceAssistantStyleLanguage(enforceIndiaTimeGreeting(correctCalendarReferences(String(response || '').replace(MENTOR_HYPOTHESIS_TAG_PATTERN, ''))))).trim();
-  text = guardDeterministicArithmeticEqualities(text);
+  text = guardDeterministicArithmeticEqualities(text, diagnosis && diagnosis.submittedAnswerText);
   text = simplifyMentorLanguage(text);
   if(diagnosis&&diagnosis.intent!=='greeting'&&(conversationHistory||[]).some(function(item){return item&&item.role==='assistant'&&!isInternalMemoryMessage(item);})){
     text=text.replace(/^\s*Good (?:morning|afternoon|evening)[,!]?\s*/i,'');
@@ -22739,7 +23345,7 @@ async function sendConversationalMessage(userMessage, context, imageAttachments,
     if (response && !mentorAnalysis.diagnosis.replyUnfinished) response = suppressUnrelatedExerciseContinuation(response, userMessage);
     if (response && !mentorAnalysis.diagnosis.replyUnfinished && questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
       response = await verifyQuestionResponseDraft(response, userMessage, imageAttachments, questionResolution);
-      response = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(response), mentorAnalysis.diagnosis);
+      response = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(response, mentorAnalysis.diagnosis.submittedAnswerText), mentorAnalysis.diagnosis);
     }
     if (response && !mentorAnalysis.diagnosis.replyUnfinished && typeof finaliseQuestionResponse === 'function') response = finaliseQuestionResponse(response, questionResolution);
     if (response && !mentorAnalysis.diagnosis.replyUnfinished) markPersonalGoalFollowUpIfAsked(response);
@@ -26208,7 +26814,7 @@ async function sendMessage(fromQueue, submissionOptions) {
     }
     if (!mentorAnalysis.diagnosis.replyUnfinished && questionResolution && questionResolution.question && typeof verifyQuestionResponseDraft === 'function') {
       reply = await verifyQuestionResponseDraft(reply, text, effectiveImageAttachments, questionResolution);
-      reply = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(reply), mentorAnalysis.diagnosis);
+      reply = guardCleanSolvedQuestionResponse(guardDeterministicArithmeticEqualities(reply, mentorAnalysis.diagnosis.submittedAnswerText), mentorAnalysis.diagnosis);
     }
     if (!mentorAnalysis.diagnosis.replyUnfinished && typeof finaliseQuestionResponse === 'function') reply = finaliseQuestionResponse(reply, questionResolution);
     if (!mentorAnalysis.diagnosis.replyUnfinished) finalizeMentorPlanCompletionReview(text, reply);
