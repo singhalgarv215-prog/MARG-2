@@ -41,7 +41,28 @@ var MargSession = (function() {
     return { token: token, reason: 'ok' };
   }
 
-  return { getMargAccessToken: getMargAccessToken };
+  // Who a one-shot handoff written now belongs to. Read-only: this module never
+  // writes storage. '' = nobody is signed in on this browser, an id = the
+  // signed-in account, '?' = a session exists but its owner cannot be read. A
+  // '?' stamp never matches a real account, so that handoff is never delivered.
+  function handoffOwner(storage) {
+    var store = storage || (typeof window !== 'undefined' ? window.localStorage : null);
+    var token = null;
+    try { token = store.getItem('marg_token'); } catch (error) { return '?'; }
+    if (token == null || String(token) === '') return '';
+    try {
+      var parts = String(token).split('.');
+      if (parts.length < 2 || !parts[1] || typeof atob !== 'function') return '?';
+      var body = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (body.length % 4) body += '=';
+      var sub = JSON.parse(atob(body)).sub;
+      return sub ? String(sub) : '?';
+    } catch (error) {
+      return '?';
+    }
+  }
+
+  return { getMargAccessToken: getMargAccessToken, handoffOwner: handoffOwner };
 })();
 if (typeof window !== 'undefined') window.MargSession = MargSession;
 if (typeof module !== 'undefined' && module.exports) module.exports = MargSession;

@@ -2089,6 +2089,49 @@ function fetchWithDeadline(url, options, timeoutMs) {
   });
 }
 
+var PENDING_HANDOFF_KEYS = ['marg_pending_attempt', 'marg_ask_question', 'marg_first_message'];
+var PENDING_HANDOFF_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+// Returns the stamp {owner, savedAt} of a stored handoff, or null when it has
+// none (written before sign-in, or by an older page).
+function pendingHandoffStamp(key, parsedValue) {
+  try {
+    var stamp = parsedValue && typeof parsedValue === 'object' ? parsedValue : JSON.parse(localStorage.getItem(key + '_meta') || 'null');
+    if (!stamp || typeof stamp !== 'object') return null;
+    return { owner:String(stamp.owner || ''), savedAt:Number(stamp.savedAt) || 0 };
+  } catch (e) { return null; }
+}
+
+// Consumes one handoff. It is always removed. It is delivered only when it is
+// unstamped, stamped for this account, and not older than a day.
+function takePendingHandoff(key, accountId, asJson) {
+  var raw = null;
+  try { raw = localStorage.getItem(key); } catch (e) { return null; }
+  if (!raw) return null;
+  var parsed = null;
+  if (asJson) { try { parsed = JSON.parse(raw); } catch (e) { parsed = null; } }
+  var stamp = pendingHandoffStamp(key, parsed);
+  try { localStorage.removeItem(key); localStorage.removeItem(key + '_meta'); } catch (e) {}
+  if (asJson && (!parsed || typeof parsed !== 'object')) return null;
+  if (stamp && stamp.owner && stamp.owner !== accountId) return null;
+  if (stamp && stamp.savedAt && Date.now() - stamp.savedAt > PENDING_HANDOFF_MAX_AGE_MS) return null;
+  return asJson ? parsed : raw;
+}
+
+function discardOwnPendingHandoffs(accountId) {
+  if (!accountId) return;
+  PENDING_HANDOFF_KEYS.forEach(function(key) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return;
+      var parsed = null;
+      try { parsed = JSON.parse(raw); } catch (e) {}
+      var stamp = pendingHandoffStamp(key, parsed && typeof parsed === 'object' ? parsed : null);
+      if (stamp && stamp.owner === accountId) { localStorage.removeItem(key); localStorage.removeItem(key + '_meta'); }
+    } catch (e) {}
+  });
+}
+
 function clearStoredSupabaseSession() {
   SUPABASE_TOKEN = null;
   try {
@@ -3862,6 +3905,11 @@ function protectedRequestNotice(error) {
   if (code === 'SESSION_INVALID' || code === 'GUEST_SESSION_INVALID') return 'That sign-in needs to be refreshed. Your message is still in the chat.';
   if (code === 'AUTH_UNAVAILABLE' || code === 'SPENDING_CONTROL_UNAVAILABLE') return 'Marg could not check the usage allowance, so this request was not sent. Your message is still in the chat.';
   if (code === 'GROUNDING_UNAVAILABLE') return 'Web lookup is unavailable right now. Check the official source. Your message is still in the chat.';
+  if (code === 'SERVICE_PAUSED') {
+    // Neither wording says anything about the student's account or plan.
+    if (error && error.scope === 'guests') return 'Guest access is paused for now. Signed-in students can still use Marg, so sign in with Save progress to continue. Your message is still in the chat.';
+    return 'Marg is paused for now and did not send this to the model. Nothing is wrong with your account. Your message is still in the chat; try again later.';
+  }
   return '';
 }
 
@@ -3891,6 +3939,112 @@ function presentProtectedRequestFailure(error, draftText) {
   restoreDraftToComposer(draftText);
   showComposerStatus(notice, 'info', true);
   return true;
+}
+
+function runBatch2ClientTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var savedUser = currentUser;
+  var now = Date.now();
+  var clear = function() { PENDING_HANDOFF_KEYS.forEach(function(key) { localStorage.removeItem(key); localStorage.removeItem(key + '_meta'); }); };
+  var attempt = function(owner, savedAt) { var value = { type:'qa', correct:false, topics:'Percentages', dayNum:5 }; if (owner !== null) { value.owner = owner; value.savedAt = savedAt === undefined ? now : savedAt; } return JSON.stringify(value); };
+  var putString = function(key, value, owner, savedAt) { localStorage.setItem(key, value); if (owner !== null) localStorage.setItem(key + '_meta', JSON.stringify({ owner:owner, savedAt:savedAt === undefined ? now : savedAt })); };
+  var left = function(key) { return localStorage.getItem(key) !== null || localStorage.getItem(key + '_meta') !== null; };
+  clear();
+
+  // B2-2: one-shot handoffs never cross accounts.
+  localStorage.setItem('marg_pending_attempt', attempt('acct-a'));
+  var forB = takePendingHandoff('marg_pending_attempt', 'acct-b', true);
+  check('B2-2 account B does not receive account A\'s pending attempt, and it is removed', forB === null && !left('marg_pending_attempt'));
+  localStorage.setItem('marg_pending_attempt', attempt('acct-a'));
+  var forA = takePendingHandoff('marg_pending_attempt', 'acct-a', true);
+  check('B2-2 the owner receives their own pending attempt exactly once', !!forA && forA.type === 'qa' && takePendingHandoff('marg_pending_attempt', 'acct-a', true) === null && !left('marg_pending_attempt'));
+  localStorage.setItem('marg_pending_attempt', attempt(''));
+  var anonymous = takePendingHandoff('marg_pending_attempt', 'acct-b', true);
+  check('B2-2 an attempt saved before any sign-in is delivered to whoever signs in next', !!anonymous && anonymous.type === 'qa');
+  localStorage.setItem('marg_pending_attempt', attempt(null));
+  var legacy = takePendingHandoff('marg_pending_attempt', 'acct-b', true);
+  check('B2-2 an unstamped legacy attempt is still delivered', !!legacy && legacy.correct === false);
+  putString('marg_ask_question', 'Explain this question', 'acct-a');
+  var askB = takePendingHandoff('marg_ask_question', 'acct-b', false);
+  check('B2-2 account B does not receive account A\'s pending question, and its metadata is removed', askB === null && !left('marg_ask_question'));
+  putString('marg_ask_question', 'Explain this question', 'acct-a');
+  check('B2-2 the owner receives their own pending question', takePendingHandoff('marg_ask_question', 'acct-a', false) === 'Explain this question' && !left('marg_ask_question'));
+  putString('marg_ask_question', 'Explain this question', '');
+  check('B2-2 a question saved before sign-in is delivered', takePendingHandoff('marg_ask_question', 'acct-b', false) === 'Explain this question');
+  putString('marg_first_message', 'hello', 'acct-a');
+  check('B2-2 a stamped first message is not delivered to another account', takePendingHandoff('marg_first_message', 'acct-b', false) === null && !left('marg_first_message'));
+  localStorage.setItem('marg_first_message', 'hello');
+  check('B2-2 an unstamped first message is delivered', takePendingHandoff('marg_first_message', 'acct-b', false) === 'hello');
+
+  // New and returning users, and expiry.
+  check('B2-2 a new user with nothing pending gets nothing and nothing throws', takePendingHandoff('marg_pending_attempt', 'acct-new', true) === null && takePendingHandoff('marg_ask_question', 'acct-new', false) === null);
+  localStorage.setItem('marg_pending_attempt', attempt('acct-a', now - 25 * 3600 * 1000));
+  check('B2-2 a handoff older than a day is discarded even for its owner', takePendingHandoff('marg_pending_attempt', 'acct-a', true) === null && !left('marg_pending_attempt'));
+  localStorage.setItem('marg_pending_attempt', attempt('acct-a', now - 23 * 3600 * 1000));
+  check('B2-2 a handoff under a day old is still delivered', !!takePendingHandoff('marg_pending_attempt', 'acct-a', true));
+  localStorage.setItem('marg_pending_attempt', '{not json');
+  check('B2-2 a corrupted attempt is discarded without throwing', takePendingHandoff('marg_pending_attempt', 'acct-a', true) === null && !left('marg_pending_attempt'));
+  localStorage.setItem('marg_pending_attempt', attempt('acct-a'));
+  check('B2-2 an account-stamped handoff is not delivered when no account id is known', takePendingHandoff('marg_pending_attempt', '', true) === null);
+
+  // Sign-out cleanup and switching accounts on one browser.
+  localStorage.setItem('marg_pending_attempt', attempt('acct-a'));
+  putString('marg_ask_question', 'A question', 'acct-a');
+  localStorage.setItem('marg_seen_practice_acct-a', '[{"signature":"keep"}]');
+  discardOwnPendingHandoffs('acct-a');
+  check('B2-2 signing out removes that account\'s own pending handoffs only', !left('marg_pending_attempt') && !left('marg_ask_question') && localStorage.getItem('marg_seen_practice_acct-a') !== null);
+  localStorage.removeItem('marg_seen_practice_acct-a');
+  localStorage.setItem('marg_pending_attempt', attempt(''));
+  putString('marg_ask_question', 'Anonymous question', null);
+  discardOwnPendingHandoffs('acct-a');
+  check('B2-2 signing out leaves pre-sign-in handoffs for the next visitor', left('marg_pending_attempt') && left('marg_ask_question'));
+  clear();
+  localStorage.setItem('marg_pending_attempt', attempt('acct-b'));
+  discardOwnPendingHandoffs('acct-a');
+  check('B2-2 signing out of A does not remove account B\'s handoff', left('marg_pending_attempt'));
+  clear();
+  // A signs out, B signs in, A returns: A's leftovers were cleaned, B's flow is untouched.
+  localStorage.setItem('marg_pending_attempt', attempt('acct-a'));
+  discardOwnPendingHandoffs('acct-a');
+  var switchedB = takePendingHandoff('marg_pending_attempt', 'acct-b', true);
+  localStorage.setItem('marg_pending_attempt', attempt('acct-b'));
+  var returnedA = takePendingHandoff('marg_pending_attempt', 'acct-a', true);
+  check('B2-2 switching A to B to A delivers nothing across accounts', switchedB === null && returnedA === null);
+  clear();
+
+  // B2-4: paused-service messages.
+  var all = protectedRequestNotice({ code:'SERVICE_PAUSED', scope:'all', status:503 });
+  var guests = protectedRequestNotice({ code:'SERVICE_PAUSED', scope:'guests', status:503 });
+  var unknownScope = protectedRequestNotice({ code:'SERVICE_PAUSED', status:503 });
+  var failure = failHomepageIntent.toString();
+  var disabledWords = /disabled|suspend|banned|deactivat|subscription|cancel|expired plan|blocked/i;
+  check('B2-4 all-services pause says Marg is paused, not that the account is affected', /paused/i.test(all) && /Nothing is wrong with your account/.test(all) && !disabledWords.test(all.replace('Nothing is wrong with your account', '')), all);
+  check('B2-4 guest pause says guest access is paused and signed-in students can continue', /Guest access is paused/.test(guests) && /Signed-in students can still use Marg/.test(guests) && !disabledWords.test(guests), guests);
+  check('B2-4 the two pause messages are different, and an unknown scope falls back to the general one', all !== guests && unknownScope === all);
+  check('B2-4 both pause messages keep the student\'s message in the chat', /still in the chat/.test(all) && /still in the chat/.test(guests));
+  check('B2-4 a pause is not a temporary failure and does not start the retry cooldown', shouldStartGeminiCooldown({ code:'SERVICE_PAUSED', status:503 }) === false && shouldStartGeminiCooldown({ code:'HTTP_503', status:503 }) === true && protectedRequestNotice({ code:'HTTP_503', status:503 }) === '');
+  check('B2-4 a temporary failure keeps its own wording', /temporarily unavailable/.test(failure) && /protectedRequestNotice\(error\)/.test(failure) && all.indexOf('temporarily unavailable') === -1);
+
+  // B2-6 (F-8): each section keeps its own seen history.
+  currentUser = { id:'acct-seen-a' };
+  var seenKey = getUserScopedKey('marg_seen_practice');
+  localStorage.removeItem(seenKey);
+  var rcItem = { passage:'Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega', topic:'Economics', questions:[{ q:'What is the main idea of the passage about trade?' }] };
+  markPracticeSeen('rc', rcItem);
+  for (var i = 0; i < 70; i++) markPracticeSeen('qa', { topic:'Percentages', questions:[{ q:'A shopkeeper marks item ' + i + ' with unique figure ' + (i * 7919) + ' at a price' }] });
+  var seenList = getSeenPracticeSignatures();
+  var perSection = function(name) { return seenList.filter(function(item) { return item.section === name; }).length; };
+  check('B2-6 a long run of QA items does not evict an earlier RC item', bankPackAlreadySeen('rc', rcItem) === true && perSection('rc') === 1);
+  check('B2-6 each section is still capped', perSection('qa') === SEEN_PRACTICE_PER_SECTION && seenList.length === SEEN_PRACTICE_PER_SECTION + 1);
+  check('B2-6 the oldest QA items are the ones dropped and order is kept', !wasExactPracticeDelivered('qa', { topic:'Percentages', questions:[{ q:'A shopkeeper marks item 0 with unique figure 0 at a price' }] }) && wasExactPracticeDelivered('qa', { topic:'Percentages', questions:[{ q:'A shopkeeper marks item 69 with unique figure ' + (69 * 7919) + ' at a price' }] }) && seenList[0].section === 'rc');
+  var capped = capSeenPracticePerSection([null, 'x', { section:'qa' }, { signature:'a', section:'qa' }, { signature:'b', section:'rc' }]);
+  check('B2-6 malformed entries are dropped when the history is rewritten', capped.length === 2 && capped[0].signature === 'a' && capped[1].signature === 'b');
+  currentUser = { id:'acct-seen-b' };
+  check('B2-6 another account on the same browser does not see this account\'s history', bankPackAlreadySeen('rc', rcItem) === false && getSeenPracticeSignatures().length === 0);
+  localStorage.removeItem(seenKey);
+  currentUser = savedUser;
+  return results;
 }
 
 function runAnswerCorrectnessTests() {
@@ -4301,6 +4455,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
       requestError.code = String(errorInfo.status || ('HTTP_' + res.status));
       requestError.requestId = String(errorInfo.request_id || res.headers.get('X-Marg-Request-Id') || '');
       requestError.quota = String(errorInfo.quota || '');
+      requestError.scope = String(errorInfo.scope || '');
       requestError.resetsAt = String(errorInfo.resetsAt || '');
       requestError.signInRequired = errorInfo.signInRequired === true;
       requestError.retryable = errorInfo.retryable === true || (!protectedRequestNotice(requestError) && (res.status === 429 || res.status === 503));
@@ -15928,6 +16083,9 @@ function startLogin(options) {
 
 async function logout() {
   var token = SUPABASE_TOKEN;
+  // Drop this account's own unconsumed handoffs so the next person on this
+  // browser cannot receive them. Unstamped (pre-sign-in) ones are left alone.
+  discardOwnPendingHandoffs(currentUser && currentUser.id ? currentUser.id : '');
   clearStoredSupabaseSession();
   try {
     if (token) await fetchWithDeadline(SUPABASE_URL + '/auth/v1/logout?scope=local', {
@@ -16272,16 +16430,14 @@ function showWelcome(callback) {
   }
 
 
-  const pendingAttempt = localStorage.getItem('marg_pending_attempt');
-  if (pendingAttempt) {
-    try { window._pendingAttempt = JSON.parse(pendingAttempt); localStorage.removeItem('marg_pending_attempt'); } catch(e) {}
-  }
+  // One-shot handoffs written before sign-in belong to whoever signs in next,
+  // unless they were stamped by a different signed-in account.
+  const handoffUser = currentUser && currentUser.id ? currentUser.id : '';
+  const pendingAttempt = takePendingHandoff('marg_pending_attempt', handoffUser, true);
+  if (pendingAttempt) window._pendingAttempt = pendingAttempt;
 
-  const askQuestion = localStorage.getItem('marg_ask_question');
-  if (askQuestion) {
-    window._askMargQuestion = askQuestion;
-    localStorage.removeItem('marg_ask_question');
-  }
+  const askQuestion = takePendingHandoff('marg_ask_question', handoffUser, false);
+  if (askQuestion) window._askMargQuestion = askQuestion;
 
   // Authentication is already enough waiting. Open the product immediately;
   // the account-scoped first-use tour still runs from the normal callback.
@@ -29579,9 +29735,8 @@ function startChat() {
   document.getElementById('send-btn').disabled = false;
 
 
-  const firstMsg = localStorage.getItem('marg_first_message');
+  const firstMsg = takePendingHandoff('marg_first_message', currentUser && currentUser.id ? currentUser.id : '', false);
   if (firstMsg) {
-    localStorage.removeItem('marg_first_message');
 
     setTimeout(function() {
 
@@ -31361,13 +31516,30 @@ function practiceRepeatsDeliveredWork(section, data) {
   return wasPracticeRecentlySeen(section, data);
 }
 
+// One shared cap of 60 let a run of one section's questions push every other
+// section's history out, so a seen RC or DILR item looked new again. Each
+// section now keeps its own most recent entries; order is preserved.
+var SEEN_PRACTICE_PER_SECTION = 60;
+function capSeenPracticePerSection(entries) {
+  var counts = {};
+  var kept = [];
+  for (var i = entries.length - 1; i >= 0; i--) {
+    var item = entries[i];
+    if (!item || typeof item !== 'object' || !item.signature) continue;
+    var section = String(item.section || '');
+    counts[section] = (counts[section] || 0) + 1;
+    if (counts[section] <= SEEN_PRACTICE_PER_SECTION) kept.unshift(item);
+  }
+  return kept;
+}
+
 function markPracticeSeen(section, data) {
   if (!data) return;
   var signature = practiceContentSignature(section, data);
   var fingerprint = practiceStructureFingerprint(section, data);
   var seen = getSeenPracticeSignatures().filter(function(item) { return item && item.signature !== signature; });
   seen.push({ signature:signature, fingerprint:fingerprint, section:section, seenAt:new Date().toISOString() });
-  try { localStorage.setItem(getUserScopedKey('marg_seen_practice'), JSON.stringify(seen.slice(-60))); } catch(e) {}
+  try { localStorage.setItem(getUserScopedKey('marg_seen_practice'), JSON.stringify(capSeenPracticePerSection(seen))); } catch(e) {}
   if (ensureStudyConfigured()) { try { MargStudy.recordPractice(section, data); } catch (error) { /* memory is best effort */ } }
 }
 
