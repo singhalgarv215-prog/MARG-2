@@ -338,7 +338,7 @@
   <p style="margin-top:8px;">© 2026 Marg · Free CAT preparation platform</p>
 </footer>
 
-<script src="/marg-session.js?v=20261030-1"></script>
+<script src="/marg-session.js?v=20261101-1"></script>
 <script>
 const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
 
@@ -585,14 +585,19 @@ function selectOption(qIndex, optIndex, correct, btn) {
   var q = rcData ? rcData.questions[qIndex] : null;
   
   // Store attempt for Marg to use after signup
-  localStorage.setItem('marg_pending_attempt', JSON.stringify({
+  var pendingAttempt = {
     type: 'rc',
     correct: isCorrect,
     selectedOption: ['A','B','C','D'][optIndex],
     topic: rcData ? rcData.topic : 'RC passage',
     trapType: q ? q.trap_type : null,
     dayNum: dayNum
-  }));
+  };
+  // Stamped with the signed-in account so another account on this browser
+  // cannot receive it: '' = nobody signed in, '?' = owner unreadable.
+  pendingAttempt.owner = window.MargSession && MargSession.handoffOwner ? MargSession.handoffOwner(localStorage) : (localStorage.getItem('marg_token') ? '?' : '');
+  pendingAttempt.savedAt = Date.now();
+  localStorage.setItem('marg_pending_attempt', JSON.stringify(pendingAttempt));
   
   // Disable all options
   for (var i = 0; i < 4; i++) {

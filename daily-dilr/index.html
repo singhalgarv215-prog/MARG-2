@@ -127,8 +127,9 @@
   <p>Built by <a href="https://trymarg.com">Marg</a> — AI mentor for CAT aspirants · <a href="/daily-rc/">Daily RC</a> · <a href="/daily-qa/">Daily QA</a></p>
 </footer>
 
+<script src="/marg-session.js?v=20261101-1"></script>
 <script>
-const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
+const WORKER_URL ='https://marg.singhalgarv215.workers.dev/';
 const today = new Date();
 document.getElementById('today-date').textContent = today.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 const launch = new Date('2026-06-01');
@@ -227,12 +228,17 @@ function selectOption(qIndex, optIndex, correct, btn) {
   var cached = localStorage.getItem('marg_daily_dilr_' + today.toISOString().split('T')[0]);
   var dilrData = cached ? JSON.parse(cached) : null;
   var q = dilrData ? dilrData.questions[qIndex] : null;
-  localStorage.setItem('marg_pending_attempt', JSON.stringify({
+  var pendingAttempt = {
     type: 'dilr', correct: isCorrect,
     setType: dilrData ? (dilrData.constraint_types || []).join(' + ') : 'DILR set',
     commonMistake: q ? q.common_mistake : null,
     dayNum: dayNum
-  }));
+  };
+  // Stamped with the signed-in account so another account on this browser
+  // cannot receive it: '' = nobody signed in, '?' = owner unreadable.
+  pendingAttempt.owner = window.MargSession && MargSession.handoffOwner ? MargSession.handoffOwner(localStorage) : (localStorage.getItem('marg_token') ? '?' : '');
+  pendingAttempt.savedAt = Date.now();
+  localStorage.setItem('marg_pending_attempt', JSON.stringify(pendingAttempt));
   for (var i = 0; i < 4; i++) {
     var optEl = document.getElementById('opt-' + qIndex + '-' + i);
     if (optEl) { optEl.disabled = true; optEl.style.cursor = 'default'; if (i === correct) optEl.classList.add('correct'); else if (i === optIndex && !isCorrect) optEl.classList.add('wrong'); }
@@ -254,7 +260,9 @@ function selectOption(qIndex, optIndex, correct, btn) {
           var questionText = qEl ? qEl.textContent : 'practice question';
           var explanationText = expEl ? expEl.textContent : '';
           var message = 'I just did this ' + 'DILR' + ' question in my practice: ' + questionText + '. The explanation says: ' + explanationText + '. Can you explain this more clearly and tell me what I should have done differently?';
+          var questionOwner = window.MargSession && MargSession.handoffOwner ? MargSession.handoffOwner(localStorage) : (localStorage.getItem('marg_token') ? '?' : '');
           localStorage.setItem('marg_ask_question', message);
+          localStorage.setItem('marg_ask_question_meta', JSON.stringify({ owner: questionOwner, savedAt: Date.now() }));
           window.location.href = 'https://trymarg.com';
         };
         exp.appendChild(askBtn);

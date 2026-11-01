@@ -120,7 +120,7 @@
   <p>Built by <a href="https://trymarg.com">Marg</a> — AI mentor for CAT aspirants · <a href="/daily-rc">Daily RC</a> · <a href="/daily-dilr">Daily DILR</a></p>
 </footer>
 
-<script src="/marg-session.js?v=20261030-1"></script>
+<script src="/marg-session.js?v=20261101-1"></script>
 <script>
 const WORKER_URL = 'https://marg.singhalgarv215.workers.dev/';
 const today = new Date();
@@ -336,14 +336,19 @@ function selectOption(qIndex, optIndex, correct) {
   var qaData = cached ? JSON.parse(cached) : null;
   var q = qaData ? qaData.questions[qIndex] : null;
   
-  localStorage.setItem('marg_pending_attempt', JSON.stringify({
+  var pendingAttempt = {
     type: 'qa',
     correct: isCorrect,
     topics: q ? (q.topics || []).join(' + ') : 'QA',
     commonMistake: q ? q.common_mistake : null,
     trapType: q ? q.common_mistake : null,
     dayNum: dayNum
-  }));
+  };
+  // Stamped with the signed-in account so another account on this browser
+  // cannot receive it: '' = nobody signed in, '?' = owner unreadable.
+  pendingAttempt.owner = window.MargSession && MargSession.handoffOwner ? MargSession.handoffOwner(localStorage) : (localStorage.getItem('marg_token') ? '?' : '');
+  pendingAttempt.savedAt = Date.now();
+  localStorage.setItem('marg_pending_attempt', JSON.stringify(pendingAttempt));
   
   for (var i = 0; i < 4; i++) {
     var optEl = document.getElementById('opt-' + qIndex + '-' + i);

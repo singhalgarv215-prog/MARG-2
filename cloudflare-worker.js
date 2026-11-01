@@ -1716,6 +1716,7 @@ async function rollToDay(storage, previous, day) {
   next.itail = previous.itail || 0;
   next.oldestOpenAt = previous.oldestOpenAt || 0;
   next.cleanupPending = previous.cleanupPending || '';
+  if (Array.isArray(previous.cleanupQueue) && previous.cleanupQueue.length) next.cleanupQueue = previous.cleanupQueue.slice();
   const ids = Array.isArray(previous.open) ? previous.open.slice() : [];
   for (const id of ids) {
     const reservation = await storage.get('res:' + id);
@@ -1727,21 +1728,44 @@ async function rollToDay(storage, previous, day) {
   await storage.put('day', next);
   const days = [];
   if (next.cleanupPending) days.push(next.cleanupPending);
+  (next.cleanupQueue || []).forEach((queued) => { if (queued && days.indexOf(queued) < 0) days.push(queued); });
   if (previous.day && previous.day !== day && days.indexOf(previous.day) < 0) days.push(previous.day);
-  let pending = '';
+  // Every day whose cleanup fails stays remembered, so two failures in a row
+  // cannot orphan the older day's keys.
+  const failed = [];
   for (let index = 0; index < days.length; index += 1) {
     try {
       await deletePrefix(storage, 'bal:' + days[index] + ':');
       await deletePrefix(storage, 'min:' + days[index] + ':');
     } catch (_error) {
-      if (!pending) pending = days[index];
+      failed.push(days[index]);
     }
   }
-  if ((pending || '') !== (next.cleanupPending || '')) {
-    next.cleanupPending = pending;
-    await storage.put('day', next);
-  }
+  const before = JSON.stringify([next.cleanupPending || '', next.cleanupQueue || []]);
+  next.cleanupPending = failed[0] || '';
+  if (failed.length > 1) next.cleanupQueue = failed.slice(1); else delete next.cleanupQueue;
+  if (JSON.stringify([next.cleanupPending, next.cleanupQueue || []]) !== before) await storage.put('day', next);
   return next;
+}
+
+// A stored reply is only replayable for the idempotency window, but a row used
+// to be deleted only when the same key came back or a storage cap pushed it
+// out. Each ledger operation now also removes a few expired rows from the old
+// end of the list, so reply text does not outlive its window for long.
+const IDEMPOTENCY_PURGE_PER_OPERATION = 4;
+async function purgeExpiredIdempotency(storage, dayState, now) {
+  let purged = false;
+  for (let index = 0; index < IDEMPOTENCY_PURGE_PER_OPERATION; index += 1) {
+    const seq = dayState.ihead;
+    if (!seq) break;
+    const node = await storage.get('inode:' + seq);
+    if (!node) break;
+    const row = node.idem ? await storage.get(node.idem) : null;
+    if (row && Number(row.expiresAt || 0) > now) break;
+    await evictOldest(storage, dayState);
+    purged = true;
+  }
+  return purged;
 }
 
 async function recoverStale(storage, dayState, now, ttl) {
@@ -1804,12 +1828,17 @@ async function applyLedgerOp(storage, op) {
     try {
       const moreBalances = await deletePrefixBatch(storage, 'bal:' + pendingDay + ':');
       const moreMinutes = await deletePrefixBatch(storage, 'min:' + pendingDay + ':');
-      if (!moreBalances && !moreMinutes) dayState.cleanupPending = '';
+      if (!moreBalances && !moreMinutes) {
+        const queued = Array.isArray(dayState.cleanupQueue) ? dayState.cleanupQueue.slice() : [];
+        dayState.cleanupPending = queued.shift() || '';
+        if (queued.length) dayState.cleanupQueue = queued; else delete dayState.cleanupQueue;
+      }
     } catch (_error) {}
     changed = true;
   }
   if (!dayState.day) dayState.day = day;
   if (await recoverStale(storage, dayState, now, ttl)) changed = true;
+  if (await purgeExpiredIdempotency(storage, dayState, now)) changed = true;
   const action = String(op && op.action || '');
   let result = { ok:false, unavailable:true };
   if (action === 'begin') {
@@ -2014,10 +2043,16 @@ function idempotencyKeyFrom(request) {
   return cleaned.length >= 8 ? cleaned : '';
 }
 
+// 'all' when every model call is paused, 'guests' when only guest access is
+// paused, '' when nothing is. The browser uses it to say which one applies.
+function servicePauseScope(env, caller) {
+  if (String(env && env.MARG_GEMINI_PAUSED || '') === '1') return 'all';
+  if (String(env && env.MARG_GUESTS_PAUSED || '') === '1' && (!caller || caller.kind !== 'user')) return 'guests';
+  return '';
+}
+
 function servicePaused(env, caller) {
-  if (String(env && env.MARG_GEMINI_PAUSED || '') === '1') return true;
-  if (String(env && env.MARG_GUESTS_PAUSED || '') === '1' && (!caller || caller.kind !== 'user')) return true;
-  return false;
+  return servicePauseScope(env, caller) !== '';
 }
 
 async function ledgerFetch(env, op) {
@@ -2259,7 +2294,7 @@ export default {
       return finish(jsonResponse({ error:{ code:400, status:'MISSING_CONTENTS', message:'Gemini contents are required', request_id:requestId } }, 400, responseHeaders), { rejectReasons:record.rejectReasons.concat(['MISSING_CONTENTS']) });
     }
     if (servicePaused(env, caller)) {
-      return finish(jsonResponse({ error:{ code:503, status:'SERVICE_PAUSED', message:'Marg is paused. This request was not sent to the model.', request_id:requestId, retryable:false } }, 503, responseHeaders), { upstreamCalls:0, rejectReasons:['SERVICE_PAUSED'] });
+      return finish(jsonResponse({ error:{ code:503, status:'SERVICE_PAUSED', scope:servicePauseScope(env, caller), message:'Marg is paused. This request was not sent to the model.', request_id:requestId, retryable:false } }, 503, responseHeaders), { upstreamCalls:0, rejectReasons:['SERVICE_PAUSED'] });
     }
     if (!env || !env.GEMINI_API_KEY) return finish(jsonResponse({ error:{ code:500, status:'MISSING_API_KEY', message:'GEMINI_API_KEY is not configured', request_id:requestId } }, 500, responseHeaders));
 
