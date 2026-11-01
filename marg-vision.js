@@ -744,7 +744,11 @@
     if (!confirmed && isObservationAsk(user) && assignsUnsupportedClaim(value)) return ONE_OBSERVATION;
     if (isResourceAsk(user) && !isRoadmapAsk(user) && assignsUnsupportedClaim(value)) return resourceReply(user);
     if (isRoadmapAsk(user) && buildPlan(state).status !== 'ready' && /\b(?:timetable|weekly plan|monday|your 99|within reach)\b/i.test(value)) return planReply(buildPlan(state), state);
-    var sentences = value.split(/(?<=[.!])\s+/);
+    // Each sentence keeps the whitespace that followed it, so blank lines,
+    // list items and table rows are not flattened into one paragraph.
+    var pieces = value.split(/((?<=[.!])\s+)/);
+    var sentences = [];
+    for (var pieceIndex = 0; pieceIndex < pieces.length; pieceIndex += 2) sentences.push(pieces[pieceIndex] + (pieces[pieceIndex + 1] || ''));
     var kept = sentences.filter(function(sentence) {
       if (/\b(?:within reach|guaranteed|achievable|assured|gettable|you will (?:hit|reach|get|score) \d+)\b/i.test(sentence)) return false;
       if (/\b(?:percentile|%ile)\b[^.!?]{0,48}\brealistic\b|\brealistic\b[^.!?]{0,48}\b(?:percentile|%ile)\b/i.test(sentence)) return false;
@@ -753,7 +757,7 @@
       if (/\b(?:cat-safe|you should follow)\b/i.test(sentence)) return false;
       return true;
     });
-    var next = kept.join(' ').trim();
+    var next = kept.join('').trim();
     if (!confirmed && isObservationAsk(user) && next.length < 40) return ONE_OBSERVATION;
     if (!next) return 'I removed a forecast, a cause, or a source judgment that this record does not support.';
     return next;
