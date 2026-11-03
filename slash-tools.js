@@ -438,6 +438,26 @@
     try {
       if (typeof mentorExecutionLoop !== 'undefined' && mentorExecutionLoop && !mentorExecutionLoop.loaded && requireFunction('loadMentorExecutionLoop')) await window.loadMentorExecutionLoop();
       view.body.innerHTML = '';
+      if (requireFunction('buildJourneyLog') && window.BETA_JOURNEY_LOG !== false) {
+        // The same builder as the Journey view: planned, happened, learned, next, each line tagged with its source.
+        var log = window.buildJourneyLog();
+        if (log.empty) {
+          view.body.appendChild(progressLine('Current state', 'Nothing recorded yet', 'current'));
+          view.body.appendChild(progressLine('Needed next', 'One real question, set or mock decision to investigate', 'unknown'));
+        }
+        [['planned', 'Planned'], ['happened', 'Happened'], ['learned', 'Marg learned']].forEach(function (pair) {
+          (log.sections[pair[0]] || []).slice(0, 2).forEach(function (entry) {
+            var tag = entry.source === 'observed' ? 'Observed' : entry.source === 'reported' ? 'Reported' : 'Marg\u2019s note';
+            view.body.appendChild(progressLine(pair[1], entry.title + ' \u2014 ' + tag + (entry.label ? ' \u00b7 ' + entry.label : ''), entry.source === 'observed' ? 'observed' : 'unknown'));
+          });
+        });
+        var upcoming = (log.sections.next || [])[0];
+        view.body.appendChild(progressLine('Next', upcoming ? upcoming.title : 'Continue with Marg', 'next'));
+        var go = document.createElement('button'); go.type = 'button'; go.className = 'slash-tool-primary'; go.textContent = upcoming && upcoming.cta || 'Continue with Marg \u2192';
+        go.addEventListener('click', function () { closeMargToolSurface(); if (requireFunction('runHomeRecommendation')) window.runHomeRecommendation(); });
+        view.body.appendChild(go);
+        return;
+      }
       if (!requireFunction('getProgressJourneyData')) { showUnavailable(); return; }
       var journey = window.getProgressJourneyData();
       var recommendation = requireFunction('buildHomeRecommendation') ? window.buildHomeRecommendation() : { title:'Bring Marg one real attempt.', copy:'Marg needs observable work before confirming a pattern.' };
