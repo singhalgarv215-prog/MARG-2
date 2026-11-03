@@ -4370,6 +4370,225 @@ async function runBetaGradedRestrictionTests() {
   return results;
 }
 
+async function runInlineQuestionCardTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var clone = function(value) { return JSON.parse(JSON.stringify(value)); };
+  var saved = {
+    user:currentUser, guest:isGuestMode, history:conversationHistory, exercise:activeGeneratedExercise, flag:BETA_INLINE_CARDS, registry:questionCardRegistry,
+    persist:persistMentorTaskAttempt, memory:saveInternalMemoryMessage, task:persistGeneratedExerciseTask, engagement:recordEngagementEvent, tab:switchTab, tool:(typeof openMargTool === 'function' ? openMargTool : undefined),
+    pick:pickQuestionForCard, request:requestQuestionCard, failure:showQuestionCardFailure, engine:ensureQAEngine, tabNow:currentTab
+  };
+  var attempts = [], engagementEvents = [], failures = 0, toolOpens = [], memorySaves = [];
+  var arm = function(userId) {
+    attempts = []; engagementEvents = []; failures = 0; toolOpens = []; memorySaves = [];
+    saveInternalMemoryMessage = function(kind, payload) { memorySaves.push({ kind:kind, payload:clone(payload) }); };
+    currentUser = { id:userId || 'card-test-a' };
+    isGuestMode = true;
+    conversationHistory = [];
+    activeGeneratedExercise = null;
+    questionCardRegistry = {};
+    questionCardLoading = false;
+    BETA_INLINE_CARDS = true;
+    currentTab = 'chat';
+    persistMentorTaskAttempt = function(exercise, result) { attempts.push({ id:exercise.id, result:clone(result), threadId:exercise.threadId }); return Promise.resolve(null); };
+    persistGeneratedExerciseTask = function() { return Promise.resolve(null); };
+    recordEngagementEvent = function(type, meta, suffix) { engagementEvents.push({ type:type, meta:meta, suffix:suffix }); return Promise.resolve(); };
+    switchTab = function() {};
+    openMargTool = function(id) { toolOpens.push(id); };
+  };
+  var control = function(id) { return { closest:function() { return { getAttribute:function() { return id; } }; } }; };
+  var lastHistory = function() { return conversationHistory[conversationHistory.length - 1] || {}; };
+  var cardOf = function() { var tag = questionCardIdFromText(lastHistory().content); return tag ? findQuestionCardExercise(tag) : null; };
+  var learningFacts = function() { return loadLearningRecord().facts.length; };
+  try {
+    // Asking for a card, and what the card shows.
+    arm();
+    var asked = await requestQuestionCard({ topic:'Percentages' });
+    var exercise = cardOf();
+    check('K1 asking for a question adds one card and one saved message', asked === true && !!exercise && conversationHistory.length === 1 && /\[MARG_CARD:card-[a-z0-9]+\]$/.test(lastHistory().content));
+    var html = exercise ? buildQuestionCardHtml(exercise) : '';
+    var question = exercise && exercise.content.questions[0];
+    var optionTexts = question ? question.options.map(questionCardOptionText) : [];
+    check('K2 the options appear once, as four selectable buttons', !!exercise && (html.match(/class="qcard-opt[ "]/g) || []).length === 4 && optionTexts.every(function(text) { return html.split('<span>' + escapeVisualText(convertLatexToPlainText(text)) + '</span></button>').length === 2; }) && html.indexOf('\nA. ') === -1 && html.indexOf(exercise.content.exerciseText) === -1 && html.indexOf('role="radio"') !== -1);
+    var cardHandlers = (html.match(/onclick="([^"]*)"/g) || []).map(function(item) { return item.slice(9, -1); });
+    var failureHtml = (function() { var out = ''; var original = addMessage; addMessage = function(role, markup) { out += markup; return null; }; try { showQuestionCardFailure(); } finally { addMessage = original; } return out; })();
+    var allHandlers = cardHandlers.concat((failureHtml.match(/onclick="([^"]*)"/g) || []).map(function(item) { return item.slice(9, -1); }), (buildQuestionCardHtml(Object.assign(clone(exercise), { card:Object.assign({}, exercise.card, { checked:true, selected:0 }) })).match(/onclick="([^"]*)"/g) || []).map(function(item) { return item.slice(9, -1); }));
+    check('K2b every click handler on the card and its retry survives the chat sanitiser (a stripped handler makes the button do nothing)', allHandlers.length >= 8 && allHandlers.every(isTrustedChatClick), JSON.stringify(allHandlers.filter(function(item) { return !isTrustedChatClick(item); })));
+    check('K3 the card carries the checked-by label and a disabled Check answer button', /Solver-checked/.test(html) && /class="qcard-check"[^>]*disabled/.test(html) && html.indexOf('Correct.') === -1);
+    check('K4 the saved text twin has the question and options but no key or explanation', !!exercise && lastHistory().content.indexOf(question.q.trim()) !== -1 && lastHistory().content.indexOf(questionCardOptionText(question.options[0])) !== -1 && lastHistory().content.indexOf(String(question.solution || 'no-solution')) === -1 && !/correct answer|checked answer/i.test(lastHistory().content));
+    check('K5 the card becomes the active exercise when nothing else is open, stamped with the thread', activeGeneratedExercise && activeGeneratedExercise.id === exercise.id && !!exercise.threadId && exercise.awaitingAnswers === true);
+
+    // Choosing and checking.
+    var wrongIndex = (Number(question.correct) + 1) % 4;
+    var factsBefore = learningFacts();
+    var progressBefore = getTopicProgress('qa', exercise.card.topic).conceptQuestionsCompleted;
+    chooseQuestionCardOption(wrongIndex, control(exercise.id));
+    check('K6 choosing an option selects it and enables Check answer', exercise.card.selected === wrongIndex && /qcard-opt selected/.test(buildQuestionCardHtml(exercise)) && !/class="qcard-check"[^>]*disabled/.test(buildQuestionCardHtml(exercise)));
+    check('K7 nothing is recorded before Check answer', attempts.length === 0 && learningFacts() === factsBefore && exercise.card.checked === false);
+    checkQuestionCard(control(exercise.id));
+    var after = buildQuestionCardHtml(exercise);
+    check('K8 a wrong answer shows the checked answer, the explanation and the evidence level', exercise.card.checked === true && after.indexOf('Not quite. The checked answer is ' + String.fromCharCode(65 + Number(question.correct))) !== -1 && /qcard-opt correct/.test(after) && /qcard-opt wrong/.test(after) && /not mastery/.test(after) && /Another question/.test(after));
+    check('K9 the attempt reaches the attempt path with the right counts, the thread and the learning loop', attempts.length === 1 && attempts[0].id === exercise.id && attempts[0].result.wrong === 1 && attempts[0].result.total === 1 && !!attempts[0].threadId && learningFacts() === factsBefore + 1 && getTopicProgress('qa', exercise.card.topic).conceptQuestionsCompleted === progressBefore + 1);
+    check('K10 the engagement event names the card as its source', engagementEvents.length === 1 && engagementEvents[0].meta.source === 'inline-card' && engagementEvents[0].meta.correct === 0);
+    checkQuestionCard(control(exercise.id));
+    chooseQuestionCardOption(Number(question.correct), control(exercise.id));
+    check('K11 a second check or a changed choice after the result records nothing more', attempts.length === 1 && engagementEvents.length === 1 && exercise.card.selected === wrongIndex && exercise.awaitingAnswers === false && wasExactPracticeDelivered('qa', exercise.content));
+    check('K12 the attempt payload includes thread and goal', /thread_id:exercise\.threadId/.test(String(saved.persist)) && /goal_id:exercise\.goalId/.test(String(saved.persist)));
+
+    // A correct answer.
+    arm();
+    await requestQuestionCard({});
+    var second = cardOf();
+    var factsRight = learningFacts();
+    chooseQuestionCardOption(Number(second.content.questions[0].correct), control(second.id));
+    checkQuestionCard(control(second.id));
+    check('K13 a correct answer is recorded as correct, adds no miss to the learning record, and still says one answer is not mastery', attempts.length === 1 && attempts[0].result.correct === 1 && learningFacts() === factsRight && /Correct\./.test(buildQuestionCardHtml(second)) && /not mastery/.test(buildQuestionCardHtml(second)));
+
+    // Reload mid-question and after the result.
+    arm();
+    await requestQuestionCard({ topic:'Probability' });
+    var reloadCard = cardOf();
+    chooseQuestionCardOption(2, control(reloadCard.id));
+    var twinText = lastHistory().content;
+    var cardId = reloadCard.id;
+    questionCardRegistry = {};
+    activeGeneratedExercise = null;
+    var restored = findQuestionCardExercise(cardId);
+    check('K14 after a reload mid-question the card comes back with the same question and the same selection', !!restored && restored.card.selected === 2 && restored.card.checked === false && restoreQuestionCardMessage({ content:twinText }) === true && /qcard-opt selected/.test(buildQuestionCardHtml(restored)));
+    checkQuestionCard(control(cardId));
+    questionCardRegistry = {};
+    activeGeneratedExercise = null;
+    var restoredChecked = findQuestionCardExercise(cardId);
+    check('K15 after a reload following the result the card shows the result and cannot be answered again', !!restoredChecked && restoredChecked.card.checked === true && /qcard-result/.test(buildQuestionCardHtml(restoredChecked)) && attempts.length === 1);
+    var fromHistory = clone(restoredChecked);
+    questionCardRegistry = {};
+    localStorage.removeItem(getUserScopedKey('marg_exercise_archive'));
+    localStorage.removeItem(getUserScopedKey('marg_active_exercise'));
+    conversationHistory = [{ role:'assistant', content:'[MARG_INTERNAL:EXERCISE]\n' + JSON.stringify(fromHistory) }, { role:'assistant', content:twinText }];
+    check('K16 on a device with no local copy the card is rebuilt from the saved exercise message', !!findQuestionCardExercise(cardId));
+
+    // A second account.
+    arm('card-test-a');
+    await requestQuestionCard({});
+    var owned = cardOf();
+    var ownedText = lastHistory().content;
+    currentUser = { id:'card-test-b' };
+    activeGeneratedExercise = null;
+    conversationHistory = [];
+    check('K17 a second account cannot find or restore the first account\'s card', findQuestionCardExercise(owned.id) === null && restoreQuestionCardMessage({ content:ownedText }) === false);
+    check('K18 a card whose exercise is missing falls back to readable text with no tag', stripInternalMentorTags(ownedText).indexOf('MARG_CARD') === -1 && stripInternalMentorTags(ownedText).indexOf('Question') === 0);
+
+    // A card requested while a learning-loop exercise is open.
+    arm();
+    var loopExercise = { id:'loop-open', type:'qa', source:'learning-check', title:'Learning check', threadId:margActiveThreadId, generatedAt:new Date().toISOString(), awaitingAnswers:true, validationVerdict:{ status:'verified_local' }, content:{ questions:[{ q:'A learning loop question that is still open and waiting?', options:['A. 1','B. 2','C. 3','D. 4'], correct:1 }] }, uiSelections:[] };
+    activeGeneratedExercise = loopExercise;
+    localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(loopExercise));
+    await requestQuestionCard({});
+    var beside = cardOf();
+    check('K19 a card requested during an open learning check does not replace it', activeGeneratedExercise === loopExercise && JSON.parse(localStorage.getItem(getUserScopedKey('marg_active_exercise'))).id === 'loop-open' && !!beside && beside.id !== 'loop-open');
+    var loopFacts = learningFacts();
+    chooseQuestionCardOption((Number(beside.content.questions[0].correct) + 1) % 4, control(beside.id));
+    checkQuestionCard(control(beside.id));
+    check('K20 answering that card still reaches the learning loop and leaves the open check untouched', learningFacts() === loopFacts + 1 && attempts.length === 1 && attempts[0].id === beside.id && loopExercise.awaitingAnswers === true && loopExercise.uiSelections.length === 0 && JSON.parse(localStorage.getItem(getUserScopedKey('marg_active_exercise'))).id === 'loop-open');
+
+    // A failed question load.
+    arm();
+    showQuestionCardFailure = function() { failures++; };
+    pickQuestionForCard = function() { return Promise.resolve(null); };
+    var failedLoad = await requestQuestionCard({ topic:'Percentages' });
+    check('K21 a failed load shows a retry, saves nothing, records nothing and unlocks the next request', failedLoad === false && failures === 1 && conversationHistory.length === 0 && attempts.length === 0 && questionCardLoading === false);
+    pickQuestionForCard = saved.pick;
+    showQuestionCardFailure = saved.failure;
+    arm();
+    ensureQAEngine = function() { return Promise.reject(new Error('solver would not load')); };
+    var handPick = await pickQuestionForCard('');
+    ensureQAEngine = saved.engine;
+    var handExercise = handPick && buildQuestionCardExercise(handPick, '');
+    check('K22 if the solver cannot load, a hand-checked question is used and labelled as hand-checked', !!handPick && handExercise.card.keyStatus === 'hand' && /Hand-checked set/.test(buildQuestionCardHtml(handExercise)) && !/Solver-checked/.test(buildQuestionCardHtml(handExercise)));
+
+    // Unchecked content.
+    arm();
+    var uncheckedExercise = { id:'card-unchecked', type:'qa', source:'inline-card', threadId:margActiveThreadId, content:{ questions:[{ q:'A question nobody has checked, written elsewhere?', options:['A. 1','B. 2','C. 3','D. 4'], correct:2, solution:'Explained.' }] }, card:{ keyStatus:'', topic:'QA', selected:null, checked:false } };
+    uncheckedExercise.card.keyStatus = questionCardKeyStatus(uncheckedExercise);
+    questionCardRegistry[questionCardRegistryKey(uncheckedExercise.id)] = uncheckedExercise;
+    var uncheckedHtml = buildQuestionCardHtml(uncheckedExercise);
+    chooseQuestionCardOption(1, control(uncheckedExercise.id));
+    checkQuestionCard(control(uncheckedExercise.id));
+    check('K23 an unchecked question has no Check answer button, cannot be selected or marked, and says so', uncheckedExercise.card.keyStatus === 'unchecked' && uncheckedHtml.indexOf('qcard-check') === -1 && (uncheckedHtml.match(/ disabled/g) || []).length >= 4 && /will not mark it/.test(uncheckedHtml) && uncheckedExercise.card.selected === null && attempts.length === 0);
+    var tamperedContent = clone(exercise.content);
+    tamperedContent.questions[0].correct = (tamperedContent.questions[0].correct + 1) % 4;
+    check('K24 a solver question with one key changed is treated as unchecked', questionCardKeyStatus({ content:tamperedContent }) === 'unchecked');
+
+    // Never created by accident.
+    check('K25 a calculation or a score is not a request for a card', parseInChatQuestionRequest('what is 20% of 80?') === null && parseInChatQuestionRequest('I scored 62 in my last mock, what does that mean?') === null && parseInChatQuestionRequest('what is 15% of 240') === null);
+    var callers = Object.keys(globalThis).filter(function(name) { return typeof globalThis[name] === 'function' && name !== 'requestQuestionCard' && name !== 'runInlineQuestionCardTests' && String(globalThis[name]).indexOf('requestQuestionCard(') !== -1; }).sort();
+    check('K26 only three places can start a card: the chat request path, "Another question" and the retry button', JSON.stringify(callers) === JSON.stringify(['questionCardAnother', 'retryQuestionCard', 'serveOriginalQuestionsInChat']), JSON.stringify(callers));
+    check('K27 the chat request path opens a card only for a request for exactly one QA question', /BETA_INLINE_CARDS && request\.section === 'qa' && request\.count === 1/.test(String(serveOriginalQuestionsInChat)) && parseInChatQuestionRequest('give me a QA question').count === 1 && parseInChatQuestionRequest('give me 3 questions').count === 3);
+
+    // Another question, and the switch.
+    arm();
+    var requested = [];
+    await requestQuestionCard({ topic:'Number Systems' });
+    var anotherSource = cardOf();
+    requestQuestionCard = function(options) { requested.push(options); return Promise.resolve(true); };
+    questionCardAnother(control(anotherSource.id));
+    requestQuestionCard = saved.request;
+    check('K28 "Another question" asks for the same topic', requested.length === 1 && requested[0].topic === 'Number Systems', JSON.stringify(requested));
+    arm();
+    BETA_INLINE_CARDS = false;
+    var offResult = await requestQuestionCard({});
+    check('K29 with the switch off no card is made and the older practice surface opens', offResult === false && conversationHistory.length === 0 && toolOpens.join() === 'practice');
+
+    // Old conversations.
+    arm();
+    var oldFormat = 'Here are 3 questions.\n\nQ1. A train covers 60 km in 90 minutes. What is its speed?\nA. 30 km/h\nB. 40 km/h\nC. 45 km/h\nD. 50 km/h\n\nType your answers like 1-A, 2-C.';
+    check('K30 an old practice message has no card tag and is left exactly as it was', questionCardIdFromText(oldFormat) === '' && restoreQuestionCardMessage({ content:oldFormat }) === false && stripInternalMentorTags(oldFormat).indexOf('A. 30 km/h') !== -1);
+    var typedAnswers = parseSubmittedAnswerChoices('1-B 2-C 3-A');
+    check('K31 typed answers in the old format are still understood', typedAnswers[1] === 'B' && typedAnswers[2] === 'C' && typedAnswers[3] === 'A');
+    check('K32 a tag in the middle of a message is not treated as a card', questionCardIdFromText('see [MARG_CARD:card-abc] here and more') === '');
+    var restoreSource = String(restoreConversation);
+    check('K34 restoring a conversation rebuilds cards before the generic message path', restoreSource.indexOf('restoreQuestionCardMessage(msg)') !== -1 && restoreSource.indexOf('restoreQuestionCardMessage(msg)') < restoreSource.indexOf('isCurrentArticleRC'));
+    arm();
+    await requestQuestionCard({ topic:'Probability' });
+    var syncCard = cardOf();
+    var createdCopy = memorySaves.filter(function(item) { return item.kind === 'EXERCISE'; }).length;
+    chooseQuestionCardOption((Number(syncCard.content.questions[0].correct) + 1) % 4, control(syncCard.id));
+    checkQuestionCard(control(syncCard.id));
+    var answeredCopies = memorySaves.filter(function(item) { return item.kind === 'EXERCISE' && item.payload.id === syncCard.id && item.payload.card.checked === true; });
+    check('K35 checking an answer saves the answered card to the account, so another device sees it answered', createdCopy >= 1 && answeredCopies.length === 1 && answeredCopies[0].payload.card.selected === syncCard.card.selected);
+    var rowsOnly = [{ role:'assistant', content:'[MARG_INTERNAL:EXERCISE]\n' + JSON.stringify(Object.assign(clone(syncCard), { card:Object.assign({}, syncCard.card, { checked:false, selected:null }) })) }, { role:'assistant', content:'[MARG_INTERNAL:EXERCISE]\n' + JSON.stringify(answeredCopies[0].payload) }];
+    questionCardRegistry = {};
+    activeGeneratedExercise = null;
+    localStorage.removeItem(getUserScopedKey('marg_exercise_archive'));
+    localStorage.removeItem(getUserScopedKey('marg_active_exercise'));
+    conversationHistory = rowsOnly;
+    var otherDevice = findQuestionCardExercise(syncCard.id);
+    check('K36 with no local copy, the newest saved copy wins: the card comes back answered and cannot be answered again', !!otherDevice && otherDevice.card.checked === true && /qcard-result/.test(buildQuestionCardHtml(otherDevice)) && !/qcard-check/.test(buildQuestionCardHtml(otherDevice)));
+    check('K33 the hidden tag never reaches what the student reads', stripInternalMentorTags('Question\n\nWhat?\nA. 1\n[MARG_CARD:card-xyz123]').indexOf('MARG_CARD') === -1);
+  } finally {
+    currentUser = saved.user;
+    isGuestMode = saved.guest;
+    conversationHistory = saved.history;
+    activeGeneratedExercise = saved.exercise;
+    BETA_INLINE_CARDS = saved.flag;
+    questionCardRegistry = saved.registry;
+    persistMentorTaskAttempt = saved.persist;
+    saveInternalMemoryMessage = saved.memory;
+    persistGeneratedExerciseTask = saved.task;
+    recordEngagementEvent = saved.engagement;
+    switchTab = saved.tab;
+    if (saved.tool) openMargTool = saved.tool;
+    pickQuestionForCard = saved.pick;
+    requestQuestionCard = saved.request;
+    showQuestionCardFailure = saved.failure;
+    ensureQAEngine = saved.engine;
+    currentTab = saved.tabNow;
+    questionCardLoading = false;
+  }
+  return results;
+}
+
 function runMobileAuditFixTests() {
   var results = [];
   var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
@@ -9876,6 +10095,8 @@ async function persistMentorTaskAttempt(exercise, result) {
       interactions:Array.isArray(exercise.interactions) ? exercise.interactions.slice(-80) : [],
       mistakes:Array.isArray(result.mistakes) ? result.mistakes.slice(0, 10) : [],
       source:exercise.source || 'practice',
+      thread_id:exercise.threadId || null,
+      goal_id:exercise.goalId || null,
       delivery_state:exercise.deliveryState || null,
       delivered_at:exercise.deliveredAt || null,
       generation_duration_ms:Number(exercise.generationDurationMs || 0) || null,
@@ -17827,7 +18048,7 @@ function bindSentImagePreviews(wrap) {
 function isTrustedChatClick(value) {
   // `this` is the clicked control. It is allowed only as a bare argument of an
   // already named handler, so the RC card can find its own passage.
-  return /^(?:chooseArticleRCOption|chooseMentorNextStep|choosePathDiscuss|choosePathPractice|closePushReminderCard|closeTimedTest|confirmSubmitTimedTest|goToArticleRCQuestion|goToChatFromTimedTest|goToTimedTestQuestion|loadDailyPractice|moveArticleRCQuestion|nextQuestion|openArticleRCPassageFocus|openCheckedTimedRecovery|openPreviousMockAnalysis|prevQuestion|removePendingImageAttachment|retryArticleRCGeneration|retryTimedTest|reviewLatestPracticeWithMarg|selectAnswer|selectOption|selectPracticeTopic|selectQACategory|selectTimedTestAnswer|sendQuick|showQACategoryPicker|startLogin|submitArticleRCAttempt|submitFeedback|switchPracticeTab|switchTab|toggleArticleRCPassage|tryAnotherArticleRC|useVerifiedPracticeRecovery)\s*\(\s*(?:(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*(?:,\s*(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*)*)?\)\s*;?$/.test(String(value || '').trim());
+  return /^(?:checkQuestionCard|chooseArticleRCOption|chooseMentorNextStep|choosePathDiscuss|choosePathPractice|chooseQuestionCardOption|closePushReminderCard|closeTimedTest|confirmSubmitTimedTest|goToArticleRCQuestion|goToChatFromTimedTest|goToTimedTestQuestion|loadDailyPractice|moveArticleRCQuestion|nextQuestion|openArticleRCPassageFocus|openCheckedTimedRecovery|openPreviousMockAnalysis|prevQuestion|questionCardAnother|questionCardAskMarg|removePendingImageAttachment|retryArticleRCGeneration|retryQuestionCard|retryTimedTest|reviewLatestPracticeWithMarg|selectAnswer|selectOption|selectPracticeTopic|selectQACategory|selectTimedTestAnswer|sendQuick|showQACategoryPicker|startLogin|submitArticleRCAttempt|submitFeedback|switchPracticeTab|switchTab|toggleArticleRCPassage|tryAnotherArticleRC|useVerifiedPracticeRecovery)\s*\(\s*(?:(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*(?:,\s*(?:-?\d+(?:\.\d+)?|true|false|null|this|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*)*)?\)\s*;?$/.test(String(value || '').trim());
 }
 
 function sanitizeRenderedChatHtml(html) {
@@ -20899,6 +21120,7 @@ function stripInternalMentorTags(text) {
   // never student-facing content. If a malformed model response echoes the
   // marker, discard the leaked tail rather than attempting to prettify it.
   value = value.replace(/\s*\[MARG_INTERNAL:[^\]]*\][\s\S]*$/gi, '');
+  value = value.replace(/\s*\[MARG_CARD:[^\]]*\]/gi, '');
   value = value
     .replace(/\s*\[HYPOTHESIS_VERDICT:\s*(?:supported|rejected|inconclusive)\s*\]\s*/gi, '\n')
     .replace(/\s*\[REMINDER_CONTEXT:\s*[^\]]+\]\s*/gi, '\n')
@@ -25155,6 +25377,7 @@ function restoreConversation() {
     var restoredArticleWidget = false;
     isRestoringConversation = true;
     displayMessages.forEach(function(msg) {
+      if (msg.role !== 'user' && restoreQuestionCardMessage(msg)) return;
       var isCurrentArticleRC = !restoredArticleWidget
         && msg.role !== 'user'
         && getArticleRCExerciseData(restoredArticleExercise)
@@ -26683,7 +26906,7 @@ function parseInChatQuestionRequest(message) {
   if (!format) format = 'qa';
   var countMatch = text.match(/\b(\d{1,2})\s*(?:questions?|parajumbles?|para\s*-?\s*jumbles?)\b/i);
   var count = countMatch ? Math.max(1, Math.min(4, Number(countMatch[1]))) : 2;
-  if (!countMatch && /\b(?:a|one|an)\s+(?:single\s+)?(?:question|parajumble|para\s*-?\s*jumble)\b/i.test(text)) count = 1;
+  if (!countMatch && /\b(?:a|one|an)\s+(?:single\s+)?(?:(?:qa|quant|quantitative|maths?)\s+)?(?:question|parajumble|para\s*-?\s*jumble)\b/i.test(text)) count = 1;
   if ((format === 'dilr' || format === 'rc') && count < 2) count = 2;
   var topic = '';
   if (format === 'qa') {
@@ -26869,6 +27092,11 @@ async function serveOriginalQuestionsInChat(request) {
   if (BETA_VERIFIED_GRADED_ONLY) {
     // Beta: no model-written graded questions. A passage request opens a hand-checked passage.
     if (request.section === 'rc' && serveBetaVerifiedRC()) return true;
+    // One QA question asked for in chat opens as a card; more than one opens the checked timed set.
+    if (BETA_INLINE_CARDS && request.section === 'qa' && request.count === 1) {
+      await requestQuestionCard({ topic:request.topic });
+      return true;
+    }
     if (request.section === 'qa' || request.section === 'dilr') {
       // Open the checked material instead: the QA and DILR constructors, or the hand-checked packs.
       var openedChecked = false;
@@ -29279,6 +29507,402 @@ function persistArticleRCState(exercise) {
 
 function cleanArticleRCOption(option) {
   return convertLatexToPlainText(String(option || '').replace(/^[A-D][.)]\s*/, '').trim());
+}
+
+// ---------------------------------------------------------------------------
+// Inline question cards. One question appears inside the conversation: the
+// stem, the options once (as buttons), a Check answer button, then the result
+// and the explanation. A card is built only from a structured question that
+// is already checked (the QA constructor or a hand-checked set) and only when
+// the student asks for one. It records the attempt through the same learning
+// and attempt paths as the Practice screen. The Practice screen is untouched;
+// BETA_INLINE_CARDS only decides which surface a "give me a question" action
+// opens.
+// ---------------------------------------------------------------------------
+var BETA_INLINE_CARDS = true;
+var QUESTION_CARD_TAG_PATTERN = /\n?\[MARG_CARD:([A-Za-z0-9_.:-]+)\]\s*$/;
+var questionCardRegistry = {};
+var questionCardLoading = false;
+var lastQuestionCardRequest = null;
+var QUESTION_CARD_KEY_LABELS = {
+  solver:{ label:'Solver-checked', note:'The answer was worked out by Marg’s solver, not by a person or an official key.' },
+  hand:{ label:'Hand-checked set', note:'The answer was re-solved by Marg’s reviewer. It is not an official key.' },
+  unchecked:{ label:'Unchecked', note:'This answer has not been checked, so Marg will not mark it.' }
+};
+
+function questionCardIdFromText(text) {
+  var match = String(text || '').match(QUESTION_CARD_TAG_PATTERN);
+  return match ? match[1] : '';
+}
+
+function normalizeQuestionCardTopic(topic) {
+  var value = String(topic || '').trim();
+  if (!value || /^(?:mixed(?: qa)?|any|qa)$/i.test(value)) return '';
+  if (/^ratios?$/i.test(value)) return 'Ratios & Proportions';
+  return value;
+}
+
+function questionCardOptionText(option) {
+  return String(option || '').replace(/^\s*[A-D][.)]\s*/, '');
+}
+
+// Which kind of check stands behind this question. The label never says more
+// than the evidence: a constructor certificate, a hand-checked twin, or nothing.
+function questionCardKeyStatus(exercise) {
+  var content = exercise && exercise.content;
+  var question = content && Array.isArray(content.questions) ? content.questions[0] : null;
+  if (!question) return 'unchecked';
+  try {
+    if (content._margQAConstruction && typeof MargQAEngine !== 'undefined' && MargQAEngine.verify(content, null).valid === true) return 'solver';
+  } catch (error) { return 'unchecked'; }
+  if (isHandCheckedQAQuestion(question)) return 'hand';
+  return 'unchecked';
+}
+
+// True when the stem and the key equal a question in a hand-checked pack or the checked bank.
+function isHandCheckedQAQuestion(question) {
+  if (!question) return false;
+  var same = function(other) { return other && rcContentNormal(other.q) === rcContentNormal(question.q) && Number(other.correct) === Number(question.correct); };
+  try {
+    var packs = [getVerifiedFallbackPractice('qa', 5, null), getVerifiedFallbackPractice('qa', 3, 'Percentages')];
+    if (packs.some(function(pack) { return pack && pack.questions && pack.questions.some(same); })) return true;
+    if (typeof MargCATBank !== 'undefined' && MargCATBank) {
+      var served = MargCATBank.servedIds();
+      return MargCATBank.items().some(function(item) { return item.section === 'qa' && served.indexOf(item.id) !== -1 && MargCATBank.agreement(item) && rcContentNormal(item.stem) === rcContentNormal(question.q) && Number(item.correct) === Number(question.correct); });
+    }
+  } catch (error) { return false; }
+  return false;
+}
+
+function ensureQuestionCardStyles() {
+  if (document.getElementById('qcard-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'qcard-styles';
+  style.textContent = '.qcard{display:block;width:100%;max-width:560px;font-size:15px;line-height:1.5;color:var(--text)}' +
+    '.qcard-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;margin-bottom:10px}' +
+    '.qcard-kicker{font-size:15px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-dim)}' +
+    '.qcard-key{font-size:15px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--border2);color:var(--text-muted)}' +
+    '.qcard-key-solver,.qcard-key-hand{color:var(--gold-light);border-color:rgba(201,168,76,.35)}' +
+    '.qcard-q{font-size:16px;line-height:1.55;margin:0 0 12px;overflow-wrap:anywhere;white-space:pre-wrap}' +
+    '.qcard-options{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}' +
+    '.qcard-opt{display:flex;align-items:flex-start;gap:10px;width:100%;min-height:48px;padding:10px 12px;border:1px solid var(--border2);border-radius:10px;background:var(--surface2);color:var(--text);font:inherit;font-size:15px;text-align:left;cursor:pointer;overflow-wrap:anywhere}' +
+    '.qcard-opt:disabled{cursor:default;opacity:1}' +
+    '.qcard-letter{flex:0 0 auto;width:24px;height:24px;border-radius:50%;border:1px solid var(--border2);font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center}' +
+    '.qcard-opt.selected{border-color:var(--gold);background:var(--gold-dim)}' +
+    '.qcard-opt.correct{border-color:var(--green);background:rgba(76,175,125,.14)}' +
+    '.qcard-opt.wrong{border-color:#E05C5C;background:rgba(224,92,92,.12)}' +
+    '.qcard-check,.qcard-action{min-height:44px;padding:10px 16px;border-radius:10px;font:inherit;font-size:15px;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--surface2);color:var(--text)}' +
+    '.qcard-check{background:var(--gold);color:#000;border-color:var(--gold)}' +
+    '.qcard-check:disabled{opacity:.45;cursor:default}' +
+    '.qcard-result{margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}' +
+    '.qcard-verdict{font-size:16px;font-weight:700;margin-bottom:6px}' +
+    '.qcard-verdict.ok{color:var(--green)}.qcard-verdict.no{color:#E58B8B}' +
+    '.qcard-explain{margin:0 0 10px;overflow-wrap:anywhere}' +
+    '.qcard-note{font-size:15px;color:var(--text-dim);margin:0 0 10px}' +
+    '.qcard-actions{display:flex;flex-wrap:wrap;gap:8px}' +
+    '@media(max-width:600px){.qcard{max-width:100%}.qcard-actions .qcard-action{flex:1 1 100%}}';
+  document.head.appendChild(style);
+}
+
+function buildQuestionCardHtml(exercise) {
+  var content = exercise.content || {};
+  var question = (content.questions || [])[0];
+  if (!question) return '';
+  var card = exercise.card || {};
+  var status = card.keyStatus || questionCardKeyStatus(exercise);
+  var labels = QUESTION_CARD_KEY_LABELS[status] || QUESTION_CARD_KEY_LABELS.unchecked;
+  var markable = status !== 'unchecked';
+  var checked = !!card.checked;
+  var selected = Number.isInteger(card.selected) ? card.selected : null;
+  var correct = Number(question.correct);
+  var topic = card.topic || question.topic || (content.topics_combined && content.topics_combined[0]) || '';
+  var options = (question.options || []).map(function(option, index) {
+    var className = 'qcard-opt';
+    if (checked && index === correct) className += ' correct';
+    else if (checked && index === selected) className += ' wrong';
+    else if (!checked && index === selected) className += ' selected';
+    return '<button type="button" class="' + className + '" role="radio" aria-checked="' + (index === selected ? 'true' : 'false') + '" onclick="chooseQuestionCardOption(' + index + ',this)"' + (checked || !markable ? ' disabled' : '') + '>' +
+      '<span class="qcard-letter">' + String.fromCharCode(65 + index) + '</span><span>' + escapeVisualText(convertLatexToPlainText(questionCardOptionText(option))) + '</span></button>';
+  }).join('');
+  var html = '<div class="qcard-head"><span class="qcard-kicker">QA' + (topic ? ' · ' + escapeVisualText(topic) : '') + '</span>' +
+    '<span class="qcard-key qcard-key-' + status + '">' + escapeVisualText(labels.label) + '</span></div>' +
+    '<div class="qcard-q">' + escapeVisualText(convertLatexToPlainText(question.q || '')) + '</div>' +
+    '<div class="qcard-options" role="radiogroup" aria-label="Answer options">' + options + '</div>';
+  if (card.note) html += '<div class="qcard-note">' + escapeVisualText(card.note) + '</div>';
+  if (!checked && markable) {
+    html += '<button type="button" class="qcard-check" onclick="checkQuestionCard(this)"' + (selected === null ? ' disabled' : '') + '>Check answer</button>';
+  }
+  if (!markable) html += '<div class="qcard-note">' + escapeVisualText(labels.note) + '</div>';
+  if (checked) {
+    var isCorrect = selected === correct;
+    var explanation = cleanStudentFacingSolution(question.solution || question.explanation || '');
+    html += '<div class="qcard-result" role="status">' +
+      '<div class="qcard-verdict ' + (isCorrect ? 'ok' : 'no') + '">' + (isCorrect ? 'Correct.' : 'Not quite. The checked answer is ' + String.fromCharCode(65 + correct) + '.') + '</div>' +
+      (explanation ? '<div class="qcard-explain">' + escapeVisualText(convertLatexToPlainText(explanation)).replace(/\n/g, '<br>') + '</div>' : '') +
+      (!isCorrect && question.common_mistake ? '<div class="qcard-note">Watch out for: ' + escapeVisualText(convertLatexToPlainText(question.common_mistake)) + '</div>' : '') +
+      '<div class="qcard-note">' + escapeVisualText(labels.note) + ' One answer is one data point, not mastery.</div>' +
+      '<div class="qcard-actions"><button type="button" class="qcard-action" onclick="questionCardAnother(this)">Another question</button>' +
+      '<button type="button" class="qcard-action" onclick="questionCardAskMarg(this)">Ask Marg about this</button></div></div>';
+  }
+  return html;
+}
+
+// The readable twin of the card. It is what the saved conversation and the
+// mentor see; it carries no answer key. The card is rebuilt from the stored
+// exercise through the tag at the end.
+function questionCardTextTwin(exercise) {
+  var question = exercise.content.questions[0];
+  var topic = exercise.card && exercise.card.topic || question.topic || '';
+  return 'Question' + (topic ? ' (QA · ' + topic + ')' : '') + '\n\n' + String(question.q || '').trim() + '\n\n' +
+    (question.options || []).map(function(option, index) { return String.fromCharCode(65 + index) + '. ' + questionCardOptionText(option); }).join('\n');
+}
+
+function questionCardRegistryKey(id) { return getUserScopedKey('qcard_' + id); }
+
+function findQuestionCardExercise(id) {
+  if (!id) return null;
+  var key = questionCardRegistryKey(id);
+  var currentThread = typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy';
+  var fits = function(exercise) { return exercise && exercise.id === id && exercise.card && (exercise.threadId || 'legacy') === currentThread; };
+  if (activeGeneratedExercise && fits(activeGeneratedExercise)) { questionCardRegistry[key] = activeGeneratedExercise; return activeGeneratedExercise; }
+  if (fits(questionCardRegistry[key])) return questionCardRegistry[key];
+  var candidates = [];
+  try {
+    var archive = JSON.parse(localStorage.getItem(getUserScopedKey('marg_exercise_archive')) || '[]');
+    if (Array.isArray(archive)) candidates = candidates.concat(archive.slice().reverse());
+  } catch (error) {}
+  for (var i = (conversationHistory || []).length - 1; i >= 0; i--) {
+    var stored = parseInternalMemoryMessage(conversationHistory[i], 'EXERCISE');
+    if (stored) candidates.push(stored);
+  }
+  var found = candidates.find(fits) || null;
+  if (found) questionCardRegistry[key] = found;
+  return found;
+}
+
+function persistQuestionCardState(exercise) {
+  if (!exercise) return;
+  if (activeGeneratedExercise && activeGeneratedExercise.id === exercise.id) {
+    try { localStorage.setItem(getUserScopedKey('marg_active_exercise'), JSON.stringify(exercise)); } catch (error) {}
+  }
+  try {
+    var archiveKey = getUserScopedKey('marg_exercise_archive');
+    var archive = JSON.parse(localStorage.getItem(archiveKey) || '[]');
+    if (!Array.isArray(archive)) archive = [];
+    archive = archive.filter(function(item) { return item && item.id !== exercise.id; });
+    archive.push(exercise);
+    localStorage.setItem(archiveKey, JSON.stringify(archive.slice(-12)));
+  } catch (error) {}
+}
+
+function renderQuestionCardWidget(exercise) {
+  var widgets = document.querySelectorAll('.qcard[data-exercise-id="' + exercise.id + '"]');
+  var html = buildQuestionCardHtml(exercise);
+  for (var i = 0; i < widgets.length; i++) widgets[i].innerHTML = html;
+  persistQuestionCardState(exercise);
+  return widgets.length > 0;
+}
+
+function questionCardFromControl(control) {
+  var card = control && control.closest ? control.closest('.qcard') : null;
+  var exercise = card ? findQuestionCardExercise(card.getAttribute('data-exercise-id')) : null;
+  if (!exercise && typeof showComposerStatus === 'function') showComposerStatus('This question could not be restored. Ask for a fresh one.', 'info');
+  return exercise;
+}
+
+function chooseQuestionCardOption(optionIndex, control) {
+  var exercise = questionCardFromControl(control);
+  if (!exercise || exercise.card.checked) return;
+  var question = exercise.content.questions[0];
+  if (!question.options || !question.options[optionIndex] || exercise.card.keyStatus === 'unchecked') return;
+  exercise.card.selected = Number(optionIndex);
+  renderQuestionCardWidget(exercise);
+}
+
+// Records the answer through the same paths as the Practice screen: the
+// learning record, behaviour memory, topic progress, the engagement event and
+// the saved attempt. Nothing here touches the exercise that is open elsewhere.
+function recordQuestionCardAttempt(exercise, question, selected, isCorrect) {
+  var topic = exercise.card.topic || question.topic || 'Mixed';
+  var now = new Date().toISOString();
+  if (!Array.isArray(exercise.uiSelections)) exercise.uiSelections = [];
+  exercise.uiSelections.push({ position:'1', selected:selected, correct:Number(question.correct), at:now });
+  if (!Array.isArray(exercise.interactions)) exercise.interactions = [];
+  exercise.interactions.push({ kind:'answer_selected', detail:{ position:'1', selected:selected }, at:now });
+  notePracticeResult('qa', question, selected, Number(question.correct), isCorrect);
+  recordTopicProgress('qa', topic, { conceptQuestions:1, accuracy:isCorrect ? 100 : 0 });
+  var mistakes = [];
+  if (!isCorrect) {
+    var insight = question.marg_insight || question.common_mistake || 'Made a QA error';
+    var stored = storeWrongAnswer('qa', question, insight);
+    if (stored && stored.occurrences >= 2) updateCognitivePattern('qa', stored.label);
+    if (question.marg_insight) mistakes.push({ topic:question.concept_check || 'QA', insight:question.marg_insight, trap:question.trap_type || '' });
+  }
+  exercise.result = { correct:isCorrect ? 1 : 0, wrong:isCorrect ? 0 : 1, skipped:0, total:1, mistakes:mistakes };
+  exercise.awaitingAnswers = false;
+  exercise.completedAt = now;
+  markPracticeSeen('qa', exercise.content);
+  recordEngagementEvent('recommended_task_completed', {
+    section:'qa', topic:topic, question_count:1, correct:isCorrect ? 1 : 0, source:'inline-card'
+  }, 'card-complete-' + exercise.id);
+  noteActiveMentorPlanEvidence('QA ' + topic + ': ' + (isCorrect ? '1/1 correct.' : '0/1 correct.'));
+  persistQuestionCardState(exercise);
+  Promise.resolve(persistMentorTaskAttempt(exercise, exercise.result)).catch(function() {});
+}
+
+function checkQuestionCard(control) {
+  var exercise = questionCardFromControl(control);
+  if (!exercise || exercise.card.checked || exercise.card.keyStatus === 'unchecked') return;
+  var selected = exercise.card.selected;
+  var question = exercise.content.questions[0];
+  if (!Number.isInteger(selected) || !question.options || !question.options[selected]) return;
+  exercise.card.checked = true;
+  exercise.card.checkedAt = new Date().toISOString();
+  recordQuestionCardAttempt(exercise, question, selected, selected === Number(question.correct));
+  // Save the answered card to the account too. Without this, a second device (or cleared browser data)
+  // rebuilds the card from its first saved copy, shows it unanswered and would record a second attempt.
+  saveInternalMemoryMessage('EXERCISE', exercise);
+  renderQuestionCardWidget(exercise);
+}
+
+function questionCardAnother(control) {
+  var exercise = questionCardFromControl(control);
+  requestQuestionCard({ topic:exercise && exercise.card && exercise.card.requestedTopic || '' });
+}
+
+function questionCardAskMarg(control) {
+  var exercise = questionCardFromControl(control);
+  if (!exercise) return;
+  var question = exercise.content.questions[0];
+  var selected = exercise.card.selected;
+  var chosen = Number.isInteger(selected) ? String.fromCharCode(65 + selected) : 'an option';
+  prefillMessage('I answered ' + chosen + ' on this QA question: ' + String(question.q || '').slice(0, 200) + ' Can you explain where my thinking went wrong, or what I should notice first?');
+}
+
+// Chooses one checked question. The QA constructor comes first; the checked
+// sets are the fallback. Nothing is written by a model.
+async function pickQuestionForCard(topic) {
+  var wanted = normalizeQuestionCardTopic(topic);
+  try {
+    var engine = await ensureQAEngine();
+    var seed = (Math.floor(Math.random() * 4294967296) ^ Date.now()) >>> 0;
+    for (var attempt = 0; attempt < 8; attempt++) {
+      var data = engine.create(wanted || null, seed + attempt * 71237, 1);
+      var audit = engine.verify(data, wanted || null);
+      if (!audit.valid) continue;
+      if (collectSolutionPresentationIssues(data, 'qa').length) continue;
+      if (!wasExactPracticeDelivered('qa', data)) return { content:data, note:'' };
+    }
+  } catch (error) { /* fall back to the checked sets */ }
+  var pack = getUnseenVerifiedFallbackPractice('qa', 1, wanted || null);
+  var note = '';
+  if (!pack) {
+    pack = getVerifiedFallbackPractice('qa', 1, wanted || null);
+    note = pack ? 'You have seen this question before.' : '';
+  }
+  if (pack && Array.isArray(pack.questions) && pack.questions.length && isHandCheckedQAQuestion(pack.questions[0])) {
+    return { content:{ difficulty:pack.difficulty || 'Medium', topics_combined:pack.topics_combined || [], questions:[pack.questions[0]] }, note:note };
+  }
+  return null;
+}
+
+function buildQuestionCardExercise(pick, requestedTopic) {
+  var question = pick.content.questions[0];
+  var exercise = {
+    id:'card-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    type:'qa', source:'inline-card', title:'QA question', purpose:'One question asked for in chat',
+    threadId:typeof margActiveThreadId !== 'undefined' ? margActiveThreadId : 'legacy', goalId:null,
+    generatedAt:new Date().toISOString(), awaitingAnswers:true,
+    content:pick.content
+  };
+  var status = questionCardKeyStatus(exercise);
+  exercise.validationVerdict = status === 'unchecked' ? { status:'unchecked' } : { status:'verified_local', verification:{ method:status === 'solver' ? 'independent-numeric-code-solver' : 'hand-checked-pack' } };
+  exercise.card = { keyStatus:status, topic:question.topic || (pick.content.topics_combined && pick.content.topics_combined[0]) || '', requestedTopic:normalizeQuestionCardTopic(requestedTopic), selected:null, checked:false, note:pick.note || '' };
+  exercise.content.exerciseText = questionCardTextTwin(exercise);
+  return exercise;
+}
+
+// A card must never replace an exercise the student is in the middle of
+// (for example the learning-loop check), so it is stored beside it instead.
+function registerQuestionCardExercise(exercise) {
+  var open = activeGeneratedExercise && !activeGeneratedExercise.card && activeGeneratedExercise.awaitingAnswers !== false &&
+    (Date.now() - Date.parse(activeGeneratedExercise.generatedAt || 0) < 30 * 60 * 1000);
+  if (!open) storeActiveGeneratedExercise(exercise);
+  else {
+    persistQuestionCardState(exercise);
+    saveInternalMemoryMessage('EXERCISE', exercise);
+    persistGeneratedExerciseTask(exercise);
+  }
+  questionCardRegistry[questionCardRegistryKey(exercise.id)] = exercise;
+}
+
+function addQuestionCardMessage(exercise) {
+  ensureQuestionCardStyles();
+  var wrap = addMessage('marg', '<div class="qcard" data-exercise-id="' + escapeVisualText(exercise.id) + '">' + buildQuestionCardHtml(exercise) + '</div>', true);
+  if (wrap) wrap.classList.add('qcard-message');
+  return wrap;
+}
+
+function showQuestionCardFailure() {
+  var html = '<div class="qcard-note" style="font-size:15px">I could not get a checked question just now. Nothing was marked.</div>' +
+    '<button type="button" class="qcard-action" style="margin-top:8px" onclick="retryQuestionCard(this)">Try again</button>';
+  ensureQuestionCardStyles();
+  var wrap = addMessage('marg', '<div class="qcard-failure">' + html + '</div>', true);
+  scrollChatToLatest({ instant:true });
+  return wrap;
+}
+
+function retryQuestionCard(control) {
+  var wrap = control && control.closest ? control.closest('.msg-wrap') : null;
+  if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+  requestQuestionCard(lastQuestionCardRequest || {});
+}
+
+async function requestQuestionCard(options) {
+  options = options || {};
+  if (!BETA_INLINE_CARDS) {
+    if (typeof openMargTool === 'function') openMargTool('practice');
+    return false;
+  }
+  if (questionCardLoading) return false;
+  questionCardLoading = true;
+  lastQuestionCardRequest = options;
+  try {
+    if (currentTab !== 'chat') switchTab('chat');
+    if (typeof closeMargToolSurface === 'function') closeMargToolSurface();
+    var pick = await pickQuestionForCard(options.topic);
+    if (!pick) throw new Error('No checked question is available');
+    var exercise = buildQuestionCardExercise(pick, options.topic);
+    registerQuestionCardExercise(exercise);
+    addQuestionCardMessage(exercise);
+    var twin = exercise.content.exerciseText + '\n[MARG_CARD:' + exercise.id + ']';
+    conversationHistory.push({ role:'assistant', content:twin, exerciseId:exercise.id });
+    if (!isGuestMode) saveChatMessage('assistant', twin);
+    if (typeof persistGuestBrowserSession === 'function') persistGuestBrowserSession();
+    scrollChatToLatest({ instant:true });
+    return true;
+  } catch (error) {
+    console.error('Question card failed:', error && error.message || error);
+    showQuestionCardFailure();
+    return false;
+  } finally {
+    questionCardLoading = false;
+  }
+}
+
+// The chip beside the message box. It opens the topic chooser for a card, or the older practice surface when the switch is off.
+function openQuestionChip() {
+  if (typeof openMargTool !== 'function') return;
+  openMargTool(BETA_INLINE_CARDS ? 'question' : 'practice');
+}
+
+function restoreQuestionCardMessage(message) {
+  var id = questionCardIdFromText(message && message.content);
+  if (!id) return false;
+  var exercise = findQuestionCardExercise(id);
+  if (!exercise) return false;
+  addQuestionCardMessage(exercise);
+  return true;
 }
 
 function buildArticleRCAttemptHtml(exercise) {

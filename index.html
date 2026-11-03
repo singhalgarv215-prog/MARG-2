@@ -1289,6 +1289,8 @@ Questions? <a href="mailto:hello@trymarg.com" style="color:#C9A84C;text-decorati
 <textarea id="user-input" rows="1" placeholder="Ask Marg anything… Type / for tools" disabled></textarea>
 <button id="send-btn" onclick="sendMessage()" disabled><svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg></button>
 </div>
+<style>#composer-chips{display:flex;gap:8px;margin:8px 8px 0 48px}#question-chip{min-height:40px;padding:8px 14px;border:1px solid var(--border2);border-radius:999px;background:var(--surface2);color:var(--gold-light);font-family:inherit;font-size:15px;font-weight:600;cursor:pointer}#question-chip:hover{border-color:var(--gold)}@media(max-width:600px){#composer-chips{margin-left:4px}}</style>
+<div id="composer-chips"><button id="question-chip" type="button" onclick="openQuestionChip()">Give me a question</button></div>
 <div id="slash-command-menu" role="listbox" aria-label="Marg tools" hidden></div>
 <div id="composer-status" role="status" aria-live="polite"></div>
 <div id="hint">Press Enter to send · Shift+Enter for new line</div>
