@@ -5,6 +5,7 @@
   var visibleCommands = [];
   var commands = [
     { id:'diagnose', command:'/diagnose', title:'Find what is holding me back', description:'Investigate one real problem before deciding the fix.', icon:'⌖' },
+    { id:'question', command:'/question', title:'Give me a question', description:'One checked QA question as a card in this chat.', icon:'?' },
     { id:'practice', command:'/practice', title:'Practice VARC, DILR or QA', description:'Start a checked practice session from this chat.', icon:'✍' },
     { id:'mock-analysis', command:'/analyse-mock', title:'Analyse a mock I already took', description:'Enter existing scores or attach a scorecard. Marg does not provide a mock test.', icon:'▥' },
     { id:'today-varc', command:'/today-varc', title:'Open Today’s VARC', description:'Turn the current Aeon article into an RC experience.', icon:'▤' },
@@ -337,6 +338,38 @@
     appendPracticeBack(view.body); view.body.appendChild(fields); view.body.appendChild(summary); view.body.appendChild(start);
   }
 
+  function showQuestionCardConfigurator() {
+    var view = makeToolCard('question', 'Give me a question', 'One checked QA question appears in the chat. Pick a topic or leave it open.');
+    if (!view) return;
+    var topic = selectField('Topic', [
+      { value:'', label:'Any QA topic' },
+      { value:'Percentages', label:'Percentages' },
+      { value:'Ratios & Proportions', label:'Ratios & Proportions' },
+      { value:'Time-Speed-Distance', label:'Time, Speed & Distance' },
+      { value:'Profit & Loss', label:'Profit & Loss' },
+      { value:'Linear Equations', label:'Linear Equations' },
+      { value:'Quadratic Equations', label:'Quadratic Equations' },
+      { value:'Functions & Inequalities', label:'Functions & Inequalities' },
+      { value:'Logarithms & Exponents', label:'Logarithms & Exponents' },
+      { value:'Geometry (Triangles, Circles)', label:'Triangles & Circles' },
+      { value:'Mensuration (2D & 3D)', label:'Mensuration' },
+      { value:'Coordinate Geometry', label:'Coordinate Geometry' },
+      { value:'Number Systems', label:'Number Systems' },
+      { value:'Permutation & Combination', label:'Permutation & Combination' },
+      { value:'Probability', label:'Probability' },
+      { value:'Set Theory', label:'Set Theory' }
+    ], '');
+    var fields = document.createElement('div'); fields.className = 'slash-tool-fields slash-practice-fields';
+    fields.appendChild(topic.label);
+    var start = document.createElement('button'); start.type = 'button'; start.className = 'slash-tool-primary'; start.textContent = 'Show me a question \u2192';
+    start.addEventListener('click', function () {
+      closeMargToolSurface();
+      if (requireFunction('requestQuestionCard')) window.requestQuestionCard({ topic:topic.select.value });
+      else showUnavailable();
+    });
+    view.body.appendChild(fields); view.body.appendChild(start);
+  }
+
   function scoreInput(labelText, max) {
     var label = document.createElement('label'); label.className = 'slash-score-field';
     var span = document.createElement('span'); span.textContent = labelText;
@@ -438,6 +471,7 @@
     var input = inputElement(); if (input && /^\s*\//.test(input.value)) { input.value = ''; input.dispatchEvent(new Event('input', { bubbles:true })); }
     if (requireFunction('switchTab')) window.switchTab('chat');
     if (id === 'diagnose') showDiagnosisCard();
+    else if (id === 'question') showQuestionCardConfigurator();
     else if (id === 'practice') showPracticeCard();
     else if (id === 'mock' || id === 'mock-analysis') showMockCard();
     else if (id === 'today-varc' || id === 'varc') openTodaysVarc();
