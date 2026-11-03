@@ -4589,6 +4589,153 @@ async function runInlineQuestionCardTests() {
   return results;
 }
 
+function runJourneyLogTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var clone = function(value) { return JSON.parse(JSON.stringify(value)); };
+  var saved = { user:currentUser, loop:mentorExecutionLoop, memory:diagnosticMemory, profile:studentProfile, plan:activeMentorPlan, flag:BETA_JOURNEY_LOG, next:progressNextDecisionAction, rec:buildHomeRecommendation };
+  var learningKey = function() { return getUserScopedKey('marg_learning_record'); };
+  var planKey = function() { return getUserScopedKey('marg_active_mentor_plan'); };
+  var savedLocal = {};
+  var arm = function(userId, loop, profile) {
+    currentUser = { id:userId || 'journey-a' };
+    mentorExecutionLoop = Object.assign({ diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:true, unavailable:false, evidenceUnavailable:false }, loop || {});
+    diagnosticMemory = {};
+    studentProfile = Object.assign({ mockHistory:[], recentMistakes:[] }, profile || {});
+    activeMentorPlan = null;
+    BETA_JOURNEY_LOG = true;
+    buildHomeRecommendation = function() { return { title:'Bring Marg one real attempt.', copy:'Marg needs observable work.', cta:'Start diagnosis →', action:{ destination:'diagnosis' } }; };
+    [learningKey(), planKey()].forEach(function(key) { if (!(key in savedLocal)) savedLocal[key] = localStorage.getItem(key); localStorage.removeItem(key); });
+  };
+  var task = function(id, extra) { return Object.assign({ id:id, status:'completed', title:'QA question', objective:'Check one skill', section:'qa', topic:'Percentages', diagnosis_id:null, updated_at:'2026-11-01T08:00:00.000Z' }, extra || {}); };
+  var attempt = function(id, taskId, extra) { return Object.assign({ id:id, client_ref:id, task_id:taskId, correct:1, wrong:2, skipped:0, completed_at:'2026-11-01T09:00:00.000Z', behaviour_data:{ source:'practice' } }, extra || {}); };
+  var all = function(log) { return log.sections.planned.concat(log.sections.happened, log.sections.learned); };
+  try {
+    // Empty state.
+    arm();
+    var empty = buildJourneyLog();
+    var emptyHtml = buildJourneyLogHtml(empty);
+    check('J1 with no records every section is empty and the page says nothing has been recorded', empty.empty === true && all(empty).length === 0 && empty.counts.attempts === 0 && empty.trend === null && /Nothing has been recorded for this goal yet/.test(emptyHtml) && (emptyHtml.match(/class="jl-entry"/g) || []).length === 1);
+    check('J2 the only entry on an empty journey is the next step, and it invents no progress', empty.sections.next.length === 1 && !/\b\d+ of \d+ correct|improving|mastered|streak/i.test(emptyHtml));
+
+    // Observed attempts.
+    arm('journey-a', { tasks:[task('t1')], attempts:[attempt('a1', 't1')] });
+    var observed = buildJourneyLog();
+    var happened = observed.sections.happened[0];
+    check('J3 a saved attempt is an Observed entry with its real counts', observed.sections.happened.length === 1 && happened.source === 'observed' && /1 of 3 correct/.test(happened.title) && /2 wrong/.test(happened.detail) && /Observed/.test(buildJourneyLogHtml(observed)));
+    var cardLog = (function() { arm('journey-a', { tasks:[task('t2')], attempts:[attempt('a2', 't2', { behaviour_data:{ source:'inline-card' } })] }); return buildJourneyLog(); })();
+    check('J4 an attempt made on a question card says so', /^Question card:/.test(cardLog.sections.happened[0].title));
+    arm('journey-a', { tasks:[task('t3')], attempts:[attempt('a3', 't3', { marks:7, max_marks:12 })] });
+    check('J5 marks are shown only when the attempt really has marks', /7 of 12 marks/.test(buildJourneyLog().sections.happened[0].title));
+
+    // Reported entries.
+    arm('journey-a', { evidence:[{ id:'e1', client_ref:'r1', evidence_type:'self_report', claim:'I rush the last two questions', occurred_at:'2026-11-01T07:00:00.000Z' }, { id:'e2', client_ref:'r2', evidence_type:'observed_attempt', claim:'Skipped setup', occurred_at:'2026-11-01T07:30:00.000Z' }] });
+    var reported = buildJourneyLog();
+    check('J6 the student\'s own words are a Reported entry, and an observed evidence row is not listed as a report', reported.sections.happened.length === 1 && reported.sections.happened[0].source === 'reported' && /rush the last two/.test(reported.sections.happened[0].detail) && reported.counts.reports === 1);
+
+    // Working reads and attempt counts.
+    arm('journey-a', { diagnoses:[{ id:'d1', mechanism:'Skips the setup line and jumps to arithmetic', status:'hypothesis', updated_at:'2026-11-01T10:00:00.000Z' }] });
+    var untested = buildJourneyLog().sections.learned[0];
+    check('J7 a read nothing has tested says 0 attempts and calls itself a working read, not a finding', untested.source === 'marg' && /0 observed attempts/.test(untested.label) && /working read, not a finding/.test(untested.detail));
+    arm('journey-a', { diagnoses:[{ id:'d2', mechanism:'Loses the base in percentage comparisons', status:'supported', updated_at:'2026-11-01T10:00:00.000Z' }],
+      tasks:[task('t4', { diagnosis_id:'d2' }), task('t5', { diagnosis_id:'d2' }), task('t6', { diagnosis_id:'other' })], attempts:[attempt('a4', 't4'), attempt('a5', 't5'), attempt('a6', 't6')] });
+    var tested = buildJourneyLog().sections.learned[0];
+    check('J8 the label carries the number of attempts that read rests on, and ignores attempts on another read', /Supported once/.test(tested.label) && /2 observed attempts/.test(tested.label) && tested.attempts === 2);
+    var labelled = ['hypothesis', 'supported', 'confirmed', 'rejected', 'inconclusive'].map(function(status, index) {
+      arm('journey-a', { diagnoses:[{ id:'s' + index, mechanism:'A read number ' + index, status:status, updated_at:'2026-11-01T1' + index + ':00:00.000Z' }] });
+      return buildJourneyLog().sections.learned[0];
+    });
+    check('J9 every status label on a read, including confirmed and supported, has an attempt count beside it', labelled.every(function(entry) { return /\d+ observed attempts?$/.test(entry.label); }));
+    arm('journey-a', { diagnoses:[{ id:'d3', mechanism:'A confirmed read', status:'confirmed', updated_at:'2026-11-01T10:00:00.000Z' }] });
+    check('J10 the journey never says mastered, improving or mastery as a finding', !/\b(?:mastered|improving)\b/i.test(buildJourneyLogHtml(buildJourneyLog())) && !/mastery/i.test(buildJourneyLogHtml(buildJourneyLog()).replace(/not mastery/gi, '')));
+
+    // The learning record.
+    arm();
+    saveLearningRecord(Object.assign(emptyLearningRecord(), { facts:[{ id:'f1', at:'2026-11-01T06:00:00.000Z', kind:'observed', section:'qa', topic:'Percentages', stem:'A shop marks an item up' }], outcome:{ at:'2026-11-01T06:30:00.000Z', correct:false, mastery:false, note:'' }, objective:{ section:'qa', topic:'Percentages', skill:'base', reason:'one_miss' }, intervention:{ kind:'gather_evidence', served:false, mastery:false } }));
+    var local = buildJourneyLog();
+    check('J11 with no saved attempts, misses kept on this device appear as Observed, the queued check appears as Marg\'s plan, and one fresh check is labelled a single data point', local.sections.happened.some(function(entry) { return entry.source === 'observed' && /A miss on this device/.test(entry.title); }) && local.sections.planned.some(function(entry) { return entry.source === 'marg' && /fresh check/.test(entry.title); }) && local.sections.learned.some(function(entry) { return /One data point/.test(entry.label) && entry.attempts === 1; }));
+    arm('journey-a', { tasks:[task('t7')], attempts:[attempt('a7', 't7')] });
+    saveLearningRecord(Object.assign(emptyLearningRecord(), { facts:[{ id:'f2', at:'2026-11-01T06:00:00.000Z', kind:'observed', section:'qa', topic:'Percentages', stem:'A shop marks an item up' }] }));
+    check('J12 when saved attempts exist the same misses are not listed twice', buildJourneyLog().sections.happened.length === 1);
+
+    // Planned.
+    arm('journey-a', { tasks:[task('t8', { status:'ready', title:'Ten percentage questions' }), task('t9', { status:'completed', title:'Finished check' }), task('t10', { status:'cancelled', title:'Dropped check' })] });
+    localStorage.setItem(planKey(), JSON.stringify({ mission:'Today\'s Mission: solve five percentages with a setup line first', status:'active', updatedAt:'2026-11-01T05:00:00.000Z' }));
+    var planned = buildJourneyLog().sections.planned;
+    check('J13 only open tasks and the open plan are planned, each as Marg\'s note; finished and cancelled tasks are not', planned.length === 2 && planned.every(function(entry) { return entry.source === 'marg'; }) && planned.some(function(entry) { return entry.title === 'Ten percentage questions' && entry.label === 'Ready'; }) && planned.some(function(entry) { return /^solve five percentages/.test(entry.title); }));
+
+    // Goal adapter: the mock trend.
+    arm('journey-a', {}, { mockHistory:[] });
+    var noMock = buildJourneyLog();
+    arm('journey-a', {}, { mockHistory:[{ date:'2026-09-01', varc:20, dilr:15, qa:18, total:53 }] });
+    var oneMock = buildJourneyLog();
+    arm('journey-a', {}, { mockHistory:[{ date:'2026-09-01', varc:20, dilr:15, qa:18, total:53 }, { date:'2026-10-01', varc:22, dilr:18, qa:21, total:61 }] });
+    var twoMocks = buildJourneyLog();
+    check('J14 the mock trend appears only with two or more entered mocks, and each mock is Reported', noMock.trend === null && noMock.sections.happened.length === 0 && oneMock.trend === null && oneMock.sections.happened.length === 1 && oneMock.sections.happened[0].source === 'reported' && /Marg did not see the paper/.test(oneMock.sections.happened[0].detail) && /53 → 61 across 2 mocks/.test(twoMocks.trend) && /nothing about a percentile/.test(twoMocks.trend));
+    var otherGoal = (function() { arm('journey-a', {}, { mockHistory:[{ date:'2026-09-01', total:53 }, { date:'2026-10-01', total:61 }] }); return buildJourneyLog('other-goal'); })();
+    check('J15 a goal with no adapter gets the shared view and none of the CAT mock content', otherGoal.goal.key === 'other-goal' && otherGoal.trend === null && otherGoal.sections.happened.length === 0);
+    var sharedSource = [buildJourneyLog, buildJourneyLogHtml, buildJourneyEntryHtml, renderJourneyLog, journeyHomeLine, renderHomeJourneyLine].map(String).join('\n');
+    check('J16 the shared journey code names no exam or section', !/\b(?:CAT|VARC|DILR)\b/i.test(sharedSource) && !/['"](?:varc|dilr|qa|cat)['"]/i.test(sharedSource));
+
+    // Ordering, limits, escaping.
+    var many = []; var manyTasks = [task('tm')];
+    for (var i = 0; i < 12; i++) many.push(attempt('am' + i, 'tm', { completed_at:'2026-10-' + String(10 + i) + 'T09:00:00.000Z' }));
+    arm('journey-a', { tasks:manyTasks, attempts:many });
+    var limited = buildJourneyLog().sections.happened;
+    check('J17 the happened list shows the eight newest attempts, newest first', limited.length === 8 && limited[0].at > limited[7].at && limited[0].at === '2026-10-21T09:00:00.000Z');
+    arm('journey-a', { evidence:[{ id:'e9', client_ref:'r9', evidence_type:'self_report', claim:'<img src=x onerror=alert(1)> I panic', occurred_at:'2026-11-01T07:00:00.000Z' }] });
+    var escaped = buildJourneyLogHtml(buildJourneyLog());
+    check('J18 a student\'s own words are escaped', escaped.indexOf('<img') === -1 && /&lt;img/.test(escaped));
+
+    // Account isolation.
+    arm('journey-a', {});
+    saveLearningRecord(Object.assign(emptyLearningRecord(), { facts:[{ id:'fa', at:'2026-11-01T06:00:00.000Z', kind:'observed', topic:'Only A', stem:'A\'s private miss' }] }));
+    var asA = buildJourneyLog();
+    currentUser = { id:'journey-b' };
+    diagnosticMemory = {};
+    var asB = buildJourneyLog();
+    check('J19 a second account does not see the first account\'s local record', asA.sections.happened.length === 1 && asB.sections.happened.length === 0 && !/Only A|private miss/.test(buildJourneyLogHtml(asB)));
+    localStorage.removeItem(getUserScopedKey('marg_learning_record'));
+    currentUser = { id:'journey-a' };
+    localStorage.removeItem(getUserScopedKey('marg_learning_record'));
+
+    // The page, the Home line and the switch.
+    arm('journey-a', { tasks:[task('th')], attempts:[attempt('ah', 'th')], diagnoses:[{ id:'dh', mechanism:'Skips the setup line', status:'hypothesis', updated_at:'2026-11-01T10:00:00.000Z' }] });
+    var homeLog = buildJourneyLog();
+    var line = journeyHomeLine(homeLog);
+    check('J20 Home\'s line states what last happened and Marg\'s current read, each with its source and count', /^Last: .*\(observed, /.test(line) && /Marg’s current read: Skips the setup line \(Working pattern · 0 observed attempts\)/.test(line));
+    arm();
+    arm('journey-a', { evidence:[{ id:'eh', client_ref:'rh', evidence_type:'self_report', claim:'I run out of time on the last set', occurred_at:'2026-11-01T07:00:00.000Z' }] });
+    check('J20b when the last thing was something the student said, Home quotes it and labels it reported', /^Last: You told Marg: \u201cI run out of time on the last set\u201d \(reported, /.test(journeyHomeLine(buildJourneyLog())));
+    arm();
+    check('J21 Home\'s line is empty when there is nothing to say', journeyHomeLine(buildJourneyLog()) === '');
+    check('J22 Home asks the builder for its line and the Progress screen renders the journey', /renderHomeJourneyLine\(\)/.test(String(renderMentorHome)) && /renderJourneyLog\(\)/.test(String(loadProgressDashboard)));
+    var tab = document.createElement('div'); tab.id = 'progress-tab';
+    var host = document.createElement('div'); host.id = 'journey-log';
+    arm('journey-a', { tasks:[task('tj')], attempts:[attempt('aj', 'tj')] });
+    var rendered = renderJourneyLog();
+    var onClass = tab.classList.contains('journey-log-on');
+    var onHtml = host.innerHTML;
+    BETA_JOURNEY_LOG = false;
+    host.innerHTML = 'untouched';
+    var renderedOff = renderJourneyLog();
+    check('J23 the switch decides the view: on shows the journey, off leaves the older stat cards and touches nothing', rendered === true && onClass && /jl-section/.test(onHtml) && renderedOff === false && !tab.classList.contains('journey-log-on') && host.innerHTML === 'untouched');
+    tab.id = ''; host.id = '';
+    check('J24 the older progress functions are still in place', typeof renderProgressJourney === 'function' && typeof renderMockChart === 'function' && typeof getProgressJourneyData === 'function' && /renderMockChart\(mockHistory\)/.test(String(loadProgressDashboard)));
+  } finally {
+    Object.keys(savedLocal).forEach(function(key) { if (savedLocal[key] === null) localStorage.removeItem(key); else localStorage.setItem(key, savedLocal[key]); });
+    currentUser = saved.user;
+    mentorExecutionLoop = saved.loop;
+    diagnosticMemory = saved.memory;
+    studentProfile = saved.profile;
+    activeMentorPlan = saved.plan;
+    BETA_JOURNEY_LOG = saved.flag;
+    progressNextDecisionAction = saved.next;
+    buildHomeRecommendation = saved.rec;
+  }
+  return results;
+}
+
 function runMobileAuditFixTests() {
   var results = [];
   var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
@@ -31998,6 +32145,7 @@ function renderMentorHome() {
   if (recTitle) recTitle.textContent = recommendation.title;
   if (copy) copy.textContent = recommendation.copy;
   if (cta) cta.textContent = recommendation.cta;
+  try { renderHomeJourneyLine(); } catch (error) { console.error('Home journey line failed:', error && error.message || error); }
   renderHomePriorityStrip();
 }
 
@@ -36051,6 +36199,266 @@ function renderProgressJourney() {
     progressJourneyStep('5', 'Next decision', recommendation.title, recommendation.copy, 'current');
 }
 
+// ---------------------------------------------------------------------------
+// Journey log. One view per goal: what was planned, what happened, what Marg
+// learned, what is next. It is built only from records that already exist
+// (saved attempts, saved evidence, mentor tasks, the learning record, the open
+// plan, and anything the student entered). Nothing here is estimated or
+// invented. Every entry says where it came from: Observed (from an attempt),
+// Reported (the student's own words or numbers) or Marg's note (a plan or a
+// working read written by Marg, never presented as a finding). BETA_JOURNEY_LOG
+// only decides whether the Progress screen shows this view or the older stat
+// cards; the older markup and functions are untouched.
+// ---------------------------------------------------------------------------
+var BETA_JOURNEY_LOG = true;
+var JOURNEY_DEFAULT_GOAL = 'cat';
+var JOURNEY_SECTIONS = [
+  { id:'planned', title:'What was planned', empty:'Nothing is planned yet.' },
+  { id:'happened', title:'What happened', empty:'Nothing has been recorded yet. Answer a question or tell Marg what happened in a mock and it will appear here.' },
+  { id:'learned', title:'What Marg learned', empty:'Marg has not formed a read yet. It needs real work or your own account of what happened.' },
+  { id:'next', title:'What’s next', empty:'' }
+];
+var JOURNEY_SOURCE_LABELS = { observed:'Observed', reported:'Reported', marg:'Marg’s note' };
+var journeyGoalAdapters = {};
+
+// Goal-specific parts live in an adapter so the shared builder holds no exam names.
+journeyGoalAdapters.cat = {
+  label:'CAT',
+  entries:function() {
+    var rows = studentProfile && Array.isArray(studentProfile.mockHistory) ? studentProfile.mockHistory : [];
+    return rows.filter(function(row) { return row && (row.total !== undefined || row.varc !== undefined); }).map(function(row, index) {
+      var parts = ['varc', 'dilr', 'qa'].filter(function(key) { return row[key] !== undefined && row[key] !== null; }).map(function(key) { return key.toUpperCase() + ' ' + row[key]; });
+      var total = row.total !== undefined && row.total !== null ? row.total : ['varc', 'dilr', 'qa'].reduce(function(sum, key) { return sum + (Number(row[key]) || 0); }, 0);
+      return {
+        id:'mock-' + index + '-' + (row.date || ''), section:'happened', at:row.date || '', source:'reported',
+        title:'Mock you entered: ' + total + ' in total', detail:(parts.length ? parts.join(' · ') + '. ' : '') + 'These are the scores you gave Marg. Marg did not see the paper.', label:'', attempts:null
+      };
+    });
+  },
+  trend:function() {
+    var rows = (studentProfile && Array.isArray(studentProfile.mockHistory) ? studentProfile.mockHistory : []).filter(function(row) { return row && row.total !== undefined && row.total !== null && isFinite(Number(row.total)); });
+    if (rows.length < 2) return null;
+    var first = Number(rows[0].total), last = Number(rows[rows.length - 1].total);
+    return 'Mock totals you entered: ' + first + ' → ' + last + ' across ' + rows.length + ' mocks. These are your own figures; they say nothing about a percentile.';
+  }
+};
+
+function journeyDate(value) {
+  var parsed = value ? new Date(value) : null;
+  if (!parsed || isNaN(parsed.getTime())) return '';
+  try { return parsed.toLocaleDateString('en-IN', { day:'numeric', month:'short' }); } catch (error) { return ''; }
+}
+
+function journeyCountLabel(count) {
+  return count + ' observed attempt' + (count === 1 ? '' : 's');
+}
+
+function journeyAttemptTotal(attempt) {
+  return Number(attempt.correct || 0) + Number(attempt.wrong || 0) + Number(attempt.skipped || 0);
+}
+
+function buildJourneyLog(goalKey) {
+  var key = goalKey || JOURNEY_DEFAULT_GOAL;
+  var adapter = journeyGoalAdapters[key] || null;
+  var loop = typeof mentorExecutionLoop !== 'undefined' && mentorExecutionLoop ? mentorExecutionLoop : {};
+  var diagnoses = (loop.diagnoses || []).filter(function(item) { return item && item.status !== 'superseded'; });
+  var tasks = (loop.tasks || []).filter(function(item) { return item && item.status !== 'cancelled'; });
+  var attempts = (loop.attempts || []).filter(Boolean);
+  var evidence = (loop.evidence || []).filter(Boolean);
+  try { loadDiagnosticMemory(); } catch (error) {}
+  var memoryEntries = Object.keys(diagnosticMemory || {}).map(function(name) { return diagnosticMemory[name]; }).filter(function(entry) { return entry && !entry.doNotReuse && entry.status !== 'rejected' && entry.status !== 'superseded'; });
+  var record = loadLearningRecord();
+  var sections = { planned:[], happened:[], learned:[], next:[] };
+  var taskById = {};
+  tasks.forEach(function(task) { taskById[task.id] = task; });
+
+  // Planned: open tasks, the open plan, and the next check the learning record has queued.
+  tasks.filter(function(task) { return ['ready', 'generating', 'in_progress'].indexOf(task.status) !== -1; }).forEach(function(task) {
+    sections.planned.push({ id:'task-' + task.id, section:'planned', at:task.scheduled_for || task.updated_at || task.created_at || '', source:'marg',
+      title:task.title || task.objective || 'A saved check', detail:task.objective && task.objective !== task.title ? task.objective : '', label:task.status === 'in_progress' ? 'In progress' : 'Ready', attempts:null });
+  });
+  try {
+    loadActiveMentorPlan();
+    if (isOpenMentorPlan(activeMentorPlan)) {
+      sections.planned.push({ id:'plan-open', section:'planned', at:activeMentorPlan.updatedAt || activeMentorPlan.createdAt || '', source:'marg',
+        title:String(activeMentorPlan.mission).replace(/^\s*Today(?:'|’)s\s+Mission\s*:?\s*/i, '').slice(0, 220), detail:'', label:activeMentorPlan.status === 'evidence_ready' ? 'Evidence ready to review' : 'Open', attempts:null });
+    }
+  } catch (error) {}
+  if (record && record.objective && record.intervention && !record.intervention.served) {
+    sections.planned.push({ id:'record-next', section:'planned', at:record.objective.at || '', source:'marg',
+      title:'A fresh check on ' + (record.objective.topic || record.objective.skill || 'the skill you just missed'), detail:'Queued after a miss, so one more answer can show whether it was a one-off.', label:'Queued', attempts:null });
+  }
+
+  // Happened: finished attempts (observed), the student's own reports, and entered mock scores.
+  attempts.forEach(function(attempt) {
+    var task = taskById[attempt.task_id] || {};
+    var total = journeyAttemptTotal(attempt);
+    var score = (attempt.marks !== null && attempt.marks !== undefined && attempt.max_marks !== null && attempt.max_marks !== undefined)
+      ? Number(attempt.marks) + ' of ' + Number(attempt.max_marks) + ' marks'
+      : Number(attempt.correct || 0) + ' of ' + total + ' correct';
+    var viaCard = attempt.behaviour_data && attempt.behaviour_data.source === 'inline-card';
+    sections.happened.push({ id:'attempt-' + (attempt.id || attempt.client_ref), section:'happened', at:attempt.completed_at || attempt.updated_at || attempt.created_at || '', source:'observed',
+      title:(viaCard ? 'Question card' : (task.title || 'Practice')) + ': ' + score,
+      detail:(Number(attempt.wrong || 0) ? Number(attempt.wrong) + ' wrong' : 'None wrong') + (Number(attempt.skipped || 0) ? ' · ' + Number(attempt.skipped) + ' skipped' : '') + (task.topic ? ' · ' + task.topic : ''), label:'', attempts:null });
+  });
+  if (!attempts.length) {
+    // With no saved attempts (a guest, or the server was unreachable) the misses kept on this device stand in for them.
+    (record && Array.isArray(record.facts) ? record.facts : []).filter(function(fact) { return fact && fact.kind === 'observed'; }).forEach(function(fact) {
+      sections.happened.push({ id:'fact-' + fact.id, section:'happened', at:fact.at || '', source:'observed', title:'A miss on this device' + (fact.topic ? ': ' + fact.topic : ''), detail:String(fact.stem || '').slice(0, 140), label:'', attempts:null });
+    });
+  }
+  var reportRows = {};
+  evidence.filter(function(item) { return item.evidence_type === 'self_report' && item.claim; }).forEach(function(item) {
+    reportRows[item.client_ref || item.id] = { at:item.occurred_at || item.created_at || '', claim:item.claim };
+  });
+  memoryEntries.forEach(function(entry) {
+    (Array.isArray(entry.evidenceHistory) ? entry.evidenceHistory : []).filter(function(item) { return item && item.type === 'self_report' && item.claim; }).forEach(function(item) {
+      if (!reportRows[item.clientRef]) reportRows[item.clientRef] = { at:item.occurredAt || '', claim:item.claim };
+    });
+  });
+  Object.keys(reportRows).forEach(function(ref) {
+    sections.happened.push({ id:'report-' + ref, section:'happened', at:reportRows[ref].at, source:'reported', title:'You told Marg', detail:String(reportRows[ref].claim).slice(0, 220), label:'', attempts:null });
+  });
+  if (adapter && typeof adapter.entries === 'function') adapter.entries({ record:record }).forEach(function(entry) { sections[entry.section].push(entry); });
+
+  // Learned: each working read, with the number of attempts it rests on.
+  var seenReads = {};
+  var addRead = function(read) {
+    var identity = String(read.mechanism || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!identity || seenReads[identity]) return;
+    seenReads[identity] = true;
+    var count = read.attempts;
+    var status = progressJourneyStatus(read.status);
+    sections.learned.push({ id:'read-' + identity.slice(0, 40), section:'learned', at:read.at, source:'marg',
+      title:read.mechanism, label:status + ' · ' + journeyCountLabel(count),
+      detail:count === 0 ? 'No attempt has tested this yet, so it is a working read, not a finding.' + (read.reports ? ' It rests on what you told Marg.' : '') : 'Based on ' + journeyCountLabel(count) + (read.reports ? ' and ' + read.reports + ' report' + (read.reports === 1 ? '' : 's') + ' from you' : '') + '. One attempt is a data point, not mastery.',
+      attempts:count });
+  };
+  diagnoses.forEach(function(diagnosis) {
+    var taskIds = tasks.filter(function(task) { return task.diagnosis_id === diagnosis.id; }).map(function(task) { return task.id; });
+    var count = attempts.filter(function(attempt) { return taskIds.indexOf(attempt.task_id) !== -1; }).length;
+    var reports = evidence.filter(function(item) { return item.diagnosis_id === diagnosis.id && item.evidence_type === 'self_report'; }).length;
+    addRead({ mechanism:diagnosis.mechanism, status:diagnosis.status, at:diagnosis.updated_at || diagnosis.created_at || '', attempts:count, reports:reports });
+  });
+  memoryEntries.forEach(function(entry) {
+    var history = Array.isArray(entry.evidenceHistory) ? entry.evidenceHistory : [];
+    addRead({ mechanism:entry.confirmedDiagnosis || entry.originalPrediction || entry.selectedPattern, status:normalizeDiagnosisStatus(entry), at:entry.updatedAt || '',
+      attempts:history.filter(function(item) { return item && (item.type === 'observed_attempt' || item.type === 'practice_attempt'); }).length,
+      reports:history.filter(function(item) { return item && item.type === 'self_report'; }).length });
+  });
+  if (record && record.outcome) {
+    sections.learned.push({ id:'record-outcome', section:'learned', at:record.outcome.at || '', source:'observed',
+      title:'One fresh check' + (record.objective && record.objective.topic ? ' on ' + record.objective.topic : '') + ': ' + (record.outcome.correct ? 'correct' : 'not correct'),
+      label:'One data point · ' + journeyCountLabel(1), detail:'One answer on a fresh question. It does not show mastery.', attempts:1 });
+  }
+
+  // Next: the same recommendation Home shows.
+  var recommendation = typeof buildHomeRecommendation === 'function' ? buildHomeRecommendation() : null;
+  if (recommendation) {
+    sections.next.push({ id:'next-' + String(recommendation.title || '').slice(0, 30), section:'next', at:'', source:'marg', title:recommendation.title || 'Continue with Marg',
+      detail:recommendation.copy || '', label:'', attempts:null, cta:recommendation.cta || 'Continue with Marg →', action:recommendation.action || null });
+  }
+
+  var byNewest = function(a, b) { return String(b.at || '').localeCompare(String(a.at || '')); };
+  ['planned', 'happened', 'learned'].forEach(function(name) { sections[name].sort(byNewest); });
+  sections.planned = sections.planned.slice(0, 4);
+  sections.happened = sections.happened.slice(0, 8);
+  sections.learned = sections.learned.slice(0, 5);
+  return {
+    goal:{ key:key, label:adapter ? adapter.label : key },
+    sections:sections,
+    counts:{ attempts:attempts.length, reports:Object.keys(reportRows).length },
+    trend:adapter && typeof adapter.trend === 'function' ? adapter.trend() : null,
+    empty:!sections.planned.length && !sections.happened.length && !sections.learned.length
+  };
+}
+
+function ensureJourneyLogStyles() {
+  if (document.getElementById('journey-log-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'journey-log-styles';
+  style.textContent = '#journey-log{display:none;max-width:720px;font-size:15px;line-height:1.5;color:var(--text)}#progress-tab.journey-log-on #journey-log{display:block}' +
+    '#progress-tab.journey-log-on .progress-stats,#progress-tab.journey-log-on #mock-chart-card,#progress-tab.journey-log-on #marg-journey-card,#progress-tab.journey-log-on #progress-empty{display:none!important}' +
+    '.jl-head{margin:0 0 14px}.jl-title{font-size:18px;font-weight:700;margin:0 0 4px}.jl-sub{font-size:15px;color:var(--text-muted);margin:0}' +
+    '.jl-trend{margin:0 0 14px;padding:12px 14px;border:1px solid var(--border2);border-radius:12px;font-size:15px;color:var(--text-muted)}' +
+    '.jl-section{margin:0 0 18px}.jl-section-title{font-size:15px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--text-dim);margin:0 0 8px}' +
+    '.jl-empty{font-size:15px;color:var(--text-muted);padding:12px 14px;border:1px dashed var(--border2);border-radius:12px}' +
+    '.jl-entry{padding:12px 14px;margin:0 0 8px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}' +
+    '.jl-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}.jl-tag{font-size:15px;font-weight:600;padding:2px 10px;border-radius:999px;border:1px solid var(--border2);color:var(--text-muted)}' +
+    '.jl-tag.observed{color:var(--green);border-color:rgba(76,175,125,.4)}.jl-tag.reported{color:var(--gold-light);border-color:rgba(201,168,76,.4)}' +
+    '.jl-entry-title{font-size:16px;font-weight:600;margin:0 0 4px;overflow-wrap:anywhere}.jl-entry-detail{font-size:15px;color:var(--text-muted);margin:0;overflow-wrap:anywhere}.jl-date{font-size:15px;color:var(--text-dim);margin:6px 0 0}' +
+    '.jl-cta{min-height:44px;padding:10px 16px;margin-top:10px;border:1px solid var(--gold);border-radius:10px;background:var(--gold);color:#000;font:inherit;font-size:15px;font-weight:600;cursor:pointer;width:100%}' +
+    '@media(min-width:601px){.jl-cta{width:auto}}';
+  document.head.appendChild(style);
+}
+
+function buildJourneyEntryHtml(entry) {
+  var tags = '<span class="jl-tag ' + entry.source + '">' + escapeChatHtml(JOURNEY_SOURCE_LABELS[entry.source] || 'Marg’s note') + '</span>' +
+    (entry.label ? '<span class="jl-tag">' + escapeChatHtml(entry.label) + '</span>' : '');
+  var when = journeyDate(entry.at);
+  return '<div class="jl-entry" data-source="' + entry.source + '"><div class="jl-tags">' + tags + '</div>' +
+    '<div class="jl-entry-title">' + escapeChatHtml(entry.title) + '</div>' +
+    (entry.detail ? '<p class="jl-entry-detail">' + escapeChatHtml(entry.detail) + '</p>' : '') +
+    (when ? '<div class="jl-date">' + escapeChatHtml(when) + '</div>' : '') +
+    (entry.cta ? '<button type="button" class="jl-cta" onclick="runProgressNextDecision()">' + escapeChatHtml(entry.cta) + '</button>' : '') + '</div>';
+}
+
+function buildJourneyLogHtml(log) {
+  var html = '<div class="jl-head"><h2 class="jl-title">Your journey · ' + escapeChatHtml(log.goal.label) + '</h2>' +
+    '<p class="jl-sub">Built only from what you did and told Marg. Each line says where it came from.</p></div>';
+  if (log.trend) html += '<div class="jl-trend">' + escapeChatHtml(log.trend) + '</div>';
+  if (log.empty) html += '<div class="jl-empty">Nothing has been recorded for this goal yet. Answer one question or tell Marg what happened in your last mock, and your journey starts here.</div>';
+  JOURNEY_SECTIONS.forEach(function(section) {
+    var entries = log.sections[section.id] || [];
+    if (section.id === 'next' && !entries.length) return;
+    html += '<section class="jl-section" data-section="' + section.id + '"><h3 class="jl-section-title">' + escapeChatHtml(section.title) + '</h3>' +
+      (entries.length ? entries.map(buildJourneyEntryHtml).join('') : '<div class="jl-empty">' + escapeChatHtml(section.empty) + '</div>') + '</section>';
+  });
+  return html;
+}
+
+function renderJourneyLog() {
+  var tab = document.getElementById('progress-tab');
+  var host = document.getElementById('journey-log');
+  if (!tab || !host) return false;
+  if (!BETA_JOURNEY_LOG) { tab.classList.remove('journey-log-on'); return false; }
+  ensureJourneyLogStyles();
+  var log = buildJourneyLog(JOURNEY_DEFAULT_GOAL);
+  host.innerHTML = buildJourneyLogHtml(log);
+  progressNextDecisionAction = log.sections.next[0] && log.sections.next[0].action || { destination:'diagnosis' };
+  tab.classList.add('journey-log-on');
+  return true;
+}
+
+// Home reads the same builder: one line on what last happened and what Marg currently thinks, with its source.
+function journeyHomeLine(log) {
+  var last = log.sections.happened[0];
+  var read = log.sections.learned[0];
+  var parts = [];
+  var lastText = last && last.source === 'reported' && last.detail ? 'You told Marg: \u201c' + last.detail.slice(0, 80) + (last.detail.length > 80 ? '\u2026' : '') + '\u201d' : last && last.title;
+  if (last) parts.push('Last: ' + lastText + ' (' + (JOURNEY_SOURCE_LABELS[last.source] || '').toLowerCase() + (journeyDate(last.at) ? ', ' + journeyDate(last.at) : '') + ')');
+  if (read) parts.push('Marg’s current read: ' + read.title + ' (' + read.label + ')');
+  return parts.join('\n');
+}
+
+function renderHomeJourneyLine() {
+  var card = document.getElementById('home-recommendation');
+  if (!card) return false;
+  var line = document.getElementById('home-rec-journey');
+  if (!BETA_JOURNEY_LOG) { if (line) line.hidden = true; return false; }
+  var text = journeyHomeLine(buildJourneyLog(JOURNEY_DEFAULT_GOAL));
+  if (!line) {
+    line = document.createElement('div');
+    line.id = 'home-rec-journey';
+    line.style.cssText = 'margin:12px 0 0;font-size:15px;line-height:1.5;color:var(--text-muted);white-space:pre-line;overflow-wrap:anywhere';
+    var cta = document.getElementById('home-rec-cta');
+    card.insertBefore(line, cta || null);
+  }
+  line.textContent = text;
+  line.hidden = !text;
+  return !!text;
+}
+
 function runProgressNextDecision() {
   homeRecommendationAction = progressNextDecisionAction || { destination:'diagnosis' };
   runHomeRecommendation();
@@ -36058,6 +36466,13 @@ function runProgressNextDecision() {
 
 async function loadProgressDashboard() {
   if (canUseMentorExecutionLoop() && !mentorExecutionLoop.loaded) await loadMentorExecutionLoop();
+  try {
+    var journeyShown = renderJourneyLog();
+    var journeyTitle = document.querySelector('#progress-tab .progress-header-title');
+    var journeySub = document.getElementById('progress-header-sub');
+    if (journeyTitle) journeyTitle.textContent = journeyShown ? 'Your journey' : 'Your Progress';
+    if (journeySub) journeySub.textContent = journeyShown ? 'Planned, happened, learned, next' : 'Updated after each session';
+  } catch (error) { console.error('Journey log failed:', error && error.message || error); }
   loadReferralChallengeStats();
   var sessEl = document.getElementById('stat-sessions');
   if (sessEl) sessEl.textContent = studentProfile.sessionsCount || 0;
