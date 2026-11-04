@@ -4736,6 +4736,104 @@ function runJourneyLogTests() {
   return results;
 }
 
+function runGoalsNavTests() {
+  var results = [];
+  var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
+  var saved = { flag:BETA_GOALS_NAV, open:typeof openMargTool === 'function' ? openMargTool : undefined, tab:switchTab, adapters:goalWorkspaceAdapters, profile:studentProfile, loop:mentorExecutionLoop, user:currentUser };
+  var learningKey = getUserScopedKey('marg_learning_record');
+  var savedLearning = localStorage.getItem(learningKey);
+  var arm = function(profile, loop) {
+    studentProfile = Object.assign({ mockHistory:[], recentMistakes:[] }, profile || {});
+    mentorExecutionLoop = Object.assign({ diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:true, unavailable:false, evidenceUnavailable:false }, loop || {});
+    localStorage.removeItem(learningKey);
+  };
+  var opened = [];
+  try {
+    BETA_GOALS_NAV = true;
+
+    // A new account has no goal and is never given one.
+    arm();
+    var newUserGoals = listGoalWorkspaces();
+    var newUserHtml = buildGoalsTabHtml(newUserGoals);
+    var before = JSON.stringify([studentProfile, mentorExecutionLoop, localStorage.getItem(learningKey)]);
+    check('G15 a new account with no records has no goal and sees the honest empty state', newUserGoals.length === 0 && /No goals yet/.test(newUserHtml) && /saving goals is not available yet/.test(newUserHtml) && !/CAT/.test(newUserHtml));
+    check('G16 each kind of existing record makes the transitional workspace appear', (function() {
+      var cases = [{ attemptNumber:'2nd' }, { weakestSection:'QA (Quant)' }, { mockHistory:[{ date:'2026-09-20', total:52 }] }, { sessionsCount:3 }];
+      var profileOk = cases.every(function(profile) { arm(profile); return listGoalWorkspaces().length === 1; });
+      var loopOk = ['tasks', 'attempts', 'diagnoses', 'evidence'].every(function(key) { var loop = {}; loop[key] = [{ id:'x' }]; arm({}, loop); return listGoalWorkspaces().length === 1; });
+      arm(); localStorage.setItem(learningKey, JSON.stringify({ facts:[{ id:'f1' }] }));
+      var learningOk = listGoalWorkspaces().length === 1;
+      localStorage.removeItem(learningKey);
+      return profileOk && loopOk && learningOk;
+    })());
+    arm({ attemptNumber:'2nd', monthsLeft:'4 months', weakestSection:'QA (Quant)', sessionsCount:3 }, { tasks:[{ id:'t1' }], attempts:[{ id:'a1' }] });
+    var historyBefore = JSON.stringify([studentProfile, mentorExecutionLoop]);
+    var oldUserGoals = listGoalWorkspaces();
+    var oldUserHtml = buildGoalsTabHtml(oldUserGoals);
+    check('G17 an existing CAT account sees a workspace labelled temporary and not a saved goal', oldUserGoals.length === 1 && oldUserGoals[0].key === 'cat' && /Temporary workspace/.test(oldUserHtml) && /Goals are not saved yet/.test(oldUserHtml));
+    renderGoalsTab();
+    check('G18 viewing My Goals changes no profile, loop or learning record and saves no goal', JSON.stringify([studentProfile, mentorExecutionLoop]) === historyBefore && before === JSON.stringify([{ mockHistory:[], recentMistakes:[] }, { diagnoses:[], tasks:[], attempts:[], evidence:[], loaded:true, unavailable:false, evidenceUnavailable:false }, null]) && localStorage.getItem(learningKey) === null && !Object.keys(localStorage).some(function(key) { return /goal/i.test(key); }));
+    check('G19 an adapter with no history test is never shown', (function() { goalWorkspaceAdapters.bare = { label:'Bare', tools:[] }; var shown = listGoalWorkspaces().some(function(goal) { return goal.key === 'bare'; }); delete goalWorkspaceAdapters.bare; return !shown; })());
+    check('G20 a history test that throws hides the goal instead of breaking the screen', (function() { goalWorkspaceAdapters.broken = { label:'Broken', tools:[], hasHistory:function() { throw new Error('x'); } }; var shown = listGoalWorkspaces().some(function(goal) { return goal.key === 'broken'; }); delete goalWorkspaceAdapters.broken; return !shown; })());
+    var journeyOld = buildJourneyLogHtml(buildJourneyLog());
+    arm();
+    var journeyNew = buildJourneyLogHtml(buildJourneyLog());
+    check('G21 an account with no records sees "Your journey" without a CAT label, and an account with records sees it', /jl-title">Your journey<\/h2>/.test(journeyNew) && !/CAT/.test(journeyNew.slice(0, 120)) && /Your journey · CAT/.test(journeyOld));
+    arm({ attemptNumber:'2nd', monthsLeft:'4 months', weakestSection:'QA (Quant)', sessionsCount:3 }, { tasks:[{ id:'t1' }], attempts:[{ id:'a1' }] });
+    var goals = listGoalWorkspaces();
+    check('G1goals come from the workspace adapters, and today that is one implicit goal', goals.length === Object.keys(goalWorkspaceAdapters).length && goals.length >= 1 && goals.every(function(goal) { return goal.key && goal.label && Array.isArray(goal.tools); }));
+
+    var html = buildGoalsTabHtml(goals);
+    check('G2 every adapter tool becomes one button, plus the journey link', goals.every(function(goal) { return goal.tools.every(function(tool) { return html.indexOf(escapeChatHtml(tool.label)) !== -1; }); }) && /switchTab\('journey'\)/.test(html));
+    check('G3 the screen says Ask MARG works without a goal and nothing is attached to one', /works without a goal/.test(html) && /does not attach a chat/.test(html));
+    var emptyHtml = buildGoalsTabHtml([]);
+    check('G4 with no goals the screen says so and points at Ask MARG instead of a dead end', /No goals yet/.test(emptyHtml) && /Ask MARG/.test(emptyHtml));
+
+    check('G5 old Practice and Sectionals links go to My Goals, and old Progress goes to Journey', resolveLegacyTab('practice') === 'goals' && resolveLegacyTab('sectionals') === 'goals' && resolveLegacyTab('progress') === 'journey');
+    check('G6 Mock, Chat, Home and the new names are not redirected', ['mock', 'chat', 'home', 'goals', 'journey', ''].every(function(name) { return resolveLegacyTab(name) === name; }));
+    BETA_GOALS_NAV = false;
+    check('G7 with the switch off no URL is redirected', resolveLegacyTab('practice') === 'practice' && resolveLegacyTab('progress') === 'progress');
+    BETA_GOALS_NAV = true;
+
+    // A second goal is one more adapter. The shared screen needs no change.
+    goalWorkspaceAdapters.demo = { label:'Demo <b>goal</b>', summary:'Second goal', hasHistory:function() { return true; }, tools:[{ id:'one', label:'Demo <i>tool</i>', note:'n', run:function() { opened.push('demo'); } }] };
+    var twoHtml = buildGoalsTabHtml(listGoalWorkspaces());
+    check('G8 a second adapter appears with its own tools and its labels are escaped', listGoalWorkspaces().length === goals.length + 1 && /Demo &lt;i&gt;tool/.test(twoHtml) && twoHtml.indexOf('<b>goal</b>') === -1 && twoHtml.indexOf('<i>tool</i>') === -1 && /Demo &lt;b&gt;goal/.test(twoHtml));
+    runGoalTool('demo', 'one');
+    runGoalTool('demo', 'missing');
+    runGoalTool('nope', 'one');
+    check('G9 a tool runs only for the goal that owns it, and unknown goals or tools do nothing', opened.join() === 'demo');
+    delete goalWorkspaceAdapters.demo;
+
+    var sharedSource = [listGoalWorkspaces, runGoalTool, buildGoalsTabHtml, renderGoalsTab, resolveLegacyTab, redirectLegacyTabUrl].map(String).join('\n') + String(LEGACY_TAB_REDIRECTS ? JSON.stringify(LEGACY_TAB_REDIRECTS) : '');
+    check('G10 the shared navigation code names no exam or section', !/\b(CAT|VARC|DILR|QA)\b|quant|verbal/i.test(sharedSource));
+    check('G11 the shared navigation code never reads or writes a chat, thread or goal id', !/conversationHistory|threadId|thread_id|goal_id|goalId|saveInternalMemoryMessage/.test(sharedSource));
+
+    // The CAT tools keep their old capability, and Mock stays a chat tool.
+    var cat = goalWorkspaceAdapters.cat;
+    var ids = cat.tools.map(function(tool) { return tool.id; }).join();
+    check('G12 the CAT workspace keeps question, mock, VARC and practice sets', ids === 'question,mock,varc,practice');
+    var realOpen = window.openMargTool;
+    window.openMargTool = function(id) { opened.push('tool:' + id); };
+    openMargTool = window.openMargTool;
+    try { runGoalTool('cat', 'mock'); runGoalTool('cat', 'question'); } finally { window.openMargTool = realOpen; if (saved.open) openMargTool = saved.open; }
+    check('G13 Mock Analysis still opens as a chat tool, and the question tool opens the inline card', opened.slice(1).join() === 'tool:mock,tool:question');
+
+    var guard = function() { redirectLegacyTabUrl('', ''); redirectLegacyTabUrl('goals', 'goals'); redirectLegacyTabUrl('practice', 'goals'); return true; };
+    var noThrow = true; try { guard(); } catch (e) { noThrow = false; }
+    check('G14 rewriting the address bar never throws', noThrow);
+  } finally {
+    BETA_GOALS_NAV = saved.flag;
+    delete goalWorkspaceAdapters.demo;
+    delete goalWorkspaceAdapters.bare;
+    delete goalWorkspaceAdapters.broken;
+    studentProfile = saved.profile;
+    mentorExecutionLoop = saved.loop;
+    try { if (savedLearning === null) localStorage.removeItem(learningKey); else localStorage.setItem(learningKey, savedLearning); } catch (e) {}
+  }
+  return results;
+}
+
 function runMobileAuditFixTests() {
   var results = [];
   var check = function(name, passed, detail) { results.push({ name:name, passed:!!passed, detail:detail === undefined ? '' : detail }); };
@@ -17622,7 +17720,9 @@ function showWelcome(callback) {
 
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('tab') === 'practice') {
-    setTimeout(() => switchTab('practice'), 500);
+    var practiceDestination = resolveLegacyTab('practice');
+    redirectLegacyTabUrl('practice', practiceDestination);
+    setTimeout(() => switchTab(practiceDestination), 500);
   }
 
 
@@ -30675,7 +30775,10 @@ async function initSession() {
       const prevOnboarded2 = localStorage.getItem(onboardingKey2);
       var requestedInitialTab = '';
       try { requestedInitialTab = new URLSearchParams(window.location.search).get('tab') || ''; } catch(e) {}
-      if (['home','chat','practice','mock','sectionals','progress'].indexOf(requestedInitialTab) === -1) requestedInitialTab = '';
+      if (['home','chat','practice','mock','sectionals','progress','goals','journey'].indexOf(requestedInitialTab) === -1) requestedInitialTab = '';
+      var legacyRequestedTab = requestedInitialTab;
+      requestedInitialTab = resolveLegacyTab(requestedInitialTab);
+      redirectLegacyTabUrl(legacyRequestedTab, requestedInitialTab);
       if (hasHistory || prevOnboarded2) {
         onboardingComplete = true;
         var arrivedWithHomepageIntent = hasPendingHomepageIntent();
@@ -32598,7 +32701,9 @@ async function startSectionalFromHub(section) {
 
 function switchTab(tab) {
   ensureWorkspaceHistoryStyles();
-  if (['home','chat','practice','mock','sectionals','progress'].indexOf(tab) === -1) tab = 'home';
+  if (['home','chat','practice','mock','sectionals','progress','goals','journey'].indexOf(tab) === -1) tab = 'home';
+  // Journey is the Progress screen under its new name; keep one section.
+  if (tab === 'journey') tab = 'progress';
   if (currentTab === 'chat') saveCurrentChatDraft();
   clearInsightToast();
   // Leaving Practice means the student no longer needs the pending draft.
@@ -32619,6 +32724,11 @@ function switchTab(tab) {
   // the timed workspace keeps Practice highlighted instead of creating a
   // separate primary destination.
   var navTab = tab === 'sectionals' ? 'practice' : tab;
+  // Practice tools live inside a goal workspace, Progress is the Journey.
+  if (BETA_GOALS_NAV) {
+    if (['practice', 'mock', 'sectionals', 'goals'].indexOf(tab) !== -1) navTab = 'goals';
+    else if (tab === 'progress') navTab = 'journey';
+  }
   var mobileNav = document.getElementById('bnav-' + navTab);
   var desktopNav = document.getElementById('dnav-' + navTab);
   if (mobileNav) mobileNav.classList.add('active');
@@ -32656,6 +32766,9 @@ function switchTab(tab) {
     if (tab === 'home') {
       document.getElementById('home-tab').classList.add('active');
       renderMentorHome();
+    } else if (tab === 'goals') {
+      document.getElementById('goals-tab').classList.add('active');
+      renderGoalsTab();
     } else if (tab === 'practice') {
       document.getElementById('practice-tab').classList.add('active');
       loadDailyPractice();
@@ -36404,7 +36517,7 @@ function buildJourneyEntryHtml(entry) {
 }
 
 function buildJourneyLogHtml(log) {
-  var html = '<div class="jl-head"><h2 class="jl-title">Your journey · ' + escapeChatHtml(log.goal.label) + '</h2>' +
+  var html = '<div class="jl-head"><h2 class="jl-title">Your journey' + (log.empty ? '' : ' · ' + escapeChatHtml(log.goal.label)) + '</h2>' +
     '<p class="jl-sub">Built only from what you did and told Marg. Each line says where it came from.</p></div>';
   if (log.trend) html += '<div class="jl-trend">' + escapeChatHtml(log.trend) + '</div>';
   if (log.empty) html += '<div class="jl-empty">Nothing has been recorded for this goal yet. Answer one question or tell Marg what happened in your last mock, and your journey starts here.</div>';
@@ -36457,6 +36570,104 @@ function renderHomeJourneyLine() {
   line.textContent = text;
   line.hidden = !text;
   return !!text;
+}
+
+// ---------------------------------------------------------------------------
+// Goals-first navigation. There is no goals table yet, so a goal here is a
+// workspace adapter: a label plus the tools that belong to that goal. The
+// shared code below lists whatever adapters exist and names no exam. A second
+// goal is one more adapter. Asking Marg never needs a goal, and no chat is
+// attached to one by this screen.
+// ---------------------------------------------------------------------------
+var BETA_GOALS_NAV = true;
+var goalWorkspaceAdapters = {};
+goalWorkspaceAdapters.cat = {
+  label:'CAT',
+  summary:'Your CAT preparation: verbal, data and logic, and quant.',
+  // A goal is shown only when the account already has records for it. This
+  // reads existing data and saves nothing; there is no persistent goals model.
+  hasHistory:function() {
+    var profile = studentProfile || {};
+    var hasProfile = ['attemptNumber', 'monthsLeft', 'weakestSection', 'dailyHours', 'situation'].some(function(key) { return !!profile[key]; }) ||
+      (profile.mockHistory || []).length > 0 || Number(profile.sessionsCount || 0) > 0;
+    var loop = mentorExecutionLoop || {};
+    var hasLoop = ['tasks', 'attempts', 'diagnoses', 'evidence'].some(function(key) { return (loop[key] || []).length > 0; });
+    var learning = loadLearningRecord();
+    return hasProfile || hasLoop || (learning.facts || []).length > 0;
+  },
+  tools:[
+    { id:'question', label:'Give me a question', note:'A checked question appears in your chat and Marg reads your answer.', run:function() { openMargTool('question'); } },
+    { id:'mock', label:'Analyse a mock', note:'Opens the mock analysis tool in chat. Scores alone are a starting point, not a diagnosis.', run:function() { openMargTool('mock'); } },
+    { id:'varc', label:'Today’s VARC', note:'Today’s reading practice.', run:function() { openMargTool('today-varc'); } },
+    { id:'practice', label:'Practice sets', note:'Timed sets and sectionals.', run:function() { switchTab('practice'); } }
+  ]
+};
+var LEGACY_TAB_REDIRECTS = { practice:'goals', sectionals:'goals', progress:'journey' };
+
+function resolveLegacyTab(tab) {
+  return BETA_GOALS_NAV && LEGACY_TAB_REDIRECTS[tab] ? LEGACY_TAB_REDIRECTS[tab] : tab;
+}
+
+function redirectLegacyTabUrl(requested, resolved) {
+  if (!BETA_GOALS_NAV || !requested || requested === resolved) return;
+  try {
+    var url = new URL(window.location.href);
+    url.searchParams.set('tab', resolved);
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  } catch (e) {}
+}
+
+function listGoalWorkspaces() {
+  return Object.keys(goalWorkspaceAdapters).filter(function(key) {
+    var adapter = goalWorkspaceAdapters[key];
+    try { return !!(adapter && typeof adapter.hasHistory === 'function' && adapter.hasHistory()); } catch (e) { return false; }
+  }).map(function(key) {
+    var adapter = goalWorkspaceAdapters[key];
+    return { key:key, label:adapter.label, summary:adapter.summary || '', tools:adapter.tools || [] };
+  });
+}
+
+function runGoalTool(goalKey, toolId) {
+  var adapter = goalWorkspaceAdapters[goalKey];
+  var tool = adapter && (adapter.tools || []).filter(function(item) { return item.id === toolId; })[0];
+  if (tool && typeof tool.run === 'function') tool.run();
+}
+
+function buildGoalsTabHtml(goals) {
+  if (!goals.length) {
+    return '<div class="goals-empty">No goals yet. Marg has no saved goal for you, and saving goals is not available yet. You can still ask Marg anything from Ask MARG.</div>';
+  }
+  var html = '<p class="goals-note">Ask MARG works without a goal. Marg does not attach a chat to a goal unless you ask it to.</p>' +
+    '<p class="goals-note">Goals are not saved yet. This workspace is built from the profile and history already on your account, and nothing here creates or changes a goal.</p>';
+  goals.forEach(function(goal) {
+    html += '<section class="goal-card" aria-label="' + escapeChatHtml(goal.label) + ' workspace"><div class="goal-card-kind">Temporary workspace · from your existing history</div><h2 class="goal-card-title">' + escapeChatHtml(goal.label) + '</h2>';
+    if (goal.summary) html += '<p class="goal-card-summary">' + escapeChatHtml(goal.summary) + '</p>';
+    html += '<div class="goal-tools">';
+    goal.tools.forEach(function(tool) {
+      html += '<button type="button" class="goal-tool" onclick="runGoalTool(\'' + escapeChatHtml(goal.key) + '\',\'' + escapeChatHtml(tool.id) + '\')"><span class="goal-tool-name">' + escapeChatHtml(tool.label) + '</span>' +
+        (tool.note ? '<span class="goal-tool-note">' + escapeChatHtml(tool.note) + '</span>' : '') + '</button>';
+    });
+    html += '<button type="button" class="goal-tool" onclick="switchTab(\'journey\')"><span class="goal-tool-name">See your journey</span><span class="goal-tool-note">What was planned, what happened, and what Marg has learned.</span></button>';
+    html += '</div></section>';
+  });
+  return html;
+}
+
+function ensureGoalsTabStyles() {
+  if (document.getElementById('goals-tab-styles')) return;
+  var style = document.createElement('style');
+  style.id = 'goals-tab-styles';
+  style.textContent = '#goals-content{font-size:15px;line-height:1.5;color:var(--text)}.goals-note,.goals-empty{font-size:15px;color:var(--text-muted);margin:0 0 14px}' +
+    '.goal-card{border:1px solid var(--border2);border-radius:14px;padding:16px;margin:0 0 16px;background:var(--surface)}.goal-card-kind{font-size:15px;color:var(--text-dim);margin:0 0 6px}.goal-card-title{font-size:18px;font-weight:700;margin:0 0 4px}.goal-card-summary{font-size:15px;color:var(--text-muted);margin:0 0 12px}' +
+    '.goal-tools{display:flex;flex-direction:column;gap:8px}.goal-tool{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;min-height:48px;padding:11px 14px;text-align:left;font:inherit;font-size:15px;color:var(--text);background:var(--surface2);border:1px solid var(--border2);border-radius:12px;cursor:pointer}' +
+    '.goal-tool:hover{border-color:var(--gold)}.goal-tool-name{font-weight:700}.goal-tool-note{font-size:15px;color:var(--text-muted)}';
+  document.head.appendChild(style);
+}
+
+function renderGoalsTab() {
+  ensureGoalsTabStyles();
+  var host = document.getElementById('goals-content');
+  if (host) host.innerHTML = buildGoalsTabHtml(listGoalWorkspaces());
 }
 
 function runProgressNextDecision() {
