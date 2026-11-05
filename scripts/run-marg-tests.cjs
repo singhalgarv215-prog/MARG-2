@@ -184,6 +184,11 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 
 const files = (process.env.MARG_FILES || [
+  'marg-goals.js',
+  'marg-goals-write.js',
+  'marg-goals-home.js',
+  'marg-goals-share.js',
+  'marg-goals-life.js',
   'chat-topics.js',
   'study-context.js',
   'question-library.js',

@@ -1,6 +1,12 @@
 {
   "version": 2,
   "routes": [
+    {
+      "src": "/(.*)",
+      "missing": [{ "type": "host", "value": "^((www\\.)?trymarg\\.com|marg-five\\.vercel\\.app)$" }],
+      "headers": { "Content-Security-Policy": "connect-src 'self' https://hmgdzkszzuaivyqeeitu.supabase.co wss://hmgdzkszzuaivyqeeitu.supabase.co" },
+      "continue": true
+    },
     { "src": "/blog/?", "dest": "/blog/index.html" },
     { "src": "/blog/why-your-cat-score-isnt-moving/?", "dest": "/blog/why-your-cat-score-isnt-moving/index.html" },
     { "src": "/blog/how-many-questions-to-attempt-in-cat/?", "dest": "/blog/how-many-questions-to-attempt-in-cat/index.html" },
