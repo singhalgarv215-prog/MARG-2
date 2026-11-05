@@ -58,16 +58,19 @@ function initialiseTopicChats(rows) {
   var latest=margAllChatMessages[margAllChatMessages.length-1];
   margActiveThreadId=margChatThreads.some(function(t){return t.id===saved.active;})?saved.active:latest?latest.threadId:margChatThreads[0].id;
   conversationHistory=margAllChatMessages.filter(function(item){return item.threadId===margActiveThreadId;});
+  if(typeof margApplyThreadScope==='function')margApplyThreadScope(margActiveThreadId);
   renderTopicChatToolbar();
   if(typeof loadConversationQuestionState==='function')loadConversationQuestionState().catch(function(){});
 }
 
 function renderTopicChatToolbar() {
+  /* conversations of an archived goal are hidden (the open one stays so the list is never blank) */
+  var shownThreads=margChatThreads.filter(function(t){return t.id===margActiveThreadId||!(typeof margThreadIsArchived==='function'&&margThreadIsArchived(t.id));});
   var select=document.getElementById('chat-topic-select');
-  if(select){select.innerHTML=margChatThreads.map(function(t){return '<option value="'+escapeChatHtml(t.id)+'">'+escapeChatHtml(t.title)+'</option>';}).join('');select.value=margActiveThreadId;select.disabled=!!isLoading;}
+  if(select){select.innerHTML=shownThreads.map(function(t){return '<option value="'+escapeChatHtml(t.id)+'">'+escapeChatHtml(t.title)+'</option>';}).join('');select.value=margActiveThreadId;select.disabled=!!isLoading;}
   var button=document.getElementById('new-topic-chat');if(button)button.disabled=!!isLoading||topicChatDeletionInFlight;
   var lists=[document.getElementById('desktop-chat-list'),document.getElementById('mobile-chat-list')];
-  var html=margChatThreads.slice().reverse().map(function(t){
+  var html=shownThreads.slice().reverse().map(function(t){
     var active=t.id===margActiveThreadId?' active':'';
     var safeId=escapeChatHtml(t.id),safeTitle=escapeChatHtml(t.title);
     return '<div class="sidebar-chat-row'+active+'"><button type="button" class="sidebar-chat-item'+active+'" onclick="openTopicChatFromSidebar(\''+safeId+'\')" aria-current="'+(active?'page':'false')+'"><span class="sidebar-chat-title">'+safeTitle+'</span></button><button type="button" class="sidebar-chat-delete" onclick="event.stopPropagation();requestDeleteTopicChat(\''+safeId+'\')" aria-label="Delete chat: '+safeTitle+'" title="Delete chat"'+(topicChatDeletionInFlight?' disabled':'')+'>×</button></div>';
@@ -77,6 +80,7 @@ function renderTopicChatToolbar() {
 
 function applyTopicChatState(id) {
   margActiveThreadId=id;
+  if(typeof margApplyThreadScope==='function')margApplyThreadScope(id); /* the open conversation decides the scope */
   var input=document.getElementById('user-input');if(input){input.value='';input.style.height='auto';}
   conversationHistory=margAllChatMessages.filter(function(item){return item.threadId===id;});
   var state=margThreadStates[id]||{};
