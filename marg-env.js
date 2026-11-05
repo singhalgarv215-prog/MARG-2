@@ -22,6 +22,21 @@
     workerHost: 'marg.singhalgarv215.workers.dev'
   };
 
+  /* Only these page hostnames may run MARG against production: the three production domains listed in the Vercel
+   * project (Settings, Domains). Exact matches only; *.vercel.app is NOT allowed as a pattern. Every other hostname
+   * (Vercel preview URLs, unknown domains) is NOT production: it needs a valid staging config or it refuses to start.
+   * Keep this list, the two page gates (marg-app.js, landing-bootstrap.js) and the vercel.json route identical. */
+  var PRODUCTION_PAGE_HOSTS = ['trymarg.com', 'www.trymarg.com', 'marg-five.vercel.app'];
+
+  function pageKind(hostname) {
+    var h = String(hostname == null ? '' : hostname).toLowerCase().replace(/\.$/, '');
+    if (PRODUCTION_PAGE_HOSTS.indexOf(h) !== -1) return 'production';
+    if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1' || h.slice(-10) === '.localhost') return 'local';
+    return 'other';
+  }
+
+  function blockedEnv(reason) { return { name: 'blocked', blocked: true, reason: String(reason) }; }
+
   function hostOf(url) {
     try { return new URL(String(url), 'https://placeholder.invalid/').hostname.toLowerCase(); }
     catch (e) { return ''; }
@@ -45,8 +60,14 @@
     } catch (e) { return null; }
   }
 
-  function resolveEnv(config) {
-    if (!config) return { name: 'production' };
+  /* hostname is optional so direct callers (tests, tools) keep the old behaviour; the page bootstrap always passes it. */
+  function resolveEnv(config, hostname) {
+    var kind = hostname === undefined ? 'local' : pageKind(hostname);
+    if (kind === 'production') return { name: 'production' }; // a staging config can never be injected into production
+    if (!config) {
+      if (kind === 'local') return { name: 'production' }; // local development keeps its existing behaviour
+      throw new Error('MARG: no staging configuration on a host that is not production (' + String(hostname).slice(0, 80) + ')');
+    }
     var url = String(config.supabaseUrl || '');
     var host = hostOf(url);
     if (!/^https:\/\/[a-z0-9]{20}\.supabase\.co\/?$/.test(url)) throw new Error('MARG staging: supabaseUrl must be https://<project-ref>.supabase.co');
@@ -64,6 +85,12 @@
     };
   }
 
+  /* Never throws. Any failure to resolve a safe environment becomes a blocked environment, never production. */
+  function resolveSafely(config, hostname) {
+    try { return resolveEnv(config, hostname === undefined || hostname === null ? '' : hostname); }
+    catch (e) { return blockedEnv(e && e.message ? e.message : 'unknown environment error'); }
+  }
+
   function installNetworkGuard(win) {
     var blocked = [];
     win.__margBlocked = blocked;
@@ -71,7 +98,8 @@
       blocked.push({ kind: kind, host: hostOf(url) });
       throw new TypeError('MARG staging guard: blocked ' + kind + ' to production host ' + hostOf(url));
     }
-    function check(kind, url) { if (isProductionUrl(url)) refuse(kind, url); }
+    // Fail closed: a non-empty address whose host cannot be read is refused, never waved through.
+    function check(kind, url) { if (isProductionUrl(url) || (String(url) !== '' && hostOf(url) === '')) refuse(kind, url); }
 
     if (typeof win.fetch === 'function') {
       var realFetch = win.fetch;
@@ -107,7 +135,7 @@
     return blocked;
   }
 
-  function showBanner(win) {
+  function showBanner(win, env) {
     try {
       var doc = win.document;
       if (!doc || !doc.addEventListener) return;
@@ -115,23 +143,31 @@
         if (doc.getElementById('marg-staging-banner')) return;
         var bar = doc.createElement('div');
         bar.id = 'marg-staging-banner';
-        bar.textContent = 'STAGING \u2014 test data only. Not the real MARG.';
-        bar.setAttribute('style', 'position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#b00020;color:#fff;font:600 15px/1.4 system-ui,sans-serif;padding:8px 16px;text-align:center');
+        if (env && env.blocked) {
+          bar.textContent = 'MARG is switched off on this address. This is not the live site and has no test data configured, so nothing was loaded and nothing was sent. Open trymarg.com instead.';
+          bar.setAttribute('style', 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:#111;color:#fff;font:600 17px/1.5 system-ui,sans-serif;padding:32px 20px;text-align:center;display:flex;align-items:center;justify-content:center');
+        } else {
+          bar.textContent = 'STAGING \u2014 test data only. Not the real MARG.';
+          bar.setAttribute('style', 'position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#b00020;color:#fff;font:600 15px/1.4 system-ui,sans-serif;padding:8px 16px;text-align:center');
+        }
         doc.body.appendChild(bar);
       };
       if (doc.body) put(); else doc.addEventListener('DOMContentLoaded', put);
     } catch (e) { /* banner is cosmetic */ }
   }
 
-  var api = { PRODUCTION: PRODUCTION, hostOf: hostOf, isProductionUrl: isProductionUrl, resolveEnv: resolveEnv, installNetworkGuard: installNetworkGuard };
+  var api = { PRODUCTION: PRODUCTION, PRODUCTION_PAGE_HOSTS: PRODUCTION_PAGE_HOSTS, pageKind: pageKind, hostOf: hostOf, isProductionUrl: isProductionUrl, resolveEnv: resolveEnv, resolveSafely: resolveSafely, installNetworkGuard: installNetworkGuard };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 
   if (root && typeof root === 'object' && 'document' in root) {
     root.MARG_ENV_TOOLS = api;
-    var env = resolveEnv(root.MARG_STAGING_CONFIG); // throws and stops the page if the config is unsafe
-    // Staging must not send page views to the production analytics property (Google's documented opt-out flag).
-    if (env.name === 'staging') { root['ga-disable-G-VZ0N5RH912'] = true; installNetworkGuard(root); showBanner(root); }
+    // Fail closed: an unsafe config, a missing config on a non-production host, or an unreadable hostname gives a
+    // blocked environment (never production). The hostname comes from the page itself.
+    var pageHost = root.location && typeof root.location.hostname === 'string' ? root.location.hostname : '';
+    var env = resolveSafely(root.MARG_STAGING_CONFIG, pageHost);
+    // Staging and blocked pages must not send page views to the production analytics property (Google's documented opt-out flag).
+    if (env.name === 'staging' || env.blocked) { root['ga-disable-G-VZ0N5RH912'] = true; installNetworkGuard(root); showBanner(root, env); }
     root.MARG_ENV = env;
   }
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

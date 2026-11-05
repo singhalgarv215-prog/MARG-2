@@ -1,3 +1,10 @@
+/* Fail-closed environment gate. Runs before anything else in this file. The app refuses to start when the environment
+ * guard (marg-env.js) marked the page blocked, or when the guard is missing on a host that is not production/local. */
+if (typeof window !== 'undefined' && window.location && window.document && (
+    (window.MARG_ENV && window.MARG_ENV.blocked === true) ||
+    (!window.MARG_ENV && !/^((www\.)?trymarg\.com|marg-five\.vercel\.app|localhost|127\.0\.0\.1|\[::1\])$/i.test(String(window.location.hostname || ''))))) {
+  throw new Error('MARG: refusing to start, no safe environment for this address');
+}
 var tourStep = 0;
 var totalTourSteps = 3;
 var tourShowTimer = null;

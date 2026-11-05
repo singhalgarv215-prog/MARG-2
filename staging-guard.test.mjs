@@ -82,7 +82,7 @@ check('W5 the Google sign-in redirect is built from the configured URL', (app.ma
 check('W6 no other file hardcodes the production Supabase host', ['sw.js', 'study-context.js', 'question-library.js', 'slash-tools.js', 'marg-vision.js', 'chat-topics.js'].every((f) => !fs.readFileSync(f, 'utf8').includes(PROD_REF)));
 
 const envSrc = fs.readFileSync('marg-env.js', 'utf8');
-check('W7 staging switches off production analytics (page views from test runs must not reach it)', /if \(env\.name === 'staging'\) \{ root\['ga-disable-G-VZ0N5RH912'\] = true;/.test(envSrc) && idx.includes('G-VZ0N5RH912'));
+check('W7 staging switches off production analytics (page views from test runs must not reach it)', /if \(env\.name === 'staging' \|\| env\.blocked\) \{ root\['ga-disable-G-VZ0N5RH912'\] = true;/.test(envSrc) && idx.includes('G-VZ0N5RH912'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
