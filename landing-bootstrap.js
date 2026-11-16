@@ -1,8 +1,17 @@
 (function() {
   'use strict';
 
-  var SUPABASE_URL = 'https://kduqtrumhveteyjkyltf.supabase.co';
-  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
+  /* Fail-closed environment gate: same rule as the top of marg-app.js. Nothing below runs, so neither the app bundle
+     nor any Supabase request is started on a blocked page. */
+  if (typeof window !== 'undefined' && window.location && window.document && (
+      (window.MARG_ENV && window.MARG_ENV.blocked === true) ||
+      (!window.MARG_ENV && !/^((www\.)?trymarg\.com|marg-five\.vercel\.app|localhost|127\.0\.0\.1|\[::1\])$/i.test(String(window.location.hostname || ''))))) {
+    return;
+  }
+
+  var MARG_IS_STAGING = typeof window !== 'undefined' && !!window.MARG_ENV && window.MARG_ENV.name === 'staging';
+  var SUPABASE_URL = MARG_IS_STAGING ? window.MARG_ENV.supabaseUrl : 'https://kduqtrumhveteyjkyltf.supabase.co';
+  var SUPABASE_ANON_KEY = MARG_IS_STAGING ? window.MARG_ENV.anonKey : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYXNlIiwicmVmIjoia2R1cXRydW1odmV0ZXlqa3lsdGYiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTc3OTE2NzQzMywiZXhwIjoyMDk0NzQzNDMzfQ.iUmZLf_GaeTyv2xD0VYY7sYEiTgavQVbITmc-KC6ZPo';
   var APP_BUNDLE_URL = '/marg-app.js?v=20261015-vision2';
   var VISION_URL = '/marg-vision.js?v=20261015-vision2';
   var HOMEPAGE_INTENT_STORAGE_KEY = 'marg_pending_homepage_intent_v1';

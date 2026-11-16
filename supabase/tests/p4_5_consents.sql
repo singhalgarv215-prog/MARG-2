@@ -1,0 +1,41 @@
+-- P4.5: sharing consents under row-level security. RUN ON STAGING ONLY. One transaction; ends with an exception that carries results.
+do $$
+declare ua uuid := gen_random_uuid(); ub uuid := gen_random_uuid(); ga uuid; gb uuid; cid uuid; r text := ''; n int; c int;
+begin
+  if (select count(*) from auth.users) > 50 then raise exception 'refusing to run: auth.users looks like production'; end if;
+  insert into auth.users (id, aud, role, email) values (ua, 'authenticated', 'authenticated', 'sa-' || ua || '@marg-test.invalid'), (ub, 'authenticated', 'authenticated', 'sb-' || ub || '@marg-test.invalid');
+  perform set_config('request.jwt.claims', json_build_object('sub', ub, 'role', 'authenticated')::text, true);
+  perform set_config('role', 'authenticated', true);
+  insert into public.goals (user_id, kind, title) values (ub, 'k', 'B goal') returning id into gb;
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated')::text, true);
+  perform set_config('role', 'authenticated', true);
+  insert into public.goals (user_id, kind, title) values (ua, 'k', 'A goal') returning id into ga;
+  select count(*) into c from public.profile_fact_consents; r := r || 'by default no consent exists: ' || c || ' (want 0)' || E'\n';
+  insert into public.profile_fact_consents (user_id, fact_key, to_goal_id) values (ua, 'daily_hours', ga) returning id into cid;
+  select count(*) into c from public.profile_fact_consents where revoked_at is null and to_goal_id is not null; r := r || 'one live consent after turning on: ' || c || ' (want 1)' || E'\n';
+  begin insert into public.profile_fact_consents (user_id, fact_key, to_goal_id) values (ua, 'daily_hours', ga); r := r || 'second live consent for the same goal: ALLOWED (bad)' || E'\n';
+  exception when unique_violation then r := r || 'second live consent for the same goal refused' || E'\n'; end;
+  begin insert into public.profile_fact_consents (user_id, fact_key, to_goal_id) values (ua, 'weakest_section', ga); r := r || 'fact off the allowlist: ALLOWED (bad)' || E'\n';
+  exception when check_violation then r := r || 'fact off the allowlist refused' || E'\n'; end;
+  begin insert into public.profile_fact_consents (user_id, fact_key, to_goal_id) values (ua, 'daily_hours', gb); r := r || 'consent to another account goal: ALLOWED (bad)' || E'\n';
+  exception when foreign_key_violation then r := r || 'consent to another account goal refused' || E'\n'; end;
+  begin insert into public.profile_fact_consents (user_id, fact_key, to_goal_id) values (ub, 'daily_hours', ga); r := r || 'consent row for another user: ALLOWED (bad)' || E'\n';
+  exception when others then r := r || 'consent row for another user refused' || E'\n'; end;
+  update public.profile_fact_consents set revoked_at = now() where id = cid and revoked_at is null; get diagnostics n = row_count; r := r || 'revoke updates ' || n || ' row (want 1)' || E'\n';
+  select count(*) into c from public.profile_fact_consents where revoked_at is null and to_goal_id is not null; r := r || 'live consents after revoke: ' || c || ' (want 0)' || E'\n';
+  select count(*) into c from public.profile_fact_consents; r := r || 'the revoked row is kept as a record: ' || c || ' (want 1)' || E'\n';
+  insert into public.profile_fact_consents (user_id, fact_key, to_goal_id) values (ua, 'daily_hours', ga);
+  select count(*) into c from public.profile_fact_consents where revoked_at is null; r := r || 'turning it on again after a revoke works: ' || c || ' live (want 1)' || E'\n';
+  begin update public.profile_fact_consents set fact_key = 'daily_hours', to_goal_id = null where revoked_at is null; r := r || 'rewriting where a consent points: ALLOWED (bad)' || E'\n';
+  exception when insufficient_privilege then r := r || 'a consent cannot be redirected (only revoked_at is updatable)' || E'\n'; end;
+  begin delete from public.profile_fact_consents; r := r || 'delete: ALLOWED (bad)' || E'\n';
+  exception when insufficient_privilege then r := r || 'delete refused (consents are only revoked)' || E'\n'; end;
+  begin update public.profile_fact_consents set revoked_at = null where revoked_at is not null; r := r || 'un-revoking: ALLOWED (info)' || E'\n'; exception when others then r := r || 'un-revoking refused' || E'\n'; end;
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', ub, 'role', 'authenticated')::text, true);
+  perform set_config('role', 'authenticated', true);
+  select count(*) into c from public.profile_fact_consents; r := r || 'account B sees none of A consents: ' || c || ' (want 0)' || E'\n';
+  update public.profile_fact_consents set revoked_at = now(); get diagnostics n = row_count; r := r || 'account B revoking A consents changes ' || n || ' rows (want 0)' || E'\n';
+  raise exception '%', r;
+end $$;

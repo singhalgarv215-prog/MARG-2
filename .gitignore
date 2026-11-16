@@ -1,0 +1,2 @@
+# Local staging settings: public anon key of the staging project. Never commit.
+staging-config.local.js
